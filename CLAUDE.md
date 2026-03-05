@@ -1,43 +1,24 @@
-# CLAUDE.md
+## Project
+ERP system - clean rebuild. Inventory module first.
+Old repo for reference: /home/aeller/Projects/soil-erp
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Stack
+Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, react-hook-form, Zod, Better Auth, pnpm
 
-## Commands
+## Rules
+- No hardcoded Tailwind colors. Use shadcn semantic tokens only.
+- One Zod schema per entity in lib/schemas/, derived from Drizzle table with createInsertSchema/createSelectSchema.
+- All forms follow the pattern in [reference form path once it exists].
+- All mutations use TanStack Query with simple loading states. No optimistic updates.
+- Server actions for single-entity CRUD. API routes for multi-entity/transactional operations.
+- When pulling from old repo, only take the data model/logic. Rewrite all UI to match current patterns.
+- NEVER use drizzle push. Always use generate/migrate
 
-```bash
-pnpm dev          # Start dev server
-pnpm build        # Production build
-pnpm lint         # ESLint (flat config, ESLint 9)
-```
+## Soft deletes
+Master data tables (items, unit definitions, customers, suppliers) use deletedAt for soft deletes.
+Detail/line tables (BOM lines, order lines) use hard deletes.
 
-No test runner is configured.
-
-## Architecture
-
-Early-stage **Next.js 16 + React 19** app using the App Router with **pnpm** as the package manager.
-
-### UI Component System
-
-- **shadcn style:** `radix-nova` (configured in `components.json`)
-- **Icons:** hugeicons (`@hugeicons/react` + `@hugeicons/core-free-icons`), not lucide-react
-- **Primitives:** Radix UI (`radix-ui` unified package) for most components; Base UI (`@base-ui/react`) specifically for Combobox
-- **Styling:** Tailwind v4 with CSS-first config (no `tailwind.config` file — all theming via `@theme inline` blocks and CSS custom properties in `app/globals.css`)
-- **Dark mode:** `.dark` class toggle (not `prefers-color-scheme`)
-- All UI components use `data-slot` attributes for CSS targeting
-- Variant management via `class-variance-authority` (CVA)
-- Class merging via `cn()` from `lib/utils.ts` (clsx + tailwind-merge)
-
-### Path Aliases
-
-`@/*` maps to the project root (e.g., `@/components/ui/button`).
-
-### Key Directories
-
-- `app/` — Next.js App Router pages and layouts (single page currently)
-- `components/ui/` — Reusable UI primitives (shadcn radix-nova style)
-- `components/` — Application-level components
-- `lib/utils.ts` — `cn()` helper
-
-### Fonts
-
-Three Google Fonts loaded in `app/layout.tsx`: Inter (`--font-sans`), Geist Sans (`--font-geist-sans`), Geist Mono (`--font-geist-mono`).
+## Data access
+NEVER import db or query tables directly in pages, components, or API routes.
+ALL database queries go through lib/dal.ts which enforces organization scoping.
+Every query function in the DAL calls getAuthedContext() first.
