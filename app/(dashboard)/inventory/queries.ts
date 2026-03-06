@@ -1,41 +1,36 @@
-// app/(dashboard)/inventory/queries.ts
 import { and, eq, isNull } from "drizzle-orm";
-import { db } from "@/lib/db";
 import { items, unitDefinitions } from "@/lib/db/schema";
-import { getAuthedContext } from "@/lib/dal/auth";
+import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { ItemRow } from "./types";
 
 export async function getItems(filters?: { itemType?: string }): Promise<ItemRow[]> {
-  const { orgId } = await getAuthedContext();
+  return withAuthedOrgContext(async (tx) => {
+    const conditions = [
+      isNull(items.deletedAt),
+      ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
+    ];
 
-  const conditions = [
-    eq(items.organizationId, orgId),
-    isNull(items.deletedAt),
-    ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
-  ];
-
-  const rows = await db
-    .select({
-      id: items.id,
-      name: items.name,
-      sku: items.sku,
-      itemType: items.itemType,
-      inStock: items.inStock,
-      unit: unitDefinitions.name,
-      category: items.category,
-    })
-    .from(items)
-    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .where(and(...conditions));
-
-  return rows;
+    return tx
+      .select({
+        id: items.id,
+        name: items.name,
+        sku: items.sku,
+        itemType: items.itemType,
+        inStock: items.inStock,
+        unit: unitDefinitions.name,
+        category: items.category,
+      })
+      .from(items)
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(...conditions));
+  });
 }
 
 export async function deleteItem(id: string): Promise<void> {
-  const { orgId } = await getAuthedContext();
-
-  await db
-    .update(items)
-    .set({ deletedAt: new Date() })
-    .where(and(eq(items.id, id), eq(items.organizationId, orgId)));
+  return withAuthedOrgContext(async (tx) => {
+    await tx
+      .update(items)
+      .set({ deletedAt: new Date() })
+      .where(eq(items.id, id));
+  });
 }
