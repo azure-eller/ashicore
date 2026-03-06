@@ -52,9 +52,10 @@ export function DataTable({ initialData }: DataTableProps) {
       return res.json();
     },
     onMutate: (id) => setDeletingId(id),
-    onSettled: () => setDeletingId(null),
+    
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      onSettled: () => setDeletingId(null);
     },
   });
 

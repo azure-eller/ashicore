@@ -49,3 +49,10 @@ Then run `drizzle-kit generate` — the migration includes ENABLE ROW LEVEL SECU
 - The `system` schema (Better Auth tables) must NEVER have RLS enabled.
 - If a table has no direct `organization_id` (e.g. a line table), add a subquery policy on the parent table or document the deferral.
 - Do NOT add `eq(table.organizationId, orgId)` WHERE clauses for org filtering. RLS handles org scoping. Only add business logic filters (soft deletes, status, etc.).
+
+## Workflow
+After exiting plan mode and before making any changes:
+1. Create a new branch off of main: `git checkout main && git pull && git checkout -b <branch-name>`
+2. Implement the changes and commit them
+3. Push the branch: `git push -u origin <branch-name>`
+4. Create a PR to merge back into main on GitHub
