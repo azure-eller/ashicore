@@ -16,7 +16,7 @@ export default async function DashboardLayout({
   const user = {
     name: session?.user.name ?? "",
     email: session?.user.email ?? "",
-    avatar: session?.user.image ?? "",
+    avatar: session?.user.image ?? undefined,
   };
 
   return (

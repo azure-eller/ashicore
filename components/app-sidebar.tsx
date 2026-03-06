@@ -15,42 +15,42 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { PackageIcon, LayoutBottomIcon } from "@hugeicons/core-free-icons"
 
-const teams = [
-  {
-    name: "ERP",
-    logo: (
-      <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />
-    ),
-    plan: "Production",
-  },
-]
-
-const navMain = [
-  {
-    title: "Inventory",
-    url: "/inventory",
-    icon: (
-      <HugeiconsIcon icon={PackageIcon} strokeWidth={2} />
-    ),
-    isActive: true,
-    items: [
-      {
-        title: "Items",
-        url: "/inventory",
-      },
-    ],
-  },
-]
-
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: {
     name: string
     email: string
-    avatar: string
+    avatar?: string
   }
 }
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
+  const teams = [
+    {
+      name: "ERP",
+      logo: (
+        <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />
+      ),
+      plan: "Production",
+    },
+  ]
+
+  const navMain = [
+    {
+      title: "Inventory",
+      url: "/inventory",
+      icon: (
+        <HugeiconsIcon icon={PackageIcon} strokeWidth={2} />
+      ),
+      isActive: true,
+      items: [
+        {
+          title: "Items",
+          url: "/inventory",
+        },
+      ],
+    },
+  ]
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
