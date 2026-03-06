@@ -2,7 +2,11 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Sorting01Icon, MoreVerticalCircle01Icon } from "@hugeicons/core-free-icons";
+import {
+  SortByDown02Icon,
+  SortByUp02Icon,
+  MoreVerticalCircle01Icon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,7 +33,10 @@ export const columns: ColumnDef<ItemRow>[] = [
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Name
-        <HugeiconsIcon icon={Sorting01Icon} className="ml-2 h-4 w-4" />
+        <HugeiconsIcon
+          icon={column.getIsSorted() === "asc" ? SortByUp02Icon : SortByDown02Icon}
+          className="ml-2 h-4 w-4"
+        />
       </Button>
     ),
   },
@@ -44,13 +51,18 @@ export const columns: ColumnDef<ItemRow>[] = [
   },
   {
     accessorKey: "inStock",
+    sortingFn: (rowA, rowB) =>
+      parseFloat(rowA.getValue("inStock")) - parseFloat(rowB.getValue("inStock")),
     header: ({ column }) => (
       <Button
         variant="ghost"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         In Stock
-        <HugeiconsIcon icon={Sorting01Icon} className="ml-2 h-4 w-4" />
+        <HugeiconsIcon
+          icon={column.getIsSorted() === "asc" ? SortByUp02Icon : SortByDown02Icon}
+          className="ml-2 h-4 w-4"
+        />
       </Button>
     ),
   },
