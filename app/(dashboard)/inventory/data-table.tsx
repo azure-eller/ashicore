@@ -2,6 +2,7 @@
 
 import {
   ColumnFiltersState,
+  RowSelectionState,
   SortingState,
   flexRender,
   getCoreRowModel,
@@ -12,7 +13,15 @@ import {
 } from "@tanstack/react-table";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -33,7 +42,7 @@ export function DataTable({ initialData }: DataTableProps) {
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const { data = initialData } = useQuery<ItemRow[]>({
     queryKey: ["items"],
@@ -45,26 +54,25 @@ export function DataTable({ initialData }: DataTableProps) {
     initialData,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete item");
-      return res.json();
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`Failed to delete item ${id}`);
+      }
     },
-    onMutate: (id) => setDeletingId(id),
-    
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items"] });
-      onSettled: () => setDeletingId(null);
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      setRowSelection({});
     },
   });
 
   const table = useReactTable({
     data,
     columns,
-    meta: { deleteRow: (id: string) => deleteMutation.mutate(id) },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -72,12 +80,13 @@ export function DataTable({ initialData }: DataTableProps) {
     state: {
       sorting,
       columnFilters,
+      rowSelection,
     },
   });
 
   return (
     <div className="w-full">
-      <div className="flex items-center py-4">
+      <div className="flex items-center justify-between py-4">
         <Input
           placeholder="Filter by name..."
           value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
@@ -86,6 +95,43 @@ export function DataTable({ initialData }: DataTableProps) {
           }
           className="max-w-sm"
         />
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={table.getFilteredSelectedRowModel().rows.length === 0}
+                className="relative"
+                title="Actions"
+              >
+                <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" />
+                {table.getFilteredSelectedRowModel().rows.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                    {table.getFilteredSelectedRowModel().rows.length}
+                  </span>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                disabled={bulkDeleteMutation.isPending}
+                onClick={() => {
+                  const ids = table
+                    .getFilteredSelectedRowModel()
+                    .rows.map((r) => r.original.id);
+                  bulkDeleteMutation.mutate(ids);
+                }}
+              >
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" size="icon" title="Add Item">
+            <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <div className="rounded-md border">
         <Table>
@@ -110,9 +156,7 @@ export function DataTable({ initialData }: DataTableProps) {
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={
-                    deletingId === row.original.id ? "opacity-50" : undefined
-                  }
+                  data-state={row.getIsSelected() && "selected"}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -137,23 +181,29 @@ export function DataTable({ initialData }: DataTableProps) {
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => table.previousPage()}
-          disabled={!table.getCanPreviousPage()}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => table.nextPage()}
-          disabled={!table.getCanNextPage()}
-        >
-          Next
-        </Button>
+      <div className="flex items-center justify-between py-4">
+        <div className="text-sm text-muted-foreground">
+          {table.getFilteredSelectedRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
+        </div>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            Next
+          </Button>
+        </div>
       </div>
     </div>
   );
