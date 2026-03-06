@@ -1,0 +1,7 @@
+ALTER TABLE "inventory"."bom_components" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE INDEX "unit_definitions_org_id_idx" ON "inventory"."unit_definitions" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "items_org_id_idx" ON "inventory"."items" USING btree ("organization_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "items_org_sku_uidx" ON "inventory"."items" USING btree ("organization_id","sku");--> statement-breakpoint
+CREATE POLICY "bom_components_org_isolation" ON "inventory"."bom_components" AS PERMISSIVE FOR ALL TO public USING (parent_item_id IN (SELECT id FROM inventory.items WHERE organization_id = current_setting('app.current_org_id', true))) WITH CHECK (parent_item_id IN (SELECT id FROM inventory.items WHERE organization_id = current_setting('app.current_org_id', true)));--> statement-breakpoint
+ALTER POLICY "unit_definitions_org_isolation" ON "inventory"."unit_definitions" TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));--> statement-breakpoint
+ALTER POLICY "items_org_isolation" ON "inventory"."items" TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));
