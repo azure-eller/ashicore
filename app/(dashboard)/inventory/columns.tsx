@@ -1,8 +1,13 @@
 "use client";
 
-import { ColumnDef } from "@tanstack/react-table";
+import { Column, ColumnDef } from "@tanstack/react-table";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Sorting01Icon, MoreVerticalCircle01Icon } from "@hugeicons/core-free-icons";
+import {
+  MoreVerticalCircle01Icon,
+  Sorting01Icon,
+  SortingDownIcon,
+  SortingUpIcon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,6 +17,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ItemRow } from "./types";
+
+function SortIcon({ column }: { column: Column<ItemRow> }) {
+  const sorted = column.getIsSorted();
+  const icon =
+    sorted === "asc"
+      ? SortingUpIcon
+      : sorted === "desc"
+        ? SortingDownIcon
+        : Sorting01Icon;
+  return <HugeiconsIcon icon={icon} className="ml-2 h-4 w-4" />;
+}
 
 // Extend TanStack Table meta to carry the delete handler
 declare module "@tanstack/react-table" {
@@ -29,7 +45,7 @@ export const columns: ColumnDef<ItemRow>[] = [
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         Name
-        <HugeiconsIcon icon={Sorting01Icon} className="ml-2 h-4 w-4" />
+        <SortIcon column={column} />
       </Button>
     ),
   },
@@ -44,13 +60,15 @@ export const columns: ColumnDef<ItemRow>[] = [
   },
   {
     accessorKey: "inStock",
+    sortingFn: (rowA, rowB) =>
+      parseFloat(rowA.getValue("inStock")) - parseFloat(rowB.getValue("inStock")),
     header: ({ column }) => (
       <Button
         variant="ghost"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       >
         In Stock
-        <HugeiconsIcon icon={Sorting01Icon} className="ml-2 h-4 w-4" />
+        <SortIcon column={column} />
       </Button>
     ),
   },
