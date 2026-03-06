@@ -29,6 +29,13 @@
       "when": 1772804785376,
       "tag": "0003_daily_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772805935060,
+      "tag": "0004_neat_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

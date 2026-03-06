@@ -1,3 +1,4 @@
+// Node 22+ has native WebSocket — no ws package needed
 import { Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import * as schema from "./schema";

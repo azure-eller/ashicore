@@ -38,6 +38,13 @@ export function OrgSetupForm({
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "")
+      .replace(/^-+|-+$/g, "")
+
+    if (!slug) {
+      setError("Organization name must contain at least one letter or number.")
+      setLoading(false)
+      return
+    }
 
     const { data, error: createError } = await authClient.organization.create({
       name,

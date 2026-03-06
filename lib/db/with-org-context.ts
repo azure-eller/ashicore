@@ -5,12 +5,16 @@ import { db } from "./index";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type { Tx };
 
+/**
+ * Low-level helper: sets org context for RLS but does NOT check auth.
+ * Prefer `withAuthedOrgContext` from lib/dal/auth.ts in request handlers.
+ */
 export async function withOrgContext<T>(
   orgId: string,
   callback: (tx: Tx) => Promise<T>
 ): Promise<T> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL app.current_org_id = ${orgId}`);
+    await tx.execute(sql.raw(`SET LOCAL app.current_org_id = '${orgId}'`));
     return callback(tx);
   });
 }

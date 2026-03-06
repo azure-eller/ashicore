@@ -23,8 +23,8 @@ export const unitDefinitions = inventorySchema
       size: numeric("size", { precision: 10, scale: 4 }).notNull(),
       uom: varchar("uom", { length: 30 }).notNull(),
       deletedAt: timestamp("deleted_at"),
-      createdAt: timestamp("created_at").defaultNow(),
-      updatedAt: timestamp("updated_at").defaultNow(),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
     (_table) => [
       pgPolicy("unit_definitions_org_isolation", {
