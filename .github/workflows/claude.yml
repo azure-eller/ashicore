@@ -9,6 +9,8 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [opened, synchronize]
 
 jobs:
   claude:
@@ -48,3 +50,31 @@ jobs:
           # or https://code.claude.com/docs/en/cli-reference for available options
           # claude_args: '--allowed-tools Bash(gh pr:*)'
 
+  explain:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Explain PR changes
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            Explain every change in this PR to someone learning JavaScript, TypeScript, and React.
+
+            For each file changed:
+            1. What was it before and what is it now
+            2. WHY the change was made
+            3. Explain any syntax or patterns a Python developer wouldn't recognize
+            4. If there's a shadcn/TanStack/Next.js pattern being used, explain it
+
+            Keep it conversational and simple. Post as a PR comment.
