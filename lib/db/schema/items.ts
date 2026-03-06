@@ -9,7 +9,7 @@ import { inventorySchema, unitDefinitions } from "./units";
 
 export const items = inventorySchema.table("items", {
   id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id").notNull(),
+  organizationId: text("organization_id").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   sku: varchar("sku", { length: 50 }),
