@@ -6,6 +6,7 @@ import {
   numeric,
   timestamp,
   pgPolicy,
+  index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -26,11 +27,13 @@ export const unitDefinitions = inventorySchema
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
-    (_table) => [
+    (table) => [
+      index("unit_definitions_org_id_idx").on(table.organizationId),
       pgPolicy("unit_definitions_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
       }),
     ]
   )

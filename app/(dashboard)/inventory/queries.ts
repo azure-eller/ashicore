@@ -30,7 +30,7 @@ export async function deleteItem(id: string): Promise<void> {
   return withAuthedOrgContext(async (tx) => {
     await tx
       .update(items)
-      .set({ deletedAt: new Date() })
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(items.id, id));
   });
 }

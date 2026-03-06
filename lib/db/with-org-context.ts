@@ -13,6 +13,9 @@ export async function withOrgContext<T>(
   orgId: string,
   callback: (tx: Tx) => Promise<T>
 ): Promise<T> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(orgId)) {
+    throw new Error("Invalid orgId format");
+  }
   return db.transaction(async (tx) => {
     await tx.execute(sql.raw(`SET LOCAL app.current_org_id = '${orgId}'`));
     return callback(tx);
