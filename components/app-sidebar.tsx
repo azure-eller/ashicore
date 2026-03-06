@@ -14,7 +14,8 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { PackageIcon, LayoutBottomIcon } from "@hugeicons/core-free-icons"
+import { PackageIcon, LayoutBottomIcon, Notification03Icon } from "@hugeicons/core-free-icons"
+import { Button } from "@/components/ui/button"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: {
@@ -55,13 +56,23 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={teams} />
+        <div className="flex items-center gap-1">
+          <div className="flex-1 min-w-0">
+            <TeamSwitcher teams={teams} />
+          </div>
+          <div className="flex items-center group-data-[collapsible=icon]:hidden">
+            <ThemeToggle />
+            <Button variant="ghost" size="icon" className="h-7 w-7">
+              <HugeiconsIcon icon={Notification03Icon} strokeWidth={2} className="h-4 w-4" />
+              <span className="sr-only">Notifications</span>
+            </Button>
+          </div>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <ThemeToggle />
         <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />
