@@ -43,6 +43,7 @@ export function DataTable({ initialData }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
   const { data = initialData } = useQuery<ItemRow[]>({
     queryKey: ["items"],
@@ -61,10 +62,12 @@ export function DataTable({ initialData }: DataTableProps) {
         if (!res.ok) throw new Error(`Failed to delete item ${id}`);
       }
     },
+    onMutate: (ids) => setDeletingIds(new Set(ids)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       setRowSelection({});
     },
+    onSettled: () => setDeletingIds(new Set()),
   });
 
   const table = useReactTable({
@@ -157,6 +160,7 @@ export function DataTable({ initialData }: DataTableProps) {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  className={deletingIds.has(row.original.id) ? "opacity-50" : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

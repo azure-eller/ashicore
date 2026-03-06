@@ -1,8 +1,9 @@
-import { db } from "@/lib/db";
-import { organization } from "@/lib/db/schema";
-import { unitDefinitions, items } from "@/lib/db/schema";
+import { config } from "dotenv";
+config({ path: ".env.local" });
 
 async function main() {
+  const { db } = await import("@/lib/db");
+  const { organization, unitDefinitions, items } = await import("@/lib/db/schema");
   // 1. Get the first org
   const orgs = await db.select().from(organization).limit(1);
   if (orgs.length === 0) {
@@ -22,6 +23,7 @@ async function main() {
       { organizationId: orgId, name: "yard", size: "1", uom: "yd3" },
       { organizationId: orgId, name: "lb", size: "1", uom: "lb" },
     ])
+    .onConflictDoNothing()
     .returning();
 
   const [bale, bag1, bag2, yard, lb] = insertedUnits;
@@ -117,6 +119,10 @@ async function main() {
         defaultSellingPrice: "12.49",
       },
     ])
+    .onConflictDoUpdate({
+      target: [items.organizationId, items.sku],
+      set: { deletedAt: null },
+    })
     .returning({ id: items.id, name: items.name });
 
   console.log(`Inserted ${insertedItems.length} items:`);
