@@ -1,9 +1,9 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { items, unitDefinitions } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import type { ItemRow } from "./types";
+import type { ItemRow, ItemType } from "./types";
 
-export async function getItems(filters?: { itemType?: string }): Promise<ItemRow[]> {
+export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
   return withAuthedOrgContext(async (tx) => {
     const conditions = [
       isNull(items.deletedAt),

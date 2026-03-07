@@ -31,11 +31,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { columns } from "./columns";
-import type { ItemRow } from "./types";
+import type { ItemRow, ItemType } from "./types";
 
 interface DataTableProps {
   initialData: ItemRow[];
-  itemType: string;
+  itemType: ItemType;
 }
 
 export function DataTable({ initialData, itemType }: DataTableProps) {
@@ -57,10 +57,11 @@ export function DataTable({ initialData, itemType }: DataTableProps) {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
-        if (!res.ok) throw new Error(`Failed to delete item ${id}`);
-      }
+      const results = await Promise.all(
+        ids.map((id) => fetch(`/api/items/${id}`, { method: "DELETE" }))
+      );
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) throw new Error(`Failed to delete ${failed.length} item(s)`);
     },
     onMutate: (ids) => setDeletingIds(new Set(ids)),
     onSuccess: async () => {
