@@ -37,7 +37,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          allowed_tools: "Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*),Bash(gh pr view:*)"
+          claude_args: '--allowed-tools "Bash(gh pr comment:*)" "Bash(gh pr review:*)" "Bash(gh api:*)" "Bash(gh pr view:*)"'
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
@@ -69,7 +69,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          allowed_tools: "Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh api:*),Bash(gh pr view:*)"
+          claude_args: '--allowed-tools "Bash(gh pr comment:*)" "Bash(gh pr review:*)" "Bash(gh api:*)" "Bash(gh pr view:*)"'
           prompt: |
             Explain every change in this PR to someone learning JavaScript, TypeScript, and React.
 
