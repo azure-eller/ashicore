@@ -130,7 +130,7 @@ export function DataTable({ initialData, itemType }: DataTableProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="icon" title="Add Item">
+          <Button variant="default" size="icon" title="Add Item">
             <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
           </Button>
         </div>
