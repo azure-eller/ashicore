@@ -4,7 +4,7 @@ import * as React from "react"
 
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { TeamSwitcher } from "@/components/team-switcher"
+import { LocationSwitcher } from "@/components/location-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   Sidebar,
@@ -26,9 +26,9 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 }
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
-  const teams = [
+  const locations = [
     {
-      name: "ERP",
+      name: "Paonia Soil Co",
       logo: (
         <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />
       ),
@@ -58,7 +58,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
       <SidebarHeader>
         <div className="flex items-center gap-1">
           <div className="flex-1 min-w-0">
-            <TeamSwitcher teams={teams} />
+            <LocationSwitcher locations={locations} />
           </div>
           <div className="flex items-center group-data-[collapsible=icon]:hidden">
             <ThemeToggle />

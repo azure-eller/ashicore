@@ -8,7 +8,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -20,19 +19,19 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { UnfoldMoreIcon, PlusSignIcon } from "@hugeicons/core-free-icons"
 
-export function TeamSwitcher({
-  teams,
+export function LocationSwitcher({
+  locations,
 }: {
-  teams: {
+  locations: {
     name: string
     logo: React.ReactNode
     plan: string
   }[]
 }) {
   const { isMobile } = useSidebar()
-  const [activeTeam, setActiveTeam] = React.useState(teams[0])
+  const [activeLocation, setActiveLocation] = React.useState(locations[0])
 
-  if (!activeTeam) {
+  if (!activeLocation) {
     return null
   }
 
@@ -46,11 +45,11 @@ export function TeamSwitcher({
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                {activeTeam.logo}
+                {activeLocation.logo}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{activeTeam.name}</span>
-                <span className="truncate text-xs">{activeTeam.plan}</span>
+                <span className="truncate font-medium">{activeLocation.name}</span>
+                <span className="truncate text-xs">{activeLocation.plan}</span>
               </div>
               <HugeiconsIcon icon={UnfoldMoreIcon} strokeWidth={2} className="ml-auto" />
             </SidebarMenuButton>
@@ -62,19 +61,18 @@ export function TeamSwitcher({
             sideOffset={4}
           >
             <DropdownMenuLabel className="text-xs text-muted-foreground">
-              Teams
+              Locations
             </DropdownMenuLabel>
-            {teams.map((team, index) => (
+            {locations.map((location) => (
               <DropdownMenuItem
-                key={team.name}
-                onClick={() => setActiveTeam(team)}
+                key={location.name}
+                onClick={() => setActiveLocation(location)}
                 className="gap-2 p-2"
               >
                 <div className="flex size-6 items-center justify-center rounded-md border">
-                  {team.logo}
+                  {location.logo}
                 </div>
-                {team.name}
-                <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
+                {location.name}
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
@@ -82,7 +80,7 @@ export function TeamSwitcher({
               <div className="flex size-6 items-center justify-center rounded-md border bg-transparent">
                 <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} className="size-4" />
               </div>
-              <div className="font-medium text-muted-foreground">Add team</div>
+              <div className="font-medium text-muted-foreground">Add Location</div>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

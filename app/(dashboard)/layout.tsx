@@ -2,6 +2,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { Providers } from "@/app/providers";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import {
   SidebarInset,
   SidebarProvider,
@@ -13,10 +14,13 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) {
+    redirect("/sign-in");
+  }
   const user = {
-    name: session?.user.name ?? "",
-    email: session?.user.email ?? "",
-    avatar: session?.user.image ?? undefined,
+    name: session.user.name ?? "",
+    email: session.user.email ?? "",
+    avatar: session.user.image ?? undefined,
   };
 
   return (
