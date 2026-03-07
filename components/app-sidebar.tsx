@@ -46,8 +46,12 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
       isActive: true,
       items: [
         {
-          title: "Items",
-          url: "/inventory",
+          title: "Products",
+          url: "/inventory/products",
+        },
+        {
+          title: "Materials",
+          url: "/inventory/materials",
         },
       ],
     },

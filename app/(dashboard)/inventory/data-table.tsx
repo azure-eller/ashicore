@@ -35,9 +35,10 @@ import type { ItemRow } from "./types";
 
 interface DataTableProps {
   initialData: ItemRow[];
+  itemType: string;
 }
 
-export function DataTable({ initialData }: DataTableProps) {
+export function DataTable({ initialData, itemType }: DataTableProps) {
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -45,9 +46,9 @@ export function DataTable({ initialData }: DataTableProps) {
   const [globalFilter, setGlobalFilter] = useState<string>("");
 
   const { data = initialData } = useQuery<ItemRow[]>({
-    queryKey: ["items"],
+    queryKey: ["items", itemType],
     queryFn: async () => {
-      const res = await fetch("/api/items");
+      const res = await fetch(`/api/items?itemType=${itemType}`);
       if (!res.ok) throw new Error("Failed to fetch items");
       return res.json();
     },
@@ -63,7 +64,7 @@ export function DataTable({ initialData }: DataTableProps) {
     },
     onMutate: (ids) => setDeletingIds(new Set(ids)),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
       setRowSelection({});
     },
     onSettled: () => setDeletingIds(new Set()),
