@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ColumnFiltersState,
   RowSelectionState,
   SortingState,
   flexRender,
@@ -41,9 +40,9 @@ interface DataTableProps {
 export function DataTable({ initialData }: DataTableProps) {
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [globalFilter, setGlobalFilter] = useState<string>("");
 
   const { data = initialData } = useQuery<ItemRow[]>({
     queryKey: ["items"],
@@ -74,16 +73,17 @@ export function DataTable({ initialData }: DataTableProps) {
     data,
     columns,
     onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     onRowSelectionChange: setRowSelection,
+    onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn: "includesString",
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     state: {
       sorting,
-      columnFilters,
       rowSelection,
+      globalFilter,
     },
   });
 
@@ -91,11 +91,9 @@ export function DataTable({ initialData }: DataTableProps) {
     <div className="w-full">
       <div className="flex items-center justify-between py-4">
         <Input
-          placeholder="Filter by name..."
-          value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
-          onChange={(event) =>
-            table.getColumn("name")?.setFilterValue(event.target.value)
-          }
+          placeholder="Search..."
+          value={globalFilter}
+          onChange={(e) => setGlobalFilter(e.target.value)}
           className="max-w-sm"
         />
         <div className="flex items-center gap-2">
