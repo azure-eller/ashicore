@@ -1,13 +1,10 @@
 "use client";
 
 import {
-  ColumnFiltersState,
   RowSelectionState,
   SortingState,
   flexRender,
   getCoreRowModel,
-  getFacetedRowModel,
-  getFacetedUniqueValues,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
@@ -43,7 +40,6 @@ interface DataTableProps {
 export function DataTable({ initialData }: DataTableProps) {
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [globalFilter, setGlobalFilter] = useState<string>("");
@@ -77,7 +73,6 @@ export function DataTable({ initialData }: DataTableProps) {
     data,
     columns,
     onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: "includesString",
@@ -85,11 +80,8 @@ export function DataTable({ initialData }: DataTableProps) {
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getFacetedRowModel: getFacetedRowModel(),
-    getFacetedUniqueValues: getFacetedUniqueValues(),
     state: {
       sorting,
-      columnFilters,
       rowSelection,
       globalFilter,
     },
