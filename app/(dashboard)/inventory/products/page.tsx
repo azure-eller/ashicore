@@ -1,11 +1,4 @@
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { DataTable } from "../data-table";
@@ -22,17 +15,15 @@ export default async function ProductsPage() {
             orientation="vertical"
             className="mr-2 data-vertical:h-4 data-vertical:self-auto"
           />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/inventory">Inventory</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Products</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+          <nav className="flex items-center gap-4 text-sm">
+            <span className="font-medium text-foreground">Products</span>
+            <Link
+              href="/inventory/materials"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Materials
+            </Link>
+          </nav>
         </div>
       </header>
       <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
