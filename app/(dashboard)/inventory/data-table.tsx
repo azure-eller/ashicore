@@ -31,13 +31,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { columns } from "./columns";
-import type { ItemRow } from "./types";
+import type { ItemRow, ItemType } from "./types";
 
 interface DataTableProps {
   initialData: ItemRow[];
+  itemType: ItemType;
 }
 
-export function DataTable({ initialData }: DataTableProps) {
+export function DataTable({ initialData, itemType }: DataTableProps) {
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -45,9 +46,9 @@ export function DataTable({ initialData }: DataTableProps) {
   const [globalFilter, setGlobalFilter] = useState<string>("");
 
   const { data = initialData } = useQuery<ItemRow[]>({
-    queryKey: ["items"],
+    queryKey: ["items", itemType],
     queryFn: async () => {
-      const res = await fetch("/api/items");
+      const res = await fetch(`/api/items?itemType=${itemType}`);
       if (!res.ok) throw new Error("Failed to fetch items");
       return res.json();
     },
@@ -56,14 +57,15 @@ export function DataTable({ initialData }: DataTableProps) {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        const res = await fetch(`/api/items/${id}`, { method: "DELETE" });
-        if (!res.ok) throw new Error(`Failed to delete item ${id}`);
-      }
+      const results = await Promise.all(
+        ids.map((id) => fetch(`/api/items/${id}`, { method: "DELETE" }))
+      );
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) throw new Error(`Failed to delete ${failed.length} item(s)`);
     },
     onMutate: (ids) => setDeletingIds(new Set(ids)),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
       setRowSelection({});
     },
     onSettled: () => setDeletingIds(new Set()),
@@ -129,7 +131,7 @@ export function DataTable({ initialData }: DataTableProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="icon" title="Add Item">
+          <Button variant="default" size="icon" title="Add Item">
             <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
           </Button>
         </div>
