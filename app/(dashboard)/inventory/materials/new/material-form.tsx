@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -55,6 +55,10 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 
+const CREATE_NEW_UNIT = "__create_new__";
+
+const uomGroups = getUomOptions();
+
 interface MaterialFormProps {
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
@@ -69,10 +73,6 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
   const [unitName, setUnitName] = useState("");
   const [unitSize, setUnitSize] = useState("");
   const [unitUom, setUnitUom] = useState("");
-  const [isCreatingUnit, setIsCreatingUnit] = useState(false);
-  const [unitError, setUnitError] = useState<string | null>(null);
-  const [mutationError, setMutationError] = useState<string | null>(null);
-  const uomGroups = useMemo(() => getUomOptions(), []);
 
   const categoryItems = useMemo(() => {
     const trimmed = categoryInput.trim();
@@ -115,16 +115,10 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
       await queryClient.invalidateQueries({ queryKey: ["items", "material"] });
       router.push("/inventory/materials");
     },
-    onError: (err) => {
-      setMutationError(err instanceof Error ? err.message : "Failed to create material");
-    },
   });
 
-  const handleCreateUnit = useCallback(async () => {
-    if (!unitName.trim() || !unitSize.trim() || !unitUom) return;
-    setIsCreatingUnit(true);
-    setUnitError(null);
-    try {
+  const unitMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch("/api/units", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -133,19 +127,17 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
       if (!res.ok) {
         throw new Error("Failed to create unit");
       }
-      const newUnit = await res.json();
+      return res.json();
+    },
+    onSuccess: (newUnit) => {
       setLocalUnits((prev) => [...prev, newUnit]);
       form.setValue("unitDefinitionId", newUnit.id);
       setIsUnitDialogOpen(false);
       setUnitName("");
       setUnitSize("");
       setUnitUom("");
-    } catch (err) {
-      setUnitError(err instanceof Error ? err.message : "Failed to create unit");
-    } finally {
-      setIsCreatingUnit(false);
-    }
-  }, [unitName, unitSize, unitUom, form]);
+    },
+  });
 
   return (
     <Card className="w-full">
@@ -158,10 +150,7 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
       <CardContent>
         <form
           id="create-material-form"
-          onSubmit={form.handleSubmit((data) => {
-            setMutationError(null);
-            mutation.mutate(data);
-          })}
+          onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
         >
           <FieldGroup>
             <Controller
@@ -219,7 +208,6 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
                       onInputValueChange={setCategoryInput}
                     >
                       <ComboboxInput
-                        id={field.name}
                         placeholder="Search or create category..."
                       />
                       <ComboboxContent>
@@ -256,7 +244,7 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
                     name={field.name}
                     value={field.value}
                     onValueChange={(value) => {
-                      if (value === "__create_new__") {
+                      if (value === CREATE_NEW_UNIT) {
                         setIsUnitDialogOpen(true);
                       } else {
                         field.onChange(value);
@@ -277,7 +265,7 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
                         </SelectItem>
                       ))}
                       <SelectSeparator />
-                      <SelectItem value="__create_new__">
+                      <SelectItem value={CREATE_NEW_UNIT}>
                         + Create new unit
                       </SelectItem>
                     </SelectContent>
@@ -296,78 +284,75 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
               <FieldDescription>
                 Set the default purchase price and starting inventory.
               </FieldDescription>
-              <div className="grid grid-cols-2 gap-4">
-                <Controller
-                  name="defaultPurchasePrice"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>
-                        Purchase Price
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id={field.name}
-                        value={field.value ?? ""}
-                        aria-invalid={fieldState.invalid}
-                        placeholder="0.00"
-                        inputMode="decimal"
-                        autoComplete="off"
-                      />
-                      {fieldState.invalid && (
-                        <FieldError errors={[fieldState.error]} />
-                      )}
-                    </Field>
-                  )}
-                />
+              <FieldGroup>
+                <div className="grid grid-cols-2 gap-4">
+                  <Controller
+                    name="defaultPurchasePrice"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          Purchase Price
+                        </FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0.00"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
 
-                <Controller
-                  name="inStock"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>
-                        Initial Stock
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id={field.name}
-                        aria-invalid={fieldState.invalid}
-                        placeholder="0"
-                        inputMode="decimal"
-                        autoComplete="off"
-                      />
-                      {fieldState.invalid && (
-                        <FieldError errors={[fieldState.error]} />
-                      )}
-                    </Field>
-                  )}
-                />
-              </div>
+                  <Controller
+                    name="inStock"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          Initial Stock
+                        </FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+                </div>
+              </FieldGroup>
             </FieldSet>
           </FieldGroup>
         </form>
       </CardContent>
-      <CardFooter className="flex flex-col items-end gap-3">
-        {mutationError && (
-          <p className="text-sm text-destructive">{mutationError}</p>
-        )}
-        <div className="flex gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            form="create-material-form"
-            disabled={mutation.isPending}
-          >
-            {mutation.isPending ? "Creating..." : "Create Material"}
-          </Button>
-        </div>
+      <CardFooter className="flex justify-end gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => router.back()}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          form="create-material-form"
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending ? "Creating..." : "Create Material"}
+        </Button>
       </CardFooter>
       <Dialog open={isUnitDialogOpen} onOpenChange={setIsUnitDialogOpen}>
         <DialogContent className="sm:max-w-sm">
@@ -420,19 +405,16 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
               </Select>
             </Field>
           </FieldGroup>
-          {unitError && (
-            <p className="text-sm text-destructive">{unitError}</p>
-          )}
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button
               type="button"
-              onClick={handleCreateUnit}
-              disabled={isCreatingUnit}
+              onClick={() => unitMutation.mutate()}
+              disabled={unitMutation.isPending}
             >
-              {isCreatingUnit ? "Creating..." : "Create"}
+              {unitMutation.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
