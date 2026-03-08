@@ -25,15 +25,7 @@ export default async function EditMaterialPage({
         <MaterialForm
           units={units}
           categories={categories}
-          initialData={{
-            id: item.id,
-            name: item.name,
-            sku: item.sku,
-            category: item.category,
-            unitDefinitionId: item.unitDefinitionId,
-            defaultPurchasePrice: item.defaultPurchasePrice,
-            inStock: item.inStock,
-          }}
+          initialData={item}
         />
       </div>
     </div>

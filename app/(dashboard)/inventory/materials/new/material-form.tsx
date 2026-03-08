@@ -95,27 +95,25 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
     return categories;
   }, [categoryInput, categories]);
 
-  const editValues = initialData
-    ? {
+  const form = useForm<InsertItem>({
+    resolver: zodResolver(insertItemSchema),
+    mode: "onBlur",
+    defaultValues: {
+      name: "",
+      itemType: "material",
+      inStock: "0",
+    },
+    ...(initialData && {
+      values: {
         name: initialData.name,
-        itemType: "material" as const,
         sku: initialData.sku,
         category: initialData.category,
         unitDefinitionId: initialData.unitDefinitionId,
         defaultPurchasePrice: initialData.defaultPurchasePrice,
         inStock: initialData.inStock,
-      }
-    : undefined;
-
-  const form = useForm<InsertItem>({
-    resolver: zodResolver(insertItemSchema),
-    mode: "onBlur",
-    defaultValues: editValues ?? {
-      name: "",
-      itemType: "material" as const,
-      inStock: "0",
-    },
-    values: editValues,
+        itemType: "material" as const,
+      },
+    }),
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -131,16 +129,11 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
         body: JSON.stringify(data),
       });
       if (!res.ok) {
-        let message = initialData
+        const fallback = initialData
           ? "Failed to update material."
           : "Failed to create material.";
-        try {
-          const err = await res.json();
-          if (err.error) message = err.error;
-        } catch {
-          // non-JSON response
-        }
-        throw new Error(message);
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? fallback);
       }
       return res.json();
     },
@@ -208,7 +201,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
       </CardHeader>
       <CardContent>
         <form
-          id="create-material-form"
+          id="material-form"
           onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
         >
           <FieldGroup>
@@ -412,16 +405,12 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
         </Button>
         <Button
           type="submit"
-          form="create-material-form"
+          form="material-form"
           disabled={mutation.isPending}
         >
-          {mutation.isPending
-            ? initialData
-              ? "Saving..."
-              : "Creating..."
-            : initialData
-              ? "Save Changes"
-              : "Create Material"}
+          {initialData
+            ? (mutation.isPending ? "Saving..." : "Save Changes")
+            : (mutation.isPending ? "Creating..." : "Create Material")}
         </Button>
       </CardFooter>
       <Dialog open={isUnitDialogOpen} onOpenChange={setIsUnitDialogOpen}>

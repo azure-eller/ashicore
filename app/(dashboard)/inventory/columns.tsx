@@ -45,14 +45,17 @@ export const columns: ColumnDef<ItemRow>[] = [
         />
       </Button>
     ),
-    cell: ({ row }) => (
-      <Link
-        href={`/inventory/materials/${row.original.id}`}
-        className="hover:underline"
-      >
-        {row.getValue("name")}
-      </Link>
-    ),
+    cell: ({ row }) => {
+      const type = row.original.itemType === "product" ? "products" : "materials";
+      return (
+        <Link
+          href={`/inventory/${type}/${row.original.id}`}
+          className="hover:underline"
+        >
+          {row.getValue("name")}
+        </Link>
+      );
+    },
   },
   {
     accessorKey: "sku",

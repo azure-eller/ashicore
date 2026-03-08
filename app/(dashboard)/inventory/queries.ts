@@ -58,7 +58,7 @@ export async function updateItem(id: string, data: InsertItem) {
       .set({ ...data, updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
-    return row;
+    return row ?? null;
   });
 }
 
