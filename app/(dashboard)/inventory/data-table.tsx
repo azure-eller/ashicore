@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
@@ -131,8 +132,10 @@ export function DataTable({ initialData, itemType }: DataTableProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="default" size="icon" title="Add Item">
-            <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
+          <Button variant="default" size="icon" title="Add Item" asChild>
+            <Link href={`/inventory/${itemType}s/new`}>
+              <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
+            </Link>
           </Button>
         </div>
       </div>

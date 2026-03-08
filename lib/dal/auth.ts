@@ -26,8 +26,8 @@ export const getAuthedContext = cache(async () => {
 });
 
 export async function withAuthedOrgContext<T>(
-  callback: (tx: Tx) => Promise<T>
+  callback: (tx: Tx, orgId: string) => Promise<T>
 ): Promise<T> {
   const { orgId } = await getAuthedContext();
-  return withOrgContext(orgId, callback);
+  return withOrgContext(orgId, (tx) => callback(tx, orgId));
 }

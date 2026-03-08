@@ -1,10 +1,12 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, isNotNull } from "drizzle-orm";
 import { items, unitDefinitions } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { InsertItem } from "@/lib/schemas/items";
+import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
 
 export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, _orgId) => {
     const conditions = [
       isNull(items.deletedAt),
       ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
@@ -27,10 +29,64 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
 }
 
 export async function deleteItem(id: string): Promise<void> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, _orgId) => {
     await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(items.id, id));
+  });
+}
+
+export async function getUnitDefinitions() {
+  return withAuthedOrgContext(async (tx, _orgId) => {
+    return tx
+      .select({
+        id: unitDefinitions.id,
+        name: unitDefinitions.name,
+        size: unitDefinitions.size,
+        uom: unitDefinitions.uom,
+      })
+      .from(unitDefinitions)
+      .where(isNull(unitDefinitions.deletedAt));
+  });
+}
+
+export async function getCategories(): Promise<string[]> {
+  return withAuthedOrgContext(async (tx, _orgId) => {
+    const rows = await tx
+      .selectDistinct({ category: items.category })
+      .from(items)
+      .where(and(isNotNull(items.category), isNull(items.deletedAt)));
+
+    return rows
+      .map((r) => r.category)
+      .filter((c): c is string => c !== null);
+  });
+}
+
+export async function createItem(data: InsertItem): Promise<{ id: string }> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [row] = await tx
+      .insert(items)
+      .values({ ...data, organizationId: orgId })
+      .returning({ id: items.id });
+    return row;
+  });
+}
+
+export async function createUnitDefinition(
+  data: InsertUnitDefinition
+): Promise<{ id: string; name: string; size: string; uom: string }> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [row] = await tx
+      .insert(unitDefinitions)
+      .values({ ...data, organizationId: orgId })
+      .returning({
+        id: unitDefinitions.id,
+        name: unitDefinitions.name,
+        size: unitDefinitions.size,
+        uom: unitDefinitions.uom,
+      });
+    return row;
   });
 }

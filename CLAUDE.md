@@ -8,7 +8,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 ## Rules
 - No hardcoded Tailwind colors. Use shadcn semantic tokens only.
 - One Zod schema per entity in lib/schemas/, derived from Drizzle table with createInsertSchema/createSelectSchema.
-- All forms follow the pattern in [reference form path once it exists].
+- Before creating or editing any form or form field, you MUST first read `docs/references/field-example.md` and `docs/references/react-hook-form-example.md` and follow those patterns exactly.
 - All mutations use TanStack Query with simple loading states. No optimistic updates.
 - Server actions for single-entity CRUD. API routes for multi-entity/transactional operations.
 - When pulling from old repo, only take the data model/logic. Rewrite all UI to match current patterns.
