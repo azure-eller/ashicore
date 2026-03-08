@@ -62,9 +62,18 @@ const uomGroups = getUomOptions();
 interface MaterialFormProps {
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
+  initialData?: {
+    id: string;
+    name: string;
+    sku: string | null;
+    category: string | null;
+    unitDefinitionId: string;
+    defaultPurchasePrice: string | null;
+    inStock: string;
+  };
 }
 
-export function MaterialForm({ units, categories }: MaterialFormProps) {
+export function MaterialForm({ units, categories, initialData }: MaterialFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [categoryInput, setCategoryInput] = useState("");
@@ -89,11 +98,21 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
   const form = useForm<InsertItem>({
     resolver: zodResolver(insertItemSchema),
     mode: "onBlur",
-    defaultValues: {
-      name: "",
-      itemType: "material",
-      inStock: "0",
-    },
+    defaultValues: initialData
+      ? {
+          name: initialData.name,
+          itemType: "material" as const,
+          sku: initialData.sku,
+          category: initialData.category,
+          unitDefinitionId: initialData.unitDefinitionId,
+          defaultPurchasePrice: initialData.defaultPurchasePrice,
+          inStock: initialData.inStock,
+        }
+      : {
+          name: "",
+          itemType: "material" as const,
+          inStock: "0",
+        },
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -101,13 +120,17 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
 
   const mutation = useMutation({
     mutationFn: async (data: InsertItem) => {
-      const res = await fetch("/api/items", {
-        method: "POST",
+      const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
+      const method = initialData ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
       if (!res.ok) {
-        let message = "Failed to create material.";
+        let message = initialData
+          ? "Failed to update material."
+          : "Failed to create material.";
         try {
           const err = await res.json();
           if (err.error) message = err.error;
@@ -120,7 +143,11 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items", "material"] });
-      router.push("/inventory/materials");
+      router.push(
+        initialData
+          ? `/inventory/materials/${initialData.id}`
+          : "/inventory/materials"
+      );
     },
     onError: (error) => {
       setFormError(error.message);
@@ -169,9 +196,11 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Add Material</CardTitle>
+        <CardTitle>{initialData ? "Edit Material" : "Add Material"}</CardTitle>
         <CardDescription>
-          Create a new material in your inventory.
+          {initialData
+            ? "Update this material's details."
+            : "Create a new material in your inventory."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -383,7 +412,13 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
           form="create-material-form"
           disabled={mutation.isPending}
         >
-          {mutation.isPending ? "Creating..." : "Create Material"}
+          {mutation.isPending
+            ? initialData
+              ? "Saving..."
+              : "Creating..."
+            : initialData
+              ? "Save Changes"
+              : "Create Material"}
         </Button>
       </CardFooter>
       <Dialog open={isUnitDialogOpen} onOpenChange={setIsUnitDialogOpen}>

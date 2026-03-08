@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SortByDown02Icon, SortByUp02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,14 @@ export const columns: ColumnDef<ItemRow>[] = [
           className="ml-2 h-4 w-4"
         />
       </Button>
+    ),
+    cell: ({ row }) => (
+      <Link
+        href={`/inventory/materials/${row.original.id}`}
+        className="hover:underline"
+      >
+        {row.getValue("name")}
+      </Link>
     ),
   },
   {
