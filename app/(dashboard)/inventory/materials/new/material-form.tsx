@@ -95,24 +95,27 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
     return categories;
   }, [categoryInput, categories]);
 
+  const editValues = initialData
+    ? {
+        name: initialData.name,
+        itemType: "material" as const,
+        sku: initialData.sku,
+        category: initialData.category,
+        unitDefinitionId: initialData.unitDefinitionId,
+        defaultPurchasePrice: initialData.defaultPurchasePrice,
+        inStock: initialData.inStock,
+      }
+    : undefined;
+
   const form = useForm<InsertItem>({
     resolver: zodResolver(insertItemSchema),
     mode: "onBlur",
-    defaultValues: initialData
-      ? {
-          name: initialData.name,
-          itemType: "material" as const,
-          sku: initialData.sku,
-          category: initialData.category,
-          unitDefinitionId: initialData.unitDefinitionId,
-          defaultPurchasePrice: initialData.defaultPurchasePrice,
-          inStock: initialData.inStock,
-        }
-      : {
-          name: "",
-          itemType: "material" as const,
-          inStock: "0",
-        },
+    defaultValues: editValues ?? {
+      name: "",
+      itemType: "material" as const,
+      inStock: "0",
+    },
+    values: editValues,
   });
 
   const [formError, setFormError] = useState<string | null>(null);

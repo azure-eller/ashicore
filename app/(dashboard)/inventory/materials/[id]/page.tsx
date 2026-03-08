@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { getItem } from "@/app/(dashboard)/inventory/queries";
 
 export default async function MaterialDetailPage({
@@ -13,12 +14,12 @@ export default async function MaterialDetailPage({
   if (!item) redirect("/inventory/materials");
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6">
+    <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="space-y-1">
           <Link
             href="/inventory/materials"
-            className="text-sm text-muted-foreground hover:underline"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             &larr; Back to Materials
           </Link>
@@ -26,24 +27,25 @@ export default async function MaterialDetailPage({
             {item.name}
           </h1>
         </div>
-        <Button asChild>
+        <Button variant="outline" size="sm" asChild>
           <Link href={`/inventory/materials/${id}/edit`}>Edit</Link>
         </Button>
       </div>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+      <Separator />
+      <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
         <div>
           <dt className="text-sm font-medium text-muted-foreground">SKU</dt>
-          <dd className="text-sm">{item.sku ?? "—"}</dd>
+          <dd className="mt-1 text-sm">{item.sku ?? "—"}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             Category
           </dt>
-          <dd className="text-sm">{item.category ?? "—"}</dd>
+          <dd className="mt-1 text-sm">{item.category ?? "—"}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Unit</dt>
-          <dd className="text-sm">
+          <dd className="mt-1 text-sm">
             {item.unitName} ({item.unitSize} {item.unitUom})
           </dd>
         </div>
@@ -51,13 +53,13 @@ export default async function MaterialDetailPage({
           <dt className="text-sm font-medium text-muted-foreground">
             Purchase Price
           </dt>
-          <dd className="text-sm">{item.defaultPurchasePrice ?? "—"}</dd>
+          <dd className="mt-1 text-sm">{item.defaultPurchasePrice ?? "—"}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             In Stock
           </dt>
-          <dd className="text-sm">{item.inStock}</dd>
+          <dd className="mt-1 text-sm">{item.inStock}</dd>
         </div>
       </dl>
     </div>
