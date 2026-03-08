@@ -96,6 +96,9 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
     },
   });
 
+  const [formError, setFormError] = useState<string | null>(null);
+  const [unitError, setUnitError] = useState<string | null>(null);
+
   const mutation = useMutation({
     mutationFn: async (data: InsertItem) => {
       const res = await fetch("/api/items", {
@@ -104,16 +107,26 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
         body: JSON.stringify(data),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(
-          err.errors ? JSON.stringify(err.errors) : "Failed to create material"
-        );
+        let message = "Failed to create material.";
+        try {
+          const err = await res.json();
+          if (err.error) message = err.error;
+        } catch {
+          // non-JSON response
+        }
+        throw new Error(message);
       }
       return res.json();
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items", "material"] });
       router.push("/inventory/materials");
+    },
+    onError: (error) => {
+      setFormError(error.message);
+    },
+    onMutate: () => {
+      setFormError(null);
     },
   });
 
@@ -125,7 +138,14 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
         body: JSON.stringify({ name: unitName, size: unitSize, uom: unitUom }),
       });
       if (!res.ok) {
-        throw new Error("Failed to create unit");
+        let message = "Failed to create unit.";
+        try {
+          const err = await res.json();
+          if (err.error) message = err.error;
+        } catch {
+          // non-JSON response
+        }
+        throw new Error(message);
       }
       return res.json();
     },
@@ -136,6 +156,13 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
       setUnitName("");
       setUnitSize("");
       setUnitUom("");
+      setUnitError(null);
+    },
+    onError: (error) => {
+      setUnitError(error.message);
+    },
+    onMutate: () => {
+      setUnitError(null);
     },
   });
 
@@ -338,6 +365,11 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
           </FieldGroup>
         </form>
       </CardContent>
+      {formError && (
+        <div role="alert" className="px-6 pb-2">
+          <p className="text-sm text-destructive">{formError}</p>
+        </div>
+      )}
       <CardFooter className="flex justify-end gap-3">
         <Button
           type="button"
@@ -405,6 +437,11 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
               </Select>
             </Field>
           </FieldGroup>
+          {unitError && (
+            <p role="alert" className="text-sm text-destructive">
+              {unitError}
+            </p>
+          )}
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
@@ -412,7 +449,12 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
             <Button
               type="button"
               onClick={() => unitMutation.mutate()}
-              disabled={unitMutation.isPending}
+              disabled={
+                unitMutation.isPending ||
+                !unitName.trim() ||
+                !unitSize.trim() ||
+                !unitUom
+              }
             >
               {unitMutation.isPending ? "Creating..." : "Create"}
             </Button>

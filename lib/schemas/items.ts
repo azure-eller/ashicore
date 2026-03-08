@@ -4,6 +4,7 @@ import { items } from "@/lib/db/schema";
 
 export const insertItemSchema = createInsertSchema(items, {
   name: z.string().min(1, "Name is required"),
+  itemType: z.enum(["product", "material"]),
   unitDefinitionId: z.string().min(1, "Unit is required"),
 }).omit({
   id: true,

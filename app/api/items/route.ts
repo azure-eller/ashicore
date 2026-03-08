@@ -1,11 +1,12 @@
-// app/api/items/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getItems, createItem } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { insertItemSchema } from "@/lib/schemas/items";
+import { apiHandler } from "@/lib/api/handler";
 
-export async function GET(request: NextRequest) {
-  const raw = request.nextUrl.searchParams.get("itemType");
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const raw = searchParams.get("itemType");
   const itemType: ItemType | undefined =
     raw && (ITEM_TYPES as readonly string[]).includes(raw)
       ? (raw as ItemType)
@@ -14,17 +15,9 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(data);
 }
 
-export async function POST(request: NextRequest) {
+export const POST = apiHandler(async (request) => {
   const body = await request.json();
-  const result = insertItemSchema.safeParse(body);
-
-  if (!result.success) {
-    return NextResponse.json(
-      { errors: result.error.flatten().fieldErrors },
-      { status: 400 }
-    );
-  }
-
-  const item = await createItem(result.data);
+  const data = insertItemSchema.parse(body);
+  const item = await createItem(data);
   return NextResponse.json(item, { status: 201 });
-}
+});
