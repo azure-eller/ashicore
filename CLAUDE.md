@@ -17,7 +17,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - One Zod schema per entity in lib/schemas/, derived from Drizzle table with createInsertSchema/createSelectSchema.
 - Before creating or editing any form or form field, you MUST first read `docs/references/field-example.md` and `docs/references/react-hook-form-example.md` and follow those patterns exactly.
 - All mutations use TanStack Query with simple loading states. No optimistic updates.
-- Server actions for single-entity CRUD. API routes for multi-entity/transactional operations.
+- API routes for all mutations. Wrap handlers with `apiHandler` from `lib/api/handler.ts`.
 - When pulling from old repo, only take the data model/logic. Rewrite all UI to match current patterns.
 - NEVER use drizzle push. Always use generate/migrate
 - Icon library: HugeIcons (`@hugeicons/core` / `@hugeicons/react`). Do not use Lucide or other icon packages.
