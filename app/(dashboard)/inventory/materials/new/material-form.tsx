@@ -133,6 +133,12 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           ? "Failed to update material."
           : "Failed to create material.";
         const err = await res.json().catch(() => null);
+        if (err?.errors) {
+          const messages = Object.entries(err.errors)
+            .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
+            .join("; ");
+          throw new Error(messages);
+        }
         throw new Error(err?.error ?? fallback);
       }
       return res.json();
@@ -291,6 +297,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
+                  {/* key forces remount when value changes — fixes Radix Select not displaying newly created units */}
                   <Select
                     key={field.value}
                     name={field.name}
@@ -368,7 +375,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
-                          Initial Stock
+                          Stock
                         </FieldLabel>
                         <Input
                           {...field}
@@ -399,7 +406,13 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
         <Button
           type="button"
           variant="outline"
-          onClick={() => router.back()}
+          onClick={() =>
+            router.push(
+              initialData
+                ? `/inventory/materials/${initialData.id}`
+                : "/inventory/materials"
+            )
+          }
         >
           Cancel
         </Button>
