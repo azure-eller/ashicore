@@ -341,7 +341,9 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             <FieldSet>
               <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
-                Set the default purchase price and starting inventory.
+                {initialData
+                ? "Update the purchase price and current stock level."
+                : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
                 <div className="grid grid-cols-2 gap-4">
