@@ -112,13 +112,56 @@ export async function getCategories(): Promise<string[]> {
   });
 }
 
-export async function createItem(data: InsertItem): Promise<{ id: string }> {
+export async function getLots(itemId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: lots.id,
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+        costPerUnit: lots.costPerUnit,
+        receivedAt: lots.receivedAt,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId))
+      .orderBy(lots.receivedAt);
+  });
+}
+
+async function generateLotNumber(tx: Tx, orgId: string): Promise<string> {
+  const [result] = await tx
+    .select({ maxLot: sql<string | null>`MAX(${lots.lotNumber})` })
+    .from(lots)
+    .where(eq(lots.organizationId, orgId));
+
+  const current = result?.maxLot;
+  if (!current) return "LOT-000001";
+
+  const num = parseInt(current.replace("LOT-", ""), 10);
+  return `LOT-${String(num + 1).padStart(6, "0")}`;
+}
+
+export async function createItemWithLot(
+  data: Omit<InsertItem, "initialStock">,
+  initialStock: string,
+): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const [row] = await tx
+    const [item] = await tx
       .insert(items)
       .values({ ...data, organizationId: orgId })
       .returning({ id: items.id });
-    return row;
+
+    const lotNumber = await generateLotNumber(tx, orgId);
+
+    await tx.insert(lots).values({
+      organizationId: orgId,
+      itemId: item.id,
+      lotNumber,
+      quantity: initialStock,
+      costPerUnit: data.defaultPurchasePrice ?? null,
+    });
+
+    return item;
   });
 }
 
