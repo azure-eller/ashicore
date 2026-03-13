@@ -62,9 +62,18 @@ const uomGroups = getUomOptions();
 interface MaterialFormProps {
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
+  initialData?: {
+    id: string;
+    name: string;
+    sku: string | null;
+    category: string | null;
+    unitDefinitionId: string;
+    defaultPurchasePrice: string | null;
+    inStock: string;
+  };
 }
 
-export function MaterialForm({ units, categories }: MaterialFormProps) {
+export function MaterialForm({ units, categories, initialData }: MaterialFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [categoryInput, setCategoryInput] = useState("");
@@ -94,6 +103,17 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
       itemType: "material",
       inStock: "0",
     },
+    ...(initialData && {
+      values: {
+        name: initialData.name,
+        sku: initialData.sku,
+        category: initialData.category,
+        unitDefinitionId: initialData.unitDefinitionId,
+        defaultPurchasePrice: initialData.defaultPurchasePrice,
+        inStock: initialData.inStock,
+        itemType: "material" as const,
+      },
+    }),
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -101,26 +121,35 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
 
   const mutation = useMutation({
     mutationFn: async (data: InsertItem) => {
-      const res = await fetch("/api/items", {
-        method: "POST",
+      const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
+      const method = initialData ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
       if (!res.ok) {
-        let message = "Failed to create material.";
-        try {
-          const err = await res.json();
-          if (err.error) message = err.error;
-        } catch {
-          // non-JSON response
+        const fallback = initialData
+          ? "Failed to update material."
+          : "Failed to create material.";
+        const err = await res.json().catch(() => null);
+        if (err?.errors) {
+          const messages = Object.entries(err.errors)
+            .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
+            .join("; ");
+          throw new Error(messages);
         }
-        throw new Error(message);
+        throw new Error(err?.error ?? fallback);
       }
       return res.json();
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items", "material"] });
-      router.push("/inventory/materials");
+      router.push(
+        initialData
+          ? `/inventory/materials/${initialData.id}`
+          : "/inventory/materials"
+      );
     },
     onError: (error) => {
       setFormError(error.message);
@@ -169,14 +198,16 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Add Material</CardTitle>
+        <CardTitle>{initialData ? "Edit Material" : "Add Material"}</CardTitle>
         <CardDescription>
-          Create a new material in your inventory.
+          {initialData
+            ? "Update this material's details."
+            : "Create a new material in your inventory."}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form
-          id="create-material-form"
+          id="material-form"
           onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
         >
           <FieldGroup>
@@ -266,6 +297,7 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
+                  {/* key forces remount when value changes — fixes Radix Select not displaying newly created units */}
                   <Select
                     key={field.value}
                     name={field.name}
@@ -309,7 +341,9 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
             <FieldSet>
               <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
-                Set the default purchase price and starting inventory.
+                {initialData
+                ? "Update the purchase price and current stock level."
+                : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
                 <div className="grid grid-cols-2 gap-4">
@@ -343,7 +377,7 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
-                          Initial Stock
+                          Stock
                         </FieldLabel>
                         <Input
                           {...field}
@@ -374,16 +408,24 @@ export function MaterialForm({ units, categories }: MaterialFormProps) {
         <Button
           type="button"
           variant="outline"
-          onClick={() => router.back()}
+          onClick={() =>
+            router.push(
+              initialData
+                ? `/inventory/materials/${initialData.id}`
+                : "/inventory/materials"
+            )
+          }
         >
           Cancel
         </Button>
         <Button
           type="submit"
-          form="create-material-form"
+          form="material-form"
           disabled={mutation.isPending}
         >
-          {mutation.isPending ? "Creating..." : "Create Material"}
+          {initialData
+            ? (mutation.isPending ? "Saving..." : "Save Changes")
+            : (mutation.isPending ? "Creating..." : "Create Material")}
         </Button>
       </CardFooter>
       <Dialog open={isUnitDialogOpen} onOpenChange={setIsUnitDialogOpen}>

@@ -28,12 +28,46 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
   });
 }
 
+export async function getItem(id: string) {
+  return withAuthedOrgContext(async (tx, _orgId) => {
+    const [row] = await tx
+      .select({
+        id: items.id,
+        name: items.name,
+        sku: items.sku,
+        itemType: items.itemType,
+        category: items.category,
+        unitDefinitionId: items.unitDefinitionId,
+        defaultPurchasePrice: items.defaultPurchasePrice,
+        inStock: items.inStock,
+        unitName: unitDefinitions.name,
+        unitSize: unitDefinitions.size,
+        unitUom: unitDefinitions.uom,
+      })
+      .from(items)
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(eq(items.id, id), isNull(items.deletedAt)));
+    return row ?? null;
+  });
+}
+
+export async function updateItem(id: string, data: InsertItem) {
+  return withAuthedOrgContext(async (tx, _orgId) => {
+    const [row] = await tx
+      .update(items)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(items.id, id), isNull(items.deletedAt)))
+      .returning({ id: items.id });
+    return row ?? null;
+  });
+}
+
 export async function deleteItem(id: string): Promise<void> {
   return withAuthedOrgContext(async (tx, _orgId) => {
     await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(items.id, id));
+      .where(and(eq(items.id, id), isNull(items.deletedAt)));
   });
 }
 

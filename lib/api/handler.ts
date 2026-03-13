@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-export function apiHandler(fn: (request: Request) => Promise<NextResponse>) {
-  return async (request: Request) => {
+export function apiHandler(
+  fn: (request: Request, ...args: unknown[]) => Promise<NextResponse>
+) {
+  return async (request: Request, ...args: unknown[]) => {
     try {
-      return await fn(request);
+      return await fn(request, ...args);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return NextResponse.json(
