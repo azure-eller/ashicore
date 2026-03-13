@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getItem, getLots } from "@/app/(dashboard)/inventory/queries";
+import { calcStock } from "@/app/(dashboard)/inventory/types";
 import { formatPrice } from "@/lib/format";
 
 export default async function MaterialDetailPage({
@@ -66,6 +67,45 @@ export default async function MaterialDetailPage({
             In Stock
           </dt>
           <dd className="mt-1 text-sm">{parseFloat(item.inStock)} {item.unitName}</dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Committed</dt>
+          <dd className="mt-1 text-sm">
+            {parseFloat(item.committedQty)} {item.unitName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Expected</dt>
+          <dd className="mt-1 text-sm">
+            {parseFloat(item.expectedQty)} {item.unitName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Safety Stock</dt>
+          <dd className="mt-1 text-sm">
+            {parseFloat(item.safetyStock)} {item.unitName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">
+            Calculated Stock
+          </dt>
+          <dd className="mt-1 text-sm">
+            {(() => {
+              const value = calcStock(item);
+              return (
+                <span className={value < 0 ? "inline-flex items-center gap-1.5 text-destructive" : undefined}>
+                  {value < 0 && (
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full bg-destructive"
+                      aria-label="Below safety stock"
+                    />
+                  )}
+                  {value} {item.unitName}
+                </span>
+              );
+            })()}
+          </dd>
         </div>
       </dl>
 
