@@ -1,18 +1,21 @@
+// Org isolation is enforced by RLS via app.current_org_id.
+// Read/update/delete queries omit organizationId filters — RLS handles org scoping.
+// Create queries pass orgId explicitly so it's stored on the row.
 import { and, eq, isNull, isNotNull } from "drizzle-orm";
 import { items, unitDefinitions } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import type { InsertItem } from "@/lib/schemas/items";
+import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
 
 export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
-  return withAuthedOrgContext(async (tx, _orgId) => {
+  return withAuthedOrgContext(async (tx) => {
     const conditions = [
       isNull(items.deletedAt),
       ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
     ];
 
-    return tx
+    const rows = await tx
       .select({
         id: items.id,
         name: items.name,
@@ -25,11 +28,13 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(...conditions));
+    // Cast: Drizzle infers varchar as string, but we know itemType is always a valid ItemType
+    return rows as ItemRow[];
   });
 }
 
 export async function getItem(id: string) {
-  return withAuthedOrgContext(async (tx, _orgId) => {
+  return withAuthedOrgContext(async (tx) => {
     const [row] = await tx
       .select({
         id: items.id,
@@ -37,6 +42,7 @@ export async function getItem(id: string) {
         sku: items.sku,
         itemType: items.itemType,
         category: items.category,
+        description: items.description,
         unitDefinitionId: items.unitDefinitionId,
         defaultPurchasePrice: items.defaultPurchasePrice,
         inStock: items.inStock,
@@ -51,8 +57,8 @@ export async function getItem(id: string) {
   });
 }
 
-export async function updateItem(id: string, data: InsertItem) {
-  return withAuthedOrgContext(async (tx, _orgId) => {
+export async function updateItem(id: string, data: UpdateItem) {
+  return withAuthedOrgContext(async (tx) => {
     const [row] = await tx
       .update(items)
       .set({ ...data, updatedAt: new Date() })
@@ -62,17 +68,19 @@ export async function updateItem(id: string, data: InsertItem) {
   });
 }
 
-export async function deleteItem(id: string): Promise<void> {
-  return withAuthedOrgContext(async (tx, _orgId) => {
-    await tx
+export async function deleteItem(id: string): Promise<boolean> {
+  return withAuthedOrgContext(async (tx) => {
+    const [row] = await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(items.id, id), isNull(items.deletedAt)));
+      .where(and(eq(items.id, id), isNull(items.deletedAt)))
+      .returning({ id: items.id });
+    return row != null;
   });
 }
 
 export async function getUnitDefinitions() {
-  return withAuthedOrgContext(async (tx, _orgId) => {
+  return withAuthedOrgContext(async (tx) => {
     return tx
       .select({
         id: unitDefinitions.id,
@@ -86,15 +94,14 @@ export async function getUnitDefinitions() {
 }
 
 export async function getCategories(): Promise<string[]> {
-  return withAuthedOrgContext(async (tx, _orgId) => {
+  return withAuthedOrgContext(async (tx) => {
     const rows = await tx
       .selectDistinct({ category: items.category })
       .from(items)
       .where(and(isNotNull(items.category), isNull(items.deletedAt)));
 
-    return rows
-      .map((r) => r.category)
-      .filter((c): c is string => c !== null);
+    // isNotNull(items.category) in the WHERE clause guarantees no nulls
+    return rows.map((r) => r.category as string);
   });
 }
 

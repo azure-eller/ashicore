@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 export function apiHandler(
   fn: (request: Request, ...args: unknown[]) => Promise<NextResponse>
@@ -8,6 +9,8 @@ export function apiHandler(
     try {
       return await fn(request, ...args);
     } catch (error) {
+      // Let Next.js redirect() errors propagate — swallowing them returns a 500
+      if (isRedirectError(error)) throw error;
       if (error instanceof z.ZodError) {
         return NextResponse.json(
           { errors: error.flatten().fieldErrors },

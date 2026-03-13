@@ -1,0 +1,1 @@
+CREATE INDEX "items_active_idx" ON "inventory"."items" USING btree ("organization_id") WHERE deleted_at IS NULL;

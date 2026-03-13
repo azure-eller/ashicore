@@ -1,5 +1,5 @@
-import { getCategories, getUnitDefinitions } from "../../queries";
-import { MaterialForm } from "./material-form";
+import { getCategories, getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
+import { MaterialForm } from "@/app/(dashboard)/inventory/materials/material-form";
 
 export default async function NewMaterialPage() {
   const [units, categories] = await Promise.all([

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { insertItemSchema, type InsertItem } from "@/lib/schemas/items";
+import { insertItemSchema, updateItemSchema, type InsertItem, type UpdateItem } from "@/lib/schemas/items";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -56,7 +57,7 @@ import {
 } from "@/components/ui/field";
 
 const CREATE_NEW_UNIT = "__create_new__";
-
+const POSITIVE_NUMBER_RE = /^\d+\.?\d*$/;
 const uomGroups = getUomOptions();
 
 interface MaterialFormProps {
@@ -67,7 +68,11 @@ interface MaterialFormProps {
     name: string;
     sku: string | null;
     category: string | null;
+    description: string | null;
     unitDefinitionId: string;
+    unitName: string;
+    unitSize: string;
+    unitUom: string;
     defaultPurchasePrice: string | null;
     inStock: string;
   };
@@ -76,51 +81,56 @@ interface MaterialFormProps {
 export function MaterialForm({ units, categories, initialData }: MaterialFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const redirectUrl = initialData
+    ? `/inventory/materials/${initialData.id}`
+    : "/inventory/materials";
   const [categoryInput, setCategoryInput] = useState("");
   const [localUnits, setLocalUnits] = useState(units);
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
   const [unitName, setUnitName] = useState("");
   const [unitSize, setUnitSize] = useState("");
   const [unitUom, setUnitUom] = useState("");
+  const unitSizeInvalid = unitSize.trim() !== "" && !POSITIVE_NUMBER_RE.test(unitSize.trim());
+
+  const categoriesSet = useMemo(
+    () => new Set(categories.map((c) => c.toLowerCase())),
+    [categories]
+  );
 
   const categoryItems = useMemo(() => {
     const trimmed = categoryInput.trim();
-    const lowerTrimmed = trimmed.toLowerCase();
-    const hasExactMatch = categories.some(
-      (c) => c.toLowerCase() === lowerTrimmed
-    );
-    if (trimmed && !hasExactMatch) {
+    if (trimmed && !categoriesSet.has(trimmed.toLowerCase())) {
       return [...categories, trimmed];
     }
     return categories;
-  }, [categoryInput, categories]);
+  }, [categoryInput, categories, categoriesSet]);
 
-  const form = useForm<InsertItem>({
-    resolver: zodResolver(insertItemSchema),
+  const form = useForm<InsertItem | UpdateItem>({
+    resolver: zodResolver(initialData ? updateItemSchema : insertItemSchema),
     mode: "onBlur",
-    defaultValues: {
-      name: "",
-      itemType: "material",
-      inStock: "0",
-    },
-    ...(initialData && {
-      values: {
-        name: initialData.name,
-        sku: initialData.sku,
-        category: initialData.category,
-        unitDefinitionId: initialData.unitDefinitionId,
-        defaultPurchasePrice: initialData.defaultPurchasePrice,
-        inStock: initialData.inStock,
-        itemType: "material" as const,
-      },
-    }),
+    defaultValues: initialData
+      ? {
+          name: initialData.name,
+          sku: initialData.sku,
+          category: initialData.category,
+          description: initialData.description,
+          defaultPurchasePrice: initialData.defaultPurchasePrice != null
+            ? String(parseFloat(initialData.defaultPurchasePrice))
+            : null,
+        }
+      : {
+          name: "",
+          itemType: "material" as const,
+          unitDefinitionId: "",
+          inStock: "0",
+        },
   });
 
   const [formError, setFormError] = useState<string | null>(null);
   const [unitError, setUnitError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async (data: InsertItem) => {
+    mutationFn: async (data: InsertItem | UpdateItem) => {
       const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
       const method = initialData ? "PUT" : "POST";
       const res = await fetch(url, {
@@ -145,11 +155,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items", "material"] });
-      router.push(
-        initialData
-          ? `/inventory/materials/${initialData.id}`
-          : "/inventory/materials"
-      );
+      router.push(redirectUrl);
     },
     onError: (error) => {
       setFormError(error.message);
@@ -167,14 +173,8 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
         body: JSON.stringify({ name: unitName, size: unitSize, uom: unitUom }),
       });
       if (!res.ok) {
-        let message = "Failed to create unit.";
-        try {
-          const err = await res.json();
-          if (err.error) message = err.error;
-        } catch {
-          // non-JSON response
-        }
-        throw new Error(message);
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? "Failed to create unit.");
       }
       return res.json();
     },
@@ -208,7 +208,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
       <CardContent>
         <form
           id="material-form"
-          onSubmit={form.handleSubmit((data) => mutation.mutate(data))}
+          onSubmit={form.handleSubmit((data) => { if (!mutation.isPending) mutation.mutate(data); })}
         >
           <FieldGroup>
             <Controller
@@ -222,6 +222,28 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     id={field.name}
                     aria-invalid={fieldState.invalid}
                     placeholder="e.g. Sand, Gravel, Topsoil"
+                    autoComplete="off"
+                  />
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
+              )}
+            />
+
+            <Controller
+              name="description"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor={field.name}>Description</FieldLabel>
+                  <Textarea
+                    {...field}
+                    id={field.name}
+                    value={field.value ?? ""}
+                    aria-invalid={fieldState.invalid}
+                    placeholder="Optional notes about this material"
+                    rows={2}
                     autoComplete="off"
                   />
                   {fieldState.invalid && (
@@ -262,7 +284,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     <Combobox
                       items={categoryItems}
                       value={field.value ?? ""}
-                      onValueChange={field.onChange}
+                      onValueChange={(v) => field.onChange(v || null)}
                       onInputValueChange={setCategoryInput}
                     >
                       <ComboboxInput
@@ -275,7 +297,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                         <ComboboxList>
                           {(item: string) => (
                             <ComboboxItem key={item} value={item}>
-                              {categories.includes(item)
+                              {categoriesSet.has(item.toLowerCase())
                                 ? item
                                 : `+ Create "${item}"`}
                             </ComboboxItem>
@@ -291,62 +313,70 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
               />
             </div>
 
-            <Controller
-              name="unitDefinitionId"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
-                  {/* key forces remount when value changes — fixes Radix Select not displaying newly created units */}
-                  <Select
-                    key={field.value}
-                    name={field.name}
-                    value={field.value}
-                    onValueChange={(value) => {
-                      if (value === CREATE_NEW_UNIT) {
-                        setIsUnitDialogOpen(true);
-                      } else {
-                        field.onChange(value);
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      id={field.name}
-                      aria-invalid={fieldState.invalid}
-                      className="w-full"
+            {initialData ? (
+              <Field>
+                <FieldLabel>Unit</FieldLabel>
+                <p className="text-sm py-2">
+                  {initialData.unitName} ({parseFloat(initialData.unitSize)} {initialData.unitUom})
+                </p>
+              </Field>
+            ) : (
+              <Controller
+                name="unitDefinitionId"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
+                    <Select
+                      key={field.value}
+                      name={field.name}
+                      value={field.value}
+                      onValueChange={(value) => {
+                        if (value === CREATE_NEW_UNIT) {
+                          setIsUnitDialogOpen(true);
+                        } else {
+                          field.onChange(value);
+                        }
+                      }}
                     >
-                      <SelectValue placeholder="Select a unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {localUnits.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.name} ({u.size} {u.uom})
+                      <SelectTrigger
+                        id={field.name}
+                        aria-invalid={fieldState.invalid}
+                        className="w-full"
+                      >
+                        <SelectValue placeholder="Select a unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {localUnits.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.name} ({parseFloat(u.size)} {u.uom})
+                          </SelectItem>
+                        ))}
+                        <SelectSeparator />
+                        <SelectItem value={CREATE_NEW_UNIT}>
+                          + Create new unit
                         </SelectItem>
-                      ))}
-                      <SelectSeparator />
-                      <SelectItem value={CREATE_NEW_UNIT}>
-                        + Create new unit
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {fieldState.invalid && (
-                    <FieldError errors={[fieldState.error]} />
-                  )}
-                </Field>
-              )}
-            />
+                      </SelectContent>
+                    </Select>
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+            )}
 
             <FieldSeparator />
 
             <FieldSet>
-              <FieldLegend>Pricing & Stock</FieldLegend>
+              <FieldLegend>{initialData ? "Pricing" : "Pricing & Stock"}</FieldLegend>
               <FieldDescription>
                 {initialData
-                ? "Update the purchase price and current stock level."
-                : "Set the default purchase price and starting inventory."}
+                  ? "Update the default purchase price for this material."
+                  : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={initialData ? undefined : "grid grid-cols-2 gap-4"}>
                   <Controller
                     name="defaultPurchasePrice"
                     control={form.control}
@@ -371,50 +401,40 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     )}
                   />
 
-                  <Controller
-                    name="inStock"
-                    control={form.control}
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
-                          Stock
-                        </FieldLabel>
-                        <Input
-                          {...field}
-                          id={field.name}
-                          aria-invalid={fieldState.invalid}
-                          placeholder="0"
-                          inputMode="decimal"
-                          autoComplete="off"
-                        />
-                        {fieldState.invalid && (
-                          <FieldError errors={[fieldState.error]} />
-                        )}
-                      </Field>
-                    )}
-                  />
+                  {!initialData && (
+                    <Controller
+                      name="inStock"
+                      control={form.control}
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>Initial Stock</FieldLabel>
+                          <Input
+                            {...field}
+                            id={field.name}
+                            aria-invalid={fieldState.invalid}
+                            placeholder="0"
+                            inputMode="decimal"
+                            autoComplete="off"
+                          />
+                          {fieldState.invalid && (
+                            <FieldError errors={[fieldState.error]} />
+                          )}
+                        </Field>
+                      )}
+                    />
+                  )}
                 </div>
               </FieldGroup>
             </FieldSet>
           </FieldGroup>
         </form>
+        {formError && <FieldError className="mt-2">{formError}</FieldError>}
       </CardContent>
-      {formError && (
-        <div role="alert" className="px-6 pb-2">
-          <p className="text-sm text-destructive">{formError}</p>
-        </div>
-      )}
       <CardFooter className="flex justify-end gap-3">
         <Button
           type="button"
           variant="outline"
-          onClick={() =>
-            router.push(
-              initialData
-                ? `/inventory/materials/${initialData.id}`
-                : "/inventory/materials"
-            )
-          }
+          onClick={() => router.push(redirectUrl)}
         >
           Cancel
         </Button>
@@ -428,7 +448,18 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             : (mutation.isPending ? "Creating..." : "Create Material")}
         </Button>
       </CardFooter>
-      <Dialog open={isUnitDialogOpen} onOpenChange={setIsUnitDialogOpen}>
+      <Dialog
+        open={isUnitDialogOpen}
+        onOpenChange={(open) => {
+          setIsUnitDialogOpen(open);
+          if (!open) {
+            setUnitName("");
+            setUnitSize("");
+            setUnitUom("");
+            setUnitError(null);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Create Unit</DialogTitle>
@@ -447,7 +478,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                 autoComplete="off"
               />
             </Field>
-            <Field>
+            <Field data-invalid={unitSizeInvalid}>
               <FieldLabel htmlFor="unit-size">Size</FieldLabel>
               <Input
                 id="unit-size"
@@ -456,7 +487,11 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                 placeholder="e.g. 1"
                 inputMode="decimal"
                 autoComplete="off"
+                aria-invalid={unitSizeInvalid}
               />
+              {unitSizeInvalid && (
+                <FieldError>Must be a positive number</FieldError>
+              )}
             </Field>
             <Field>
               <FieldLabel htmlFor="unit-uom">Unit of Measure</FieldLabel>
@@ -479,11 +514,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
               </Select>
             </Field>
           </FieldGroup>
-          {unitError && (
-            <p role="alert" className="text-sm text-destructive">
-              {unitError}
-            </p>
-          )}
+          {unitError && <FieldError>{unitError}</FieldError>}
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
@@ -494,7 +525,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
               disabled={
                 unitMutation.isPending ||
                 !unitName.trim() ||
-                !unitSize.trim() ||
+                !POSITIVE_NUMBER_RE.test(unitSize.trim()) ||
                 !unitUom
               }
             >

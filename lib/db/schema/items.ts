@@ -49,7 +49,12 @@ export const items = inventorySchema
     },
     (table) => [
       index("items_org_id_idx").on(table.organizationId),
-      uniqueIndex("items_org_sku_uidx").on(table.organizationId, table.sku),
+      index("items_active_idx")
+        .on(table.organizationId)
+        .where(sql`deleted_at IS NULL`),
+      uniqueIndex("items_org_sku_uidx")
+        .on(table.organizationId, table.sku)
+        .where(sql`sku IS NOT NULL AND deleted_at IS NULL`),
       pgPolicy("items_org_isolation", {
         for: "all",
         to: "public",

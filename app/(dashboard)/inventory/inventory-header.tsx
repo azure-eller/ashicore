@@ -4,11 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { ITEM_TYPES, type ItemType } from "./types";
-
-const tabs: { label: string; href: string; type: ItemType }[] = [
-  { label: "Products", href: "/inventory/products", type: "product" },
-  { label: "Materials", href: "/inventory/materials", type: "material" },
+const tabs = [
+  { label: "Materials", href: "/inventory/materials" },
+  { label: "Products", href: "/inventory/products" },
 ];
 
 export function InventoryHeader() {
@@ -24,17 +22,17 @@ export function InventoryHeader() {
         />
         <nav className="flex items-center gap-4 text-sm">
           {tabs.map((tab) => {
-            const isActive = pathname === tab.href;
+            const isActive = pathname.startsWith(tab.href);
             return isActive ? (
               <span
-                key={tab.type}
+                key={tab.href}
                 className="font-medium text-foreground"
               >
                 {tab.label}
               </span>
             ) : (
               <Link
-                key={tab.type}
+                key={tab.href}
                 href={tab.href}
                 className="text-muted-foreground transition-colors hover:text-foreground"
               >
