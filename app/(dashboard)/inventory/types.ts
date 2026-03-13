@@ -13,6 +13,20 @@ export type ItemRow = {
   sku: string | null;
   itemType: ItemType;
   inStock: string;
+  committedQty: string;
+  expectedQty: string;
+  safetyStock: string;
   unit: string;
   category: string | null;
 };
+
+export function calcStock(
+  row: Pick<ItemRow, "inStock" | "committedQty" | "expectedQty" | "safetyStock">,
+): number {
+  return (
+    parseFloat(row.inStock) -
+    parseFloat(row.committedQty) +
+    parseFloat(row.expectedQty) -
+    parseFloat(row.safetyStock)
+  );
+}
