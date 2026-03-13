@@ -4,7 +4,7 @@ import {
   getUnitDefinitions,
   getCategories,
 } from "@/app/(dashboard)/inventory/queries";
-import { MaterialForm } from "@/app/(dashboard)/inventory/materials/new/material-form";
+import { MaterialForm } from "@/app/(dashboard)/inventory/materials/material-form";
 
 export default async function EditMaterialPage({
   params,

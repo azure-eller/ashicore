@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getItem } from "@/app/(dashboard)/inventory/queries";
+import { formatPrice } from "@/lib/format";
 
 export default async function MaterialDetailPage({
   params,
@@ -21,7 +22,7 @@ export default async function MaterialDetailPage({
             href="/inventory/materials"
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            &larr; Back to Materials
+            <span aria-hidden>←</span> Back to Materials
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">
             {item.name}
@@ -32,6 +33,9 @@ export default async function MaterialDetailPage({
         </Button>
       </div>
       <Separator />
+      {item.description && (
+        <p className="max-w-2xl text-sm text-muted-foreground">{item.description}</p>
+      )}
       <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
         <div>
           <dt className="text-sm font-medium text-muted-foreground">SKU</dt>
@@ -46,20 +50,22 @@ export default async function MaterialDetailPage({
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Unit</dt>
           <dd className="mt-1 text-sm">
-            {item.unitName} ({item.unitSize} {item.unitUom})
+            {item.unitName} ({parseFloat(item.unitSize)} {item.unitUom})
           </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             Purchase Price
           </dt>
-          <dd className="mt-1 text-sm">{item.defaultPurchasePrice ?? "—"}</dd>
+          <dd className="mt-1 text-sm">
+            {formatPrice(item.defaultPurchasePrice) ?? "—"}
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             In Stock
           </dt>
-          <dd className="mt-1 text-sm">{item.inStock}</dd>
+          <dd className="mt-1 text-sm">{parseFloat(item.inStock)} {item.unitName}</dd>
         </div>
       </dl>
     </div>

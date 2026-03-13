@@ -5,15 +5,7 @@ import {
   CardFooter,
   CardHeader,
 } from "@/components/ui/card";
-
-function FieldSkeleton() {
-  return (
-    <div className="space-y-2">
-      <Skeleton className="h-4 w-16" />
-      <Skeleton className="h-10 w-full" />
-    </div>
-  );
-}
+import { FieldSkeleton } from "../field-skeleton";
 
 export default function Loading() {
   return (
@@ -26,6 +18,10 @@ export default function Loading() {
           </CardHeader>
           <CardContent className="space-y-6">
             <FieldSkeleton />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-16 w-full" />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <FieldSkeleton />
               <FieldSkeleton />
