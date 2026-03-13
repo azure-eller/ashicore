@@ -15,6 +15,7 @@ export const insertItemSchema = createInsertSchema(items, {
   category: nullableString,
   defaultPurchasePrice: nullableString,
   description: nullableString,
+  safetyStock: z.string(),
 }).omit({
   id: true,
   organizationId: true,
@@ -23,7 +24,6 @@ export const insertItemSchema = createInsertSchema(items, {
   updatedAt: true,
   committedQty: true,
   expectedQty: true,
-  safetyStock: true,
   defaultSellingPrice: true,
 }).extend({
   initialStock: z.string().default("0").refine(
