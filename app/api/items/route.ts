@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getItems, createItem } from "@/app/(dashboard)/inventory/queries";
+import { getItems, createItemWithLot } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { insertItemSchema } from "@/lib/schemas/items";
 import { apiHandler } from "@/lib/api/handler";
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
 export const POST = apiHandler(async (request) => {
   const body = await request.json();
-  const data = insertItemSchema.parse(body);
-  const item = await createItem(data);
+  const { initialStock, ...data } = insertItemSchema.parse(body);
+  const item = await createItemWithLot(data, initialStock);
   return NextResponse.json(item, { status: 201 });
 });
