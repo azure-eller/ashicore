@@ -3,7 +3,7 @@ config({ path: ".env.local" });
 
 async function main() {
   const { db } = await import("@/lib/db");
-  const { organization, unitDefinitions, items } = await import("@/lib/db/schema");
+  const { organization, unitDefinitions, items, lots } = await import("@/lib/db/schema");
   // 1. Get the first org
   const orgs = await db.select().from(organization).limit(1);
   if (orgs.length === 0) {
@@ -41,7 +41,6 @@ async function main() {
         category: "Peat",
         itemType: "material",
         unitDefinitionId: bale.id,
-        inStock: "48",
         safetyStock: "10",
       },
       {
@@ -51,7 +50,6 @@ async function main() {
         category: "Amendments",
         itemType: "material",
         unitDefinitionId: bag1.id,
-        inStock: "120",
         safetyStock: "24",
       },
       {
@@ -61,7 +59,6 @@ async function main() {
         category: "Organics",
         itemType: "material",
         unitDefinitionId: yard.id,
-        inStock: "30",
         safetyStock: "8",
       },
       {
@@ -71,7 +68,6 @@ async function main() {
         category: "Amendments",
         itemType: "material",
         unitDefinitionId: bag1.id,
-        inStock: "60",
         safetyStock: "12",
       },
       {
@@ -81,7 +77,6 @@ async function main() {
         category: "Organics",
         itemType: "material",
         unitDefinitionId: lb.id,
-        inStock: "500",
         safetyStock: "100",
       },
       // Products
@@ -92,7 +87,6 @@ async function main() {
         category: "Potting Mix",
         itemType: "product",
         unitDefinitionId: bag2.id,
-        inStock: "200",
         safetyStock: "40",
         defaultSellingPrice: "24.99",
       },
@@ -103,7 +97,6 @@ async function main() {
         category: "Potting Mix",
         itemType: "product",
         unitDefinitionId: yard.id,
-        inStock: "15",
         safetyStock: "5",
         defaultSellingPrice: "89.00",
       },
@@ -114,7 +107,6 @@ async function main() {
         category: "Specialty",
         itemType: "product",
         unitDefinitionId: bag1.id,
-        inStock: "85",
         safetyStock: "20",
         defaultSellingPrice: "12.49",
       },
@@ -129,6 +121,32 @@ async function main() {
   for (const item of insertedItems) {
     console.log(`  - ${item.name}`);
   }
+
+  // 4. Create default lots for each item
+  const stockAmounts: Record<string, string> = {
+    "Sphagnum Peat Moss": "48",
+    "Perlite": "120",
+    "Compost": "30",
+    "Pumice": "60",
+    "Worm Castings": "500",
+    "Premium Garden Mix": "200",
+    "Raised Bed Blend": "15",
+    "Seed Starting Mix": "85",
+  };
+
+  let lotSeq = 1;
+  for (const item of insertedItems) {
+    const qty = stockAmounts[item.name];
+    if (qty) {
+      await db.insert(lots).values({
+        organizationId: orgId,
+        itemId: item.id,
+        lotNumber: `LOT-${String(lotSeq++).padStart(6, "0")}`,
+        quantity: qty,
+      }).onConflictDoNothing();
+    }
+  }
+  console.log(`Created ${lotSeq - 1} default lots`);
 
   console.log("Seed complete.");
 }
