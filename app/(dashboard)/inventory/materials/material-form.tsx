@@ -75,6 +75,7 @@ interface MaterialFormProps {
     unitUom: string;
     defaultPurchasePrice: string | null;
     inStock: string;
+    safetyStock: string;
   };
 }
 
@@ -117,12 +118,14 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           defaultPurchasePrice: initialData.defaultPurchasePrice != null
             ? String(parseFloat(initialData.defaultPurchasePrice))
             : null,
+          safetyStock: String(parseFloat(initialData.safetyStock)),
         }
       : {
           name: "",
           itemType: "material" as const,
           unitDefinitionId: "",
           initialStock: "0",
+          safetyStock: "0",
         },
   });
 
@@ -369,14 +372,14 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             <FieldSeparator />
 
             <FieldSet>
-              <FieldLegend>{initialData ? "Pricing" : "Pricing & Stock"}</FieldLegend>
+              <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
                 {initialData
-                  ? "Update the default purchase price for this material."
+                  ? "Update the default purchase price and safety stock threshold for this material."
                   : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
-                <div className={initialData ? undefined : "grid grid-cols-2 gap-4"}>
+                <div className="grid grid-cols-2 gap-4">
                   <Controller
                     name="defaultPurchasePrice"
                     control={form.control}
@@ -423,6 +426,28 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                       )}
                     />
                   )}
+
+                  <Controller
+                    name="safetyStock"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>Safety Stock</FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
                 </div>
               </FieldGroup>
             </FieldSet>
