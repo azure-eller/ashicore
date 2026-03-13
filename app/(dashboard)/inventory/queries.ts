@@ -1,12 +1,19 @@
 // Org isolation is enforced by RLS via app.current_org_id.
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
-import { and, eq, isNull, isNotNull } from "drizzle-orm";
-import { items, unitDefinitions } from "@/lib/db/schema";
+import { and, eq, isNull, isNotNull, sql } from "drizzle-orm";
+import { items, unitDefinitions, lots } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { Tx } from "@/lib/db/with-org-context";
 import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
+
+const inStockSubquery = sql<string>`(
+  SELECT COALESCE(SUM(${lots.quantity}), 0)
+  FROM ${lots}
+  WHERE ${lots.itemId} = ${items.id}
+)`.as("in_stock");
 
 export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
   return withAuthedOrgContext(async (tx) => {
@@ -21,7 +28,7 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         name: items.name,
         sku: items.sku,
         itemType: items.itemType,
-        inStock: items.inStock,
+        inStock: inStockSubquery,
         unit: unitDefinitions.name,
         category: items.category,
       })
@@ -45,7 +52,7 @@ export async function getItem(id: string) {
         description: items.description,
         unitDefinitionId: items.unitDefinitionId,
         defaultPurchasePrice: items.defaultPurchasePrice,
-        inStock: items.inStock,
+        inStock: inStockSubquery,
         unitName: unitDefinitions.name,
         unitSize: unitDefinitions.size,
         unitUom: unitDefinitions.uom,
