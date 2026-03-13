@@ -25,14 +25,16 @@ export const insertItemSchema = createInsertSchema(items, {
   expectedQty: true,
   safetyStock: true,
   defaultSellingPrice: true,
+}).extend({
+  initialStock: z.string().default("0"),
 });
 
-// Update schema: itemType, inStock, and unitDefinitionId are immutable after creation.
-// Changing unitDefinitionId would corrupt any existing stock movements or BOM lines.
+// Update schema: itemType, unitDefinitionId are immutable after creation.
+// initialStock only applies at creation (populates the default lot).
 export const updateItemSchema = insertItemSchema.omit({
   itemType: true,
-  inStock: true,
   unitDefinitionId: true,
+  initialStock: true,
 });
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
