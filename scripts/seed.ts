@@ -1,9 +1,10 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
+import { withOrgContext } from "@/lib/db/with-org-context";
 
 async function main() {
   const { db } = await import("@/lib/db");
-  const { organization, unitDefinitions, items, lots } = await import("@/lib/db/schema");
+  const { organization, unitDefinitions, items, lots, stockMovements } = await import("@/lib/db/schema");
   // 1. Get the first org
   const orgs = await db.select().from(organization).limit(1);
   if (orgs.length === 0) {
@@ -147,6 +148,30 @@ async function main() {
     }
   }
   console.log(`Created ${lotSeq - 1} default lots`);
+
+  // 5. Create initial stock movements for seeded lots
+  const seededLots = await withOrgContext(orgId, async (tx) => {
+    return tx
+      .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity, costPerUnit: lots.costPerUnit })
+      .from(lots);
+  });
+
+  for (const lot of seededLots) {
+    if (parseFloat(lot.quantity) > 0) {
+      await withOrgContext(orgId, async (tx) => {
+        await tx.insert(stockMovements).values({
+          organizationId: orgId,
+          itemId: lot.itemId,
+          lotId: lot.id,
+          quantity: lot.quantity,
+          reason: "initial",
+          costPerUnit: lot.costPerUnit,
+          createdBy: "seed",
+        });
+      });
+    }
+  }
+  console.log(`Created ${seededLots.filter(l => parseFloat(l.quantity) > 0).length} initial stock movements`);
 
   console.log("Seed complete.");
 }
