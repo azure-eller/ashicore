@@ -1,12 +1,19 @@
 // Org isolation is enforced by RLS via app.current_org_id.
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
-import { and, eq, isNull, isNotNull } from "drizzle-orm";
-import { items, unitDefinitions } from "@/lib/db/schema";
+import { and, eq, isNull, isNotNull, sql } from "drizzle-orm";
+import { items, unitDefinitions, lots } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { Tx } from "@/lib/db/with-org-context";
 import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
+
+const inStockSubquery = sql<string>`(
+  SELECT COALESCE(SUM(${lots.quantity}), 0)
+  FROM ${lots}
+  WHERE ${lots.itemId} = ${items.id}
+)`.as("in_stock");
 
 export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
   return withAuthedOrgContext(async (tx) => {
@@ -21,7 +28,7 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         name: items.name,
         sku: items.sku,
         itemType: items.itemType,
-        inStock: items.inStock,
+        inStock: inStockSubquery,
         unit: unitDefinitions.name,
         category: items.category,
       })
@@ -45,7 +52,7 @@ export async function getItem(id: string) {
         description: items.description,
         unitDefinitionId: items.unitDefinitionId,
         defaultPurchasePrice: items.defaultPurchasePrice,
-        inStock: items.inStock,
+        inStock: inStockSubquery,
         unitName: unitDefinitions.name,
         unitSize: unitDefinitions.size,
         unitUom: unitDefinitions.uom,
@@ -105,13 +112,52 @@ export async function getCategories(): Promise<string[]> {
   });
 }
 
-export async function createItem(data: InsertItem): Promise<{ id: string }> {
+export async function getLots(itemId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: lots.id,
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+        costPerUnit: lots.costPerUnit,
+        receivedAt: lots.receivedAt,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId))
+      .orderBy(lots.receivedAt);
+  });
+}
+
+async function generateLotNumber(tx: Tx): Promise<string> {
+  const result = await tx.execute(
+    sql`SELECT nextval('inventory.lot_number_seq') AS val`
+  );
+  const val = Number((result.rows[0] as { val: string }).val);
+  return `LOT-${String(val).padStart(6, "0")}`;
+}
+
+export async function createItemWithLot(
+  data: Omit<InsertItem, "initialStock">,
+  initialStock: string,
+): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const [row] = await tx
+    const [item] = await tx
       .insert(items)
       .values({ ...data, organizationId: orgId })
       .returning({ id: items.id });
-    return row;
+
+    if (parseFloat(initialStock) > 0) {
+      const lotNumber = await generateLotNumber(tx);
+      await tx.insert(lots).values({
+        organizationId: orgId,
+        itemId: item.id,
+        lotNumber,
+        quantity: initialStock,
+        costPerUnit: data.defaultPurchasePrice ?? null,
+      });
+    }
+
+    return item;
   });
 }
 

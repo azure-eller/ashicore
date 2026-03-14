@@ -57,6 +57,13 @@
       "when": 1773020380147,
       "tag": "0007_spotty_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773442484503,
+      "tag": "0008_pretty_gravity",
+      "breakpoints": true
     }
   ]
 }

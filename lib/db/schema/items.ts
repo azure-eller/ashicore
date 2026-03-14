@@ -31,7 +31,6 @@ export const items = inventorySchema
         .references(() => unitDefinitions.id),
 
       // Stock
-      inStock: numeric("in_stock", { precision: 12, scale: 4 }).notNull().default("0"),
       safetyStock: numeric("safety_stock", { precision: 12, scale: 4 }).notNull().default("0"),
       committedQty: numeric("committed_qty", { precision: 12, scale: 4 }).notNull().default("0"),
       expectedQty: numeric("expected_qty", { precision: 12, scale: 4 }).notNull().default("0"),

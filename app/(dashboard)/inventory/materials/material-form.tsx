@@ -122,7 +122,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           name: "",
           itemType: "material" as const,
           unitDefinitionId: "",
-          inStock: "0",
+          initialStock: "0",
         },
   });
 
@@ -403,7 +403,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
 
                   {!initialData && (
                     <Controller
-                      name="inStock"
+                      name="initialStock"
                       control={form.control}
                       render={({ field, fieldState }) => (
                         <Field data-invalid={fieldState.invalid}>
