@@ -123,7 +123,6 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             ? String(parseFloat(initialData.defaultPurchasePrice))
             : null,
           newStock: String(parseFloat(initialData.inStock)),
-          stockAdjustmentCostPerUnit: initialData.defaultPurchasePrice,
         }
       : {
           name: "",
@@ -132,14 +131,6 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           initialStock: "0",
         },
   });
-
-  const watchedNewStock = form.watch("newStock");
-  const currentStock = initialData ? parseFloat(initialData.inStock) : 0;
-  const newStockValue = watchedNewStock != null && watchedNewStock !== ""
-    ? parseFloat(watchedNewStock)
-    : NaN;
-  const stockChanged = initialData && !isNaN(newStockValue) && newStockValue !== currentStock;
-  const stockIncreasing = initialData && !isNaN(newStockValue) && newStockValue > currentStock;
 
   const [formError, setFormError] = useState<string | null>(null);
   const [unitError, setUnitError] = useState<string | null>(null);
@@ -384,14 +375,14 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             <FieldSeparator />
 
             <FieldSet>
-              <FieldLegend>{initialData ? "Pricing" : "Pricing & Stock"}</FieldLegend>
+              <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
                 {initialData
-                  ? "Update the default purchase price for this material."
+                  ? "Update the purchase price and stock level."
                   : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
-                <div className={initialData ? undefined : "grid grid-cols-2 gap-4"}>
+                <div className="grid grid-cols-2 gap-4">
                   <Controller
                     name="defaultPurchasePrice"
                     control={form.control}
@@ -416,7 +407,29 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     )}
                   />
 
-                  {!initialData && (
+                  {initialData ? (
+                    <Controller
+                      name="newStock"
+                      control={form.control}
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
+                          <Input
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            aria-invalid={fieldState.invalid}
+                            placeholder={String(parseFloat(initialData.inStock))}
+                            inputMode="decimal"
+                            autoComplete="off"
+                          />
+                          {fieldState.invalid && (
+                            <FieldError errors={[fieldState.error]} />
+                          )}
+                        </Field>
+                      )}
+                    />
+                  ) : (
                     <Controller
                       name="initialStock"
                       control={form.control}
@@ -441,132 +454,6 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                 </div>
               </FieldGroup>
             </FieldSet>
-
-            {initialData && (
-              <>
-                <FieldSeparator />
-                <FieldSet>
-                  <FieldLegend>Stock</FieldLegend>
-                  <FieldDescription>
-                    Change the stock level. The system will create or adjust lots automatically.
-                  </FieldDescription>
-                  <FieldGroup>
-                    <Field>
-                      <FieldLabel>Current Stock</FieldLabel>
-                      <p className="text-sm py-2">
-                        {parseFloat(initialData.inStock)} {initialData.unitName}
-                      </p>
-                    </Field>
-
-                    <Controller
-                      name="newStock"
-                      control={form.control}
-                      render={({ field, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>New Stock</FieldLabel>
-                          <Input
-                            {...field}
-                            id={field.name}
-                            value={field.value ?? ""}
-                            aria-invalid={fieldState.invalid}
-                            placeholder={String(parseFloat(initialData.inStock))}
-                            inputMode="decimal"
-                            autoComplete="off"
-                          />
-                          {fieldState.invalid && (
-                            <FieldError errors={[fieldState.error]} />
-                          )}
-                        </Field>
-                      )}
-                    />
-
-                    {stockChanged && (
-                      <>
-                        <Controller
-                          name="stockAdjustmentReason"
-                          control={form.control}
-                          render={({ field, fieldState }) => (
-                            <Field data-invalid={fieldState.invalid}>
-                              <FieldLabel htmlFor={field.name}>Reason</FieldLabel>
-                              <Select
-                                name={field.name}
-                                value={field.value ?? ""}
-                                onValueChange={field.onChange}
-                              >
-                                <SelectTrigger
-                                  id={field.name}
-                                  aria-invalid={fieldState.invalid}
-                                  className="w-full"
-                                >
-                                  <SelectValue placeholder="Select a reason" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="adjustment">Adjustment</SelectItem>
-                                  <SelectItem value="return">Return</SelectItem>
-                                  <SelectItem value="write_off">Write-off</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              {fieldState.invalid && (
-                                <FieldError errors={[fieldState.error]} />
-                              )}
-                            </Field>
-                          )}
-                        />
-
-                        {stockIncreasing && (
-                          <Controller
-                            name="stockAdjustmentCostPerUnit"
-                            control={form.control}
-                            render={({ field, fieldState }) => (
-                              <Field data-invalid={fieldState.invalid}>
-                                <FieldLabel htmlFor={field.name}>Cost / Unit</FieldLabel>
-                                <Input
-                                  {...field}
-                                  id={field.name}
-                                  value={field.value ?? ""}
-                                  aria-invalid={fieldState.invalid}
-                                  placeholder="Defaults to purchase price"
-                                  inputMode="decimal"
-                                  autoComplete="off"
-                                />
-                                <FieldDescription>
-                                  Leave blank to use the default purchase price.
-                                </FieldDescription>
-                                {fieldState.invalid && (
-                                  <FieldError errors={[fieldState.error]} />
-                                )}
-                              </Field>
-                            )}
-                          />
-                        )}
-
-                        <Controller
-                          name="stockAdjustmentNotes"
-                          control={form.control}
-                          render={({ field, fieldState }) => (
-                            <Field data-invalid={fieldState.invalid}>
-                              <FieldLabel htmlFor={field.name}>Notes</FieldLabel>
-                              <Textarea
-                                {...field}
-                                id={field.name}
-                                value={field.value ?? ""}
-                                aria-invalid={fieldState.invalid}
-                                placeholder="Optional notes about this adjustment"
-                                rows={2}
-                                autoComplete="off"
-                              />
-                              {fieldState.invalid && (
-                                <FieldError errors={[fieldState.error]} />
-                              )}
-                            </Field>
-                          )}
-                        />
-                      </>
-                    )}
-                  </FieldGroup>
-                </FieldSet>
-              </>
-            )}
           </FieldGroup>
         </form>
         {formError && <FieldError className="mt-2">{formError}</FieldError>}

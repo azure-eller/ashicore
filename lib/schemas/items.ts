@@ -50,9 +50,6 @@ export const updateItemWithStockSchema = updateItemSchema.extend({
     (v) => !v || parseFloat(v) >= 0,
     "Must be a non-negative number"
   ).optional(),
-  stockAdjustmentReason: z.enum(["adjustment", "return", "write_off"]).optional(),
-  stockAdjustmentCostPerUnit: z.string().nullable().optional(),
-  stockAdjustmentNotes: z.string().nullable().optional(),
 });
 
 export type UpdateItemWithStock = z.infer<typeof updateItemWithStockSchema>;

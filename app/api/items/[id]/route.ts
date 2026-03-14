@@ -8,28 +8,14 @@ type RouteContext = { params: Promise<{ id: string }> };
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
-  const {
-    newStock,
-    stockAdjustmentReason,
-    stockAdjustmentCostPerUnit,
-    stockAdjustmentNotes,
-    ...itemData
-  } = updateItemWithStockSchema.parse(body);
+  const { newStock, ...itemData } = updateItemWithStockSchema.parse(body);
 
-  // Build stock adjustment if stock is being changed
+  // Build stock adjustment if stock value was provided
   let stockAdjustment: Parameters<typeof updateItemWithStock>[2] | undefined;
   if (newStock != null) {
-    if (!stockAdjustmentReason) {
-      return NextResponse.json(
-        { errors: { stockAdjustmentReason: ["Reason is required when adjusting stock"] } },
-        { status: 400 }
-      );
-    }
     stockAdjustment = {
       newStock: parseFloat(newStock),
-      reason: stockAdjustmentReason,
-      costPerUnit: stockAdjustmentCostPerUnit,
-      notes: stockAdjustmentNotes,
+      reason: "adjustment",
     };
   }
 
