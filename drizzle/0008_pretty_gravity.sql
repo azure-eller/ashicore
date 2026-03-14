@@ -24,6 +24,6 @@ SELECT
   default_purchase_price,
   created_at
 FROM "inventory"."items"
-WHERE in_stock > 0 AND deleted_at IS NULL;--> statement-breakpoint
+WHERE deleted_at IS NULL;--> statement-breakpoint
 ALTER TABLE "inventory"."items" DROP COLUMN "in_stock";--> statement-breakpoint
 CREATE POLICY "lots_org_isolation" ON "inventory"."lots" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));
