@@ -10,7 +10,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
       id-token: write
     steps:
       - name: Checkout repository
@@ -22,6 +22,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          use_sticky_comment: true
           prompt: |
             Explain every change in this PR to someone learning JavaScript, TypeScript, and React.
 
@@ -31,4 +32,10 @@ jobs:
             3. Explain any syntax or patterns a Python developer wouldn't recognize
             4. If there's a shadcn/TanStack/Next.js pattern being used, explain it
 
-            Keep it conversational and simple. Post as a PR comment.
+            Keep it conversational and simple.
+          settings: |
+            {
+              "permissions": {
+                "defaultMode": "bypassPermissions"
+              }
+            }
