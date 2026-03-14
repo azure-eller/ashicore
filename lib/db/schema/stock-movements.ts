@@ -1,6 +1,5 @@
 import {
   uuid,
-  varchar,
   text,
   numeric,
   timestamp,
@@ -23,9 +22,6 @@ export const stockMovements = inventorySchema
         .references(() => items.id),
       lotId: uuid("lot_id").references(() => lots.id),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
-      reason: varchar("reason", { length: 30 }).notNull(),
-      costPerUnit: numeric("cost_per_unit", { precision: 10, scale: 4 }),
-      notes: text("notes"),
       createdBy: text("created_by").notNull(),
       createdAt: timestamp("created_at").notNull().defaultNow(),
     },

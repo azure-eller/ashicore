@@ -117,11 +117,8 @@ export default async function MaterialDetailPage({
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Date</th>
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Reason</th>
                   <th className="px-4 py-2 text-right font-medium text-muted-foreground">Quantity</th>
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Lot</th>
-                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Cost / Unit</th>
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -132,15 +129,10 @@ export default async function MaterialDetailPage({
                       <td className="px-4 py-2">
                         {m.createdAt.toLocaleDateString("en-US")}
                       </td>
-                      <td className="px-4 py-2 capitalize">{m.reason.replace("_", " ")}</td>
                       <td className={`px-4 py-2 text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
                         {qty > 0 ? "+" : ""}{qty}
                       </td>
                       <td className="px-4 py-2 font-mono">{m.lotNumber ?? "—"}</td>
-                      <td className="px-4 py-2 text-right">{formatPrice(m.costPerUnit) ?? "—"}</td>
-                      <td className="px-4 py-2 text-muted-foreground max-w-[200px] truncate">
-                        {m.notes ?? "—"}
-                      </td>
                     </tr>
                   );
                 })}

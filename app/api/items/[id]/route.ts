@@ -10,17 +10,12 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const body = await request.json();
   const { newStock, ...itemData } = updateItemWithStockSchema.parse(body);
 
-  // Build stock adjustment if stock value was provided
-  let stockAdjustment: Parameters<typeof updateItemWithStock>[2] | undefined;
-  if (newStock != null) {
-    stockAdjustment = {
-      newStock: parseFloat(newStock),
-      reason: "adjustment",
-    };
-  }
-
   try {
-    const item = await updateItemWithStock(id, itemData, stockAdjustment);
+    const item = await updateItemWithStock(
+      id,
+      itemData,
+      newStock != null ? parseFloat(newStock) : undefined,
+    );
     if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }

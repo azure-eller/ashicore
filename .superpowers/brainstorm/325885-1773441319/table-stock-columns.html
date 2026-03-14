@@ -1,0 +1,170 @@
+<h2>How should stock data appear in the table?</h2>
+<p class="subtitle">Your current table has: Name, SKU, In Stock, Unit, Category. We need to add calculated stock and a safety stock alert.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family: monospace; font-size: 13px; line-height: 1.6; padding: 8px;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 2px solid #555; color: #888;">
+              <th style="padding: 6px 10px;">Name</th>
+              <th style="padding: 6px 10px;">SKU</th>
+              <th style="padding: 6px 10px;">In Stock</th>
+              <th style="padding: 6px 10px; color: #7cb3ff;">Available</th>
+              <th style="padding: 6px 10px;">Unit</th>
+              <th style="padding: 6px 10px;">Category</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #333;">
+              <td style="padding: 6px 10px;">Sand</td>
+              <td style="padding: 6px 10px;">MAT-001</td>
+              <td style="padding: 6px 10px;">500</td>
+              <td style="padding: 6px 10px;">430</td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Aggregate</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #333; background: rgba(239, 68, 68, 0.08);">
+              <td style="padding: 6px 10px; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50; display: inline-block;"></span>
+                Gravel
+              </td>
+              <td style="padding: 6px 10px;">MAT-002</td>
+              <td style="padding: 6px 10px;">50</td>
+              <td style="padding: 6px 10px; color: #ef4444;">15</td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Aggregate</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #333;">
+              <td style="padding: 6px 10px;">Topsoil</td>
+              <td style="padding: 6px 10px;">MAT-003</td>
+              <td style="padding: 6px 10px;">200</td>
+              <td style="padding: 6px 10px;">220</td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Soil</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: Replace "In Stock" with "Available"</h3>
+      <p>Show only the calculated value (<code>inStock - committed + expected</code>). Simpler table, but you lose visibility into the raw in-stock number.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family: monospace; font-size: 13px; line-height: 1.6; padding: 8px;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 2px solid #555; color: #888;">
+              <th style="padding: 6px 10px;">Name</th>
+              <th style="padding: 6px 10px;">SKU</th>
+              <th style="padding: 6px 10px;">In Stock</th>
+              <th style="padding: 6px 10px; color: #7cb3ff;">Available</th>
+              <th style="padding: 6px 10px;">Unit</th>
+              <th style="padding: 6px 10px;">Category</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #333;">
+              <td style="padding: 6px 10px;">Sand</td>
+              <td style="padding: 6px 10px;">MAT-001</td>
+              <td style="padding: 6px 10px;">500</td>
+              <td style="padding: 6px 10px;">430</td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Aggregate</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #333; background: rgba(239, 68, 68, 0.08);">
+              <td style="padding: 6px 10px; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%; display: inline-block;"></span>
+                Gravel
+              </td>
+              <td style="padding: 6px 10px;">MAT-002</td>
+              <td style="padding: 6px 10px;">50</td>
+              <td style="padding: 6px 10px; color: #ef4444;">15</td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Aggregate</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #333;">
+              <td style="padding: 6px 10px;">Topsoil</td>
+              <td style="padding: 6px 10px;">MAT-003</td>
+              <td style="padding: 6px 10px;">200</td>
+              <td style="padding: 6px 10px;">220</td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Soil</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: Keep "In Stock" + add "Available"</h3>
+      <p>Both columns visible. You see physical stock AND the adjusted calculated number side by side. More info, wider table.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family: monospace; font-size: 13px; line-height: 1.6; padding: 8px;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 2px solid #555; color: #888;">
+              <th style="padding: 6px 10px;">Name</th>
+              <th style="padding: 6px 10px;">SKU</th>
+              <th style="padding: 6px 10px; color: #7cb3ff;">Available</th>
+              <th style="padding: 6px 10px;">Unit</th>
+              <th style="padding: 6px 10px;">Category</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #333;">
+              <td style="padding: 6px 10px;">Sand</td>
+              <td style="padding: 6px 10px;">MAT-001</td>
+              <td style="padding: 6px 10px;">
+                430
+                <span style="color: #888; font-size: 11px; margin-left: 4px;" title="In Stock: 500 | Committed: 120 | Expected: 50">ⓘ</span>
+              </td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Aggregate</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #333; background: rgba(239, 68, 68, 0.08);">
+              <td style="padding: 6px 10px; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%; display: inline-block;"></span>
+                Gravel
+              </td>
+              <td style="padding: 6px 10px;">MAT-002</td>
+              <td style="padding: 6px 10px; color: #ef4444;">
+                15
+                <span style="color: #888; font-size: 11px; margin-left: 4px;" title="In Stock: 50 | Committed: 85 | Expected: 50">ⓘ</span>
+              </td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Aggregate</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #333;">
+              <td style="padding: 6px 10px;">Topsoil</td>
+              <td style="padding: 6px 10px;">MAT-003</td>
+              <td style="padding: 6px 10px;">
+                220
+                <span style="color: #888; font-size: 11px; margin-left: 4px;" title="In Stock: 200 | Committed: 30 | Expected: 50">ⓘ</span>
+              </td>
+              <td style="padding: 6px 10px;">ton</td>
+              <td style="padding: 6px 10px;">Soil</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C: "Available" with hover breakdown</h3>
+      <p>Single column shows the calculated value. Hovering the ⓘ icon reveals In Stock / Committed / Expected breakdown in a tooltip. Clean table, detail on demand.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Alert indicator (same across all options)</h3>
+  <p>When <strong>Available &lt; Safety Stock</strong>: red dot next to the item name + light red row background + red available number. Like Katana's approach — a single cohesive visual signal, not separate badges.</p>
+</div>

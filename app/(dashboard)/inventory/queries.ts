@@ -134,9 +134,6 @@ export async function getStockMovements(itemId: string) {
       .select({
         id: stockMovements.id,
         quantity: stockMovements.quantity,
-        reason: stockMovements.reason,
-        costPerUnit: stockMovements.costPerUnit,
-        notes: stockMovements.notes,
         createdBy: stockMovements.createdBy,
         createdAt: stockMovements.createdAt,
         lotNumber: lots.lotNumber,
@@ -163,13 +160,11 @@ async function fifoDeduct(
   tx: Tx,
   itemId: string,
   amount: number
-): Promise<Array<{ lotId: string; lotNumber: string; quantity: number; costPerUnit: string | null }>> {
+): Promise<Array<{ lotId: string; quantity: number }>> {
   const availableLots = await tx
     .select({
       id: lots.id,
-      lotNumber: lots.lotNumber,
       quantity: lots.quantity,
-      costPerUnit: lots.costPerUnit,
     })
     .from(lots)
     .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
@@ -187,7 +182,7 @@ async function fifoDeduct(
   }
 
   let remaining = amount;
-  const allocations: Array<{ lotId: string; lotNumber: string; quantity: number; costPerUnit: string | null }> = [];
+  const allocations: Array<{ lotId: string; quantity: number }> = [];
 
   for (const lot of availableLots) {
     if (remaining <= 0) break;
@@ -202,13 +197,7 @@ async function fifoDeduct(
       })
       .where(eq(lots.id, lot.id));
 
-    allocations.push({
-      lotId: lot.id,
-      lotNumber: lot.lotNumber,
-      quantity: deduct,
-      costPerUnit: lot.costPerUnit,
-    });
-
+    allocations.push({ lotId: lot.id, quantity: deduct });
     remaining -= deduct;
   }
 
@@ -222,8 +211,6 @@ async function adjustStockInTx(
   userId: string,
   itemId: string,
   delta: number,
-  reason: string,
-  opts?: { costPerUnit?: string | null; notes?: string | null }
 ): Promise<void> {
   if (delta > 0) {
     const lotNumber = await generateLotNumber(tx);
@@ -234,7 +221,6 @@ async function adjustStockInTx(
         itemId,
         lotNumber,
         quantity: delta.toString(),
-        costPerUnit: opts?.costPerUnit ?? null,
       })
       .returning({ id: lots.id });
 
@@ -243,9 +229,6 @@ async function adjustStockInTx(
       itemId,
       lotId: newLot.id,
       quantity: delta.toString(),
-      reason,
-      costPerUnit: opts?.costPerUnit ?? null,
-      notes: opts?.notes ?? null,
       createdBy: userId,
     });
   } else {
@@ -257,9 +240,6 @@ async function adjustStockInTx(
         itemId,
         lotId: alloc.lotId,
         quantity: (-alloc.quantity).toString(),
-        reason,
-        costPerUnit: alloc.costPerUnit,
-        notes: opts?.notes ?? null,
         createdBy: userId,
       });
     }
@@ -271,15 +251,9 @@ async function adjustStockInTx(
 export async function updateItemWithStock(
   id: string,
   itemData: UpdateItem,
-  stockAdjustment?: {
-    newStock: number;
-    reason: string;
-    costPerUnit?: string | null;
-    notes?: string | null;
-  }
+  newStock?: number,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    // 1. Update item metadata
     const [item] = await tx
       .update(items)
       .set({ ...itemData, updatedAt: new Date() })
@@ -288,22 +262,17 @@ export async function updateItemWithStock(
 
     if (!item) return null;
 
-    // 2. Adjust stock if requested
-    if (stockAdjustment) {
-      // Compute current stock from lots within this transaction
+    if (newStock != null) {
       const [stockResult] = await tx
         .select({ total: sql<string>`COALESCE(SUM(${lots.quantity}), 0)` })
         .from(lots)
         .where(eq(lots.itemId, id));
 
       const currentStock = parseFloat(stockResult.total);
-      const delta = stockAdjustment.newStock - currentStock;
+      const delta = newStock - currentStock;
 
       if (delta !== 0) {
-        await adjustStockInTx(tx, orgId, userId, id, delta, stockAdjustment.reason, {
-          costPerUnit: stockAdjustment.costPerUnit,
-          notes: stockAdjustment.notes,
-        });
+        await adjustStockInTx(tx, orgId, userId, id, delta);
       }
     }
 
@@ -336,8 +305,6 @@ export async function createItemWithLot(
         itemId: item.id,
         lotId: lot.id,
         quantity: initialStock,
-        reason: "initial",
-        costPerUnit: data.defaultPurchasePrice ?? null,
         createdBy: userId,
       });
     }

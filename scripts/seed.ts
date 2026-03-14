@@ -152,7 +152,7 @@ async function main() {
   // 5. Create initial stock movements for seeded lots
   const seededLots = await withOrgContext(orgId, async (tx) => {
     return tx
-      .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity, costPerUnit: lots.costPerUnit })
+      .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity })
       .from(lots);
   });
 
@@ -164,8 +164,6 @@ async function main() {
           itemId: lot.itemId,
           lotId: lot.id,
           quantity: lot.quantity,
-          reason: "initial",
-          costPerUnit: lot.costPerUnit,
           createdBy: "seed",
         });
       });
