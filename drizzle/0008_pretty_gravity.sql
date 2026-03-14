@@ -26,4 +26,6 @@ SELECT
 FROM "inventory"."items"
 WHERE deleted_at IS NULL;--> statement-breakpoint
 ALTER TABLE "inventory"."items" DROP COLUMN "in_stock";--> statement-breakpoint
+CREATE SEQUENCE "inventory"."lot_number_seq";--> statement-breakpoint
+SELECT setval('inventory.lot_number_seq', COALESCE((SELECT MAX(REPLACE(lot_number, 'LOT-', '')::bigint) FROM "inventory"."lots"), 0));--> statement-breakpoint
 CREATE POLICY "lots_org_isolation" ON "inventory"."lots" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));

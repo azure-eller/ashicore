@@ -26,7 +26,10 @@ export const insertItemSchema = createInsertSchema(items, {
   safetyStock: true,
   defaultSellingPrice: true,
 }).extend({
-  initialStock: z.string().default("0"),
+  initialStock: z.string().default("0").refine(
+    (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
+    "Must be a non-negative number"
+  ),
 });
 
 // Update schema: itemType, unitDefinitionId are immutable after creation.

@@ -128,18 +128,12 @@ export async function getLots(itemId: string) {
   });
 }
 
-// Lot numbers are sequential per org (LOT-000001, LOT-000002, etc.).
-// RLS scopes the MAX query to the current org automatically.
 async function generateLotNumber(tx: Tx): Promise<string> {
-  const [result] = await tx
-    .select({ maxLot: sql<string | null>`MAX(${lots.lotNumber})` })
-    .from(lots);
-
-  const current = result?.maxLot;
-  if (!current) return "LOT-000001";
-
-  const num = parseInt(current.replace("LOT-", ""), 10);
-  return `LOT-${String(num + 1).padStart(6, "0")}`;
+  const result = await tx.execute(
+    sql`SELECT nextval('inventory.lot_number_seq') AS val`
+  );
+  const val = Number((result.rows[0] as { val: string }).val);
+  return `LOT-${String(val).padStart(6, "0")}`;
 }
 
 export async function createItemWithLot(
@@ -152,15 +146,16 @@ export async function createItemWithLot(
       .values({ ...data, organizationId: orgId })
       .returning({ id: items.id });
 
-    const lotNumber = await generateLotNumber(tx);
-
-    await tx.insert(lots).values({
-      organizationId: orgId,
-      itemId: item.id,
-      lotNumber,
-      quantity: initialStock,
-      costPerUnit: data.defaultPurchasePrice ?? null,
-    });
+    if (parseFloat(initialStock) > 0) {
+      const lotNumber = await generateLotNumber(tx);
+      await tx.insert(lots).values({
+        organizationId: orgId,
+        itemId: item.id,
+        lotNumber,
+        quantity: initialStock,
+        costPerUnit: data.defaultPurchasePrice ?? null,
+      });
+    }
 
     return item;
   });
