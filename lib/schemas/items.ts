@@ -42,3 +42,17 @@ export const updateItemSchema = insertItemSchema.omit({
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
 export type UpdateItem = z.infer<typeof updateItemSchema>;
+
+// Schema for the API request that combines item metadata + optional stock adjustment.
+// Separate from updateItemSchema to avoid polluting the UpdateItem type.
+export const updateItemWithStockSchema = updateItemSchema.extend({
+  newStock: z.string().refine(
+    (v) => !v || parseFloat(v) >= 0,
+    "Must be a non-negative number"
+  ).optional(),
+  stockAdjustmentReason: z.enum(["adjustment", "return", "write_off"]).optional(),
+  stockAdjustmentCostPerUnit: z.string().nullable().optional(),
+  stockAdjustmentNotes: z.string().nullable().optional(),
+});
+
+export type UpdateItemWithStock = z.infer<typeof updateItemWithStockSchema>;
