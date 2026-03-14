@@ -15,7 +15,7 @@ export const insertItemSchema = createInsertSchema(items, {
   category: nullableString,
   defaultPurchasePrice: nullableString,
   description: nullableString,
-  safetyStock: z.string(),
+  safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
 }).omit({
   id: true,
   organizationId: true,

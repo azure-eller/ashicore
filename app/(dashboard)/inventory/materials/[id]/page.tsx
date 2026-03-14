@@ -14,6 +14,7 @@ export default async function MaterialDetailPage({
   const { id } = await params;
   const [item, itemLots] = await Promise.all([getItem(id), getLots(id)]);
   if (!item) redirect("/inventory/materials");
+  const calculatedStock = calcStock(item);
 
   return (
     <div className="space-y-6 p-6">
@@ -91,20 +92,15 @@ export default async function MaterialDetailPage({
             Calculated Stock
           </dt>
           <dd className="mt-1 text-sm">
-            {(() => {
-              const value = calcStock(item);
-              return (
-                <span className={value < 0 ? "inline-flex items-center gap-1.5 text-destructive" : undefined}>
-                  {value < 0 && (
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full bg-destructive"
-                      aria-label="Below safety stock"
-                    />
-                  )}
-                  {value} {item.unitName}
-                </span>
-              );
-            })()}
+            <span className={calculatedStock < 0 ? "inline-flex items-center gap-1.5 text-destructive" : undefined}>
+              {calculatedStock < 0 && (
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full bg-destructive"
+                  aria-label="Below safety stock"
+                />
+              )}
+              {calculatedStock} {item.unitName}
+            </span>
           </dd>
         </div>
       </dl>

@@ -23,10 +23,10 @@ export type ItemRow = {
 export function calcStock(
   row: Pick<ItemRow, "inStock" | "committedQty" | "expectedQty" | "safetyStock">,
 ): number {
-  return (
+  const result =
     parseFloat(row.inStock) -
     parseFloat(row.committedQty) +
     parseFloat(row.expectedQty) -
-    parseFloat(row.safetyStock)
-  );
+    parseFloat(row.safetyStock);
+  return Math.round(result * 10000) / 10000;
 }
