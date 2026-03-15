@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { updateItemWithStockSchema } from "@/lib/schemas/items";
-import { deleteItem, updateItemWithStock } from "@/app/(dashboard)/inventory/queries";
+import { updateItemSchema } from "@/lib/schemas/items";
+import { deleteItem, updateItem } from "@/app/(dashboard)/inventory/queries";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
-  const { stock, ...itemData } = updateItemWithStockSchema.parse(body);
+  const { stock, ...itemData } = updateItemSchema.parse(body);
 
   try {
-    const item = await updateItemWithStock(
+    const item = await updateItem(
       id,
       itemData,
       stock != null ? parseFloat(stock) : undefined,

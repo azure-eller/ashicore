@@ -64,17 +64,6 @@ export async function getItem(id: string) {
   });
 }
 
-export async function updateItem(id: string, data: UpdateItem) {
-  return withAuthedOrgContext(async (tx) => {
-    const [row] = await tx
-      .update(items)
-      .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(items.id, id), isNull(items.deletedAt)))
-      .returning({ id: items.id });
-    return row ?? null;
-  });
-}
-
 export async function deleteItem(id: string): Promise<boolean> {
   return withAuthedOrgContext(async (tx) => {
     const [row] = await tx
@@ -248,9 +237,9 @@ async function adjustStockInTx(
 
 // Update item metadata and optionally adjust stock in a single transaction.
 // If stock adjustment fails (e.g. insufficient stock), the entire update rolls back.
-export async function updateItemWithStock(
+export async function updateItem(
   id: string,
-  itemData: UpdateItem,
+  itemData: Omit<UpdateItem, "stock">,
   stock?: number,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {

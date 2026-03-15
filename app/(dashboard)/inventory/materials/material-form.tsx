@@ -7,9 +7,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   insertItemSchema,
-  updateItemWithStockSchema,
+  updateItemSchema,
   type InsertItem,
-  type UpdateItemWithStock,
+  type UpdateItem,
 } from "@/lib/schemas/items";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
@@ -110,8 +110,8 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
     return categories;
   }, [categoryInput, categories, categoriesSet]);
 
-  const form = useForm<InsertItem | UpdateItemWithStock>({
-    resolver: zodResolver(initialData ? updateItemWithStockSchema : insertItemSchema),
+  const form = useForm<InsertItem | UpdateItem>({
+    resolver: zodResolver(initialData ? updateItemSchema : insertItemSchema),
     mode: "onBlur",
     defaultValues: initialData
       ? {
@@ -136,7 +136,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
   const [unitError, setUnitError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async (data: InsertItem | UpdateItemWithStock) => {
+    mutationFn: async (data: InsertItem | UpdateItem) => {
       const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
       const method = initialData ? "PUT" : "POST";
       const res = await fetch(url, {
