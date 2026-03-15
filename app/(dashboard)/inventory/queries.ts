@@ -9,11 +9,11 @@ import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
 
-const inStockSubquery = sql<string>`(
+const stockSubquery = sql<string>`(
   SELECT COALESCE(SUM(${lots.quantity}), 0)
   FROM ${lots}
   WHERE ${lots.itemId} = ${items.id}
-)`.as("in_stock");
+)`.as("stock");
 
 export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
   return withAuthedOrgContext(async (tx) => {
@@ -28,7 +28,7 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         name: items.name,
         sku: items.sku,
         itemType: items.itemType,
-        inStock: inStockSubquery,
+        stock: stockSubquery,
         unit: unitDefinitions.name,
         category: items.category,
       })
@@ -52,7 +52,7 @@ export async function getItem(id: string) {
         description: items.description,
         unitDefinitionId: items.unitDefinitionId,
         defaultPurchasePrice: items.defaultPurchasePrice,
-        inStock: inStockSubquery,
+        stock: stockSubquery,
         unitName: unitDefinitions.name,
         unitSize: unitDefinitions.size,
         unitUom: unitDefinitions.uom,
@@ -251,7 +251,7 @@ async function adjustStockInTx(
 export async function updateItemWithStock(
   id: string,
   itemData: UpdateItem,
-  newStock?: number,
+  stock?: number,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -262,14 +262,14 @@ export async function updateItemWithStock(
 
     if (!item) return null;
 
-    if (newStock != null) {
+    if (stock != null) {
       const [stockResult] = await tx
         .select({ total: sql<string>`COALESCE(SUM(${lots.quantity}), 0)` })
         .from(lots)
         .where(eq(lots.itemId, id));
 
       const currentStock = parseFloat(stockResult.total);
-      const delta = newStock - currentStock;
+      const delta = stock - currentStock;
 
       if (delta !== 0) {
         await adjustStockInTx(tx, orgId, userId, id, delta);
@@ -281,8 +281,8 @@ export async function updateItemWithStock(
 }
 
 export async function createItemWithLot(
-  data: Omit<InsertItem, "initialStock">,
-  initialStock: string,
+  data: Omit<InsertItem, "stock">,
+  stock: string,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -290,13 +290,13 @@ export async function createItemWithLot(
       .values({ ...data, organizationId: orgId })
       .returning({ id: items.id });
 
-    if (parseFloat(initialStock) > 0) {
+    if (parseFloat(stock) > 0) {
       const lotNumber = await generateLotNumber(tx);
       const [lot] = await tx.insert(lots).values({
         organizationId: orgId,
         itemId: item.id,
         lotNumber,
-        quantity: initialStock,
+        quantity: stock,
         costPerUnit: data.defaultPurchasePrice ?? null,
       }).returning({ id: lots.id });
 
@@ -304,7 +304,7 @@ export async function createItemWithLot(
         organizationId: orgId,
         itemId: item.id,
         lotId: lot.id,
-        quantity: initialStock,
+        quantity: stock,
         createdBy: userId,
       });
     }

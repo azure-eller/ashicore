@@ -12,7 +12,7 @@ export type ItemRow = {
   name: string;
   sku: string | null;
   itemType: ItemType;
-  inStock: string;
+  stock: string;
   unit: string;
   category: string | null;
 };

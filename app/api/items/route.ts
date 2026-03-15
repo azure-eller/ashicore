@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
 export const POST = apiHandler(async (request) => {
   const body = await request.json();
-  const { initialStock, ...data } = insertItemSchema.parse(body);
-  const item = await createItemWithLot(data, initialStock);
+  const { stock, ...data } = insertItemSchema.parse(body);
+  const item = await createItemWithLot(data, stock);
   return NextResponse.json(item, { status: 201 });
 });

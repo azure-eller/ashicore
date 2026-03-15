@@ -79,7 +79,7 @@ interface MaterialFormProps {
     unitSize: string;
     unitUom: string;
     defaultPurchasePrice: string | null;
-    inStock: string;
+    stock: string;
   };
 }
 
@@ -122,13 +122,13 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           defaultPurchasePrice: initialData.defaultPurchasePrice != null
             ? String(parseFloat(initialData.defaultPurchasePrice))
             : null,
-          newStock: String(parseFloat(initialData.inStock)),
+          stock: String(parseFloat(initialData.stock)),
         }
       : {
           name: "",
           itemType: "material" as const,
           unitDefinitionId: "",
-          initialStock: "0",
+          stock: "0",
         },
   });
 
@@ -377,9 +377,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             <FieldSet>
               <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
-                {initialData
-                  ? "Update the purchase price and stock level."
-                  : "Set the default purchase price and starting inventory."}
+                Set the purchase price and stock level.
               </FieldDescription>
               <FieldGroup>
                 <div className="grid grid-cols-2 gap-4">
@@ -407,50 +405,27 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     )}
                   />
 
-                  {initialData ? (
-                    <Controller
-                      name="newStock"
-                      control={form.control}
-                      render={({ field, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
-                          <Input
-                            {...field}
-                            id={field.name}
-                            value={field.value ?? ""}
-                            aria-invalid={fieldState.invalid}
-                            placeholder={String(parseFloat(initialData.inStock))}
-                            inputMode="decimal"
-                            autoComplete="off"
-                          />
-                          {fieldState.invalid && (
-                            <FieldError errors={[fieldState.error]} />
-                          )}
-                        </Field>
-                      )}
-                    />
-                  ) : (
-                    <Controller
-                      name="initialStock"
-                      control={form.control}
-                      render={({ field, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>Initial Stock</FieldLabel>
-                          <Input
-                            {...field}
-                            id={field.name}
-                            aria-invalid={fieldState.invalid}
-                            placeholder="0"
-                            inputMode="decimal"
-                            autoComplete="off"
-                          />
-                          {fieldState.invalid && (
-                            <FieldError errors={[fieldState.error]} />
-                          )}
-                        </Field>
-                      )}
-                    />
-                  )}
+                  <Controller
+                    name="stock"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
                 </div>
               </FieldGroup>
             </FieldSet>

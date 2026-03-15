@@ -67,9 +67,9 @@ export default async function MaterialDetailPage({
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
-            In Stock
+            Stock
           </dt>
-          <dd className="mt-1 text-sm">{parseFloat(item.inStock)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">{parseFloat(item.stock)} {item.unitName}</dd>
         </div>
       </dl>
 

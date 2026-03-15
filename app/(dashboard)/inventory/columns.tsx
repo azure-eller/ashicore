@@ -73,11 +73,11 @@ export const columns: ColumnDef<ItemRow>[] = [
     cell: ({ row }) => (row.getValue("sku") as string | null) ?? "—",
   },
   {
-    accessorKey: "inStock",
+    accessorKey: "stock",
     sortingFn: (rowA, rowB) =>
-      parseFloat(rowA.getValue("inStock")) - parseFloat(rowB.getValue("inStock")),
-    header: ({ column }) => <SortableHeader column={column} label="In Stock" />,
-    cell: ({ row }) => parseFloat(row.getValue("inStock")),
+      parseFloat(rowA.getValue("stock")) - parseFloat(rowB.getValue("stock")),
+    header: ({ column }) => <SortableHeader column={column} label="Stock" />,
+    cell: ({ row }) => parseFloat(row.getValue("stock")),
   },
   {
     accessorKey: "unit",

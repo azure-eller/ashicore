@@ -8,13 +8,13 @@ type RouteContext = { params: Promise<{ id: string }> };
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
-  const { newStock, ...itemData } = updateItemWithStockSchema.parse(body);
+  const { stock, ...itemData } = updateItemWithStockSchema.parse(body);
 
   try {
     const item = await updateItemWithStock(
       id,
       itemData,
-      newStock != null ? parseFloat(newStock) : undefined,
+      stock != null ? parseFloat(stock) : undefined,
     );
     if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -23,7 +23,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Stock adjustment failed";
     return NextResponse.json(
-      { errors: { newStock: [message] } },
+      { errors: { stock: [message] } },
       { status: 400 }
     );
   }
