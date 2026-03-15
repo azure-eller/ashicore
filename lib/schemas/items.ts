@@ -26,19 +26,25 @@ export const insertItemSchema = createInsertSchema(items, {
   expectedQty: true,
   defaultSellingPrice: true,
 }).extend({
-  initialStock: z.string().default("0").refine(
+  stock: z.string().default("0").refine(
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
   ),
 });
 
+export type InsertItem = z.infer<typeof insertItemSchema>;
+
 // Update schema: itemType, unitDefinitionId are immutable after creation.
-// initialStock only applies at creation (populates the default lot).
+// stock is optional — if provided, triggers a stock adjustment.
 export const updateItemSchema = insertItemSchema.omit({
   itemType: true,
   unitDefinitionId: true,
-  initialStock: true,
+  stock: true,
+}).extend({
+  stock: z.string().refine(
+    (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
+    "Must be a non-negative number"
+  ).optional(),
 });
 
-export type InsertItem = z.infer<typeof insertItemSchema>;
 export type UpdateItem = z.infer<typeof updateItemSchema>;

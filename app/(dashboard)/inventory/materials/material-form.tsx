@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { insertItemSchema, updateItemSchema, type InsertItem, type UpdateItem } from "@/lib/schemas/items";
+import {
+  insertItemSchema,
+  updateItemSchema,
+  type InsertItem,
+  type UpdateItem,
+} from "@/lib/schemas/items";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,7 +79,7 @@ interface MaterialFormProps {
     unitSize: string;
     unitUom: string;
     defaultPurchasePrice: string | null;
-    inStock: string;
+    stock: string;
     safetyStock: string;
   };
 }
@@ -118,13 +123,14 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           defaultPurchasePrice: initialData.defaultPurchasePrice != null
             ? String(parseFloat(initialData.defaultPurchasePrice))
             : null,
+          stock: String(parseFloat(initialData.stock)),
           safetyStock: String(parseFloat(initialData.safetyStock)),
         }
       : {
           name: "",
           itemType: "material" as const,
           unitDefinitionId: "",
-          initialStock: "0",
+          stock: "0",
           safetyStock: "0",
         },
   });
@@ -375,7 +381,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
               <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
                 {initialData
-                  ? "Update the default purchase price and safety stock threshold for this material."
+                  ? "Update the purchase price, stock level, and safety stock threshold."
                   : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
@@ -404,28 +410,27 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     )}
                   />
 
-                  {!initialData && (
-                    <Controller
-                      name="initialStock"
-                      control={form.control}
-                      render={({ field, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>Initial Stock</FieldLabel>
-                          <Input
-                            {...field}
-                            id={field.name}
-                            aria-invalid={fieldState.invalid}
-                            placeholder="0"
-                            inputMode="decimal"
-                            autoComplete="off"
-                          />
-                          {fieldState.invalid && (
-                            <FieldError errors={[fieldState.error]} />
-                          )}
-                        </Field>
-                      )}
-                    />
-                  )}
+                  <Controller
+                    name="stock"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
 
                   <Controller
                     name="safetyStock"

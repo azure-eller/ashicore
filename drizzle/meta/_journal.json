@@ -64,6 +64,20 @@
       "when": 1773442484503,
       "tag": "0008_pretty_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773507540751,
+      "tag": "0009_cloudy_darwin",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1773529848868,
+      "tag": "0010_parched_spiral",
+      "breakpoints": true
     }
   ]
 }
