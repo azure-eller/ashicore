@@ -28,5 +28,14 @@ jobs:
           track_progress: true
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          claude_args: '--allowedTools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git log:*),Bash(git blame:*),Bash(git show:*),Bash(git diff:*),Read,Glob,Grep,Agent"'
+          prompt: |
+            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+
+            IMPORTANT additional step: After the code review plugin finishes and posts its summary comment, also post each issue as an inline comment on the specific file and line using `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`. Include a suggested fix in the inline comment body when possible, using GitHub's suggestion syntax:
+
+            ```suggestion
+            corrected code here
+            ```
+
+            This lets the PR author apply fixes directly from the review.
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git log:*),Bash(git blame:*),Bash(git show:*),Bash(git diff:*),Read,Glob,Grep,Agent"'
