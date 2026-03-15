@@ -6,6 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { SortByDown02Icon, SortByUp02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { calcStock } from "./types";
 import type { ItemRow } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
@@ -57,11 +58,18 @@ export const columns: ColumnDef<ItemRow>[] = [
     header: ({ column }) => <SortableHeader column={column} label="Name" />,
     cell: ({ row }) => {
       // TODO: /inventory/products/[id] does not exist yet — will 404 for product rows
+      const isLow = calcStock(row.original) < 0;
       return (
         <Link
           href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
-          className="hover:underline"
+          className="inline-flex items-center gap-1.5 hover:underline"
         >
+          {isLow && (
+            <span
+              className="h-2 w-2 shrink-0 rounded-full bg-destructive"
+              aria-label="Below safety stock"
+            />
+          )}
           {row.getValue("name")}
         </Link>
       );
@@ -78,6 +86,21 @@ export const columns: ColumnDef<ItemRow>[] = [
       parseFloat(rowA.getValue("inStock")) - parseFloat(rowB.getValue("inStock")),
     header: ({ column }) => <SortableHeader column={column} label="In Stock" />,
     cell: ({ row }) => parseFloat(row.getValue("inStock")),
+  },
+  {
+    id: "calculatedStock",
+    sortingFn: (rowA, rowB) => calcStock(rowA.original) - calcStock(rowB.original),
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Calculated Stock" />
+    ),
+    cell: ({ row }) => {
+      const value = calcStock(row.original);
+      return (
+        <span className={value < 0 ? "text-destructive" : undefined}>
+          {value}
+        </span>
+      );
+    },
   },
   {
     accessorKey: "unit",
