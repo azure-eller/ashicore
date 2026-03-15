@@ -12,20 +12,16 @@ import { ITEM_TYPE_SEGMENTS } from "./types";
 
 function SortableHeader({ column, label }: { column: Column<ItemRow>; label: string }) {
   const sorted = column.getIsSorted();
+  const icon = sorted === "asc" ? SortByUp02Icon : SortByDown02Icon;
   return (
     <Button
       variant="ghost"
+      className="-ml-3"
       onClick={() => column.toggleSorting(sorted === "asc")}
       aria-label={`Sort by ${label}${sorted === "asc" ? ", sorted ascending" : sorted === "desc" ? ", sorted descending" : ""}`}
     >
       {label}
-      {sorted && (
-        <HugeiconsIcon
-          icon={sorted === "asc" ? SortByUp02Icon : SortByDown02Icon}
-          className="ml-2 h-4 w-4"
-          aria-hidden
-        />
-      )}
+      <HugeiconsIcon icon={icon} className="ml-2 h-4 w-4" aria-hidden />
     </Button>
   );
 }
