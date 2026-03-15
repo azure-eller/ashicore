@@ -21,11 +21,13 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     }
     return NextResponse.json(item);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Stock adjustment failed";
-    return NextResponse.json(
-      { errors: { stock: [message] } },
-      { status: 400 }
-    );
+    if (error instanceof Error && error.message === "Insufficient stock") {
+      return NextResponse.json(
+        { errors: { newStock: [error.message] } },
+        { status: 400 }
+      );
+    }
+    throw error;
   }
 });
 
