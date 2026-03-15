@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getItem, getLots, getStockMovements } from "@/app/(dashboard)/inventory/queries";
+import { calcStock } from "@/app/(dashboard)/inventory/types";
 import { formatPrice } from "@/lib/format";
 
 export default async function MaterialDetailPage({
@@ -17,6 +18,7 @@ export default async function MaterialDetailPage({
     getStockMovements(id),
   ]);
   if (!item) redirect("/inventory/materials");
+  const calculatedStock = calcStock(item);
 
   return (
     <div className="space-y-6 p-6">
@@ -70,6 +72,40 @@ export default async function MaterialDetailPage({
             Stock
           </dt>
           <dd className="mt-1 text-sm">{parseFloat(item.stock)} {item.unitName}</dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Committed</dt>
+          <dd className="mt-1 text-sm">
+            {parseFloat(item.committedQty)} {item.unitName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Expected</dt>
+          <dd className="mt-1 text-sm">
+            {parseFloat(item.expectedQty)} {item.unitName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Safety Stock</dt>
+          <dd className="mt-1 text-sm">
+            {parseFloat(item.safetyStock)} {item.unitName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">
+            Calculated Stock
+          </dt>
+          <dd className="mt-1 text-sm">
+            <span className={calculatedStock < 0 ? "inline-flex items-center gap-1.5 text-destructive" : undefined}>
+              {calculatedStock < 0 && (
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full bg-destructive"
+                  aria-label="Below safety stock"
+                />
+              )}
+              {calculatedStock} {item.unitName}
+            </span>
+          </dd>
         </div>
       </dl>
 

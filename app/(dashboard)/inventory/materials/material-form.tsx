@@ -80,6 +80,7 @@ interface MaterialFormProps {
     unitUom: string;
     defaultPurchasePrice: string | null;
     stock: string;
+    safetyStock: string;
   };
 }
 
@@ -123,12 +124,14 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             ? String(parseFloat(initialData.defaultPurchasePrice))
             : null,
           stock: String(parseFloat(initialData.stock)),
+          safetyStock: String(parseFloat(initialData.safetyStock)),
         }
       : {
           name: "",
           itemType: "material" as const,
           unitDefinitionId: "",
           stock: "0",
+          safetyStock: "0",
         },
   });
 
@@ -377,7 +380,9 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
             <FieldSet>
               <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
-                Set the purchase price and stock level.
+                {initialData
+                  ? "Update the purchase price, stock level, and safety stock threshold."
+                  : "Set the default purchase price and starting inventory."}
               </FieldDescription>
               <FieldGroup>
                 <div className="grid grid-cols-2 gap-4">
@@ -411,6 +416,28 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+
+                  <Controller
+                    name="safetyStock"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>Safety Stock</FieldLabel>
                         <Input
                           {...field}
                           id={field.name}

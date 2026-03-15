@@ -1,0 +1,56 @@
+# Architecture
+
+## Module Map
+
+The ERP is built module by module. Current and planned inventory domains:
+
+| Module | Status | Description |
+|--------|--------|-------------|
+| Materials | Active | Raw inputs — purchased items tracked by lot, UOM, and SKU |
+| Products | Planned | Manufactured outputs — defined by a BOM of materials |
+| BOM (Bill of Materials) | Planned | Lines linking a product to its component materials with quantities |
+| Orders | Planned | Purchase and production orders |
+| Customers / Suppliers | Planned | Master data for trading partners |
+
+> When pulling logic from the old repo (`/home/aeller/Projects/soil-erp`), take only the data model and business logic. Rewrite all UI to match current patterns.
+
+## Data Flow
+
+```
+Page component
+  → TanStack Query (useQuery / useMutation)
+    → fetch to API route (app/api/...)
+      → apiHandler wrapper (lib/api/handler.ts)
+        → DAL query function (app/(dashboard)/inventory/queries.ts)
+          → withAuthedOrgContext (lib/dal/auth.ts)
+            → withOrgContext sets RLS (lib/db/with-org-context.ts)
+              → Drizzle ORM query
+                → Neon Postgres
+```
+
+**Read path**: page → useQuery → GET route → DAL → DB
+**Write path**: form submit → useMutation → POST/PATCH/DELETE route → apiHandler → DAL → DB → invalidate query
+
+## Layer Rules
+
+| Layer | Can import from | Cannot import from |
+|-------|----------------|--------------------|
+| Pages / components | hooks, lib/schemas, lib/utils | lib/db, lib/dal directly |
+| API routes | lib/api/handler, lib/schemas, DAL queries | lib/db directly |
+| DAL query functions | lib/db (via withAuthedOrgContext tx) | — |
+| lib/schemas | lib/db/schema (for createInsertSchema) | DAL, API |
+
+## Key File Locations
+
+| Concern | Path |
+|---------|------|
+| API routes | `app/api/` |
+| DAL queries (inventory) | `app/(dashboard)/inventory/queries.ts` |
+| DAL auth wrapper | `lib/dal/auth.ts` |
+| RLS org context setter | `lib/db/with-org-context.ts` |
+| Drizzle schemas | `lib/db/schema/` |
+| Zod schemas | `lib/schemas/` |
+| API handler wrapper | `lib/api/handler.ts` |
+| shadcn component config | `components.json` |
+| Canonical form example | `app/(dashboard)/inventory/materials/material-form.tsx` |
+| Canonical table example | `app/(dashboard)/inventory/data-table.tsx` |
