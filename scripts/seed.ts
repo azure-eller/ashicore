@@ -156,8 +156,15 @@ async function main() {
       .from(lots);
   });
 
+  const existingMovementLotIds = await withOrgContext(orgId, async (tx) => {
+    const rows = await tx
+      .select({ lotId: stockMovements.lotId })
+      .from(stockMovements);
+    return new Set(rows.map((r) => r.lotId));
+  });
+
   for (const lot of seededLots) {
-    if (parseFloat(lot.quantity) > 0) {
+    if (parseFloat(lot.quantity) > 0 && !existingMovementLotIds.has(lot.id)) {
       await withOrgContext(orgId, async (tx) => {
         await tx.insert(stockMovements).values({
           organizationId: orgId,
@@ -165,7 +172,7 @@ async function main() {
           lotId: lot.id,
           quantity: lot.quantity,
           createdBy: "seed",
-        }).onConflictDoNothing();
+        });
       });
     }
   }

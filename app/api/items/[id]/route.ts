@@ -21,9 +21,9 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     }
     return NextResponse.json(item);
   } catch (error) {
-    if (error instanceof Error && error.message === "Insufficient stock") {
+    if (error instanceof Error && error.message.startsWith("Insufficient stock")) {
       return NextResponse.json(
-        { errors: { newStock: [error.message] } },
+        { errors: { stock: [error.message] } },
         { status: 400 }
       );
     }
