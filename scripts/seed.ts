@@ -165,7 +165,7 @@ async function main() {
           lotId: lot.id,
           quantity: lot.quantity,
           createdBy: "seed",
-        });
+        }).onConflictDoNothing();
       });
     }
   }
