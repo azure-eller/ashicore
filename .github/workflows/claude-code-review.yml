@@ -26,16 +26,65 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           track_progress: true
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
           prompt: |
-            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            Provide a code review for pull request ${{ github.event.pull_request.number }} in ${{ github.repository }}.
 
-            IMPORTANT additional step: After the code review plugin finishes and posts its summary comment, also post each issue as an inline comment on the specific file and line using `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`. Include a suggested fix in the inline comment body when possible, using GitHub's suggestion syntax:
+            Follow these steps precisely:
 
-            ```suggestion
-            corrected code here
-            ```
+            1. Use a Haiku agent to check if the pull request (a) is closed, (b) is a draft, (c) does not need a code review (eg. because it is an automated pull request, or is very simple and obviously ok), or (d) already has a code review from you from earlier. If so, do not proceed.
+            2. Use another Haiku agent to give you a list of file paths to (but not the contents of) any relevant CLAUDE.md files from the codebase: the root CLAUDE.md file (if one exists), as well as any CLAUDE.md files in the directories whose files the pull request modified
+            3. Use a Haiku agent to view the pull request, and ask the agent to return a summary of the change
+            4. Then, launch 5 parallel Sonnet agents to independently code review the change. The agents should do the following, then return a list of issues and the reason each issue was flagged (eg. CLAUDE.md adherence, bug, historical git context, etc.):
+               a. Agent #1: Audit the changes to make sure they comply with the CLAUDE.md. Note that CLAUDE.md is guidance for Claude as it writes code, so not all instructions will be applicable during code review.
+               b. Agent #2: Read the file changes in the pull request, then do a shallow scan for obvious bugs. Avoid reading extra context beyond the changes, focusing just on the changes themselves. Focus on large bugs, and avoid small issues and nitpicks. Ignore likely false positives.
+               c. Agent #3: Read the git blame and history of the code modified, to identify any bugs in light of that historical context
+               d. Agent #4: Read previous pull requests that touched these files, and check for any comments on those pull requests that may also apply to the current pull request.
+               e. Agent #5: Read code comments in the modified files, and make sure the changes in the pull request comply with any guidance in the comments.
+            5. For each issue found in #4, launch a parallel Haiku agent that takes the PR, issue description, and list of CLAUDE.md files (from step 2), and returns a score to indicate the agent's level of confidence for whether the issue is real or false positive. The scale is:
+               a. 0: Not confident at all. False positive that doesn't stand up to light scrutiny, or is a pre-existing issue.
+               b. 25: Somewhat confident. Might be real, but may also be a false positive. If stylistic, not explicitly called out in CLAUDE.md.
+               c. 50: Moderately confident. Verified real issue, but might be a nitpick or not important relative to the rest of the PR.
+               d. 75: Highly confident. Double checked and verified very likely real, will be hit in practice. Directly impacts functionality or is directly mentioned in CLAUDE.md.
+               e. 100: Absolutely certain. Confirmed definitely real, will happen frequently. Evidence directly confirms this.
+            6. Filter out any issues with a score less than 80. If there are no issues that meet this criteria, do not proceed.
+            7. Use a Haiku agent to repeat the eligibility check from #1, to make sure that the pull request is still eligible for code review.
+            8. Use the gh bash command to comment back on the pull request with the result. Keep output brief, no emojis. Cite and link relevant code, files, and URLs. Use this format:
 
-            This lets the PR author apply fixes directly from the review.
+               ### Code review
+
+               Found N issues:
+
+               1. <brief description> (CLAUDE.md says "<...>" or bug due to <file and code snippet>)
+
+               <link to file and line with full sha1 + line range, eg. https://github.com/owner/repo/blob/abc123def/path/file.ts#L10-L15>
+
+               When linking code: use full git sha (not $(git rev-parse HEAD)), repo name must match, # after filename, line range format L[start]-L[end], provide at least 1 line context before and after.
+
+               If no issues found:
+
+               ### Code review
+
+               No issues found. Checked for bugs and CLAUDE.md compliance.
+
+            9. After posting the summary comment, post each issue that scored 80+ as an inline comment on the specific file and line using `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`. Include a suggested fix using GitHub suggestion syntax when possible:
+
+               ```suggestion
+               corrected code here
+               ```
+
+            Examples of false positives to avoid flagging:
+            - Pre-existing issues
+            - Something that looks like a bug but is not
+            - Pedantic nitpicks a senior engineer wouldn't call out
+            - Issues a linter, typechecker, or compiler would catch (missing imports, type errors, formatting). Assume CI runs these separately.
+            - General code quality issues (test coverage, docs) unless explicitly required in CLAUDE.md
+            - Issues called out in CLAUDE.md but silenced in code (lint ignore comments)
+            - Intentional functionality changes related to the broader change
+            - Real issues on lines the user did not modify
+
+            Notes:
+            - Do not check build signal or attempt to build or typecheck the app.
+            - Use `gh` to interact with Github, not web fetch.
+            - Make a todo list first.
+            - You must cite and link each bug.
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(git log:*),Bash(git blame:*),Bash(git show:*),Bash(git diff:*),Read,Glob,Grep,Agent"'
