@@ -42,3 +42,6 @@ next-env.d.ts
 
 # superpowers plugin
 .superpowers/
+
+# git worktrees
+.worktrees/

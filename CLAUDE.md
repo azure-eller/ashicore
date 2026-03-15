@@ -33,8 +33,12 @@ Read the relevant doc before working in that area:
 - Run `pnpm build` after changes to catch type errors
 
 ## Workflow
+Use git worktrees for all feature work. Worktree directory: `.worktrees/`
+
 After exiting plan mode and before making any changes:
-1. Create a new branch off of main: `git checkout main && git pull && git checkout -b <branch-name>`
-2. Implement the changes and commit them
-3. Push the branch: `git push -u origin <branch-name>`
-4. Create a PR to merge back into main on GitHub
+1. Create a worktree: `git worktree add .worktrees/<branch-name> -b <branch-name>`
+2. Work inside the worktree: `cd .worktrees/<branch-name>` and run `pnpm install`
+3. Implement the changes and commit them
+4. Push the branch: `git push -u origin <branch-name>`
+5. Create a PR to merge back into main on GitHub
+6. After merge, clean up: `git worktree remove .worktrees/<branch-name>`
