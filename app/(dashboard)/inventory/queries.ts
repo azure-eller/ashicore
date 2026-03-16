@@ -2,7 +2,7 @@
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
 import { and, eq, isNull, isNotNull, sql, desc } from "drizzle-orm";
-import { items, unitDefinitions, lots, stockMovements } from "@/lib/db/schema";
+import { items, unitDefinitions, lots, stockMovements, bomComponents } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
@@ -55,6 +55,8 @@ export async function getItem(id: string) {
         description: items.description,
         unitDefinitionId: items.unitDefinitionId,
         defaultPurchasePrice: items.defaultPurchasePrice,
+        defaultSellingPrice: items.defaultSellingPrice,
+        bomMode: items.bomMode,
         stock: stockSubquery,
         committedQty: items.committedQty,
         expectedQty: items.expectedQty,
@@ -245,8 +247,9 @@ async function adjustStockInTx(
 // If stock adjustment fails (e.g. insufficient stock), the entire update rolls back.
 export async function updateItem(
   id: string,
-  itemData: Omit<UpdateItem, "stock">,
+  itemData: Omit<UpdateItem, "stock" | "bom">,
   stock?: number,
+  bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -271,13 +274,28 @@ export async function updateItem(
       }
     }
 
+    if (bom !== undefined) {
+      await tx.delete(bomComponents).where(eq(bomComponents.itemId, id));
+      if (bom.length > 0) {
+        await tx.insert(bomComponents).values(
+          bom.map((row) => ({
+            itemId: id,
+            componentId: row.componentId,
+            quantity: row.quantity,
+            percentage: row.percentage,
+          }))
+        );
+      }
+    }
+
     return item;
   });
 }
 
 export async function createItemWithLot(
-  data: Omit<InsertItem, "stock">,
+  data: Omit<InsertItem, "stock" | "bom">,
   stock: string,
+  bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -304,6 +322,17 @@ export async function createItemWithLot(
       });
     }
 
+    if (bom && bom.length > 0) {
+      await tx.insert(bomComponents).values(
+        bom.map((row) => ({
+          itemId: item.id,
+          componentId: row.componentId,
+          quantity: row.quantity,
+          percentage: row.percentage,
+        }))
+      );
+    }
+
     return item;
   });
 }
@@ -322,5 +351,56 @@ export async function createUnitDefinition(
         uom: unitDefinitions.uom,
       });
     return row;
+  });
+}
+
+export async function getBomComponents(itemId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: bomComponents.id,
+        componentId: bomComponents.componentId,
+        quantity: bomComponents.quantity,
+        percentage: bomComponents.percentage,
+        componentName: items.name,
+        componentItemType: items.itemType,
+        componentUnit: unitDefinitions.name,
+      })
+      .from(bomComponents)
+      .innerJoin(items, eq(bomComponents.componentId, items.id))
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(eq(bomComponents.itemId, itemId));
+    return rows;
+  });
+}
+
+export async function getAvailableComponents(excludeItemId?: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const conditions = [isNull(items.deletedAt)];
+    if (excludeItemId) {
+      conditions.push(sql`${items.id} != ${excludeItemId}`);
+    }
+    const rows = await tx
+      .select({
+        id: items.id,
+        name: items.name,
+        itemType: items.itemType,
+        unit: unitDefinitions.name,
+      })
+      .from(items)
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(...conditions));
+    return rows;
+  });
+}
+
+export async function isItemUsedInBom(itemId: string): Promise<boolean> {
+  return withAuthedOrgContext(async (tx) => {
+    const [row] = await tx
+      .select({ id: bomComponents.id })
+      .from(bomComponents)
+      .where(eq(bomComponents.componentId, itemId))
+      .limit(1);
+    return row != null;
   });
 }
