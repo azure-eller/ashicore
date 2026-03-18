@@ -45,6 +45,19 @@ const baseItemSchema = createInsertSchema(items, {
 function bomRefine(data: { bomMode?: string | null; bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }> }, ctx: z.RefinementCtx) {
   if (!data.bom || data.bom.length === 0) return;
 
+  // Check duplicates first — independent of bomMode
+  const seen = new Set<string>();
+  for (let i = 0; i < data.bom.length; i++) {
+    if (seen.has(data.bom[i].componentId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Duplicate component",
+        path: ["bom", i, "componentId"],
+      });
+    }
+    seen.add(data.bom[i].componentId);
+  }
+
   if (!data.bomMode) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -54,19 +67,8 @@ function bomRefine(data: { bomMode?: string | null; bom?: Array<{ componentId: s
     return;
   }
 
-  const seen = new Set<string>();
   for (let i = 0; i < data.bom.length; i++) {
     const row = data.bom[i];
-
-    if (seen.has(row.componentId)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Duplicate component",
-        path: ["bom", i, "componentId"],
-      });
-    }
-    seen.add(row.componentId);
-
     if (data.bomMode === "quantity" && !row.quantity) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
