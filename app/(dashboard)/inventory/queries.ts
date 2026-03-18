@@ -72,14 +72,18 @@ export async function getItem(id: string) {
   });
 }
 
-export async function deleteItem(id: string): Promise<boolean> {
+export async function deleteItem(id: string): Promise<{ deleted: boolean; reason?: string }> {
   return withAuthedOrgContext(async (tx) => {
+    if (await isItemUsedInBom(tx, id)) {
+      return { deleted: false, reason: "Cannot delete: this item is used as a component in other products." };
+    }
+
     const [row] = await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
-    return row != null;
+    return { deleted: row != null };
   });
 }
 
@@ -369,7 +373,7 @@ export async function getBomComponents(itemId: string) {
       .from(bomComponents)
       .innerJoin(items, eq(bomComponents.componentId, items.id))
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(eq(bomComponents.itemId, itemId));
+      .where(and(eq(bomComponents.itemId, itemId), isNull(items.deletedAt)));
     return rows;
   });
 }
@@ -394,13 +398,12 @@ export async function getAvailableComponents(excludeItemId?: string) {
   });
 }
 
-export async function isItemUsedInBom(itemId: string): Promise<boolean> {
-  return withAuthedOrgContext(async (tx) => {
-    const [row] = await tx
-      .select({ id: bomComponents.id })
-      .from(bomComponents)
-      .where(eq(bomComponents.componentId, itemId))
-      .limit(1);
-    return row != null;
-  });
+async function isItemUsedInBom(tx: Tx, itemId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: bomComponents.id })
+    .from(bomComponents)
+    .innerJoin(items, eq(bomComponents.itemId, items.id))
+    .where(and(eq(bomComponents.componentId, itemId), isNull(items.deletedAt)))
+    .limit(1);
+  return row != null;
 }

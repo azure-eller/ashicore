@@ -42,10 +42,31 @@ const baseItemSchema = createInsertSchema(items, {
   bom: z.array(bomRowSchema).optional(),
 });
 
-function bomRefine(data: { bomMode?: string | null; bom?: Array<{ quantity: string | null; percentage: string | null }> }, ctx: z.RefinementCtx) {
+function bomRefine(data: { bomMode?: string | null; bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }> }, ctx: z.RefinementCtx) {
   if (!data.bom || data.bom.length === 0) return;
+
+  if (!data.bomMode) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "BOM mode is required when components are specified",
+      path: ["bomMode"],
+    });
+    return;
+  }
+
+  const seen = new Set<string>();
   for (let i = 0; i < data.bom.length; i++) {
     const row = data.bom[i];
+
+    if (seen.has(row.componentId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Duplicate component",
+        path: ["bom", i, "componentId"],
+      });
+    }
+    seen.add(row.componentId);
+
     if (data.bomMode === "quantity" && !row.quantity) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
