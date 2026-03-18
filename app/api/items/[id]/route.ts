@@ -8,13 +8,21 @@ type RouteContext = { params: Promise<{ id: string }> };
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
-  const { stock, ...itemData } = updateItemSchema.parse(body);
+  const { stock, bom, ...itemData } = updateItemSchema.parse(body);
+
+  if (bom?.some((row) => row.componentId === id)) {
+    return NextResponse.json(
+      { errors: { bom: ["An item cannot reference itself as a component"] } },
+      { status: 400 }
+    );
+  }
 
   try {
     const item = await updateItem(
       id,
       itemData,
       stock != null ? parseFloat(stock) : undefined,
+      bom,
     );
     if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -33,8 +41,12 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
 
 export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
-  const deleted = await deleteItem(id);
-  if (!deleted) {
+
+  const result = await deleteItem(id);
+  if (result.reason) {
+    return NextResponse.json({ error: result.reason }, { status: 400 });
+  }
+  if (!result.deleted) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
   return NextResponse.json({ success: true });
