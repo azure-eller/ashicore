@@ -1,6 +1,9 @@
 ---
 title: Field
 description: Combine labels, controls, and help text to compose accessible form fields and grouped inputs.
+read_when:
+  - Writing or editing form fields
+  - Adding labels, help text, or error display to inputs
 base: radix
 component: true
 ---

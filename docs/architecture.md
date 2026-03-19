@@ -1,3 +1,11 @@
+---
+read_when:
+  - Planning a new feature or module
+  - Understanding the data flow or layer rules
+  - Deciding where to put new code
+  - Onboarding to the codebase for the first time
+---
+
 # Architecture
 
 ## Module Map

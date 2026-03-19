@@ -1,3 +1,13 @@
+---
+read_when:
+  - Writing or editing a Drizzle schema
+  - Writing or editing a DAL query function
+  - Working with Zod schemas in lib/schemas/
+  - Running migrations
+  - Debugging RLS or org isolation issues
+  - Handling nullable or numeric fields
+---
+
 # Database Patterns
 
 ## DAL Rule
@@ -102,6 +112,29 @@ export const selectItemSchema = createSelectSchema(items);
 ```
 
 Extend with `.extend()` or `.omit()` as needed for create/edit forms.
+
+### Nullable string fields
+
+All optional text fields must use this pattern:
+
+```ts
+const nullableString = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((v) => (v != null ? v.trim() || null : null));
+```
+
+This accepts `string`, `null`, OR `undefined` and normalizes the output to `string | null`. Forms send `undefined` for fields the user never touched. Without `.optional()`, the schema rejects `undefined` and the form silently fails to submit.
+
+Always pair this with explicit `null` defaults in react-hook-form:
+
+```ts
+defaultValues: {
+  sku: null,           // ✓ explicit null — Zod sees null, passes
+  // sku: (missing)    // ✗ Zod sees undefined, rejects without .optional()
+}
+```
 
 ## Schema Naming
 

@@ -1,11 +1,16 @@
 ---
 title: React Hook Form
 description: Build forms in React using React Hook Form and Zod.
+read_when:
+  - Writing or editing any form
+  - Setting up useForm, Controller, or zodResolver
+  - Wiring form submission to a mutation
 links:
   doc: https://react-hook-form.com
 ---
 
-import { InfoIcon } from "lucide-react"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { InformationCircleIcon, Cancel01Icon } from "@hugeicons/core-free-icons"
 
 In this guide, we will take a look at building forms with React Hook Form. We'll cover building forms with the `<Field />` component, adding schema validation using Zod, error handling, accessibility, and more.
 
@@ -13,7 +18,7 @@ In this guide, we will take a look at building forms with React Hook Form. We'll
 
 We are going to build the following form. It has a simple text input and a textarea. On submit, we'll validate the form data and display any errors.
 
-<Callout icon={<InfoIcon />}>
+<Callout icon={<HugeiconsIcon icon={InformationCircleIcon} />}>
   **Note:** For the purpose of this demo, we have intentionally disabled browser
   validation to show how schema validation and form errors work in React Hook
   Form. It is recommended to add basic browser validation in your production
@@ -68,7 +73,7 @@ Here's a basic example of a form using the `<Controller />` component from React
 
 We'll start by defining the shape of our form using a Zod schema
 
-<Callout icon={<InfoIcon />}>
+<Callout icon={<HugeiconsIcon icon={InformationCircleIcon} />}>
   **Note:** This example uses `zod v3` for schema validation, but you can
   replace it with any other Standard Schema validation library supported by
   React Hook Form.
@@ -604,7 +609,7 @@ Use the `remove` method to remove items from the array. Add the remove button co
         onClick={() => remove(index)}
         aria-label={`Remove email ${index + 1}`}
       >
-        <XIcon />
+        <HugeiconsIcon icon={Cancel01Icon} />
       </InputGroupButton>
     </InputGroupAddon>
   )

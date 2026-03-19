@@ -1,3 +1,11 @@
+---
+read_when:
+  - Writing or editing an API route in app/api/
+  - Writing a mutation (useMutation) in a component
+  - Handling validation errors or API error responses
+  - Setting up TanStack Query keys
+---
+
 # API Patterns
 
 ## Route Structure

@@ -1,3 +1,12 @@
+---
+read_when:
+  - Writing or editing a React component
+  - Working with forms, inputs, or validation display
+  - Adding icons or styling
+  - Working with dialogs, dropdowns, or portal components
+  - Adding navigation (links, cancel buttons, redirects)
+---
+
 # UI Patterns
 
 ## Style System
