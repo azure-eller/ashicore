@@ -29,9 +29,15 @@ Group the filtered scenarios by `testLane`:
 - `api-contract` → tests go in `test/api/`
 - `ui-contract` → tests go in `test/ui/`
 
-### Step 2: Launch parallel agents (one per test lane)
+### Step 2: Launch parallel agents
 
-Spawn one agent per test lane. Each agent receives ONLY the scenarios for its lane. All agents run in parallel.
+Split scenarios into batches of ~5 scenarios each. Spawn one agent per batch, all running in parallel. Agents writing to the same test lane use separate describe blocks or separate files to avoid conflicts:
+
+- `test/schema/items-schema-001.test.ts`, `items-schema-002.test.ts`, etc.
+- `test/api/items-route-001.test.ts`, `items-route-002.test.ts`, etc.
+- `test/ui/item-form-001.test.ts`, `item-form-002.test.ts`, etc.
+
+With 54 HIGH scenarios across 3 lanes, this produces ~10-12 parallel agents, each writing one small focused test file.
 
 ### Schema test agent
 
