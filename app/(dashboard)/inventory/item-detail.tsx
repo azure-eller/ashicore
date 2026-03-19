@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { formatPrice } from "@/lib/format";
 
@@ -60,7 +62,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
             href={basePath}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <span aria-hidden>&#8592;</span> Back to {typeLabel}
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
         </div>
