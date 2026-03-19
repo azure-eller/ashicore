@@ -11,6 +11,8 @@ import {
   type InsertItem,
   type UpdateItem,
 } from "@/lib/schemas/items";
+import { ITEM_TYPE_SEGMENTS } from "@/app/(dashboard)/inventory/types";
+import type { getItem } from "@/app/(dashboard)/inventory/queries";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,36 +62,34 @@ import {
   FieldSeparator,
   FieldSet,
 } from "@/components/ui/field";
+import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 
 const CREATE_NEW_UNIT = "__create_new__";
 const POSITIVE_NUMBER_RE = /^\d+\.?\d*$/;
 const uomGroups = getUomOptions();
 
-interface MaterialFormProps {
+type AvailableComponent = {
+  id: string;
+  name: string;
+  itemType: string;
+  unit: string;
+};
+
+interface ItemFormProps {
+  itemType: "material" | "product";
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
-  initialData?: {
-    id: string;
-    name: string;
-    sku: string | null;
-    category: string | null;
-    description: string | null;
-    unitDefinitionId: string;
-    unitName: string;
-    unitSize: string;
-    unitUom: string;
-    defaultPurchasePrice: string | null;
-    stock: string;
-    safetyStock: string;
+  availableComponents?: AvailableComponent[];
+  initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
+    bom?: { componentId: string; quantity: string | null; percentage: string | null }[];
   };
 }
 
-export function MaterialForm({ units, categories, initialData }: MaterialFormProps) {
+export function ItemForm({ itemType, units, categories, availableComponents, initialData }: ItemFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const redirectUrl = initialData
-    ? `/inventory/materials/${initialData.id}`
-    : "/inventory/materials";
+  const segment = ITEM_TYPE_SEGMENTS[itemType];
+  const typeLabel = itemType === "product" ? "Product" : "Material";
   const [categoryInput, setCategoryInput] = useState("");
   const [localUnits, setLocalUnits] = useState(units);
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
@@ -123,15 +123,22 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
           defaultPurchasePrice: initialData.defaultPurchasePrice != null
             ? String(parseFloat(initialData.defaultPurchasePrice))
             : null,
+          defaultSellingPrice: initialData.defaultSellingPrice != null
+            ? String(parseFloat(initialData.defaultSellingPrice))
+            : null,
           stock: String(parseFloat(initialData.stock)),
           safetyStock: String(parseFloat(initialData.safetyStock)),
+          bomMode: (initialData.bomMode ?? "quantity") as "quantity" | "percentage",
+          bom: initialData.bom ?? [],
         }
       : {
           name: "",
-          itemType: "material" as const,
+          itemType: itemType as "material" | "product",
           unitDefinitionId: "",
           stock: "0",
           safetyStock: "0",
+          bomMode: "quantity",
+          bom: [],
         },
   });
 
@@ -149,8 +156,8 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
       });
       if (!res.ok) {
         const fallback = initialData
-          ? "Failed to update material."
-          : "Failed to create material.";
+          ? `Failed to update ${typeLabel.toLowerCase()}.`
+          : `Failed to create ${typeLabel.toLowerCase()}.`;
         const err = await res.json().catch(() => null);
         if (err?.errors) {
           const messages = Object.entries(err.errors)
@@ -163,8 +170,8 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
       return res.json();
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["items", "material"] });
-      router.push(redirectUrl);
+      await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
+      router.push(`/inventory/${segment}${initialData ? `/${initialData.id}` : ""}`);
     },
     onError: (error) => {
       setFormError(error.message);
@@ -207,16 +214,16 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>{initialData ? "Edit Material" : "Add Material"}</CardTitle>
+        <CardTitle>{initialData ? `Edit ${typeLabel}` : `Add ${typeLabel}`}</CardTitle>
         <CardDescription>
           {initialData
-            ? "Update this material's details."
-            : "Create a new material in your inventory."}
+            ? `Update this ${typeLabel.toLowerCase()}'s details.`
+            : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form
-          id="material-form"
+          id="item-form"
           onSubmit={form.handleSubmit((data) => { if (!mutation.isPending) mutation.mutate(data); })}
         >
           <FieldGroup>
@@ -251,7 +258,7 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                     id={field.name}
                     value={field.value ?? ""}
                     aria-invalid={fieldState.invalid}
-                    placeholder="Optional notes about this material"
+                    placeholder={`Optional notes about this ${typeLabel.toLowerCase()}`}
                     rows={2}
                     autoComplete="off"
                   />
@@ -381,8 +388,8 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
               <FieldLegend>Pricing & Stock</FieldLegend>
               <FieldDescription>
                 {initialData
-                  ? "Update the purchase price, stock level, and safety stock threshold."
-                  : "Set the default purchase price and starting inventory."}
+                  ? "Update pricing, stock level, and safety stock threshold."
+                  : "Set the default pricing and starting inventory."}
               </FieldDescription>
               <FieldGroup>
                 <div className="grid grid-cols-2 gap-4">
@@ -393,6 +400,30 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
                           Purchase Price
+                        </FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0.00"
+                          inputMode="decimal"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+
+                  <Controller
+                    name="defaultSellingPrice"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          Selling Price
                         </FieldLabel>
                         <Input
                           {...field}
@@ -456,6 +487,16 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
                 </div>
               </FieldGroup>
             </FieldSet>
+
+            {itemType === "product" && availableComponents && (
+              <>
+                <FieldSeparator />
+                <BomEditor
+                  control={form.control}
+                  availableComponents={availableComponents}
+                />
+              </>
+            )}
           </FieldGroup>
         </form>
         {formError && <FieldError className="mt-2">{formError}</FieldError>}
@@ -464,18 +505,18 @@ export function MaterialForm({ units, categories, initialData }: MaterialFormPro
         <Button
           type="button"
           variant="outline"
-          onClick={() => router.push(redirectUrl)}
+          onClick={() => router.push(initialData ? `/inventory/${segment}/${initialData.id}` : `/inventory/${segment}`)}
         >
           Cancel
         </Button>
         <Button
           type="submit"
-          form="material-form"
+          form="item-form"
           disabled={mutation.isPending}
         >
           {initialData
             ? (mutation.isPending ? "Saving..." : "Save Changes")
-            : (mutation.isPending ? "Creating..." : "Create Material")}
+            : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`)}
         </Button>
       </CardFooter>
       <Dialog

@@ -4,7 +4,7 @@ import {
   getUnitDefinitions,
   getCategories,
 } from "@/app/(dashboard)/inventory/queries";
-import { MaterialForm } from "@/app/(dashboard)/inventory/materials/material-form";
+import { ItemForm } from "@/app/(dashboard)/inventory/item-form";
 
 export default async function EditMaterialPage({
   params,
@@ -22,7 +22,8 @@ export default async function EditMaterialPage({
   return (
     <div className="flex flex-1 items-center justify-center">
       <div className="w-full max-w-3xl">
-        <MaterialForm
+        <ItemForm
+          itemType="material"
           units={units}
           categories={categories}
           initialData={item}

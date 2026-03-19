@@ -147,6 +147,25 @@ export async function getStockMovements(itemId: string) {
 }
 
 
+export async function getBomComponents(itemId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: bomComponents.id,
+        componentId: bomComponents.componentId,
+        componentName: items.name,
+        componentItemType: items.itemType,
+        componentUnit: unitDefinitions.name,
+        quantity: bomComponents.quantity,
+        percentage: bomComponents.percentage,
+      })
+      .from(bomComponents)
+      .innerJoin(items, eq(bomComponents.componentId, items.id))
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(eq(bomComponents.itemId, itemId));
+  });
+}
+
 async function generateLotNumber(tx: Tx): Promise<string> {
   const result = await tx.execute(
     sql`SELECT nextval('inventory.lot_number_seq') AS val`
@@ -247,6 +266,23 @@ async function adjustStockInTx(
   }
 }
 
+type BomRow = { componentId: string; quantity: string | null; percentage: string | null };
+
+async function saveBomComponents(tx: Tx, itemId: string, bom: BomRow[]): Promise<void> {
+  // Delete existing rows, then insert fresh
+  await tx.delete(bomComponents).where(eq(bomComponents.itemId, itemId));
+  if (bom.length > 0) {
+    await tx.insert(bomComponents).values(
+      bom.map((row) => ({
+        itemId,
+        componentId: row.componentId,
+        quantity: row.quantity,
+        percentage: row.percentage,
+      }))
+    );
+  }
+}
+
 // Update item metadata and optionally adjust stock in a single transaction.
 // If stock adjustment fails (e.g. insufficient stock), the entire update rolls back.
 export async function updateItem(
@@ -256,13 +292,18 @@ export async function updateItem(
   bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const { bom, ...fields } = itemData;
     const [item] = await tx
       .update(items)
-      .set({ ...itemData, updatedAt: new Date() })
+      .set({ ...fields, updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
 
     if (!item) return null;
+
+    if (bom !== undefined) {
+      await saveBomComponents(tx, id, bom);
+    }
 
     if (stock != null) {
       const [stockResult] = await tx
@@ -302,10 +343,15 @@ export async function createItemWithLot(
   bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const { bom, ...itemData } = data;
     const [item] = await tx
       .insert(items)
-      .values({ ...data, organizationId: orgId })
+      .values({ ...itemData, organizationId: orgId })
       .returning({ id: items.id });
+
+    if (bom && bom.length > 0) {
+      await saveBomComponents(tx, item.id, bom);
+    }
 
     if (parseFloat(stock) > 0) {
       const lotNumber = await generateLotNumber(tx);
