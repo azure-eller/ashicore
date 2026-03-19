@@ -78,7 +78,7 @@ test/scenarios/
 
 ### Scenario format
 
-Each scenario is a **test specification** — what to do, what to verify, and how impactful it is if the verification fails:
+Each scenario is a **test specification** — preconditions, actions, assertions, and the invariant being protected:
 
 ```json
 {
@@ -87,6 +87,12 @@ Each scenario is a **test specification** — what to do, what to verify, and ho
       "id": "submit-after-bom-mode-switch",
       "name": "Submit after switching BOM mode",
       "category": "state-transition",
+      "oracle": "Inactive BOM fields must be cleared when mode switches. Only the active mode's field should be in the payload.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "availableComponents": ["component-1"]
+      },
       "actions": [
         "Add BOM ingredient in quantity mode",
         "Enter quantity '5'",
@@ -99,8 +105,14 @@ Each scenario is a **test specification** — what to do, what to verify, and ho
         "Payload bom[0].percentage is '50'",
         "Payload bom[0].quantity is null (cleared on mode switch)"
       ],
+      "assertAt": ["payload"],
       "impact": "HIGH",
       "testLane": "ui-contract",
+      "covers": {
+        "actions": ["switch-bom-mode-to-percentage", "enter-bom-quantity", "submit-form"],
+        "constraints": [],
+        "indicators": []
+      },
       "foundBy": ["data-pipeline", "state-transition"],
       "status": "untested",
       "testFile": null
@@ -110,9 +122,13 @@ Each scenario is a **test specification** — what to do, what to verify, and ho
 ```
 
 **Field descriptions:**
+- `oracle`: the invariant being protected — the rule that must hold true. This defines what "correct" means for this scenario. Verify statements flow from the oracle.
+- `setup`: preconditions needed before the actions start (form mode, item type, initial data, available components)
 - `actions`: step-by-step user interactions a test agent follows
-- `verify`: the expected correct behavior — what the test asserts
+- `verify`: the expected correct behavior — what the test asserts. These describe what SHOULD happen, not what currently happens. If the code is wrong, the test should fail.
+- `assertAt`: where truth is checked — `ui`, `payload`, `api-response`, `db`
 - `impact`: if verification fails, how bad is it? HIGH = data corruption or money impact, MEDIUM = misleading UI or wrong display, LOW = cosmetic or unlikely
+- `covers`: links back to action IDs, constraint IDs, and indicator IDs from Phase 1 — enables mechanical coverage checking
 - `testLane`: which test type to write — `schema`, `api-contract`, `ui-contract`, or `browser-smoke`
 - `status`: `untested` → `tested` → `passing` → `failing`
 - `testFile`: path to the test file once written
@@ -355,10 +371,14 @@ For each meaningful input or combination, produce a scenario:
   "id": "[kebab-case-id]",
   "name": "[descriptive name]",
   "category": "data-pipeline",
+  "oracle": "[the invariant — the rule that must hold true]",
+  "setup": { "formMode": "create|edit", "itemType": "product|material", "initialData": "description if needed" },
   "actions": ["step 1", "step 2", "...", "submit"],
   "verify": ["expected result 1", "expected result 2"],
+  "assertAt": ["payload|api-response|db|ui"],
   "impact": "HIGH/MEDIUM/LOW",
-  "testLane": "schema | api-contract | ui-contract"
+  "testLane": "schema | api-contract | ui-contract",
+  "covers": { "actions": ["action-ids"], "constraints": ["constraint-ids"], "indicators": ["indicator-ids"] }
 }
 
 Use 3-8 action steps. Verifications should describe the EXPECTED CORRECT behavior.
@@ -404,10 +424,14 @@ For each state transition sequence, produce a scenario:
   "id": "[kebab-case-id]",
   "name": "[descriptive name]",
   "category": "state-transition",
+  "oracle": "[the invariant — what must be true about state after this sequence]",
+  "setup": { "formMode": "create|edit", "itemType": "product|material", "initialData": "description if needed" },
   "actions": ["step 1", "step 2", "...", "verify state"],
   "verify": ["state X should be Y", "state Z should be cleared"],
+  "assertAt": ["payload|ui"],
   "impact": "HIGH/MEDIUM/LOW",
-  "testLane": "ui-contract"
+  "testLane": "ui-contract",
+  "covers": { "actions": ["action-ids"], "constraints": [], "indicators": [] }
 }
 
 Use 5-8 action steps. State bugs emerge from CHAINS of interactions — longer
@@ -459,14 +483,18 @@ For each boundary, produce a scenario:
   "id": "[kebab-case-id]",
   "name": "[descriptive name]",
   "category": "validation",
+  "oracle": "[the invariant — what the validation rule must enforce]",
+  "setup": { "formMode": "create|edit", "itemType": "product|material" },
   "actions": ["enter specific value", "submit"],
   "verify": [
     "submission should be blocked/allowed",
     "error message should say X / no error should appear",
     "field value in payload should be X"
   ],
+  "assertAt": ["ui|payload|api-response"],
   "impact": "HIGH/MEDIUM/LOW",
-  "testLane": "schema | api-contract | ui-contract"
+  "testLane": "schema | api-contract | ui-contract",
+  "covers": { "actions": [], "constraints": ["constraint-ids"], "indicators": ["indicator-ids"] }
 }
 
 Generate AT LEAST 20 scenarios.
@@ -515,10 +543,14 @@ For each cross-feature flow, produce a scenario:
   "id": "[kebab-case-id]",
   "name": "[descriptive name]",
   "category": "cross-feature",
+  "oracle": "[the invariant — what must be true across feature boundaries]",
+  "setup": { "formMode": "create|edit", "itemType": "product|material", "relatedData": "description" },
   "actions": ["form action 1", "submit", "downstream action", "verify"],
   "verify": ["downstream result should be X", "related data should be Y"],
+  "assertAt": ["api-response|db"],
   "impact": "HIGH/MEDIUM/LOW",
-  "testLane": "api-contract | ui-contract"
+  "testLane": "api-contract | ui-contract",
+  "covers": { "actions": ["action-ids"], "constraints": ["constraint-ids"], "indicators": [] }
 }
 
 Generate AT LEAST 15 scenarios.
