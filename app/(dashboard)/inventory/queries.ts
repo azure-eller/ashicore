@@ -72,10 +72,18 @@ export async function getItem(id: string) {
   });
 }
 
-export async function deleteItem(id: string): Promise<{ deleted: boolean; reason?: string }> {
+export async function deleteItem(id: string): Promise<{ deleted: boolean; usedInBom?: boolean }> {
   return withAuthedOrgContext(async (tx) => {
-    if (await isItemUsedInBom(tx, id)) {
-      return { deleted: false, reason: "Cannot delete: this item is used as a component in other products." };
+    // Check BOM usage inside the same transaction to avoid race conditions
+    const [bomRef] = await tx
+      .select({ id: bomComponents.id })
+      .from(bomComponents)
+      .innerJoin(items, eq(bomComponents.itemId, items.id))
+      .where(and(eq(bomComponents.componentId, id), isNull(items.deletedAt)))
+      .limit(1);
+
+    if (bomRef) {
+      return { deleted: false, usedInBom: true };
     }
 
     const [row] = await tx
@@ -146,25 +154,6 @@ export async function getStockMovements(itemId: string) {
   });
 }
 
-
-export async function getBomComponents(itemId: string) {
-  return withAuthedOrgContext(async (tx) => {
-    return tx
-      .select({
-        id: bomComponents.id,
-        componentId: bomComponents.componentId,
-        componentName: items.name,
-        componentItemType: items.itemType,
-        componentUnit: unitDefinitions.name,
-        quantity: bomComponents.quantity,
-        percentage: bomComponents.percentage,
-      })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.componentId, items.id))
-      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(eq(bomComponents.itemId, itemId));
-  });
-}
 
 async function generateLotNumber(tx: Tx): Promise<string> {
   const result = await tx.execute(
@@ -266,23 +255,6 @@ async function adjustStockInTx(
   }
 }
 
-type BomRow = { componentId: string; quantity: string | null; percentage: string | null };
-
-async function saveBomComponents(tx: Tx, itemId: string, bom: BomRow[]): Promise<void> {
-  // Delete existing rows, then insert fresh
-  await tx.delete(bomComponents).where(eq(bomComponents.itemId, itemId));
-  if (bom.length > 0) {
-    await tx.insert(bomComponents).values(
-      bom.map((row) => ({
-        itemId,
-        componentId: row.componentId,
-        quantity: row.quantity,
-        percentage: row.percentage,
-      }))
-    );
-  }
-}
-
 // Update item metadata and optionally adjust stock in a single transaction.
 // If stock adjustment fails (e.g. insufficient stock), the entire update rolls back.
 export async function updateItem(
@@ -292,18 +264,13 @@ export async function updateItem(
   bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const { bom, ...fields } = itemData;
     const [item] = await tx
       .update(items)
-      .set({ ...fields, updatedAt: new Date() })
+      .set({ ...itemData, updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
 
     if (!item) return null;
-
-    if (bom !== undefined) {
-      await saveBomComponents(tx, id, bom);
-    }
 
     if (stock != null) {
       const [stockResult] = await tx
@@ -343,15 +310,10 @@ export async function createItemWithLot(
   bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const { bom, ...itemData } = data;
     const [item] = await tx
       .insert(items)
-      .values({ ...itemData, organizationId: orgId })
+      .values({ ...data, organizationId: orgId })
       .returning({ id: items.id });
-
-    if (bom && bom.length > 0) {
-      await saveBomComponents(tx, item.id, bom);
-    }
 
     if (parseFloat(stock) > 0) {
       const lotNumber = await generateLotNumber(tx);
@@ -444,12 +406,14 @@ export async function getAvailableComponents(excludeItemId?: string) {
   });
 }
 
-async function isItemUsedInBom(tx: Tx, itemId: string): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: bomComponents.id })
-    .from(bomComponents)
-    .innerJoin(items, eq(bomComponents.itemId, items.id))
-    .where(and(eq(bomComponents.componentId, itemId), isNull(items.deletedAt)))
-    .limit(1);
-  return row != null;
+export async function isItemUsedInBom(itemId: string): Promise<boolean> {
+  return withAuthedOrgContext(async (tx) => {
+    const [row] = await tx
+      .select({ id: bomComponents.id })
+      .from(bomComponents)
+      .innerJoin(items, eq(bomComponents.itemId, items.id))
+      .where(and(eq(bomComponents.componentId, itemId), isNull(items.deletedAt)))
+      .limit(1);
+    return row != null;
+  });
 }

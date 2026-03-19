@@ -12,7 +12,6 @@ import {
   type UpdateItem,
 } from "@/lib/schemas/items";
 import { ITEM_TYPE_SEGMENTS } from "@/app/(dashboard)/inventory/types";
-import type { getItem } from "@/app/(dashboard)/inventory/queries";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,7 +79,21 @@ interface ItemFormProps {
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
   availableComponents?: AvailableComponent[];
-  initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
+  initialData?: {
+    id: string;
+    name: string;
+    sku: string | null;
+    category: string | null;
+    description: string | null;
+    unitDefinitionId: string;
+    unitName: string;
+    unitSize: string;
+    unitUom: string;
+    defaultPurchasePrice: string | null;
+    defaultSellingPrice: string | null;
+    stock: string;
+    safetyStock: string;
+    bomMode: string | null;
     bom?: { componentId: string; quantity: string | null; percentage: string | null }[];
   };
 }

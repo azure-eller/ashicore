@@ -43,8 +43,11 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
 
   const result = await deleteItem(id);
-  if (result.reason) {
-    return NextResponse.json({ error: result.reason }, { status: 400 });
+  if (result.usedInBom) {
+    return NextResponse.json(
+      { error: "Cannot delete: this item is used as a component in other products." },
+      { status: 400 }
+    );
   }
   if (!result.deleted) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });

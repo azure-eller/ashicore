@@ -175,33 +175,38 @@ function BomRow({
         <Controller
           name={`bom.${index}.componentId`}
           control={control}
-          render={({ field: f }) => (
-            <Combobox
-              items={componentIds}
-              value={f.value ?? ""}
-              onValueChange={(id) => f.onChange(id ?? "")}
-              itemToStringLabel={(id) => componentMap.get(id)?.name ?? ""}
-            >
-              <ComboboxInput placeholder="Search items..." />
-              <ComboboxContent>
-                <ComboboxEmpty>No items found</ComboboxEmpty>
-                <ComboboxList>
-                  {(id: string) => {
-                    const comp = componentMap.get(id);
-                    return (
-                      <ComboboxItem key={id} value={id}>
-                        <span>{comp?.name ?? id}</span>
-                        {comp && (
-                          <Badge variant="outline" className="ml-auto text-xs">
-                            {comp.itemType}
-                          </Badge>
-                        )}
-                      </ComboboxItem>
-                    );
-                  }}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
+          render={({ field: f, fieldState }) => (
+            <div>
+              <Combobox
+                items={componentIds}
+                value={f.value ?? ""}
+                onValueChange={(id) => f.onChange(id ?? "")}
+                itemToStringLabel={(id) => componentMap.get(id)?.name ?? ""}
+              >
+                <ComboboxInput placeholder="Search items..." />
+                <ComboboxContent>
+                  <ComboboxEmpty>No items found</ComboboxEmpty>
+                  <ComboboxList>
+                    {(id: string) => {
+                      const comp = componentMap.get(id);
+                      return (
+                        <ComboboxItem key={id} value={id}>
+                          <span>{comp?.name ?? id}</span>
+                          {comp && (
+                            <Badge variant="outline" className="ml-auto text-xs">
+                              {comp.itemType}
+                            </Badge>
+                          )}
+                        </ComboboxItem>
+                      );
+                    }}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+              {fieldState.invalid && (
+                <FieldError errors={[fieldState.error]} />
+              )}
+            </div>
           )}
         />
       </TableCell>
