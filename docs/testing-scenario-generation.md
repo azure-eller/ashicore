@@ -19,12 +19,6 @@ Multi-phase, multi-agent process for generating comprehensive test scenarios. Ea
 ## Overview
 
 ```
-Phase 0: Domain Axes (1 agent → human review)
-  → Agent reads architecture docs + code
-  → Proposes variation axes (dimensions that create different behavior)
-  → Human approves/edits in 30 seconds
-  → Writes variation-axes.json
-
 Phase 1: Reconnaissance (4 parallel agents → 1 merge agent)
   → Agent 1A: Action extraction (form components)
   → Agent 1B: State inventory (React hooks + form state)
@@ -33,7 +27,6 @@ Phase 1: Reconnaissance (4 parallel agents → 1 merge agent)
   → Merge agent: combine into interaction map, write JSON files
 
 Phase 2: Scenario Generation (4 parallel specialist agents, each writes its own file)
-  → Each specialist receives the recon map AND the variation axes
   → Agent A: Data Pipeline — trace every field from input to DB, specify expected transformations
   → Agent B: State Transitions — specify expected state after each interaction sequence
   → Agent C: Validation Boundaries — specify expected behavior at every constraint boundary
@@ -45,7 +38,7 @@ Phase 3: Mechanical merge + intelligent dedup (script + 1 agent)
   → Agent: deduplicate near-duplicates, fill coverage gaps, write final scenarios.json
 ```
 
-Total: 12 agent invocations. Phase 0 runs first (requires human approval). Phases 1A-1D run in parallel, then merge. Phase 2 agents A-D run in parallel. Phase 3 merge script is deterministic, then gap-fill agent runs last.
+Total: 11 agent invocations. Phases 1A-1D run in parallel, then merge. Phase 2 agents A-D run in parallel. Phase 3 merge script is deterministic, then gap-fill agent runs last.
 
 ### Why each specialist writes its own file
 
@@ -64,9 +57,6 @@ Scenarios are stored as structured JSON files in the repo so future runs build o
 ```
 test/scenarios/
   <feature>/
-    # Phase 0 output (human-approved)
-    variation-axes.json             — domain dimensions + critical combinations
-
     # Phase 1 outputs (reconnaissance)
     actions.json                    — every user action in this feature
     state-inventory.json            — every piece of React state
@@ -139,53 +129,6 @@ On subsequent runs:
    - Removed actions → mark their scenarios as `obsolete: true`
    - Changed interactions → re-run scenario generation for affected action clusters
 5. Append new scenarios, preserve existing ones and their status
-
-## Phase 0: Domain Variation Axes
-
-**Purpose**: Identify the key dimensions that create meaningfully different behavior when combined. Code-derived reconnaissance finds what the code does, but variation axes capture the domain combinations that matter — the ones agents consistently miss because they're not visible in any single file.
-
-**Agent count**: 1 (output requires human approval before proceeding)
-
-```
-You are a domain analyst. Read the architecture docs and feature code to identify
-the key variation axes for this feature. An axis is a dimension where different
-values create meaningfully different behavior.
-
-Read these files:
-[LIST ARCHITECTURE DOC + ALL FEATURE FILES]
-
-Propose 8-12 variation axes. Each axis should represent a dimension where
-different values change how the feature behaves — not just different data.
-"Name is short vs long" is not useful. "Product with BOM vs without BOM" IS
-useful because entire UI sections and code paths change.
-
-Write to test/scenarios/<feature>/variation-axes.json:
-{
-  "feature": "[feature name]",
-  "axes": [
-    {
-      "name": "[short-kebab-name]",
-      "description": "[what this axis represents]",
-      "values": ["value-a", "value-b"],
-      "dependsOn": "[other axis name, or null if independent]"
-    }
-  ],
-  "criticalCombinations": [
-    {
-      "description": "[why this combination matters]",
-      "axes": { "axis-1": "value", "axis-2": "value" }
-    }
-  ]
-}
-
-The criticalCombinations section should list 10-15 specific axis combinations
-that are especially important — the ones where different code paths intersect
-in ways that could produce unexpected behavior.
-```
-
-**After the agent writes variation-axes.json**: present the axes to the human for review. The human approves, edits, or adds axes. This is a 30-second review, not a writing task — the agent does the thinking, the human just confirms.
-
-Once approved, pass variation-axes.json to all Phase 2 specialists alongside the recon map.
 
 ## Phase 1: Reconnaissance
 
@@ -366,14 +309,9 @@ Four specialist agents define test scenarios from different angles. Each scenari
 
 **Agent count**: 4 (run in parallel)
 
-Pass each specialist:
-1. The Phase 1 merge output (recon map)
-2. The variation-axes.json from Phase 0
-3. The existing scenarios.json if it exists (with instruction: "Only generate NEW scenarios not already covered")
+Pass the Phase 1 merge output to each specialist. If an existing scenarios.json exists, pass it with instruction: "Only generate NEW scenarios not already covered."
 
 Each specialist writes directly to `test/scenarios/<feature>/scenarios-<name>.json`.
-
-**Using the variation axes**: Each specialist must generate scenarios that cover the critical combinations from variation-axes.json. For every critical combination, generate at least one scenario that exercises that specific combination of axis values. This ensures cross-axis coverage that code-only analysis misses.
 
 ### Agent A: Data Pipeline Specialist
 
@@ -387,12 +325,6 @@ specify the correct transformation at each step.
 
 Here is the reconnaissance map:
 [PASTE PHASE 1 MERGE OUTPUT]
-
-Here are the variation axes for this feature:
-[PASTE variation-axes.json]
-
-For each critical combination in the axes, generate at least one scenario that
-exercises that specific combination through the data pipeline.
 
 Read these files:
 [LIST ALL FILES]
@@ -448,13 +380,6 @@ correct state should be after each sequence.
 Here is the reconnaissance map:
 [PASTE PHASE 1 MERGE OUTPUT]
 
-Here are the variation axes for this feature:
-[PASTE variation-axes.json]
-
-For each critical combination in the axes, generate at least one scenario that
-exercises that combination's effect on state transitions (e.g., "edit existing
-product + switch BOM mode" is a different state path than "create new + switch mode").
-
 Read these files:
 [LIST FORM AND SCHEMA FILES]
 
@@ -505,13 +430,6 @@ scenarios that specify what the correct acceptance/rejection behavior should be.
 
 Here is the reconnaissance map:
 [PASTE PHASE 1 MERGE OUTPUT]
-
-Here are the variation axes for this feature:
-[PASTE variation-axes.json]
-
-For each critical combination, verify that validation behaves correctly across
-axis values (e.g., validation in create mode vs edit mode, validation in
-quantity mode vs percentage mode).
 
 Read these files:
 [LIST ALL FILES]
@@ -567,13 +485,6 @@ consumers and specify what the correct end-to-end behavior should be.
 
 Here is the reconnaissance map:
 [PASTE PHASE 1 MERGE OUTPUT]
-
-Here are the variation axes for this feature:
-[PASTE variation-axes.json]
-
-For each critical combination, trace the downstream impact. A product created
-with a percentage BOM has different downstream effects than one with a quantity
-BOM. Exercise these differences explicitly.
 
 Read these files — the form AND everything downstream:
 [LIST ALL FILES including DAL queries, other features that consume this data]
@@ -708,10 +619,9 @@ Report:
 ### In Claude Code
 
 ```
-Phase 0: 1 Agent call → writes variation-axes.json → PAUSE for human review
 Phase 1: 4 parallel Agent calls (1A, 1B, 1C, 1D)
 Phase 1 Merge: 1 Agent call with all 4 outputs → writes recon JSON files
-Phase 2: 4 parallel Agent calls (A, B, C, D) → each receives recon + axes → writes scenarios-<name>.json
+Phase 2: 4 parallel Agent calls (A, B, C, D) → each writes scenarios-<name>.json
 Merge script: Bash call → produces scenarios-merged-raw.json
 Phase 3: 1 Agent call → reads merged file, writes final scenarios.json
 ```
