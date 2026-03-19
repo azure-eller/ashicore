@@ -23,9 +23,8 @@ test/scenarios/product-bom/scenarios.json
 ## Rules
 
 - Implement EVERY filtered scenario. If you skip one, explain why.
-- Before you start writing, count the scenarios and announce: "Writing tests for N scenarios"
+- Before you start, count the scenarios per lane and announce: "Writing N schema, N api, N ui tests"
 - After you finish, announce: "Implemented N of N scenarios" — the numbers must match.
-- Complex multi-step UI scenarios (mode switching, dialog flows, add/remove rows) are the MOST important ones. Write those FIRST, before any simple schema tests.
 - Update each scenario's `status` to `"tested"` and `testFile` in scenarios.json when done.
 
 ## Test file organization
