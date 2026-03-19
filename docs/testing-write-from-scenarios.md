@@ -34,7 +34,7 @@ test/scenarios/product-bom/scenarios.json
 - API contract tests → `test/api/<feature>-api-NNN.test.ts`
 - UI contract tests → `test/ui/<feature>-ui-NNN.test.tsx`
 
-Batch ~5 scenarios per file. Spawn parallel agents per batch.
+Spawn 3 parallel agents — one per test lane (schema, api-contract, ui-contract). Each agent gets ALL scenarios for its lane.
 
 ## How to write each test type
 
