@@ -1,0 +1,625 @@
+{
+  "scenarios": [
+    {
+      "id": "name-empty-string-rejected",
+      "name": "Empty name is rejected on submit",
+      "category": "validation",
+      "oracle": "name field requires at least 1 character — z.string().min(1, 'Name is required')",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["leave name field empty", "fill all other required fields", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Name is required' should appear on the name field",
+        "no network request should be sent"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": ["items-name-not-null"], "indicators": ["name-field-error"] }
+    },
+    {
+      "id": "name-single-char-accepted",
+      "name": "Single character name is accepted",
+      "category": "validation",
+      "oracle": "min(1) boundary — a single character is the minimum valid name",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter 'A' as name", "fill all other required fields", "submit"],
+      "verify": [
+        "submission should proceed",
+        "no validation error on name field",
+        "payload name should be 'A'"
+      ],
+      "assertAt": ["ui", "payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-name-not-null"], "indicators": ["name-field-error"] }
+    },
+    {
+      "id": "name-255-chars-accepted",
+      "name": "Name at varchar(255) limit is accepted",
+      "category": "validation",
+      "oracle": "DB column is varchar(255) — a 255-character name should be the maximum valid value",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a 255-character name string", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload name should be exactly 255 characters"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-name-varchar-length"], "indicators": [] }
+    },
+    {
+      "id": "name-256-chars-rejected",
+      "name": "Name exceeding varchar(255) causes a DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is varchar(255) — Zod has no .max(255), so a 256-char name passes Zod but fails at DB. This is a validation gap: Zod SHOULD reject it with a friendly error.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a 256-character name string", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — this is the gap)",
+        "API should return an error from DB (raw Postgres error, not user-friendly)",
+        "EXPECTED FIX: Zod should reject with 'Name must be 255 characters or fewer'"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-name-varchar-length"], "indicators": [] }
+    },
+    {
+      "id": "sku-51-chars-rejected",
+      "name": "SKU exceeding varchar(50) causes a DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is varchar(50) — Zod has no .max(50), so a 51-char SKU passes Zod but fails at DB. This is a validation gap.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "enter a 51-character SKU", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "API should return a DB error",
+        "EXPECTED FIX: Zod should reject with 'SKU must be 50 characters or fewer'"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-sku-varchar-length"], "indicators": ["sku-field-error"] }
+    },
+    {
+      "id": "sku-50-chars-accepted",
+      "name": "SKU at varchar(50) limit is accepted",
+      "category": "validation",
+      "oracle": "DB column is varchar(50) — 50 characters is the boundary for acceptance",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "enter a 50-character SKU", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload sku should be exactly 50 characters"
+      ],
+      "assertAt": ["payload"],
+      "impact": "LOW",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-sku-varchar-length"], "indicators": [] }
+    },
+    {
+      "id": "category-101-chars-rejected",
+      "name": "Category exceeding varchar(100) causes a DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is varchar(100) — Zod has no .max(100), so a 101-char category passes Zod but fails at DB.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "type a 101-character category string", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "API should return a DB error",
+        "EXPECTED FIX: Zod should reject with 'Category must be 100 characters or fewer'"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "LOW",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-category-varchar-length"], "indicators": [] }
+    },
+    {
+      "id": "stock-negative-rejected",
+      "name": "Negative stock value is rejected",
+      "category": "validation",
+      "oracle": "stock has z.string().refine(non-negative) — '-1' must be rejected",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "set stock to '-1'", "fill all other required fields", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Must be a non-negative number' should appear on stock field",
+        "no network request should be sent"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["stock-field-error"] }
+    },
+    {
+      "id": "stock-zero-accepted",
+      "name": "Zero stock is accepted (boundary)",
+      "category": "validation",
+      "oracle": "stock refine checks n >= 0 — '0' is the boundary, must be accepted",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "set stock to '0'", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload stock should be '0'",
+        "no validation error on stock field"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": ["stock-field-error"] }
+    },
+    {
+      "id": "stock-non-numeric-rejected",
+      "name": "Non-numeric stock value is rejected",
+      "category": "validation",
+      "oracle": "stock refine checks !isNaN(Number(v)) — 'abc' must be rejected",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "set stock to 'abc'", "fill all other required fields", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Must be a non-negative number' should appear on stock field"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": ["stock-field-error"] }
+    },
+    {
+      "id": "safety-stock-non-numeric-passes-zod",
+      "name": "Non-numeric safety stock passes Zod (validation gap vs stock symmetry)",
+      "category": "validation",
+      "oracle": "safetyStock uses z.string().transform(empty->'0') but has NO numeric validation. 'abc' passes Zod but will fail at DB with numeric(12,4). This is asymmetric with stock which DOES validate.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "set safetyStock to 'abc'", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload safetyStock should be 'abc'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: safetyStock should have the same refine(non-negative number) as stock"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-safety-stock-precision"], "indicators": ["safety-stock-input-mode"] }
+    },
+    {
+      "id": "safety-stock-empty-defaults-to-zero",
+      "name": "Empty safety stock transforms to '0'",
+      "category": "validation",
+      "oracle": "safetyStock transform converts empty string to '0'",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "clear safetyStock field", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload safetyStock should be '0'"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-safety-stock-not-null"], "indicators": [] }
+    },
+    {
+      "id": "purchase-price-non-numeric-passes-zod",
+      "name": "Non-numeric purchase price passes Zod (validation gap)",
+      "category": "validation",
+      "oracle": "defaultPurchasePrice uses nullableString (trim + empty->null) but has NO numeric validation. 'not-a-number' passes Zod but will fail at DB with numeric(10,4).",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "set purchase price to 'not-a-number'", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload defaultPurchasePrice should be 'not-a-number'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate numeric format"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-default-purchase-price-precision"], "indicators": ["purchase-price-input-mode"] }
+    },
+    {
+      "id": "selling-price-non-numeric-passes-zod",
+      "name": "Non-numeric selling price passes Zod (validation gap, symmetric with purchase price)",
+      "category": "validation",
+      "oracle": "defaultSellingPrice uses nullableString — same gap as defaultPurchasePrice. Both price fields should be validated identically.",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "set selling price to 'xyz'", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload defaultSellingPrice should be 'xyz'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate numeric format, same rule as purchase price"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-default-selling-price-precision"], "indicators": ["selling-price-input-mode"] }
+    },
+    {
+      "id": "purchase-price-empty-becomes-null",
+      "name": "Empty purchase price normalizes to null",
+      "category": "validation",
+      "oracle": "nullableString transforms empty/whitespace strings to null — empty price should become null in payload",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "leave purchase price empty", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload defaultPurchasePrice should be null"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["items-default-purchase-price-precision"], "indicators": [] }
+    },
+    {
+      "id": "unit-required-on-create",
+      "name": "Unit selection is required when creating an item",
+      "category": "validation",
+      "oracle": "unitDefinitionId has z.string().min(1, 'Unit is required') on insert schema",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "do NOT select a unit", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Unit is required' should appear on unit field",
+        "no network request should be sent"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": ["items-unit-definition-id-not-null"], "indicators": ["unit-field-error"] }
+    },
+    {
+      "id": "unit-not-in-update-schema",
+      "name": "Unit field is omitted from update schema (immutable after creation)",
+      "category": "validation",
+      "oracle": "updateItemSchema omits unitDefinitionId — the field should not appear in the edit form payload",
+      "setup": { "formMode": "edit", "itemType": "material" },
+      "actions": ["open edit form for existing item", "submit without changes"],
+      "verify": [
+        "payload should NOT contain unitDefinitionId",
+        "unit should be displayed as read-only text, not a select"
+      ],
+      "assertAt": ["ui", "payload"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["unit-readonly-in-edit"] }
+    },
+    {
+      "id": "bom-quantity-required-in-quantity-mode",
+      "name": "BOM quantity is required when bomMode is 'quantity'",
+      "category": "validation",
+      "oracle": "bomRefine checks: if bomMode='quantity' and !row.quantity, issue error 'Quantity is required'",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "set bomMode to 'quantity'", "add a BOM row", "select a component", "leave quantity empty", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Quantity is required' should appear on the quantity field of the BOM row"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["bom-quantity-error"] }
+    },
+    {
+      "id": "bom-percentage-required-in-percentage-mode",
+      "name": "BOM percentage is required when bomMode is 'percentage'",
+      "category": "validation",
+      "oracle": "bomRefine checks: if bomMode='percentage' and !row.percentage, issue error 'Percentage is required'",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "set bomMode to 'percentage'", "add a BOM row", "select a component", "leave percentage empty", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Percentage is required' should appear on the percentage field of the BOM row"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["bom-quantity-error"] }
+    },
+    {
+      "id": "bom-quantity-non-numeric-passes-zod",
+      "name": "Non-numeric BOM quantity passes Zod (validation gap)",
+      "category": "validation",
+      "oracle": "bomRefine only checks !row.quantity (truthy check). 'abc' is truthy so it passes. But DB column is numeric(12,4) and will reject it.",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "set bomMode to 'quantity'", "add a BOM row", "select a component", "enter 'abc' as quantity", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload bom[0].quantity should be 'abc'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate that quantity is a valid positive number"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["bom-quantity-precision"], "indicators": [] }
+    },
+    {
+      "id": "bom-percentage-non-numeric-passes-zod",
+      "name": "Non-numeric BOM percentage passes Zod (validation gap)",
+      "category": "validation",
+      "oracle": "bomRefine only checks !row.percentage (truthy check). 'xyz' is truthy so it passes. But DB column is numeric(5,2) and will reject it.",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "set bomMode to 'percentage'", "add a BOM row", "select a component", "enter 'xyz' as percentage", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload bom[0].percentage should be 'xyz'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate that percentage is a valid number between 0 and 100"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["bom-percentage-precision"], "indicators": [] }
+    },
+    {
+      "id": "bom-percentage-total-cosmetic-only",
+      "name": "BOM percentage total warning does NOT block submission",
+      "category": "validation",
+      "oracle": "PercentageTotal component shows red text when total != 100%, but this is purely cosmetic — Zod does NOT enforce sum = 100%. Submission proceeds with any total.",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "set bomMode to 'percentage'", "add two BOM rows", "enter 30 and 20 as percentages (total = 50%)", "submit"],
+      "verify": [
+        "red text should display 'Total: 50.0% (should be 100%)'",
+        "submission should NOT be blocked",
+        "payload should contain bom with percentages summing to 50",
+        "API should accept the request"
+      ],
+      "assertAt": ["ui", "payload"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["bom-percentage-total"] }
+    },
+    {
+      "id": "bom-percentage-total-at-100-green",
+      "name": "BOM percentage total at 100% shows neutral text",
+      "category": "validation",
+      "oracle": "When Math.abs(total - 100) < 0.01, the total text uses text-muted-foreground (not red) and omits the '(should be 100%)' suffix",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["set bomMode to 'percentage'", "add two BOM rows with percentages 60 and 40"],
+      "verify": [
+        "text should display 'Total: 100.0%'",
+        "text should NOT be red (text-destructive)",
+        "text should NOT include '(should be 100%)'"
+      ],
+      "assertAt": ["ui"],
+      "impact": "LOW",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["bom-percentage-total"] }
+    },
+    {
+      "id": "bom-duplicate-component-rejected",
+      "name": "Duplicate BOM component is rejected by Zod refinement",
+      "category": "validation",
+      "oracle": "bomRefine tracks seen componentIds and issues 'Duplicate component' error on second occurrence",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "add two BOM rows", "select the SAME component for both rows", "fill quantities", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Duplicate component' should appear on the second row's component field"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": ["bom-unique-item-component"], "indicators": ["bom-component-error"] }
+    },
+    {
+      "id": "bom-component-required",
+      "name": "BOM row with empty componentId is rejected",
+      "category": "validation",
+      "oracle": "bomRowSchema has componentId: z.string().min(1, 'Component is required')",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["enter a valid name", "select a unit", "add a BOM row", "do NOT select a component", "enter a quantity", "submit"],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Component is required' should appear on the component combobox"
+      ],
+      "assertAt": ["ui"],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": ["bom-component-id-not-null"], "indicators": ["bom-component-error"] }
+    },
+    {
+      "id": "bom-self-reference-rejected-api",
+      "name": "Self-referencing BOM is rejected by API route",
+      "category": "validation",
+      "oracle": "PUT /api/items/[id] checks if bom contains componentId === id and returns 400 with errors.bom message",
+      "setup": { "formMode": "edit", "itemType": "product" },
+      "actions": ["open edit form for product with id 'X'", "add a BOM row with componentId = 'X'", "submit"],
+      "verify": [
+        "Zod parse should succeed (no self-ref check in Zod)",
+        "API should return 400 with { errors: { bom: ['An item cannot reference itself as a component'] } }",
+        "form should display the error message"
+      ],
+      "assertAt": ["api-response", "ui"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["bom-no-self-reference"], "indicators": ["update-self-reference-error"] }
+    },
+    {
+      "id": "sku-whitespace-only-becomes-null",
+      "name": "Whitespace-only SKU normalizes to null",
+      "category": "validation",
+      "oracle": "nullableString trims then converts empty to null — '   ' should become null in payload",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "enter '   ' (spaces only) as SKU", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload sku should be null (not empty string, not whitespace)"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "stock-decimal-accepted",
+      "name": "Decimal stock value is accepted",
+      "category": "validation",
+      "oracle": "stock refine uses Number(v) which accepts decimals — '1.5' is a valid non-negative number",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "set stock to '1.5'", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload stock should be '1.5'"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": ["stock-field-error"] }
+    },
+    {
+      "id": "unit-dialog-size-zero-rejected",
+      "name": "Unit dialog rejects size of 0 (POSITIVE_NUMBER_RE requires positive)",
+      "category": "validation",
+      "oracle": "POSITIVE_NUMBER_RE is /^\\d+\\.?\\d*$/ — '0' DOES match this regex (starts with digit), so button is enabled. However the field is named 'positive number' — this is a semantic ambiguity: 0 is non-negative but not positive.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["open unit creation dialog", "enter 'test' as name", "enter '0' as size", "select a UOM"],
+      "verify": [
+        "POSITIVE_NUMBER_RE.test('0') returns true, so button should be ENABLED",
+        "the error text 'Must be a positive number' should NOT appear",
+        "NOTE: '0' passes the regex but semantically violates 'positive number' — potential bug"
+      ],
+      "assertAt": ["ui"],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": ["units-size-precision"], "indicators": ["unit-dialog-size-validation"] }
+    },
+    {
+      "id": "unit-dialog-negative-size-rejected",
+      "name": "Unit dialog rejects negative size",
+      "category": "validation",
+      "oracle": "POSITIVE_NUMBER_RE is /^\\d+\\.?\\d*$/ — '-1' does NOT match (starts with minus sign), so button is disabled",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["open unit creation dialog", "enter 'test' as name", "enter '-1' as size", "select a UOM"],
+      "verify": [
+        "Create button should be disabled",
+        "error text 'Must be a positive number' should appear on size field"
+      ],
+      "assertAt": ["ui"],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": ["units-size-precision"], "indicators": ["unit-dialog-size-validation"] }
+    },
+    {
+      "id": "unit-dialog-all-fields-required",
+      "name": "Unit dialog Create button disabled until all fields filled",
+      "category": "validation",
+      "oracle": "Button disabled condition: !unitName.trim() || !POSITIVE_NUMBER_RE.test(unitSize.trim()) || !unitUom — all three must be satisfied",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["open unit creation dialog", "leave all fields empty"],
+      "verify": [
+        "Create button should be disabled",
+        "entering only name should still leave button disabled",
+        "entering name + valid size should still leave button disabled (no UOM)",
+        "entering name + valid size + UOM should enable the button"
+      ],
+      "assertAt": ["ui"],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["unit-dialog-name-required", "unit-dialog-size-validation", "unit-dialog-uom-required"] }
+    },
+    {
+      "id": "bom-quantity-not-required-in-percentage-mode",
+      "name": "BOM quantity field is not required when bomMode is 'percentage'",
+      "category": "validation",
+      "oracle": "bomRefine only checks quantity when bomMode='quantity' — in percentage mode, null quantity should be accepted",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["set bomMode to 'percentage'", "add a BOM row", "select a component", "enter a percentage", "leave quantity as null", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload bom[0].quantity should be null",
+        "payload bom[0].percentage should have the entered value"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "stock-edit-optional",
+      "name": "Stock field is optional in edit mode",
+      "category": "validation",
+      "oracle": "updateItemSchema has stock as z.string().refine(...).optional() — undefined stock should be accepted",
+      "setup": { "formMode": "edit", "itemType": "material" },
+      "actions": ["open edit form", "do not modify stock", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "if stock is undefined in payload, no stock adjustment should occur"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "sku-duplicate-rejected-by-db",
+      "name": "Duplicate SKU within same org is rejected by DB unique constraint",
+      "category": "validation",
+      "oracle": "uniqueIndex on (org_id, sku) WHERE sku IS NOT NULL AND deleted_at IS NULL — Zod does not check uniqueness (cannot), so DB enforces it. API should return a user-friendly error.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["create item with SKU 'DUPE-001'", "create another item with SKU 'DUPE-001'"],
+      "verify": [
+        "first create should succeed",
+        "second create should fail with a uniqueness error from the API",
+        "error should be surfaced to the user (not a raw Postgres error)"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["items-sku-unique-partial"], "indicators": ["form-level-error"] }
+    },
+    {
+      "id": "bom-percentage-exceeds-db-precision",
+      "name": "BOM percentage exceeding numeric(5,2) range causes DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is numeric(5,2) which allows max 999.99. A value like '1000' passes Zod (truthy check only) but overflows the DB column.",
+      "setup": { "formMode": "create", "itemType": "product" },
+      "actions": ["set bomMode to 'percentage'", "add a BOM row", "select a component", "enter '1000' as percentage", "submit"],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "API should return a DB error for numeric overflow",
+        "EXPECTED FIX: Zod should validate percentage is between 0 and 100 (or at minimum within numeric(5,2) range)"
+      ],
+      "assertAt": ["payload", "api-response"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": ["bom-percentage-precision"], "indicators": ["bom-percentage-total"] }
+    },
+    {
+      "id": "insufficient-stock-on-update-rejected",
+      "name": "Reducing stock below committed quantity is rejected by API",
+      "category": "validation",
+      "oracle": "updateItem in DAL throws 'Insufficient stock' when new stock level would go below committed. API catches this and returns 400 with { errors: { stock: [message] } }.",
+      "setup": { "formMode": "edit", "itemType": "material" },
+      "actions": ["edit item that has committed stock", "reduce stock below committed quantity", "submit"],
+      "verify": [
+        "Zod parse should succeed (no committed-qty check in Zod)",
+        "API should return 400 with { errors: { stock: ['Insufficient stock...'] } }",
+        "form should display the stock error to the user"
+      ],
+      "assertAt": ["api-response", "ui"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": [], "indicators": ["update-insufficient-stock-error"] }
+    },
+    {
+      "id": "description-null-undefined-both-accepted",
+      "name": "Description accepts both null and undefined (nullableString)",
+      "category": "validation",
+      "oracle": "nullableString uses .nullable() — accepts string, null, or undefined. Untouched fields send undefined, cleared fields send null. Both should normalize to null in payload.",
+      "setup": { "formMode": "create", "itemType": "material" },
+      "actions": ["enter a valid name", "do NOT touch description field at all", "fill all other required fields", "submit"],
+      "verify": [
+        "Zod parse should succeed",
+        "payload description should be null (normalized from undefined)"
+      ],
+      "assertAt": ["payload"],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": { "actions": [], "constraints": [], "indicators": [] }
+    }
+  ]
+}

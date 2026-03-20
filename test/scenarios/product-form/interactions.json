@@ -1,0 +1,122 @@
+{
+  "description": "Interaction map: groups of actions that share mutable state, creating potential test scenarios where action order matters.",
+  "clusters": [
+    {
+      "id": "form-submission",
+      "name": "Form submission pipeline",
+      "sharedState": ["form (all fields)", "mutation", "formError", "router"],
+      "actions": ["click-submit-button"],
+      "dependsOn": ["enter-name", "enter-sku", "enter-description", "select-existing-category", "select-create-new-category", "clear-category", "select-existing-unit", "click-create-unit-button", "enter-purchase-price", "enter-selling-price", "enter-stock", "enter-safety-stock", "switch-bom-mode-quantity-to-percentage", "switch-bom-mode-percentage-to-quantity", "click-add-ingredient", "select-bom-component", "enter-bom-quantity", "enter-bom-percentage", "click-remove-bom-row"],
+      "testImplication": "Every field-level action feeds into the submit payload. Test submit after each field combination to verify the full pipeline."
+    },
+    {
+      "id": "unit-dialog-lifecycle",
+      "name": "Create Unit dialog lifecycle",
+      "sharedState": ["isUnitDialogOpen", "unitName", "unitSize", "unitUom", "unitError", "unitSizeInvalid", "unitMutation", "localUnits", "form.unitDefinitionId"],
+      "actions": ["select-create-new-unit-option", "open-create-unit-dialog", "enter-unit-name", "enter-unit-size", "select-unit-uom", "click-create-unit-button", "click-cancel-in-unit-dialog", "close-create-unit-dialog-via-overlay"],
+      "interactions": [
+        {"pair": ["select-create-new-unit-option", "click-cancel-in-unit-dialog"], "sharedState": ["isUnitDialogOpen", "unitName", "unitSize", "unitUom", "unitError"], "risk": "Dialog open then cancel must fully reset all unit dialog state"},
+        {"pair": ["select-create-new-unit-option", "close-create-unit-dialog-via-overlay"], "sharedState": ["isUnitDialogOpen", "unitName", "unitSize", "unitUom", "unitError"], "risk": "Overlay dismiss must also reset state — same as cancel"},
+        {"pair": ["enter-unit-size", "click-create-unit-button"], "sharedState": ["unitSize", "unitSizeInvalid"], "risk": "Invalid size should prevent creation but button disable logic uses regex, not Zod"},
+        {"pair": ["click-create-unit-button", "select-existing-unit"], "sharedState": ["form.unitDefinitionId"], "risk": "Creating a unit auto-selects it. User then picks a different unit — form.unitDefinitionId must update correctly"},
+        {"pair": ["click-create-unit-button", "click-submit-button"], "sharedState": ["form.unitDefinitionId", "localUnits"], "risk": "Created unit must be in localUnits AND selected in form before submit"}
+      ],
+      "testImplication": "Unit dialog has its own mini form with open/close/reset lifecycle. Test create-then-submit, cancel-then-reopen, overlay-dismiss sequences."
+    },
+    {
+      "id": "category-combobox",
+      "name": "Category combobox with create-on-type",
+      "sharedState": ["categoryInput", "categoryItems", "categoriesSet", "form.category"],
+      "actions": ["type-category-search", "select-existing-category", "select-create-new-category", "clear-category"],
+      "interactions": [
+        {"pair": ["type-category-search", "select-create-new-category"], "sharedState": ["categoryInput", "categoryItems", "form.category"], "risk": "Typing a novel value shows '+ Create' option. Selecting it should set form.category to the trimmed input value."},
+        {"pair": ["select-existing-category", "clear-category"], "sharedState": ["form.category"], "risk": "After clearing, form.category must be null (not empty string) for nullableString transform to work correctly."},
+        {"pair": ["type-category-search", "select-existing-category"], "sharedState": ["categoryInput", "form.category"], "risk": "Filtering then selecting must set form.category to the selected value, not the search text."}
+      ],
+      "testImplication": "Category has create-on-the-fly via combobox. Test novel input, existing selection, clear, and verify submit payload in each case."
+    },
+    {
+      "id": "bom-mode-switch",
+      "name": "BOM mode toggle and field visibility",
+      "sharedState": ["form.bomMode", "form.bom", "bomMode (useWatch)", "total (PercentageTotal derived)"],
+      "actions": ["switch-bom-mode-quantity-to-percentage", "switch-bom-mode-percentage-to-quantity", "enter-bom-quantity", "enter-bom-percentage"],
+      "interactions": [
+        {"pair": ["switch-bom-mode-quantity-to-percentage", "enter-bom-percentage"], "sharedState": ["form.bomMode", "form.bom[].percentage"], "risk": "After switching, only percentage field is shown. Previously entered quantity values remain in form state but are not visible."},
+        {"pair": ["switch-bom-mode-percentage-to-quantity", "enter-bom-quantity"], "sharedState": ["form.bomMode", "form.bom[].quantity"], "risk": "After switching, only quantity field is shown. Previously entered percentage values remain in form state but are not visible."},
+        {"pair": ["enter-bom-quantity", "switch-bom-mode-quantity-to-percentage"], "sharedState": ["form.bom[].quantity", "form.bom[].percentage", "form.bomMode"], "risk": "CRITICAL: Quantities entered in quantity mode persist in form data after switching to percentage mode. Submit payload includes stale quantity values alongside new percentage values."},
+        {"pair": ["enter-bom-percentage", "switch-bom-mode-percentage-to-quantity"], "sharedState": ["form.bom[].percentage", "form.bom[].quantity", "form.bomMode"], "risk": "CRITICAL: Percentages entered in percentage mode persist in form data after switching to quantity mode. Submit payload includes stale percentage values alongside new quantity values."}
+      ],
+      "testImplication": "Mode switching does NOT clear the other field's values. Verify submit payloads after mode switches to confirm stale data behavior. The bomRefine only checks the active field — stale values pass through unchecked."
+    },
+    {
+      "id": "bom-row-management",
+      "name": "BOM row add/remove/select lifecycle",
+      "sharedState": ["form.bom", "fields"],
+      "actions": ["click-add-ingredient", "click-remove-bom-row", "select-bom-component", "enter-bom-quantity", "enter-bom-percentage", "type-component-search"],
+      "interactions": [
+        {"pair": ["click-add-ingredient", "click-remove-bom-row"], "sharedState": ["form.bom", "fields"], "risk": "Adding then immediately removing should leave form.bom unchanged. Removing from the middle must not corrupt other rows' indices."},
+        {"pair": ["select-bom-component", "select-bom-component"], "sharedState": ["form.bom[].componentId"], "risk": "Selecting the same component in two different rows triggers duplicate validation (bomRefine). Must show error on submit."},
+        {"pair": ["click-remove-bom-row", "enter-bom-percentage"], "sharedState": ["form.bom", "total (PercentageTotal derived)"], "risk": "Removing a row recalculates percentage total. Total display must update immediately."},
+        {"pair": ["click-add-ingredient", "click-submit-button"], "sharedState": ["form.bom"], "risk": "Adding an empty row then submitting must trigger validation errors (component required, quantity/percentage required)."}
+      ],
+      "testImplication": "BOM rows use useFieldArray. Test add/remove sequences, duplicate component selection, and empty row submission."
+    },
+    {
+      "id": "stock-delta-on-update",
+      "name": "Stock field in edit mode (delta computation)",
+      "sharedState": ["form.stock"],
+      "actions": ["enter-stock", "click-submit-button"],
+      "interactions": [
+        {"pair": ["enter-stock", "click-submit-button"], "sharedState": ["form.stock", "mutation"], "risk": "In edit mode, API computes delta = new - old. Reducing stock below 0 triggers 'insufficient stock' error from fifoDeduct. Increasing stock creates a new lot."}
+      ],
+      "testImplication": "Stock update in edit mode is a delta operation, not an absolute set. Test increase, decrease, decrease-below-zero, and no-change scenarios."
+    },
+    {
+      "id": "unit-selection-create-only",
+      "name": "Unit field availability by mode",
+      "sharedState": ["form.unitDefinitionId"],
+      "actions": ["select-existing-unit", "select-create-new-unit-option"],
+      "interactions": [
+        {"pair": ["select-existing-unit", "click-submit-button"], "sharedState": ["form.unitDefinitionId"], "risk": "Unit is required in create mode. In edit mode it is read-only and omitted from the update schema entirely."}
+      ],
+      "testImplication": "Unit dropdown only appears in create mode. Edit mode shows unit as read-only text. Verify unitDefinitionId is NOT in the update payload."
+    },
+    {
+      "id": "validation-on-blur",
+      "name": "onBlur validation triggers",
+      "sharedState": ["form field validation state"],
+      "actions": ["blur-name", "blur-sku", "blur-description", "blur-purchase-price", "blur-selling-price", "blur-stock", "blur-safety-stock"],
+      "interactions": [
+        {"pair": ["blur-name", "click-submit-button"], "sharedState": ["form.name validation"], "risk": "Blur validation shows error immediately. Submit validates all fields. Both must show consistent error messages."}
+      ],
+      "testImplication": "Form uses onBlur mode. Field errors appear on blur, not on change. Test that errors appear after blur and clear after correction."
+    }
+  ],
+  "crossClusterInteractions": [
+    {
+      "clusters": ["unit-dialog-lifecycle", "form-submission"],
+      "description": "Creating a unit in the dialog must result in the new unit being selected AND included in the final submit payload.",
+      "risk": "If localUnits updates but form.unitDefinitionId does not, submit will fail with 'Unit is required'."
+    },
+    {
+      "clusters": ["bom-mode-switch", "form-submission"],
+      "description": "Submit payload after a mode switch contains both quantity and percentage values for BOM rows. The API/DAL must handle stale values in the inactive field.",
+      "risk": "CRITICAL: No client-side cleanup of stale BOM field values on mode switch. Stale data reaches the API."
+    },
+    {
+      "clusters": ["category-combobox", "form-submission"],
+      "description": "A newly created category (via '+ Create') is just a string — no separate API call. It goes directly into the submit payload.",
+      "risk": "Low risk, but verify the trimmed value matches what was typed."
+    },
+    {
+      "clusters": ["bom-row-management", "bom-mode-switch"],
+      "description": "Adding a row after switching modes creates a row with the new mode's field empty but the old mode's field also empty (fresh row).",
+      "risk": "Low risk for new rows, but existing rows retain stale values from the previous mode."
+    },
+    {
+      "clusters": ["stock-delta-on-update", "form-submission"],
+      "description": "Stock delta computation happens in the API handler, not the form. The form sends the absolute value; the API computes the difference.",
+      "risk": "If the form sends a string that parseFloat cannot handle, the delta computation produces NaN."
+    }
+  ]
+}

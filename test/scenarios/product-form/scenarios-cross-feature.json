@@ -1,0 +1,498 @@
+{
+  "scenarios": [
+    {
+      "id": "create-item-lot-inherits-purchase-price",
+      "name": "Initial lot costPerUnit equals defaultPurchasePrice on create",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock > 0 and a defaultPurchasePrice, the lot's costPerUnit must equal defaultPurchasePrice. When defaultPurchasePrice is null, costPerUnit must be null.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "defaultPurchasePrice set to '12.50', stock set to '10'" },
+      "actions": [
+        "POST /api/items with { name, stock: '10', defaultPurchasePrice: '12.50', ... }",
+        "GET /api/items/:id to retrieve item",
+        "Query lots for the created item"
+      ],
+      "verify": [
+        "Exactly one lot exists for the item",
+        "lot.costPerUnit === '12.5000' (matches defaultPurchasePrice)",
+        "lot.quantity === '10.0000'",
+        "A stock movement exists with quantity '10.0000' linked to the lot"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["click-submit-button"], "constraints": ["items-default-purchase-price-precision"], "indicators": [] }
+    },
+    {
+      "id": "create-item-no-purchase-price-lot-null-cost",
+      "name": "Lot costPerUnit is null when defaultPurchasePrice is omitted",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock > 0 but no defaultPurchasePrice, the lot's costPerUnit must be null — not 0 or undefined.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "defaultPurchasePrice omitted (null), stock set to '5'" },
+      "actions": [
+        "POST /api/items with { name, stock: '5', defaultPurchasePrice: null, ... }",
+        "Query lots for the created item"
+      ],
+      "verify": [
+        "Exactly one lot exists",
+        "lot.costPerUnit is null (not '0' or '0.0000')",
+        "lot.quantity === '5.0000'"
+      ],
+      "assertAt": ["db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": ["click-submit-button"], "constraints": ["items-default-purchase-price-precision"], "indicators": [] }
+    },
+    {
+      "id": "create-item-zero-stock-no-lot",
+      "name": "No lot or stock movement created when initial stock is 0",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock = '0', no lots and no stock movements should be created. The stock subquery should return 0.",
+      "setup": { "formMode": "create", "itemType": "product", "relatedData": "stock set to '0'" },
+      "actions": [
+        "POST /api/items with { name, stock: '0', ... }",
+        "Query lots for the created item",
+        "Query stock movements for the created item"
+      ],
+      "verify": [
+        "No lots exist for this item",
+        "No stock movements exist for this item",
+        "getItem returns stock === '0'"
+      ],
+      "assertAt": ["db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": ["click-submit-button"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "update-stock-increase-creates-new-lot",
+      "name": "Increasing stock on update creates a new lot and positive movement",
+      "category": "cross-feature",
+      "oracle": "When stock is increased via update (delta > 0), a new lot is created with the delta quantity and a positive stock movement is recorded. The new lot has NO costPerUnit (adjustStockInTx does not set it).",
+      "setup": { "formMode": "edit", "itemType": "material", "relatedData": "Item exists with 10 units in one lot" },
+      "actions": [
+        "PUT /api/items/:id with { stock: '15', ... }",
+        "Query lots for the item",
+        "Query stock movements for the item"
+      ],
+      "verify": [
+        "Two lots exist (original + new)",
+        "New lot quantity === '5.0000' (delta)",
+        "New lot costPerUnit is null (adjustStockInTx does not set costPerUnit)",
+        "New stock movement quantity === '5.0000' (positive)",
+        "getItem returns stock === '15'"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-stock", "click-submit-button"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "update-stock-decrease-fifo-deduction",
+      "name": "Decreasing stock deducts from oldest lot first (FIFO)",
+      "category": "cross-feature",
+      "oracle": "When stock is decreased, fifoDeduct consumes from the oldest lot first. If the oldest lot is insufficient, it drains it to 0 and continues to the next lot. Negative stock movements are created per lot allocation.",
+      "setup": { "formMode": "edit", "itemType": "material", "relatedData": "Item has two lots: LOT-1 with 3 units (older), LOT-2 with 7 units (newer). Total stock = 10." },
+      "actions": [
+        "PUT /api/items/:id with { stock: '5', ... } (delta = -5)",
+        "Query lots for the item ordered by receivedAt",
+        "Query stock movements for the item"
+      ],
+      "verify": [
+        "LOT-1 quantity === '0.0000' (fully drained from 3)",
+        "LOT-2 quantity === '5.0000' (reduced by 2, from 7)",
+        "Two negative stock movements created: one for LOT-1 (-3), one for LOT-2 (-2)",
+        "getItem returns stock === '5'"
+      ],
+      "assertAt": ["db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-stock", "click-submit-button"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "update-stock-decrease-below-available-rejected",
+      "name": "Stock reduction below available quantity returns error and rolls back",
+      "category": "cross-feature",
+      "oracle": "When the requested stock decrease exceeds available quantity, fifoDeduct throws 'Insufficient stock'. The entire update (including metadata changes) must roll back. The API returns { errors: { stock: [...] } } with 400.",
+      "setup": { "formMode": "edit", "itemType": "material", "relatedData": "Item has 5 units total. User submits stock = '0' but also changes name." },
+      "actions": [
+        "PUT /api/items/:id with { name: 'New Name', stock: '0', ... } where item has 5 units but some committed",
+        "Attempt to reduce more than available"
+      ],
+      "verify": [
+        "Response status === 400",
+        "Response body has errors.stock containing 'Insufficient stock'",
+        "Item name is NOT changed (transaction rolled back)",
+        "Lot quantities are unchanged (transaction rolled back)"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-stock", "click-submit-button"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "delete-item-used-in-bom-blocked",
+      "name": "Deleting an item referenced as a BOM component is blocked",
+      "category": "cross-feature",
+      "oracle": "An item that is referenced as a componentId in any non-deleted item's BOM cannot be soft-deleted. The API returns a 400 error. The FK ON DELETE RESTRICT on bom_components.component_id is the DB-level backstop, but the DAL checks first.",
+      "setup": { "formMode": "create", "itemType": "product", "relatedData": "Material A exists. Product B has Material A in its BOM." },
+      "actions": [
+        "DELETE /api/items/:materialA_id"
+      ],
+      "verify": [
+        "Response status === 400",
+        "Response body.error contains 'used as a component'",
+        "Material A is NOT soft-deleted (deletedAt remains null)",
+        "Product B's BOM is unchanged"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["bom-component-id-fk"], "indicators": [] }
+    },
+    {
+      "id": "delete-parent-product-cascades-bom-rows",
+      "name": "Deleting a product (parent) soft-deletes it; BOM rows remain but are filtered out",
+      "category": "cross-feature",
+      "oracle": "When a product with BOM components is soft-deleted, the bom_components rows remain in the DB (no cascade on soft delete). But getBomComponents filters by isNull(items.deletedAt) on the parent join, so they stop appearing. The component items remain unaffected.",
+      "setup": { "formMode": "edit", "itemType": "product", "relatedData": "Product P has 2 BOM components (Material A, Material B)" },
+      "actions": [
+        "DELETE /api/items/:productP_id",
+        "Query bom_components where itemId = productP_id directly",
+        "Verify Material A and Material B are unaffected"
+      ],
+      "verify": [
+        "Product P has deletedAt set (soft-deleted)",
+        "bom_components rows still exist in DB (soft delete does not cascade)",
+        "getAvailableComponents no longer returns Product P",
+        "Material A and Material B are unaffected (deletedAt still null)"
+      ],
+      "assertAt": ["db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["bom-component-id-fk"], "indicators": [] }
+    },
+    {
+      "id": "soft-deleted-item-excluded-from-available-components",
+      "name": "Soft-deleted items do not appear in available BOM components",
+      "category": "cross-feature",
+      "oracle": "getAvailableComponents filters by isNull(items.deletedAt). A soft-deleted material must not appear in the list of components available for BOM selection.",
+      "setup": { "formMode": "create", "itemType": "product", "relatedData": "Material A exists and is then soft-deleted" },
+      "actions": [
+        "Create Material A",
+        "DELETE /api/items/:materialA_id (soft delete)",
+        "GET available components for new product form"
+      ],
+      "verify": [
+        "Material A does NOT appear in available components list",
+        "Material A does NOT appear in getItems results",
+        "Material A does NOT appear in getCategories if it was the only item with that category"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["items-sku-unique-partial"], "indicators": [] }
+    },
+    {
+      "id": "sku-uniqueness-allows-reuse-after-soft-delete",
+      "name": "SKU can be reused after the original item is soft-deleted",
+      "category": "cross-feature",
+      "oracle": "The partial unique index on (org_id, sku) WHERE sku IS NOT NULL AND deleted_at IS NULL allows a new item to use the same SKU as a soft-deleted item.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "Material with SKU 'ABC-123' exists and is soft-deleted" },
+      "actions": [
+        "Create Material A with sku 'ABC-123'",
+        "DELETE /api/items/:materialA_id (soft delete)",
+        "Create Material B with sku 'ABC-123'"
+      ],
+      "verify": [
+        "Material B is created successfully with sku 'ABC-123'",
+        "Both items exist in DB: Material A (deleted), Material B (active)",
+        "getItems returns only Material B"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-sku", "click-submit-button"], "constraints": ["items-sku-unique-partial"], "indicators": [] }
+    },
+    {
+      "id": "sku-uniqueness-blocks-duplicate-active",
+      "name": "Duplicate SKU on active items in same org is rejected by DB",
+      "category": "cross-feature",
+      "oracle": "Two active items in the same org cannot share the same non-null SKU. The partial unique index rejects the insert/update at the DB level. The API should return a 500 (no Zod-level SKU uniqueness check exists).",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "Material A with SKU 'DUP-001' already exists (active)" },
+      "actions": [
+        "POST /api/items with { sku: 'DUP-001', ... }"
+      ],
+      "verify": [
+        "Response status === 500 (DB constraint violation surfaces as internal error)",
+        "No second item is created",
+        "Material A is unchanged"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-sku", "click-submit-button"], "constraints": ["items-sku-unique-partial"], "indicators": [] }
+    },
+    {
+      "id": "bom-self-reference-blocked-on-update",
+      "name": "Self-referencing BOM component is rejected on update",
+      "category": "cross-feature",
+      "oracle": "The PUT handler checks if any bom row has componentId === the item's own id. If so, it returns 400 with errors.bom. The DB also has a CHECK (item_id != component_id) as a backstop.",
+      "setup": { "formMode": "edit", "itemType": "product", "relatedData": "Product P exists" },
+      "actions": [
+        "PUT /api/items/:productP_id with { bom: [{ componentId: productP_id, quantity: '1', percentage: null }], ... }"
+      ],
+      "verify": [
+        "Response status === 400",
+        "Response body has errors.bom containing 'cannot reference itself'",
+        "No bom_components rows are modified"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["select-bom-component", "click-submit-button"], "constraints": ["bom-no-self-reference"], "indicators": [] }
+    },
+    {
+      "id": "bom-update-delete-reinsert-atomicity",
+      "name": "BOM update is atomic: delete-all then reinsert in one transaction",
+      "category": "cross-feature",
+      "oracle": "updateItem deletes all existing bom_components for the item and reinserts the new set in a single transaction. If the reinsert fails (e.g., FK violation on componentId), the delete is also rolled back.",
+      "setup": { "formMode": "edit", "itemType": "product", "relatedData": "Product P has BOM: [Material A]. Update changes to [Material B, invalid-id]." },
+      "actions": [
+        "PUT /api/items/:productP_id with { bom: [{ componentId: materialB_id, ... }, { componentId: 'nonexistent-uuid', ... }], ... }"
+      ],
+      "verify": [
+        "Response status === 500 (FK violation on nonexistent componentId)",
+        "Product P's BOM still contains only Material A (transaction rolled back)",
+        "Product P's other metadata is unchanged (transaction rolled back)"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["select-bom-component", "click-submit-button"], "constraints": ["bom-component-id-fk", "bom-unique-item-component"], "indicators": [] }
+    },
+    {
+      "id": "bom-duplicate-component-in-same-item-rejected",
+      "name": "Duplicate componentId in same BOM is rejected by DB unique constraint",
+      "category": "cross-feature",
+      "oracle": "The unique constraint on (item_id, component_id) prevents inserting two BOM rows with the same component for the same item. Zod's bomRefine also catches duplicates at validation time, but the DB constraint is the backstop.",
+      "setup": { "formMode": "create", "itemType": "product", "relatedData": "Material A exists" },
+      "actions": [
+        "POST /api/items with { bom: [{ componentId: materialA_id, quantity: '1', ... }, { componentId: materialA_id, quantity: '2', ... }], ... }"
+      ],
+      "verify": [
+        "Response status === 400 (Zod bomRefine catches duplicate before DB)",
+        "Response body has errors at path bom.1.componentId with 'Duplicate component'",
+        "No item is created"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": ["select-bom-component", "click-submit-button"], "constraints": ["bom-unique-item-component"], "indicators": [] }
+    },
+    {
+      "id": "created-item-visible-in-list-and-detail",
+      "name": "Newly created item appears in list view and detail view with correct data",
+      "category": "cross-feature",
+      "oracle": "After creating an item via POST, getItems must include it with correct stock (computed from lots), unit name (joined from unit_definitions), and all metadata. getItem must return the full detail including unitName, unitSize, unitUom.",
+      "setup": { "formMode": "create", "itemType": "product", "relatedData": "Unit 'kg (1 kilogram)' exists. Create product with all fields populated." },
+      "actions": [
+        "POST /api/items with { name: 'Widget', sku: 'WDG-001', category: 'Finished Goods', stock: '100', defaultPurchasePrice: '5.00', defaultSellingPrice: '12.99', bomMode: 'quantity', safetyStock: '10', ... }",
+        "GET /api/items?itemType=product",
+        "GET item detail via getItem"
+      ],
+      "verify": [
+        "List includes 'Widget' with stock '100', unit 'kg', category 'Finished Goods', sku 'WDG-001'",
+        "Detail shows defaultPurchasePrice '5.0000', defaultSellingPrice '12.99', safetyStock '10.0000'",
+        "Detail shows unitName, unitSize, unitUom from the linked unit_definitions row",
+        "calcStock returns 100 - 0 + 0 - 10 = 90"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["click-submit-button"], "constraints": ["items-unit-definition-id-fk", "items-name-not-null"], "indicators": [] }
+    },
+    {
+      "id": "category-list-reflects-active-items-only",
+      "name": "getCategories returns categories only from non-deleted items",
+      "category": "cross-feature",
+      "oracle": "getCategories uses isNull(items.deletedAt) filter. If the last active item with a given category is soft-deleted, that category must disappear from the list.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "Material A with category 'Raw' is the only item with that category" },
+      "actions": [
+        "Verify getCategories includes 'Raw'",
+        "DELETE /api/items/:materialA_id (soft delete)",
+        "GET categories again"
+      ],
+      "verify": [
+        "Before delete: 'Raw' appears in categories",
+        "After delete: 'Raw' does NOT appear in categories",
+        "Other categories from other active items are unaffected"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": ["select-existing-category"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "stock-movement-audit-trail-on-create",
+      "name": "Stock movement records the creating user and links to the correct lot",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock > 0, the stock movement must record createdBy = userId (from auth), itemId = the new item, lotId = the new lot, and quantity = the stock amount.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "Authenticated user creates item with stock 25" },
+      "actions": [
+        "POST /api/items with { stock: '25', ... }",
+        "Query stock movements for the created item"
+      ],
+      "verify": [
+        "Exactly one stock movement exists",
+        "movement.quantity === '25.0000'",
+        "movement.lotId matches the created lot's id",
+        "movement.createdBy is the authenticated user's id",
+        "movement.itemId is the created item's id"
+      ],
+      "assertAt": ["db"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-stock", "click-submit-button"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "update-purchase-price-does-not-retroactively-change-lot-cost",
+      "name": "Changing defaultPurchasePrice on update does not alter existing lot costPerUnit",
+      "category": "cross-feature",
+      "oracle": "defaultPurchasePrice is only used as costPerUnit at item creation time (createItemWithLot). Updating it via PUT does not change any existing lot's costPerUnit. New lots created via stock increase also have null costPerUnit (adjustStockInTx doesn't set it).",
+      "setup": { "formMode": "edit", "itemType": "material", "relatedData": "Material created with purchasePrice '10.00', stock 5. Lot has costPerUnit '10.0000'." },
+      "actions": [
+        "PUT /api/items/:id with { defaultPurchasePrice: '15.00', stock: '10', ... }",
+        "Query lots for the item"
+      ],
+      "verify": [
+        "Original lot still has costPerUnit === '10.0000' (unchanged)",
+        "New lot (delta = 5) has costPerUnit === null (adjustStockInTx does not set it)",
+        "Item's defaultPurchasePrice is updated to '15.0000'"
+      ],
+      "assertAt": ["db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": ["enter-purchase-price", "enter-stock", "click-submit-button"], "constraints": ["items-default-purchase-price-precision"], "indicators": [] }
+    },
+    {
+      "id": "calculated-stock-formula-downstream",
+      "name": "calcStock formula produces correct result from stored values",
+      "category": "cross-feature",
+      "oracle": "calcStock = stock - committedQty + expectedQty - safetyStock, rounded to 4 decimal places. The data table and detail page both use this formula. Negative results render with destructive styling.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "Item with stock=100 (from lots), committedQty=30, expectedQty=20, safetyStock=50" },
+      "actions": [
+        "Create item and manually set committedQty=30, expectedQty=20 in DB",
+        "Render data table and detail page"
+      ],
+      "verify": [
+        "calcStock = 100 - 30 + 20 - 50 = 40 (positive, no destructive styling)",
+        "If safetyStock were 100: calcStock = 100 - 30 + 20 - 100 = -10 (negative, destructive styling)",
+        "Detail page and list page show consistent calculated stock values"
+      ],
+      "assertAt": ["api-response"],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": { "actions": ["enter-safety-stock", "enter-stock"], "constraints": ["items-safety-stock-not-null"], "indicators": [] }
+    },
+    {
+      "id": "bom-components-display-filters-deleted-components",
+      "name": "getBomComponents excludes soft-deleted components from results",
+      "category": "cross-feature",
+      "oracle": "getBomComponents joins on items with isNull(items.deletedAt). If a component is somehow soft-deleted while still referenced in a BOM (bypassing the delete guard), it must not appear in the BOM display. This scenario tests the defense-in-depth filter.",
+      "setup": { "formMode": "edit", "itemType": "product", "relatedData": "Product P has BOM with Material A. Material A is force-deleted at DB level (bypassing API guard)." },
+      "actions": [
+        "Query getBomComponents for Product P before Material A is deleted",
+        "Force soft-delete Material A directly in DB (simulating a bypass)",
+        "Query getBomComponents for Product P after deletion"
+      ],
+      "verify": [
+        "Before: BOM shows Material A with correct quantity/percentage",
+        "After: BOM does NOT show Material A (filtered by isNull(items.deletedAt) on componentId join)",
+        "BOM count decreases by 1"
+      ],
+      "assertAt": ["db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["bom-component-id-fk"], "indicators": [] }
+    },
+    {
+      "id": "lot-number-sequence-uniqueness",
+      "name": "Concurrent item creations get unique lot numbers",
+      "category": "cross-feature",
+      "oracle": "generateLotNumber uses a Postgres sequence (lot_number_seq). Even under concurrent inserts, each lot gets a unique LOT-NNNNNN number. The unique index on (org_id, lot_number) prevents collisions.",
+      "setup": { "formMode": "create", "itemType": "material", "relatedData": "Two items created in rapid succession with stock > 0" },
+      "actions": [
+        "POST /api/items (item A with stock '10')",
+        "POST /api/items (item B with stock '5')",
+        "Query lots for both items"
+      ],
+      "verify": [
+        "Item A's lot has a unique lot number (LOT-NNNNNN format)",
+        "Item B's lot has a different lot number",
+        "Both lot numbers follow the LOT-NNNNNN format with zero-padded sequence"
+      ],
+      "assertAt": ["db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": ["click-submit-button"], "constraints": [], "indicators": [] }
+    },
+    {
+      "id": "bom-mode-stale-values-reach-db",
+      "name": "Stale BOM field values from mode switch are persisted in DB",
+      "category": "cross-feature",
+      "oracle": "When a user enters quantity values in quantity mode, switches to percentage mode and enters percentages, then submits: the DB receives BOTH quantity and percentage values for each BOM row. The form does not clear stale fields. The API passes them through. The DB stores both nullable columns.",
+      "setup": { "formMode": "create", "itemType": "product", "relatedData": "Material A exists. User enters quantity '5', switches to percentage mode, enters percentage '50'." },
+      "actions": [
+        "POST /api/items with { bomMode: 'percentage', bom: [{ componentId: materialA_id, quantity: '5', percentage: '50' }], ... }",
+        "Query bom_components for the created item"
+      ],
+      "verify": [
+        "bom_components row has quantity = '5.0000' AND percentage = '50.00'",
+        "Both values are persisted — the API does not strip the inactive field",
+        "Detail page renders only the percentage (based on bomMode), not the stale quantity"
+      ],
+      "assertAt": ["db", "api-response"],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": { "actions": ["switch-bom-mode-quantity-to-percentage", "enter-bom-quantity", "enter-bom-percentage", "click-submit-button"], "constraints": ["bom-quantity-precision", "bom-percentage-precision"], "indicators": [] }
+    },
+    {
+      "id": "item-type-immutable-on-update",
+      "name": "itemType cannot be changed via PUT (omitted from update schema)",
+      "category": "cross-feature",
+      "oracle": "The updateItemSchema omits itemType. If a PUT payload includes itemType, it is stripped by Zod parsing and never reaches the DAL. A material cannot become a product via the update API.",
+      "setup": { "formMode": "edit", "itemType": "material", "relatedData": "Material M exists" },
+      "actions": [
+        "PUT /api/items/:materialM_id with { itemType: 'product', name: 'Updated', ... }"
+      ],
+      "verify": [
+        "Response status === 200 (Zod strips unknown fields, does not error)",
+        "Item's itemType remains 'material' in DB",
+        "Item's name IS updated to 'Updated' (other fields are processed normally)"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["items-item-type-not-null"], "indicators": [] }
+    },
+    {
+      "id": "unit-definition-immutable-on-update",
+      "name": "unitDefinitionId cannot be changed via PUT (omitted from update schema)",
+      "category": "cross-feature",
+      "oracle": "The updateItemSchema omits unitDefinitionId. Even if the PUT payload includes it, Zod strips it. The unit assigned at creation is permanent.",
+      "setup": { "formMode": "edit", "itemType": "material", "relatedData": "Material M with unit 'kg' exists. Another unit 'lb' also exists." },
+      "actions": [
+        "PUT /api/items/:materialM_id with { unitDefinitionId: lb_unit_id, name: 'Updated', ... }"
+      ],
+      "verify": [
+        "Response status === 200",
+        "Item's unitDefinitionId remains the original kg unit (not changed to lb)",
+        "getItem returns unitName === 'kg' (unchanged)"
+      ],
+      "assertAt": ["api-response", "db"],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": { "actions": [], "constraints": ["items-unit-definition-id-fk", "items-unit-definition-id-not-null"], "indicators": [] }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "constraints": [
+    {"id": "items-name-not-null", "table": "items", "column": "name", "type": "not-null", "details": "varchar(255) NOT NULL", "zodEquivalent": "z.string().min(1)", "covered": true},
+    {"id": "items-name-varchar-length", "table": "items", "column": "name", "type": "varchar-length", "details": "varchar(255)", "zodEquivalent": "NONE", "covered": false},
+    {"id": "items-sku-varchar-length", "table": "items", "column": "sku", "type": "varchar-length", "details": "varchar(50)", "zodEquivalent": "NONE", "covered": false},
+    {"id": "items-sku-unique-partial", "table": "items", "column": "sku", "type": "unique", "details": "uniqueIndex on (org_id, sku) WHERE sku IS NOT NULL AND deleted_at IS NULL", "zodEquivalent": "NONE — DB only", "covered": true},
+    {"id": "items-category-varchar-length", "table": "items", "column": "category", "type": "varchar-length", "details": "varchar(100)", "zodEquivalent": "NONE", "covered": false},
+    {"id": "items-item-type-not-null", "table": "items", "column": "item_type", "type": "not-null", "details": "varchar(20) NOT NULL DEFAULT 'material'", "zodEquivalent": "z.enum(['product', 'material'])", "covered": true},
+    {"id": "items-unit-definition-id-not-null", "table": "items", "column": "unit_definition_id", "type": "not-null", "details": "uuid NOT NULL", "zodEquivalent": "z.string().min(1)", "covered": true},
+    {"id": "items-unit-definition-id-fk", "table": "items", "column": "unit_definition_id", "type": "fk", "details": "references unit_definitions(id)", "zodEquivalent": "NONE — DB only", "covered": true},
+    {"id": "items-safety-stock-not-null", "table": "items", "column": "safety_stock", "type": "not-null", "details": "numeric(12,4) NOT NULL DEFAULT '0'", "zodEquivalent": "z.string().transform(empty -> '0')", "covered": true},
+    {"id": "items-safety-stock-precision", "table": "items", "column": "safety_stock", "type": "numeric-precision", "details": "numeric(12,4)", "zodEquivalent": "NONE", "covered": false},
+    {"id": "items-default-purchase-price-precision", "table": "items", "column": "default_purchase_price", "type": "numeric-precision", "details": "numeric(10,4), nullable", "zodEquivalent": "NONE", "covered": false},
+    {"id": "items-default-selling-price-precision", "table": "items", "column": "default_selling_price", "type": "numeric-precision", "details": "numeric(10,2), nullable", "zodEquivalent": "NONE", "covered": false},
+    {"id": "items-bom-mode-varchar-length", "table": "items", "column": "bom_mode", "type": "varchar-length", "details": "varchar(20), nullable", "zodEquivalent": "z.enum bounded", "covered": true},
+    {"id": "bom-component-id-not-null", "table": "bom_components", "column": "component_id", "type": "not-null", "details": "uuid NOT NULL", "zodEquivalent": "z.string().min(1)", "covered": true},
+    {"id": "bom-component-id-fk", "table": "bom_components", "column": "component_id", "type": "fk", "details": "references items(id) ON DELETE RESTRICT", "zodEquivalent": "NONE — DB only", "covered": true},
+    {"id": "bom-quantity-precision", "table": "bom_components", "column": "quantity", "type": "numeric-precision", "details": "numeric(12,4), nullable", "zodEquivalent": "NONE", "covered": false},
+    {"id": "bom-percentage-precision", "table": "bom_components", "column": "percentage", "type": "numeric-precision", "details": "numeric(5,2), nullable", "zodEquivalent": "NONE", "covered": false},
+    {"id": "bom-unique-item-component", "table": "bom_components", "column": "(item_id, component_id)", "type": "unique", "details": "unique constraint", "zodEquivalent": "bomRefine duplicate check", "covered": true},
+    {"id": "bom-no-self-reference", "table": "bom_components", "column": "(item_id, component_id)", "type": "check", "details": "CHECK (item_id != component_id)", "zodEquivalent": "API route check on update only", "covered": true},
+    {"id": "units-name-varchar-length", "table": "unit_definitions", "column": "name", "type": "varchar-length", "details": "varchar(50)", "zodEquivalent": "NONE", "covered": false},
+    {"id": "units-size-precision", "table": "unit_definitions", "column": "size", "type": "numeric-precision", "details": "numeric(10,4)", "zodEquivalent": "NONE", "covered": false}
+  ]
+}
