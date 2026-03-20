@@ -381,8 +381,13 @@ For each meaningful input or combination, produce a scenario:
   "covers": { "actions": ["action-ids"], "constraints": ["constraint-ids"], "indicators": ["indicator-ids"] }
 }
 
-Use 3-8 action steps. Verifications should describe the EXPECTED CORRECT behavior.
-Generate AT LEAST 20 scenarios.
+Use 3-8 action steps. Generate AT LEAST 20 scenarios.
+
+When writing the oracle and verify statements, reason from the DOMAIN first, then
+check the code. Ask: "what would a manufacturing ERP need this behavior to be?"
+Then check if the code matches. If the code does something different from what
+the domain requires, the oracle describes the DOMAIN requirement — not the code.
+The test should fail if the code is wrong.
 
 Write to test/scenarios/<feature>/scenarios-data-pipeline.json.
 ```
