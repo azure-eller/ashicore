@@ -1,0 +1,5317 @@
+{
+  "mergedAt": "2026-03-20T00:06:08.295Z",
+  "totalRaw": 134,
+  "scenarios": [
+    {
+      "id": "name-empty-string-blocked",
+      "name": "Empty name string is rejected by Zod min(1)",
+      "category": "data-pipeline",
+      "oracle": "Name is a required NOT NULL varchar(255) field. An empty string must fail Zod validation with 'Name is required' and never reach the API.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Leave name field empty (default '')",
+        "Fill all other required fields (unitDefinitionId, itemType)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation rejects with 'Name is required'",
+        "No fetch call is made to /api/items",
+        "Form displays field-level error on name"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-name",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-name-not-null"
+        ],
+        "indicators": [
+          "name-field-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "name-whitespace-only-blocked",
+      "name": "Whitespace-only name passes Zod min(1) — it is NOT trimmed",
+      "category": "data-pipeline",
+      "oracle": "The name field uses z.string().min(1), not nullableString. Whitespace-only strings like '   ' have length > 0 and PASS validation. The untrimmed string reaches the database.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter '   ' (spaces only) in name field",
+        "Fill all other required fields",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — min(1) checks length, not content",
+        "Payload contains name: '   ' (untrimmed whitespace)",
+        "The API receives the whitespace string and passes it to DAL"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-name",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-name-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "sku-nullablestring-trims-to-null",
+      "name": "Empty/whitespace SKU is normalized to null by nullableString",
+      "category": "data-pipeline",
+      "oracle": "nullableString trims the input and converts empty results to null. Whitespace-only or empty string SKUs must become null in the payload, not empty string.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter '  ' (whitespace) in SKU field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod transforms SKU to null (trim + empty → null)",
+        "Payload sent to API has sku: null",
+        "DB receives NULL for sku column — partial unique index is not triggered"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-sku",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-sku-unique-partial"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "sku-exceeds-varchar-50",
+      "name": "SKU longer than 50 chars passes Zod but may fail at DB",
+      "category": "data-pipeline",
+      "oracle": "Zod has NO max length check for SKU. A string longer than 50 characters passes schema validation and reaches the database, where varchar(50) will reject it with a Postgres error.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter a 51-character string in SKU field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — no maxLength constraint",
+        "API sends the 51-char string to DAL",
+        "Postgres rejects with 'value too long for type character varying(50)' or truncates",
+        "API returns a 500 error (unhandled DB constraint violation)"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-sku",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-sku-varchar-length"
+        ],
+        "indicators": [
+          "form-level-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "category-exceeds-varchar-100",
+      "name": "Category longer than 100 chars passes Zod but may fail at DB",
+      "category": "data-pipeline",
+      "oracle": "Zod has NO max length check for category. A string longer than 100 characters passes schema validation and reaches the database, where varchar(100) will reject it.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Type a 101-character string into the category combobox",
+        "Select the '+ Create' option to use it",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — no maxLength constraint",
+        "API sends the 101-char category to DAL",
+        "Postgres rejects with varchar(100) constraint violation"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response",
+        "db"
+      ],
+      "impact": "LOW",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "type-category-search",
+          "select-create-new-category",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-category-varchar-length"
+        ],
+        "indicators": [
+          "category-create-prompt"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "purchase-price-non-numeric-passes-zod",
+      "name": "Non-numeric purchase price passes Zod and fails at Postgres",
+      "category": "data-pipeline",
+      "oracle": "defaultPurchasePrice uses nullableString, which only trims and null-converts. There is NO numeric validation. A string like 'abc' passes Zod and is sent as a string to Postgres numeric(10,4), which rejects it.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter 'abc' in purchase price field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — nullableString only trims, 'abc' is non-empty so it stays",
+        "Payload contains defaultPurchasePrice: 'abc'",
+        "Postgres rejects: invalid input syntax for type numeric",
+        "API returns 500 error"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-purchase-price",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-default-purchase-price-precision"
+        ],
+        "indicators": [
+          "purchase-price-input-mode"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "selling-price-exceeds-numeric-precision",
+      "name": "Selling price exceeding numeric(10,2) precision fails at DB",
+      "category": "data-pipeline",
+      "oracle": "defaultSellingPrice is numeric(10,2). A value like '99999999999' (11 digits) exceeds the precision and will fail at the DB level. Zod performs no numeric or range validation.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Enter '99999999999' in selling price field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes",
+        "Payload contains defaultSellingPrice: '99999999999'",
+        "Postgres rejects: numeric field overflow for numeric(10,2)"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-selling-price",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-default-selling-price-precision"
+        ],
+        "indicators": [
+          "selling-price-input-mode"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "safety-stock-empty-becomes-zero",
+      "name": "Empty safety stock is transformed to '0' by Zod",
+      "category": "data-pipeline",
+      "oracle": "safetyStock uses z.string().transform(v => v.trim() === '' ? '0' : v). An empty or whitespace-only input transforms to '0'. The DB column is NOT NULL DEFAULT '0', so this is consistent.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Clear the safety stock field (make it empty)",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod transforms empty string to '0'",
+        "Payload contains safetyStock: '0'",
+        "DB stores safety_stock = 0.0000"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-safety-stock",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-safety-stock-not-null"
+        ],
+        "indicators": [
+          "safety-stock-input-mode"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "safety-stock-non-numeric-passes-zod",
+      "name": "Non-numeric safety stock passes Zod and fails at Postgres",
+      "category": "data-pipeline",
+      "oracle": "safetyStock transform only handles empty→'0'. A non-empty non-numeric string like 'abc' passes through untouched and reaches Postgres numeric(12,4), which rejects it.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter 'abc' in safety stock field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod transforms: 'abc'.trim() !== '' so value stays 'abc'",
+        "Payload contains safetyStock: 'abc'",
+        "Postgres rejects: invalid input syntax for type numeric"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-safety-stock",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-safety-stock-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-negative-blocked-by-zod",
+      "name": "Negative stock is rejected by Zod refine on create",
+      "category": "data-pipeline",
+      "oracle": "Stock has z.string().refine(v => !isNaN(Number(v)) && Number(v) >= 0). A negative value like '-5' must be rejected client-side before reaching the API.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter '-5' in stock field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod rejects with 'Must be a non-negative number'",
+        "No fetch call is made to /api/items",
+        "Form shows field-level error on stock"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "stock-field-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-non-numeric-blocked-by-zod",
+      "name": "Non-numeric stock is rejected by Zod refine",
+      "category": "data-pipeline",
+      "oracle": "Stock refine checks !isNaN(Number(v)). The string 'abc' produces NaN, which fails the refine.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter 'abc' in stock field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod rejects with 'Must be a non-negative number'",
+        "No fetch call is made"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "stock-field-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-zero-creates-no-lot",
+      "name": "Stock of '0' on create does not create a lot or stock movement",
+      "category": "data-pipeline",
+      "oracle": "createItemWithLot only creates a lot when parseFloat(stock) > 0. Stock '0' means parseFloat('0') === 0, which is falsy via > 0, so no lot is created.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Leave stock at default '0'",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Item is created in items table",
+        "No row is created in lots table for this item",
+        "No row is created in stock_movements table",
+        "Stock query returns 0 (COALESCE(SUM, 0))"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-positive-creates-lot-with-purchase-price",
+      "name": "Positive stock on create creates a lot with purchase price as costPerUnit",
+      "category": "data-pipeline",
+      "oracle": "When stock > 0 on create, createItemWithLot creates a lot with quantity = stock and costPerUnit = defaultPurchasePrice. The purchase price is used as the initial lot cost.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter '100' in stock field",
+        "Enter '25.50' in purchase price field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Item is created in items table with defaultPurchasePrice = 25.5000",
+        "Lot is created with quantity = '100' and costPerUnit = '25.50'",
+        "Stock movement is created with quantity = '100'",
+        "Lot has an auto-generated lot number (LOT-XXXXXX)"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "enter-purchase-price",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-create-no-purchase-price-lot-cost-null",
+      "name": "Positive stock on create without purchase price sets lot costPerUnit to null",
+      "category": "data-pipeline",
+      "oracle": "When defaultPurchasePrice is null (empty field), the lot is created with costPerUnit = null because the DAL uses data.defaultPurchasePrice ?? null.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter '50' in stock field",
+        "Leave purchase price empty",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Lot is created with costPerUnit = NULL",
+        "defaultPurchasePrice on item is NULL"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-update-increase-creates-new-lot",
+      "name": "Increasing stock on update creates a new lot via adjustStockInTx",
+      "category": "data-pipeline",
+      "oracle": "On update, the API computes delta = newStock - currentStock. A positive delta creates a new lot and stock movement. The new lot does NOT carry the purchase price (adjustStockInTx doesn't set costPerUnit).",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Existing item with stock = 10"
+      },
+      "actions": [
+        "Change stock from '10' to '25'",
+        "Click submit"
+      ],
+      "verify": [
+        "API computes delta = 25 - 10 = 15",
+        "New lot is created with quantity = '15' and NO costPerUnit",
+        "Stock movement is created with quantity = '15'",
+        "Total stock (SUM of lots) = 25"
+      ],
+      "assertAt": [
+        "db",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-update-decrease-fifo-deduct",
+      "name": "Decreasing stock on update deducts FIFO from existing lots",
+      "category": "data-pipeline",
+      "oracle": "On update, a negative delta triggers fifoDeduct which deducts from lots ordered by receivedAt (oldest first). Each deduction creates a negative stock movement.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Existing item with stock = 20 across two lots (LOT-1: 12, LOT-2: 8)"
+      },
+      "actions": [
+        "Change stock from '20' to '5'",
+        "Click submit"
+      ],
+      "verify": [
+        "API computes delta = 5 - 20 = -15",
+        "fifoDeduct deducts 12 from LOT-1 (oldest), then 3 from LOT-2",
+        "LOT-1 quantity = 0, LOT-2 quantity = 5",
+        "Two negative stock movements created: -12 and -3",
+        "Total stock = 5"
+      ],
+      "assertAt": [
+        "db",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-update-decrease-below-zero-rejected",
+      "name": "Reducing stock below available amount returns insufficient stock error",
+      "category": "data-pipeline",
+      "oracle": "fifoDeduct throws 'Insufficient stock' when the requested deduction exceeds total available. The API catches this and returns { errors: { stock: ['Insufficient stock...'] } } with 400 status.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Existing item with stock = 5"
+      },
+      "actions": [
+        "Change stock from '5' to '0' (or any value requiring deduction > available)",
+        "Click submit"
+      ],
+      "verify": [
+        "API computes delta = 0 - 5 = -5",
+        "fifoDeduct verifies total available >= 5",
+        "If available < 5 (e.g., some stock committed), throws 'Insufficient stock'",
+        "API returns 400 with { errors: { stock: ['Insufficient stock. Available: X, requested: 5'] } }",
+        "Transaction rolls back — no partial changes to item or lots"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "update-insufficient-stock-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "description-null-undefined-empty-all-become-null",
+      "name": "Description: null, undefined, empty string, and whitespace all normalize to null",
+      "category": "data-pipeline",
+      "oracle": "nullableString accepts string | null | undefined. null/undefined → null. Empty string or whitespace → trim → empty → null. All three input forms produce null in the payload.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Test 1: Leave description untouched (undefined from form)",
+        "Test 2: Enter '' (empty string)",
+        "Test 3: Enter '   ' (whitespace only)",
+        "Submit each variant"
+      ],
+      "verify": [
+        "All three produce description: null in the Zod output",
+        "DB stores description = NULL"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-description",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-mode-switch-stale-quantity-persists",
+      "name": "BOM mode switch from quantity to percentage leaves stale quantity values in payload",
+      "category": "data-pipeline",
+      "oracle": "Switching BOM mode does NOT clear the inactive field's values. Quantity values entered in quantity mode persist in form state after switching to percentage mode. The submit payload contains both stale quantity and new percentage values.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'quantity'",
+        "Add an ingredient, select a component, enter quantity '5.5'",
+        "Switch BOM mode to 'percentage'",
+        "Enter percentage '100' for the same row",
+        "Click submit"
+      ],
+      "verify": [
+        "Payload bom[0] contains BOTH quantity: '5.5' AND percentage: '100'",
+        "bomRefine only validates the active field (percentage) — stale quantity is ignored",
+        "Both values are written to bom_components table",
+        "DB row has quantity = 5.5000 AND percentage = 100.00"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-quantity-to-percentage",
+          "enter-bom-quantity",
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-mode-switch-stale-percentage-persists",
+      "name": "BOM mode switch from percentage to quantity leaves stale percentage values in payload",
+      "category": "data-pipeline",
+      "oracle": "Switching from percentage to quantity mode does NOT clear percentage values. The submit payload contains stale percentage alongside new quantity values.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'percentage'",
+        "Add an ingredient, select a component, enter percentage '50'",
+        "Switch BOM mode to 'quantity'",
+        "Enter quantity '10' for the same row",
+        "Click submit"
+      ],
+      "verify": [
+        "Payload bom[0] contains BOTH quantity: '10' AND percentage: '50'",
+        "bomRefine only validates quantity — stale percentage passes unchecked",
+        "Both values are written to bom_components table"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-percentage-to-quantity",
+          "enter-bom-quantity",
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-duplicate-component-blocked",
+      "name": "Duplicate component in BOM is rejected by bomRefine",
+      "category": "data-pipeline",
+      "oracle": "bomRefine checks for duplicate componentId values in the bom array. Selecting the same component in two rows must produce a 'Duplicate component' error on the second row.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Add two ingredient rows",
+        "Select the same component (componentA) in both rows",
+        "Enter quantity for both rows",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod bomRefine detects duplicate componentId",
+        "Error 'Duplicate component' is added to path ['bom', 1, 'componentId']",
+        "Form does NOT submit — no fetch call made",
+        "The first row has no error; only the second (duplicate) row shows the error"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "select-bom-component",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-unique-item-component"
+        ],
+        "indicators": [
+          "bom-component-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-empty-row-requires-component",
+      "name": "BOM row with empty component is rejected on submit",
+      "category": "data-pipeline",
+      "oracle": "Each BOM row's componentId uses z.string().min(1). An empty componentId (default when row is added) must fail validation with 'Component is required'.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Click '+ Add Ingredient' to add an empty row",
+        "Do NOT select a component",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod rejects with 'Component is required' on bom[0].componentId",
+        "No fetch call is made",
+        "Error is displayed below the component combobox"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-component-id-not-null"
+        ],
+        "indicators": [
+          "bom-component-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-quantity-required-when-mode-quantity",
+      "name": "BOM quantity is required when bomMode is 'quantity'",
+      "category": "data-pipeline",
+      "oracle": "bomRefine checks: if bomMode === 'quantity' && !row.quantity, add error. nullableString transforms empty/whitespace to null, so an empty quantity field triggers this check.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'quantity'",
+        "Add an ingredient and select a component",
+        "Leave quantity field empty",
+        "Click submit"
+      ],
+      "verify": [
+        "nullableString transforms empty quantity to null",
+        "bomRefine detects bomMode='quantity' with null quantity",
+        "Error 'Quantity is required' at path ['bom', 0, 'quantity']",
+        "No fetch call is made"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "bom-quantity-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-percentage-required-when-mode-percentage",
+      "name": "BOM percentage is required when bomMode is 'percentage'",
+      "category": "data-pipeline",
+      "oracle": "bomRefine checks: if bomMode === 'percentage' && !row.percentage, add error. Empty percentage input is normalized to null by nullableString, triggering the required check.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'percentage'",
+        "Add an ingredient and select a component",
+        "Leave percentage field empty",
+        "Click submit"
+      ],
+      "verify": [
+        "nullableString transforms empty percentage to null",
+        "bomRefine detects bomMode='percentage' with null percentage",
+        "Error 'Percentage is required' at path ['bom', 0, 'percentage']",
+        "No fetch call is made"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "bom-quantity-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-percentage-total-warning-does-not-block",
+      "name": "BOM percentage total != 100% shows warning but does NOT block submission",
+      "category": "data-pipeline",
+      "oracle": "The PercentageTotal component shows a red warning when percentages do not sum to 100%, but this is COSMETIC ONLY. There is no Zod validation for percentage sum. The form submits successfully.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'percentage'",
+        "Add two ingredients with components selected",
+        "Enter percentage '30' for row 1 and '20' for row 2 (total: 50%)",
+        "Click submit"
+      ],
+      "verify": [
+        "UI shows total '50.0%' in red with '(should be 100%)'",
+        "Form submits successfully — Zod has no sum validation",
+        "API accepts the payload and stores both percentages",
+        "DB has percentage = 30.00 and percentage = 20.00 in bom_components"
+      ],
+      "assertAt": [
+        "ui",
+        "payload",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-percentage-precision"
+        ],
+        "indicators": [
+          "bom-percentage-total"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-quantity-non-numeric-passes-zod",
+      "name": "Non-numeric BOM quantity passes Zod and fails at Postgres",
+      "category": "data-pipeline",
+      "oracle": "BOM quantity uses nullableString — only trims and null-converts. A non-empty non-numeric string like 'abc' passes Zod and is sent to Postgres numeric(12,4), which rejects it.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'quantity'",
+        "Add an ingredient, select a component",
+        "Enter 'abc' in quantity field",
+        "Click submit"
+      ],
+      "verify": [
+        "nullableString trims 'abc' — non-empty, so it stays as 'abc'",
+        "bomRefine checks !row.quantity — 'abc' is truthy, so it passes",
+        "Payload contains bom[0].quantity: 'abc'",
+        "Postgres rejects: invalid input syntax for type numeric"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-quantity-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-percentage-exceeds-precision",
+      "name": "BOM percentage exceeding numeric(5,2) precision fails at Postgres",
+      "category": "data-pipeline",
+      "oracle": "BOM percentage is numeric(5,2), allowing max 999.99. A value like '1000' exceeds this precision. Zod has no numeric or range validation, so it passes to the DB.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Set BOM mode to 'percentage'",
+        "Add an ingredient, select a component",
+        "Enter '1000' in percentage field",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod passes — no numeric range check",
+        "Payload contains bom[0].percentage: '1000'",
+        "Postgres rejects: numeric field overflow for numeric(5,2)"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-percentage-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-self-reference-blocked-on-update",
+      "name": "Self-referencing BOM is blocked by API route check on update",
+      "category": "data-pipeline",
+      "oracle": "The PUT /api/items/[id] handler checks if any bom row has componentId === id. If so, it returns 400 with { errors: { bom: ['An item cannot reference itself as a component'] } }. This is also enforced by a DB CHECK constraint.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "initialData": "Existing product with id = 'prod-1'"
+      },
+      "actions": [
+        "Add an ingredient row",
+        "Select the current product (prod-1) as the component",
+        "Enter quantity '1'",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — no self-reference check in schema",
+        "API route detects componentId === id",
+        "API returns 400 with { errors: { bom: ['An item cannot reference itself as a component'] } }",
+        "No database changes are made"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "select-bom-component",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-no-self-reference"
+        ],
+        "indicators": [
+          "update-self-reference-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "update-nonexistent-item-returns-404",
+      "name": "Updating a non-existent or deleted item returns 404",
+      "category": "data-pipeline",
+      "oracle": "updateItem queries with eq(items.id, id) AND isNull(items.deletedAt). If no row matches (wrong ID or soft-deleted), it returns null, and the API returns 404 with { error: 'Item not found' }.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Non-existent item ID"
+      },
+      "actions": [
+        "Submit update request to /api/items/nonexistent-uuid",
+        "Include valid update payload"
+      ],
+      "verify": [
+        "DAL updateItem returns null",
+        "API returns 404 with { error: 'Item not found' }",
+        "No database changes are made"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "item-not-found-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "sku-duplicate-within-org-blocked-by-db",
+      "name": "Duplicate SKU within same org is rejected by partial unique index",
+      "category": "data-pipeline",
+      "oracle": "The partial unique index items_org_sku_uidx enforces uniqueness on (organization_id, sku) WHERE sku IS NOT NULL AND deleted_at IS NULL. Two active items with the same non-null SKU in the same org will cause a unique constraint violation.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "initialData": "Another active item with sku = 'MAT-001' already exists"
+      },
+      "actions": [
+        "Enter 'MAT-001' in SKU field",
+        "Fill required fields (name, unit)",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — no uniqueness check in schema",
+        "API inserts into items table",
+        "Postgres rejects with unique constraint violation on items_org_sku_uidx",
+        "API returns 500 (unhandled DB constraint — no specific error mapping)"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-sku",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-sku-unique-partial"
+        ],
+        "indicators": [
+          "form-level-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "edit-mode-omits-itemtype-and-unit",
+      "name": "Update schema omits itemType and unitDefinitionId — they are immutable",
+      "category": "data-pipeline",
+      "oracle": "updateItemSchema omits itemType and unitDefinitionId. Even if these fields are somehow included in the request body, they will be stripped by Zod .omit(). The item's type and unit cannot change after creation.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "initialData": "Existing product"
+      },
+      "actions": [
+        "Submit update with body containing itemType: 'material' and unitDefinitionId: 'new-unit-id'",
+        "Include valid fields (name, etc.)"
+      ],
+      "verify": [
+        "Zod strips itemType and unitDefinitionId from parsed output",
+        "DAL receives data without these fields",
+        "Item's itemType and unitDefinitionId remain unchanged in DB"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-item-type-not-null",
+          "items-unit-definition-id-not-null"
+        ],
+        "indicators": [
+          "unit-readonly-in-edit"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-update-deletes-and-reinserts",
+      "name": "BOM update deletes all existing rows and re-inserts new ones",
+      "category": "data-pipeline",
+      "oracle": "updateItem always deletes all bomComponents for the item, then re-inserts the new set. This means removing a component is implicit (just don't include it in the new array). If bom is undefined, no BOM changes are made.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "initialData": "Product with 3 existing BOM components"
+      },
+      "actions": [
+        "Remove one ingredient row",
+        "Change quantity on another row",
+        "Click submit"
+      ],
+      "verify": [
+        "API receives bom array with 2 rows",
+        "DAL deletes ALL 3 existing bom_components rows for this item",
+        "DAL inserts 2 new bom_components rows",
+        "The removed component is no longer in bom_components",
+        "The modified quantity is stored in the new row"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-remove-bom-row",
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-unique-item-component"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "create-form-defaults-complete",
+      "name": "Create form default values include all fields to prevent undefined in Zod",
+      "category": "data-pipeline",
+      "oracle": "The create form must set defaultValues for ALL fields, including optional ones with null. Missing defaults cause undefined values that may not match the Zod schema expectations.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Render form in create mode without touching any field",
+        "Click submit immediately"
+      ],
+      "verify": [
+        "name defaults to '' → fails min(1)",
+        "unitDefinitionId defaults to '' → fails min(1)",
+        "stock defaults to '0' → passes refine",
+        "safetyStock defaults to '0' → transform keeps '0'",
+        "bomMode defaults to 'quantity'",
+        "bom defaults to []",
+        "sku, category, description, defaultPurchasePrice, defaultSellingPrice are undefined (not in create defaults) → nullableString handles undefined via .nullable()"
+      ],
+      "assertAt": [
+        "payload",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": [
+          "name-field-error",
+          "unit-field-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "edit-form-parses-numeric-defaults",
+      "name": "Edit form converts Postgres numeric strings to parseFloat for display",
+      "category": "data-pipeline",
+      "oracle": "In edit mode, defaultPurchasePrice and defaultSellingPrice are converted via String(parseFloat(value)) to strip trailing zeros. Stock and safetyStock use the same pattern. '25.5000' becomes '25.5'.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Item with defaultPurchasePrice='25.5000', stock='100.0000', safetyStock='10.0000'"
+      },
+      "actions": [
+        "Render form in edit mode",
+        "Observe initial field values"
+      ],
+      "verify": [
+        "Purchase price input shows '25.5' (not '25.5000')",
+        "Stock input shows '100' (not '100.0000')",
+        "Safety stock input shows '10' (not '10.0000')",
+        "Submitting without changes produces the cleaned string values"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "delete-item-used-in-bom-blocked",
+      "name": "Deleting an item used as a BOM component is rejected",
+      "category": "data-pipeline",
+      "oracle": "deleteItem checks if the item is referenced in bomComponents of any active (non-deleted) item. If so, it returns { deleted: false, usedInBom: true }, and the API returns 400.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Material used as component in a product's BOM"
+      },
+      "actions": [
+        "Send DELETE request to /api/items/[material-id]"
+      ],
+      "verify": [
+        "DAL finds a bom_components row referencing this item",
+        "DAL returns { deleted: false, usedInBom: true }",
+        "API returns 400 with { error: 'Cannot delete: this item is used as a component in other products.' }",
+        "Item is NOT soft-deleted — deletedAt remains NULL"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-component-id-fk"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-component-fk-on-delete-restrict",
+      "name": "BOM component FK uses ON DELETE RESTRICT — prevents hard-deleting referenced items",
+      "category": "data-pipeline",
+      "oracle": "bom_components.component_id references items(id) with ON DELETE RESTRICT. Even if the soft-delete check is bypassed, a hard-delete of an item used as a component would be blocked by the FK constraint.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Material referenced as component in bom_components"
+      },
+      "actions": [
+        "Attempt hard DELETE from items table (bypassing soft-delete)"
+      ],
+      "verify": [
+        "Postgres rejects with FK violation: cannot delete from items because bom_components still references it",
+        "ON DELETE RESTRICT is the safety net behind the application-level usedInBom check"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-component-id-fk"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "category-clear-sets-null-not-empty",
+      "name": "Clearing category sets form value to null via onValueChange callback",
+      "category": "data-pipeline",
+      "oracle": "The category combobox's onValueChange is (v) => field.onChange(v || null). When the value is cleared (v = ''), it becomes null. nullableString then passes null through as null.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Item with category = 'Aggregates'"
+      },
+      "actions": [
+        "Clear the category selection",
+        "Click submit"
+      ],
+      "verify": [
+        "field.onChange receives null (not empty string)",
+        "nullableString receives null and returns null",
+        "Payload contains category: null",
+        "DB stores category = NULL"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "clear-category",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-update-no-change-no-lot-operation",
+      "name": "Stock unchanged on update skips lot operations entirely",
+      "category": "data-pipeline",
+      "oracle": "When delta === 0 (new stock equals current stock), adjustStockInTx is NOT called. No lots are created or modified, and no stock movements are recorded.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Item with stock = 10"
+      },
+      "actions": [
+        "Leave stock at '10' (unchanged)",
+        "Change the item name",
+        "Click submit"
+      ],
+      "verify": [
+        "API computes delta = 10 - 10 = 0",
+        "adjustStockInTx is NOT called",
+        "No new lots or stock movements are created",
+        "Item metadata (name) is updated successfully"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "full-product-create-with-bom-happy-path",
+      "name": "Complete product creation with BOM, stock, pricing — full pipeline",
+      "category": "data-pipeline",
+      "oracle": "A complete product creation populates items, lots, stock_movements, and bom_components tables. All field transforms are applied. The lot uses purchase price as costPerUnit.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "Enter name 'Concrete Mix 40kg'",
+        "Enter SKU 'PROD-001'",
+        "Select category 'Concrete'",
+        "Enter description 'Pre-mixed concrete bag'",
+        "Select a unit definition",
+        "Enter purchase price '12.50'",
+        "Enter selling price '24.99'",
+        "Enter stock '200'",
+        "Enter safety stock '50'",
+        "Set BOM mode to 'quantity'",
+        "Add 3 ingredients with components and quantities",
+        "Click submit"
+      ],
+      "verify": [
+        "Item created in items table with all fields populated correctly",
+        "name = 'Concrete Mix 40kg', sku = 'PROD-001', category = 'Concrete'",
+        "description = 'Pre-mixed concrete bag'",
+        "defaultPurchasePrice = 12.5000, defaultSellingPrice = 24.99",
+        "safetyStock = 50.0000, bomMode = 'quantity'",
+        "Lot created with quantity = '200', costPerUnit = '12.50'",
+        "Stock movement created with quantity = '200'",
+        "3 bom_components rows created with correct componentId and quantity values",
+        "API returns 201 with { id: '...' }"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-name",
+          "enter-sku",
+          "select-existing-category",
+          "enter-description",
+          "select-existing-unit",
+          "enter-purchase-price",
+          "enter-selling-price",
+          "enter-stock",
+          "enter-safety-stock",
+          "click-add-ingredient",
+          "select-bom-component",
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-name-not-null",
+          "items-item-type-not-null",
+          "items-unit-definition-id-not-null",
+          "items-unit-definition-id-fk",
+          "items-safety-stock-not-null",
+          "bom-component-id-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "name-exceeds-varchar-255",
+      "name": "Name longer than 255 chars passes Zod but may fail at DB",
+      "category": "data-pipeline",
+      "oracle": "Zod only checks min(1) for name. A 256-character name passes schema validation but violates the varchar(255) DB constraint.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "Enter a 256-character string in name field",
+        "Fill all other required fields",
+        "Click submit"
+      ],
+      "verify": [
+        "Zod validation passes — min(1) only checks minimum",
+        "Postgres rejects with varchar(255) constraint violation"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response",
+        "db"
+      ],
+      "impact": "LOW",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-name",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-name-varchar-length"
+        ],
+        "indicators": [
+          "form-level-error"
+        ]
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "purchase-price-used-as-lot-cost-only-on-create",
+      "name": "Purchase price update does NOT retroactively change existing lot costs",
+      "category": "data-pipeline",
+      "oracle": "On create, defaultPurchasePrice is used as costPerUnit for the initial lot. On update, changing purchase price only updates the items table — existing lots retain their original costPerUnit. New lots from stock increase have NO costPerUnit.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Item with purchasePrice='10.00', existing lot costPerUnit='10.00'"
+      },
+      "actions": [
+        "Change purchase price from '10' to '20'",
+        "Increase stock by 5 (triggers new lot creation)",
+        "Click submit"
+      ],
+      "verify": [
+        "items.defaultPurchasePrice updated to '20'",
+        "Original lot retains costPerUnit = 10.0000 (unchanged)",
+        "New lot (from stock increase) has costPerUnit = NULL (adjustStockInTx does not set it)",
+        "Purchase price change is metadata-only on update"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-purchase-price",
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "stock-optional-on-update-schema",
+      "name": "Stock field is optional in update schema — omitting it skips stock operations",
+      "category": "data-pipeline",
+      "oracle": "updateItemSchema makes stock optional. If the parsed stock is undefined, the API passes undefined to updateItem, which checks stock != null before doing any lot operations. Omitting stock means no stock change.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "initialData": "Item with stock = 10"
+      },
+      "actions": [
+        "Send PUT request with body that includes name but NOT stock",
+        "Observe API behavior"
+      ],
+      "verify": [
+        "Zod parses stock as undefined (optional field not provided)",
+        "API passes undefined to updateItem",
+        "updateItem skips the stock adjustment branch entirely",
+        "No lots or stock movements are created or modified",
+        "Item metadata is updated"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-no-rows-submits-empty-array",
+      "name": "Product with no BOM rows submits bom as empty array",
+      "category": "data-pipeline",
+      "oracle": "A product form with no ingredient rows sends bom: [] in the payload. bomRefine returns early when bom.length === 0. On update, this triggers deletion of ALL existing bom_components for the item.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "initialData": "Product with 2 existing BOM components"
+      },
+      "actions": [
+        "Remove all ingredient rows",
+        "Click submit"
+      ],
+      "verify": [
+        "Payload contains bom: []",
+        "bomRefine returns immediately (length 0) — no validation errors",
+        "DAL deletes all existing bom_components for this item",
+        "No new bom_components rows are inserted",
+        "Product now has no BOM"
+      ],
+      "assertAt": [
+        "payload",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-remove-bom-row",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "data-pipeline"
+      ]
+    },
+    {
+      "id": "bom-mode-switch-stale-quantity-in-payload",
+      "name": "Switching from quantity to percentage mode leaves stale quantity values in submit payload",
+      "category": "state-transition",
+      "oracle": "After switching BOM mode from quantity to percentage, previously entered quantity values persist in form.bom[].quantity. The submit payload contains BOTH the stale quantity AND the new percentage for each row.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with at least 1 component"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Click '+ Add Ingredient' to add a BOM row",
+        "Select a component in the BOM row",
+        "Enter quantity '5' in the BOM row (bomMode is 'quantity')",
+        "Switch BOM mode from 'Quantity per unit' to 'Percentage'",
+        "Enter percentage '100' in the same BOM row",
+        "Click submit button"
+      ],
+      "verify": [
+        "Submit payload bom[0].quantity should be '5' (stale, NOT cleared)",
+        "Submit payload bom[0].percentage should be '100'",
+        "Submit payload bomMode should be 'percentage'",
+        "The quantity input is no longer visible in the UI, but the value persists in form state"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-quantity-to-percentage",
+          "enter-bom-quantity",
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-mode-switch-stale-percentage-in-payload",
+      "name": "Switching from percentage to quantity mode leaves stale percentage values in submit payload",
+      "category": "state-transition",
+      "oracle": "After switching BOM mode from percentage to quantity, previously entered percentage values persist in form.bom[].percentage. The submit payload contains BOTH the new quantity AND the stale percentage for each row.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with at least 1 component"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Switch BOM mode from 'Quantity per unit' to 'Percentage'",
+        "Click '+ Add Ingredient' to add a BOM row",
+        "Select a component in the BOM row",
+        "Enter percentage '50' in the BOM row",
+        "Switch BOM mode from 'Percentage' to 'Quantity per unit'",
+        "Enter quantity '10' in the same BOM row",
+        "Click submit button"
+      ],
+      "verify": [
+        "Submit payload bom[0].percentage should be '50' (stale, NOT cleared)",
+        "Submit payload bom[0].quantity should be '10'",
+        "Submit payload bomMode should be 'quantity'",
+        "The percentage input is no longer visible in the UI, but the value persists in form state"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-percentage-to-quantity",
+          "enter-bom-percentage",
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-mode-double-switch-roundtrip",
+      "name": "Double mode switch preserves original values: quantity -> percentage -> quantity shows original quantity",
+      "category": "state-transition",
+      "oracle": "Switching BOM mode away and back restores visibility of the original field values because they were never cleared from form state.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with at least 1 component"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Click '+ Add Ingredient' to add a BOM row",
+        "Select a component in the BOM row",
+        "Enter quantity '7.5' in the BOM row",
+        "Switch BOM mode to 'Percentage'",
+        "Switch BOM mode back to 'Quantity per unit'",
+        "Verify the quantity input value",
+        "Click submit button"
+      ],
+      "verify": [
+        "After returning to quantity mode, the quantity input should display '7.5' (value was preserved in form state)",
+        "Submit payload bom[0].quantity should be '7.5'",
+        "Submit payload bomMode should be 'quantity'"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-quantity-to-percentage",
+          "switch-bom-mode-percentage-to-quantity",
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-dialog-create-auto-selects",
+      "name": "Creating a unit via dialog auto-selects it in the main form",
+      "category": "state-transition",
+      "oracle": "After successful unit creation, form.unitDefinitionId is set to the new unit's ID, the dialog closes, and dialog state resets to defaults.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "no initial unit selected"
+      },
+      "actions": [
+        "Select '+ Create new unit' from Unit dropdown",
+        "Verify dialog is open and fields are empty",
+        "Enter unit name 'bag'",
+        "Enter unit size '25'",
+        "Select UOM 'kg'",
+        "Click Create button in dialog",
+        "Wait for mutation success",
+        "Verify main form state"
+      ],
+      "verify": [
+        "isUnitDialogOpen should be false (dialog closed)",
+        "unitName should be '' (reset)",
+        "unitSize should be '' (reset)",
+        "unitUom should be '' (reset)",
+        "unitError should be null (reset)",
+        "form.unitDefinitionId should be the newly created unit's ID",
+        "localUnits should contain the new unit appended to the original units array",
+        "The Unit select trigger should display the new unit's label"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "select-create-new-unit-option",
+          "enter-unit-name",
+          "enter-unit-size",
+          "select-unit-uom",
+          "click-create-unit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-dialog-cancel-resets-state",
+      "name": "Cancelling the unit dialog resets all dialog state without affecting the main form",
+      "category": "state-transition",
+      "oracle": "Closing the unit dialog (via cancel button or overlay) resets unitName, unitSize, unitUom, and unitError to their initial values. form.unitDefinitionId is unchanged.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "unit already selected in main form"
+      },
+      "actions": [
+        "Select an existing unit from the Unit dropdown",
+        "Select '+ Create new unit' from Unit dropdown",
+        "Enter unit name 'pallet'",
+        "Enter unit size '1'",
+        "Select UOM 'pcs'",
+        "Click Cancel button in the dialog",
+        "Verify dialog state and main form state"
+      ],
+      "verify": [
+        "isUnitDialogOpen should be false",
+        "unitName should be '' (reset on close)",
+        "unitSize should be '' (reset on close)",
+        "unitUom should be '' (reset on close)",
+        "unitError should be null (reset on close)",
+        "form.unitDefinitionId should still be the previously selected unit (unchanged)"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "select-existing-unit",
+          "select-create-new-unit-option",
+          "enter-unit-name",
+          "enter-unit-size",
+          "select-unit-uom",
+          "click-cancel-in-unit-dialog"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-dialog-overlay-dismiss-resets-state",
+      "name": "Dismissing unit dialog via overlay resets state identically to cancel button",
+      "category": "state-transition",
+      "oracle": "The onOpenChange handler resets all dialog fields when closing regardless of method — overlay click, Escape key, or cancel button produce identical cleanup.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Select '+ Create new unit' from Unit dropdown",
+        "Enter unit name 'sack'",
+        "Enter unit size '50'",
+        "Select UOM 'lb'",
+        "Close dialog via overlay click (or Escape key)",
+        "Reopen dialog by selecting '+ Create new unit' again",
+        "Verify all dialog fields are empty"
+      ],
+      "verify": [
+        "After reopening, unitName should be '' (not 'sack')",
+        "After reopening, unitSize should be '' (not '50')",
+        "After reopening, unitUom should be '' (not 'lb')",
+        "unitError should be null"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "select-create-new-unit-option",
+          "enter-unit-name",
+          "enter-unit-size",
+          "select-unit-uom",
+          "close-create-unit-dialog-via-overlay"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-dialog-error-then-close-clears-error",
+      "name": "Unit creation error is cleared when dialog is closed and reopened",
+      "category": "state-transition",
+      "oracle": "unitError set by a failed unitMutation is cleared when the dialog closes (onOpenChange sets unitError to null). Reopening shows a clean dialog.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "API /api/units returns 400 on first call"
+      },
+      "actions": [
+        "Select '+ Create new unit' from Unit dropdown",
+        "Enter unit name 'bag'",
+        "Enter unit size '1'",
+        "Select UOM 'kg'",
+        "Click Create button (API returns error)",
+        "Verify unitError is displayed",
+        "Close dialog via Cancel button",
+        "Reopen dialog via '+ Create new unit'"
+      ],
+      "verify": [
+        "After the failed mutation, unitError should be a non-null error string",
+        "After closing and reopening, unitError should be null (cleared on close)",
+        "All dialog fields should be empty (unitName='', unitSize='', unitUom='')"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-create-unit-button",
+          "click-cancel-in-unit-dialog",
+          "select-create-new-unit-option"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-create-then-override-with-existing",
+      "name": "Creating a unit then selecting a different existing unit updates unitDefinitionId",
+      "category": "state-transition",
+      "oracle": "form.unitDefinitionId is overwritten when the user selects a different unit after auto-selection from dialog creation. The last selection wins.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "localUnits has at least 1 existing unit"
+      },
+      "actions": [
+        "Select '+ Create new unit' from Unit dropdown",
+        "Fill dialog fields (name='custom', size='1', uom='kg')",
+        "Click Create button (succeeds)",
+        "Verify form.unitDefinitionId is set to new unit ID",
+        "Select the original existing unit from the Unit dropdown",
+        "Click submit button"
+      ],
+      "verify": [
+        "form.unitDefinitionId should be the existing unit's ID (not the created unit)",
+        "Submit payload unitDefinitionId should be the existing unit's ID",
+        "localUnits should still contain both units (the created one is not removed)"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-create-unit-button",
+          "select-existing-unit",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-add-remove-leaves-array-empty",
+      "name": "Adding then removing the only BOM row returns bom array to empty",
+      "category": "state-transition",
+      "oracle": "After adding a single BOM row and then removing it, form.bom should be an empty array. The BOM table should not render.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents present"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Click '+ Add Ingredient'",
+        "Verify BOM table appears with 1 empty row",
+        "Click remove (X) button on the row",
+        "Verify BOM table is hidden",
+        "Click submit button"
+      ],
+      "verify": [
+        "After removal, fields array should be empty (length 0)",
+        "The BOM table should not be rendered (conditional on fields.length > 0)",
+        "Submit payload bom should be [] (empty array) or undefined",
+        "No BOM validation errors should exist"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "click-remove-bom-row",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-remove-middle-row-reindexes",
+      "name": "Removing a middle BOM row shifts subsequent rows' indices correctly",
+      "category": "state-transition",
+      "oracle": "useFieldArray remove(index) shifts all subsequent rows down. After removing row 1 of 3, the old row 2 becomes the new row 1 with its values intact.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with at least 3 components (A, B, C)"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Add 3 BOM rows and select components A, B, C respectively",
+        "Enter quantities '1', '2', '3' respectively",
+        "Remove the middle row (index 1, component B)",
+        "Verify remaining rows",
+        "Click submit button"
+      ],
+      "verify": [
+        "After removal, form.bom should have 2 entries",
+        "form.bom[0].componentId should be A's ID, quantity '1'",
+        "form.bom[1].componentId should be C's ID, quantity '3' (was at index 2, now at index 1)",
+        "Submit payload bom should have exactly 2 rows with correct component-quantity pairs"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "select-bom-component",
+          "enter-bom-quantity",
+          "click-remove-bom-row",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-duplicate-component-validation",
+      "name": "Selecting the same component in two BOM rows triggers duplicate validation on submit",
+      "category": "state-transition",
+      "oracle": "bomRefine detects duplicate componentIds and adds a 'Duplicate component' error at bom[1].componentId. The form does not submit.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with at least 1 component"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Click '+ Add Ingredient' twice to add 2 rows",
+        "Select the same component in both rows",
+        "Enter quantity '5' in both rows",
+        "Click submit button",
+        "Verify validation error on second row"
+      ],
+      "verify": [
+        "Form should NOT submit (handleSubmit rejects due to Zod errors)",
+        "A 'Duplicate component' error should appear on bom[1].componentId",
+        "bom[0].componentId should have no error (first occurrence is valid)",
+        "fetch should NOT have been called"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "select-bom-component",
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-empty-row-submit-validation",
+      "name": "Submitting with an empty BOM row triggers componentId and quantity/percentage required errors",
+      "category": "state-transition",
+      "oracle": "An empty BOM row (componentId='', quantity=null, percentage=null) fails validation: componentId requires min(1), and bomRefine requires quantity (in quantity mode) or percentage (in percentage mode).",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents present, bomMode='quantity'"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Click '+ Add Ingredient' to add an empty row",
+        "Do NOT select a component or enter a quantity",
+        "Click submit button",
+        "Verify validation errors on the empty row"
+      ],
+      "verify": [
+        "Form should NOT submit",
+        "bom[0].componentId should show 'Component is required' error",
+        "bom[0].quantity should show 'Quantity is required' error",
+        "fetch should NOT have been called"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "percentage-total-updates-on-row-add-remove",
+      "name": "Percentage total recalculates when rows are added and removed",
+      "category": "state-transition",
+      "oracle": "PercentageTotal watches form.bom and recalculates the sum of parsed percentage values. Adding a row with null percentage adds 0. Removing a row subtracts its value.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with 2 components, bomMode='percentage'"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Switch BOM mode to 'Percentage'",
+        "Add first BOM row, select component A, enter percentage '60'",
+        "Verify total shows '60.0%' in destructive color",
+        "Add second BOM row, select component B, enter percentage '40'",
+        "Verify total shows '100.0%' in muted-foreground color",
+        "Remove first BOM row (component A, 60%)",
+        "Verify total shows '40.0%' in destructive color"
+      ],
+      "verify": [
+        "After first row with 60%: total = 60.0, text-destructive class applied, '(should be 100%)' shown",
+        "After second row with 40%: total = 100.0, text-muted-foreground class applied, no warning text",
+        "After removing first row: total = 40.0, text-destructive class applied, '(should be 100%)' shown"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-quantity-to-percentage",
+          "click-add-ingredient",
+          "enter-bom-percentage",
+          "click-remove-bom-row"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "percentage-total-hidden-in-quantity-mode",
+      "name": "Percentage total indicator is not rendered when bomMode is 'quantity'",
+      "category": "state-transition",
+      "oracle": "PercentageTotal only renders when bomMode === 'percentage' AND fields.length > 0. In quantity mode, even with BOM rows, the total is not shown.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents present"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Click '+ Add Ingredient' (bomMode is 'quantity')",
+        "Select a component and enter quantity '10'",
+        "Verify no percentage total is rendered",
+        "Switch BOM mode to 'Percentage'",
+        "Verify percentage total appears (shows '0.0%' since percentage field is null for the row)"
+      ],
+      "verify": [
+        "In quantity mode with rows: PercentageTotal should NOT be rendered",
+        "After switching to percentage mode with rows: PercentageTotal SHOULD be rendered",
+        "The total should be '0.0%' because the existing row's percentage is null (not yet filled in)"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "enter-bom-quantity",
+          "switch-bom-mode-quantity-to-percentage"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "category-create-on-type-submit-payload",
+      "name": "Typing a novel category and selecting '+ Create' sets the exact trimmed string in the payload",
+      "category": "state-transition",
+      "oracle": "When the user types a novel category and selects the '+ Create' option, form.category is set to the trimmed input value. This string goes directly into the submit payload — no separate API call for category creation.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "existing categories: ['Aggregates', 'Soil']"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Type 'New Mix' into the category combobox",
+        "Verify '+ Create \"New Mix\"' option appears in dropdown",
+        "Select the '+ Create \"New Mix\"' option",
+        "Verify combobox displays 'New Mix'",
+        "Click submit button"
+      ],
+      "verify": [
+        "categoryItems should contain [...existingCategories, 'New Mix'] while typing",
+        "form.category should be 'New Mix' after selection",
+        "Submit payload category should be 'New Mix' (string, not null)"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "type-category-search",
+          "select-create-new-category",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "category-select-then-clear-submits-null",
+      "name": "Selecting a category then clearing it results in null in the submit payload",
+      "category": "state-transition",
+      "oracle": "The combobox onValueChange calls field.onChange(v || null). Clearing the selection passes empty string which becomes null. The nullableString transform in Zod also normalizes empty/null to null.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "existing categories: ['Aggregates']"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Select 'Aggregates' from category combobox",
+        "Verify form.category is 'Aggregates'",
+        "Clear the category selection",
+        "Verify form.category is null",
+        "Click submit button"
+      ],
+      "verify": [
+        "After clearing, form.category should be null (not empty string)",
+        "Submit payload category should be null"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "select-existing-category",
+          "clear-category",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "form-error-cleared-on-resubmit",
+      "name": "formError from a failed submission is cleared when the user resubmits",
+      "category": "state-transition",
+      "oracle": "mutation.onMutate sets formError to null before each mutation attempt. A visible error from a previous failure disappears as soon as the form is resubmitted.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "API returns 500 on first call, 200 on second"
+      },
+      "actions": [
+        "Fill all required fields (name, unit)",
+        "Click submit button (API returns error)",
+        "Verify formError is displayed with error message",
+        "Click submit button again (API returns success)",
+        "Verify formError is cleared before the request is sent"
+      ],
+      "verify": [
+        "After first failure: formError should be a non-null error string, rendered as FieldError below the form",
+        "On second submit (onMutate): formError should be set to null immediately, before the API call resolves",
+        "The error message should disappear from the UI"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "submit-button-disabled-during-mutation",
+      "name": "Submit button is disabled while mutation is pending and shows loading text",
+      "category": "state-transition",
+      "oracle": "The submit button's disabled prop is bound to mutation.isPending. While the API call is in flight, the button text changes to 'Creating...' (create mode) or 'Saving...' (edit mode) and the button is not clickable.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "API responds with delay"
+      },
+      "actions": [
+        "Fill all required fields (name, unit)",
+        "Click submit button",
+        "Verify button state while mutation is pending",
+        "Wait for mutation to resolve",
+        "Verify button state returns to normal (if navigation hasn't occurred)"
+      ],
+      "verify": [
+        "While pending: button should be disabled",
+        "While pending: button text should be 'Creating...' (create mode)",
+        "The form's onSubmit handler has a guard: if (!mutation.isPending) mutation.mutate(data) — duplicate clicks are prevented"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-create-button-disabled-states",
+      "name": "Unit Create button is disabled until all three dialog fields are valid",
+      "category": "state-transition",
+      "oracle": "The Create button is disabled when: unitMutation.isPending OR !unitName.trim() OR !POSITIVE_NUMBER_RE.test(unitSize.trim()) OR !unitUom. All three conditions must pass for the button to be enabled.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Open Create Unit dialog",
+        "Verify Create button is disabled (all fields empty)",
+        "Enter unit name 'bag' — verify still disabled (size and uom missing)",
+        "Enter unit size '25' — verify still disabled (uom missing)",
+        "Select UOM 'kg' — verify Create button is now enabled",
+        "Clear unit name to '' — verify button is disabled again",
+        "Re-enter unit name 'bag' — verify button is enabled"
+      ],
+      "verify": [
+        "Button disabled when: unitName='' (trimmed empty)",
+        "Button disabled when: unitSize='' or unitSize='abc' (fails POSITIVE_NUMBER_RE)",
+        "Button disabled when: unitUom=''",
+        "Button enabled when all three are valid: unitName.trim() truthy, unitSize matches /^\\d+\\.?\\d*$/, unitUom truthy"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "select-create-new-unit-option",
+          "enter-unit-name",
+          "enter-unit-size",
+          "select-unit-uom"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "unit-size-invalid-feedback",
+      "name": "Entering non-numeric text in unit size shows inline validation error",
+      "category": "state-transition",
+      "oracle": "unitSizeInvalid is derived: unitSize.trim() !== '' && !POSITIVE_NUMBER_RE.test(unitSize.trim()). When true, the field shows data-invalid and a 'Must be a positive number' FieldError.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Open Create Unit dialog",
+        "Enter unit size 'abc'",
+        "Verify unitSizeInvalid is true and error is shown",
+        "Clear unit size and enter '25'",
+        "Verify unitSizeInvalid is false and error is gone",
+        "Clear unit size and enter '-5'",
+        "Verify unitSizeInvalid is true again (negative numbers fail regex)"
+      ],
+      "verify": [
+        "unitSize='abc': unitSizeInvalid=true, 'Must be a positive number' shown, aria-invalid=true",
+        "unitSize='25': unitSizeInvalid=false, no error shown",
+        "unitSize='-5': unitSizeInvalid=true (regex requires digits only, no minus sign)",
+        "unitSize='': unitSizeInvalid=false (empty string bypasses the invalid check)"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "LOW",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-unit-size"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "edit-mode-unit-field-readonly",
+      "name": "In edit mode, unit is displayed as read-only text, not a select dropdown",
+      "category": "state-transition",
+      "oracle": "When initialData is provided (edit mode), the unit field renders as a <p> tag with the unit name/size/uom, NOT as a Select component. unitDefinitionId is not part of the update schema.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "initialData": "item with unitName='bag', unitSize='25', unitUom='kg'"
+      },
+      "actions": [
+        "Render the form in edit mode with initialData",
+        "Verify unit field is displayed as static text",
+        "Verify no Select dropdown is rendered for unit",
+        "Click submit button"
+      ],
+      "verify": [
+        "Unit field should display 'bag (25 kg)' as plain text",
+        "No Select component should be rendered for unit",
+        "Submit payload should NOT contain unitDefinitionId (omitted from updateItemSchema)",
+        "Submit payload should NOT contain itemType (omitted from updateItemSchema)"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-section-hidden-for-materials",
+      "name": "BOM editor section does not render when itemType is 'material'",
+      "category": "state-transition",
+      "oracle": "The BOM section is conditionally rendered: {itemType === 'product' && availableComponents && (...)}. For materials, the entire BOM fieldset is absent. bomMode and bom fields exist in form state but are not visible.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "initialData": "none"
+      },
+      "actions": [
+        "Render ItemForm with itemType='material'",
+        "Verify BOM section is not rendered",
+        "Fill required fields (name, unit, stock)",
+        "Click submit button"
+      ],
+      "verify": [
+        "No 'Recipe / Bill of Materials' fieldset should be in the DOM",
+        "No '+ Add Ingredient' button should exist",
+        "Submit payload should have bomMode='quantity' (default) and bom=[] (default)",
+        "Form submits successfully without BOM"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "onblur-validation-name-empty",
+      "name": "Blurring an empty Name field triggers validation error, typing clears it",
+      "category": "state-transition",
+      "oracle": "Form uses mode:'onBlur'. When name is empty and the field loses focus, the 'Name is required' error (from z.string().min(1)) appears. Entering a value and blurring again clears the error.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Focus the Name input",
+        "Leave it empty and blur the field",
+        "Verify 'Name is required' error appears",
+        "Focus the Name input again",
+        "Type 'Test Product'",
+        "Blur the field",
+        "Verify the error is cleared"
+      ],
+      "verify": [
+        "After blur with empty value: fieldState.invalid=true, error message 'Name is required' rendered",
+        "After typing 'Test Product' and blur: fieldState.invalid=false, error message removed",
+        "aria-invalid on the input reflects the current validation state"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-name",
+          "blur-name"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "create-form-default-values-complete",
+      "name": "Create form initializes all fields with correct defaults, preventing undefined Zod errors",
+      "category": "state-transition",
+      "oracle": "In create mode (no initialData), every form field has an explicit default: name='', itemType from prop, unitDefinitionId='', stock='0', safetyStock='0', bomMode='quantity', bom=[]. Optional fields (sku, category, description, prices) are undefined (not listed in defaults) and handled by nullableString transform.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Render the form in create mode",
+        "Immediately click submit without filling any fields",
+        "Verify which validation errors appear"
+      ],
+      "verify": [
+        "form.name default is '' — validation should show 'Name is required'",
+        "form.unitDefinitionId default is '' — validation should show 'Unit is required'",
+        "form.stock default is '0' — should pass validation (non-negative number)",
+        "form.safetyStock default is '0' — should pass validation",
+        "form.bomMode default is 'quantity' — no validation issue",
+        "form.bom default is [] — no BOM validation since array is empty",
+        "Optional fields (sku, category, description, prices) should NOT cause errors (undefined is accepted by nullableString)"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "edit-form-loads-initial-data-correctly",
+      "name": "Edit form populates all fields from initialData including numeric string parsing",
+      "category": "state-transition",
+      "oracle": "In edit mode, defaultValues are derived from initialData. Numeric fields (prices, stock, safetyStock) are converted via String(parseFloat(value)). bomMode defaults to 'quantity' if null. bom defaults to [] if undefined.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "initialData": "item with name='Concrete Mix', sku='CM-001', category='Mixes', description='Standard mix', defaultPurchasePrice='25.50', defaultSellingPrice='45.00', stock='100.000', safetyStock='10.000', bomMode='percentage', bom=[{componentId:'abc', quantity:null, percentage:'60'}]"
+      },
+      "actions": [
+        "Render the form with the initialData",
+        "Verify all field values match the processed initialData"
+      ],
+      "verify": [
+        "name input value should be 'Concrete Mix'",
+        "sku input value should be 'CM-001'",
+        "category combobox value should be 'Mixes'",
+        "description textarea value should be 'Standard mix'",
+        "purchase price input value should be '25.5' (String(parseFloat('25.50')))",
+        "selling price input value should be '45' (String(parseFloat('45.00')))",
+        "stock input value should be '100' (String(parseFloat('100.000')))",
+        "safety stock input value should be '10' (String(parseFloat('10.000')))",
+        "BOM mode select should show 'Percentage'",
+        "BOM row 0 should have componentId='abc', percentage='60'"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-add-row-after-mode-switch-gets-clean-row",
+      "name": "Adding a new BOM row after switching modes creates a row with both quantity and percentage null",
+      "category": "state-transition",
+      "oracle": "The append call always produces {componentId: '', quantity: null, percentage: null} regardless of current bomMode. New rows have no stale data — only existing rows carry stale values from the previous mode.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with 2 components"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Add a BOM row, select component A, enter quantity '5'",
+        "Switch BOM mode to 'Percentage'",
+        "Add a second BOM row (new, after mode switch)",
+        "Verify the new row's field values",
+        "Select component B in the new row, enter percentage '40'",
+        "Click submit button"
+      ],
+      "verify": [
+        "New row (index 1) should have componentId='', quantity=null, percentage=null at creation",
+        "Old row (index 0) should have stale quantity='5', percentage=null (not yet filled)",
+        "Submit payload bom[0]: componentId=A, quantity='5' (stale), percentage=whatever was entered",
+        "Submit payload bom[1]: componentId=B, quantity=null (clean), percentage='40'"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "click-add-ingredient",
+          "enter-bom-quantity",
+          "switch-bom-mode-quantity-to-percentage",
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "bom-mode-switch-validation-applies-to-active-mode-only",
+      "name": "bomRefine validates only the active mode's field, ignoring the inactive field",
+      "category": "state-transition",
+      "oracle": "bomRefine checks: if bomMode==='quantity' && !row.quantity -> error. if bomMode==='percentage' && !row.percentage -> error. It does NOT validate the inactive field. A row with quantity=null but percentage='50' is valid in percentage mode.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with 1 component"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Switch BOM mode to 'Percentage'",
+        "Add a BOM row, select a component",
+        "Enter percentage '100'",
+        "Do NOT enter any quantity value (quantity remains null)",
+        "Click submit button"
+      ],
+      "verify": [
+        "Form should submit successfully (no validation error)",
+        "bom[0].quantity is null — bomRefine does NOT check it because bomMode is 'percentage'",
+        "bom[0].percentage is '100' — passes the 'Percentage is required' check",
+        "Submit payload bom[0] contains {componentId, quantity: null, percentage: '100'}"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-quantity-to-percentage",
+          "click-add-ingredient",
+          "select-bom-component",
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "full-product-create-flow-with-bom",
+      "name": "Complete product creation with unit creation, category creation, and BOM in quantity mode",
+      "category": "state-transition",
+      "oracle": "End-to-end create flow: create unit via dialog (auto-selects), create category via combobox, add BOM rows with quantities. The final submit payload contains all correctly assembled data.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "availableComponents with 2 components, no pre-existing units, categories=['Aggregates']"
+      },
+      "actions": [
+        "Enter name 'Custom Blend'",
+        "Enter description 'A custom soil blend'",
+        "Enter SKU 'CB-001'",
+        "Type 'Blends' in category combobox and select '+ Create \"Blends\"'",
+        "Select '+ Create new unit', fill dialog (name='batch', size='1', uom='pcs'), click Create",
+        "Enter purchase price '50', selling price '100', stock '0', safety stock '5'",
+        "Add 2 BOM rows: component A qty '3', component B qty '7'",
+        "Click submit button"
+      ],
+      "verify": [
+        "Submit payload name should be 'Custom Blend'",
+        "Submit payload description should be 'A custom soil blend'",
+        "Submit payload sku should be 'CB-001'",
+        "Submit payload category should be 'Blends'",
+        "Submit payload unitDefinitionId should be the created unit's ID (not empty)",
+        "Submit payload itemType should be 'product'",
+        "Submit payload defaultPurchasePrice should be '50'",
+        "Submit payload defaultSellingPrice should be '100'",
+        "Submit payload stock should be '0'",
+        "Submit payload safetyStock should be '5'",
+        "Submit payload bomMode should be 'quantity'",
+        "Submit payload bom should have 2 entries with correct componentIds and quantities"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-name",
+          "enter-description",
+          "enter-sku",
+          "type-category-search",
+          "select-create-new-category",
+          "select-create-new-unit-option",
+          "enter-unit-name",
+          "enter-unit-size",
+          "select-unit-uom",
+          "click-create-unit-button",
+          "enter-purchase-price",
+          "enter-selling-price",
+          "enter-stock",
+          "enter-safety-stock",
+          "click-add-ingredient",
+          "select-bom-component",
+          "enter-bom-quantity",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "nullable-fields-empty-string-normalizes-to-null",
+      "name": "Optional text fields submitted as empty strings are normalized to null by Zod",
+      "category": "state-transition",
+      "oracle": "The nullableString transform: (v) => (v != null ? v.trim() || null : null). Empty strings and whitespace-only strings become null. This applies to sku, category, description, defaultPurchasePrice, defaultSellingPrice.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Fill name 'Test'",
+        "Select a unit",
+        "Enter SKU '   ' (whitespace only)",
+        "Enter description '' (empty)",
+        "Leave purchase price and selling price untouched (undefined)",
+        "Click submit button"
+      ],
+      "verify": [
+        "After Zod transform, sku should be null (whitespace trimmed to empty, then to null)",
+        "After Zod transform, description should be null (empty string to null)",
+        "After Zod transform, defaultPurchasePrice should be null (undefined -> null via nullable())",
+        "After Zod transform, defaultSellingPrice should be null (undefined -> null via nullable())",
+        "Submit payload should have all optional fields as null, not empty strings"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-sku",
+          "enter-description",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "stock-negative-value-validation",
+      "name": "Entering a negative stock value triggers validation error on submit",
+      "category": "state-transition",
+      "oracle": "The stock field has a refine: Number(v) must be >= 0 and not NaN. A negative value fails with 'Must be a non-negative number'.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "initialData": "none"
+      },
+      "actions": [
+        "Fill required fields (name, unit)",
+        "Enter stock '-5'",
+        "Click submit button",
+        "Verify validation error on stock field",
+        "Correct stock to '0'",
+        "Click submit button"
+      ],
+      "verify": [
+        "With stock='-5': form should NOT submit, stock field shows 'Must be a non-negative number'",
+        "With stock='0': stock validation passes (0 is a valid non-negative number)",
+        "Note: '0' is accepted correctly because the refine uses Number(v) >= 0, not a truthiness check"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "state-transition"
+      ]
+    },
+    {
+      "id": "name-empty-string-rejected",
+      "name": "Empty name is rejected on submit",
+      "category": "validation",
+      "oracle": "name field requires at least 1 character — z.string().min(1, 'Name is required')",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "leave name field empty",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Name is required' should appear on the name field",
+        "no network request should be sent"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-name-not-null"
+        ],
+        "indicators": [
+          "name-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "name-single-char-accepted",
+      "name": "Single character name is accepted",
+      "category": "validation",
+      "oracle": "min(1) boundary — a single character is the minimum valid name",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter 'A' as name",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "submission should proceed",
+        "no validation error on name field",
+        "payload name should be 'A'"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-name-not-null"
+        ],
+        "indicators": [
+          "name-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "name-255-chars-accepted",
+      "name": "Name at varchar(255) limit is accepted",
+      "category": "validation",
+      "oracle": "DB column is varchar(255) — a 255-character name should be the maximum valid value",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a 255-character name string",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload name should be exactly 255 characters"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-name-varchar-length"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "name-256-chars-rejected",
+      "name": "Name exceeding varchar(255) causes a DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is varchar(255) — Zod has no .max(255), so a 256-char name passes Zod but fails at DB. This is a validation gap: Zod SHOULD reject it with a friendly error.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a 256-character name string",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — this is the gap)",
+        "API should return an error from DB (raw Postgres error, not user-friendly)",
+        "EXPECTED FIX: Zod should reject with 'Name must be 255 characters or fewer'"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-name-varchar-length"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "sku-51-chars-rejected",
+      "name": "SKU exceeding varchar(50) causes a DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is varchar(50) — Zod has no .max(50), so a 51-char SKU passes Zod but fails at DB. This is a validation gap.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "enter a 51-character SKU",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "API should return a DB error",
+        "EXPECTED FIX: Zod should reject with 'SKU must be 50 characters or fewer'"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-sku-varchar-length"
+        ],
+        "indicators": [
+          "sku-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "sku-50-chars-accepted",
+      "name": "SKU at varchar(50) limit is accepted",
+      "category": "validation",
+      "oracle": "DB column is varchar(50) — 50 characters is the boundary for acceptance",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "enter a 50-character SKU",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload sku should be exactly 50 characters"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "LOW",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-sku-varchar-length"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "category-101-chars-rejected",
+      "name": "Category exceeding varchar(100) causes a DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is varchar(100) — Zod has no .max(100), so a 101-char category passes Zod but fails at DB.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "type a 101-character category string",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "API should return a DB error",
+        "EXPECTED FIX: Zod should reject with 'Category must be 100 characters or fewer'"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "LOW",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-category-varchar-length"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "stock-negative-rejected",
+      "name": "Negative stock value is rejected",
+      "category": "validation",
+      "oracle": "stock has z.string().refine(non-negative) — '-1' must be rejected",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "set stock to '-1'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Must be a non-negative number' should appear on stock field",
+        "no network request should be sent"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "stock-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "stock-zero-accepted",
+      "name": "Zero stock is accepted (boundary)",
+      "category": "validation",
+      "oracle": "stock refine checks n >= 0 — '0' is the boundary, must be accepted",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "set stock to '0'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload stock should be '0'",
+        "no validation error on stock field"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "stock-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "stock-non-numeric-rejected",
+      "name": "Non-numeric stock value is rejected",
+      "category": "validation",
+      "oracle": "stock refine checks !isNaN(Number(v)) — 'abc' must be rejected",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "set stock to 'abc'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Must be a non-negative number' should appear on stock field"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "stock-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "safety-stock-non-numeric-passes-zod",
+      "name": "Non-numeric safety stock passes Zod (validation gap vs stock symmetry)",
+      "category": "validation",
+      "oracle": "safetyStock uses z.string().transform(empty->'0') but has NO numeric validation. 'abc' passes Zod but will fail at DB with numeric(12,4). This is asymmetric with stock which DOES validate.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "set safetyStock to 'abc'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload safetyStock should be 'abc'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: safetyStock should have the same refine(non-negative number) as stock"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-safety-stock-precision"
+        ],
+        "indicators": [
+          "safety-stock-input-mode"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "safety-stock-empty-defaults-to-zero",
+      "name": "Empty safety stock transforms to '0'",
+      "category": "validation",
+      "oracle": "safetyStock transform converts empty string to '0'",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "clear safetyStock field",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload safetyStock should be '0'"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-safety-stock-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "purchase-price-non-numeric-passes-zod",
+      "name": "Non-numeric purchase price passes Zod (validation gap)",
+      "category": "validation",
+      "oracle": "defaultPurchasePrice uses nullableString (trim + empty->null) but has NO numeric validation. 'not-a-number' passes Zod but will fail at DB with numeric(10,4).",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "set purchase price to 'not-a-number'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload defaultPurchasePrice should be 'not-a-number'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate numeric format"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-default-purchase-price-precision"
+        ],
+        "indicators": [
+          "purchase-price-input-mode"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "selling-price-non-numeric-passes-zod",
+      "name": "Non-numeric selling price passes Zod (validation gap, symmetric with purchase price)",
+      "category": "validation",
+      "oracle": "defaultSellingPrice uses nullableString — same gap as defaultPurchasePrice. Both price fields should be validated identically.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "set selling price to 'xyz'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload defaultSellingPrice should be 'xyz'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate numeric format, same rule as purchase price"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-default-selling-price-precision"
+        ],
+        "indicators": [
+          "selling-price-input-mode"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "purchase-price-empty-becomes-null",
+      "name": "Empty purchase price normalizes to null",
+      "category": "validation",
+      "oracle": "nullableString transforms empty/whitespace strings to null — empty price should become null in payload",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "leave purchase price empty",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload defaultPurchasePrice should be null"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-default-purchase-price-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "unit-required-on-create",
+      "name": "Unit selection is required when creating an item",
+      "category": "validation",
+      "oracle": "unitDefinitionId has z.string().min(1, 'Unit is required') on insert schema",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "do NOT select a unit",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Unit is required' should appear on unit field",
+        "no network request should be sent"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-unit-definition-id-not-null"
+        ],
+        "indicators": [
+          "unit-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "unit-not-in-update-schema",
+      "name": "Unit field is omitted from update schema (immutable after creation)",
+      "category": "validation",
+      "oracle": "updateItemSchema omits unitDefinitionId — the field should not appear in the edit form payload",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material"
+      },
+      "actions": [
+        "open edit form for existing item",
+        "submit without changes"
+      ],
+      "verify": [
+        "payload should NOT contain unitDefinitionId",
+        "unit should be displayed as read-only text, not a select"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "unit-readonly-in-edit"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-quantity-required-in-quantity-mode",
+      "name": "BOM quantity is required when bomMode is 'quantity'",
+      "category": "validation",
+      "oracle": "bomRefine checks: if bomMode='quantity' and !row.quantity, issue error 'Quantity is required'",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "set bomMode to 'quantity'",
+        "add a BOM row",
+        "select a component",
+        "leave quantity empty",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Quantity is required' should appear on the quantity field of the BOM row"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "bom-quantity-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-percentage-required-in-percentage-mode",
+      "name": "BOM percentage is required when bomMode is 'percentage'",
+      "category": "validation",
+      "oracle": "bomRefine checks: if bomMode='percentage' and !row.percentage, issue error 'Percentage is required'",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "set bomMode to 'percentage'",
+        "add a BOM row",
+        "select a component",
+        "leave percentage empty",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Percentage is required' should appear on the percentage field of the BOM row"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "bom-quantity-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-quantity-non-numeric-passes-zod",
+      "name": "Non-numeric BOM quantity passes Zod (validation gap)",
+      "category": "validation",
+      "oracle": "bomRefine only checks !row.quantity (truthy check). 'abc' is truthy so it passes. But DB column is numeric(12,4) and will reject it.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "set bomMode to 'quantity'",
+        "add a BOM row",
+        "select a component",
+        "enter 'abc' as quantity",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload bom[0].quantity should be 'abc'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate that quantity is a valid positive number"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-quantity-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-percentage-non-numeric-passes-zod",
+      "name": "Non-numeric BOM percentage passes Zod (validation gap)",
+      "category": "validation",
+      "oracle": "bomRefine only checks !row.percentage (truthy check). 'xyz' is truthy so it passes. But DB column is numeric(5,2) and will reject it.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "set bomMode to 'percentage'",
+        "add a BOM row",
+        "select a component",
+        "enter 'xyz' as percentage",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "payload bom[0].percentage should be 'xyz'",
+        "API should return a raw DB error",
+        "EXPECTED FIX: Zod should validate that percentage is a valid number between 0 and 100"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-percentage-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-percentage-total-cosmetic-only",
+      "name": "BOM percentage total warning does NOT block submission",
+      "category": "validation",
+      "oracle": "PercentageTotal component shows red text when total != 100%, but this is purely cosmetic — Zod does NOT enforce sum = 100%. Submission proceeds with any total.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "set bomMode to 'percentage'",
+        "add two BOM rows",
+        "enter 30 and 20 as percentages (total = 50%)",
+        "submit"
+      ],
+      "verify": [
+        "red text should display 'Total: 50.0% (should be 100%)'",
+        "submission should NOT be blocked",
+        "payload should contain bom with percentages summing to 50",
+        "API should accept the request"
+      ],
+      "assertAt": [
+        "ui",
+        "payload"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "bom-percentage-total"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-percentage-total-at-100-green",
+      "name": "BOM percentage total at 100% shows neutral text",
+      "category": "validation",
+      "oracle": "When Math.abs(total - 100) < 0.01, the total text uses text-muted-foreground (not red) and omits the '(should be 100%)' suffix",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "set bomMode to 'percentage'",
+        "add two BOM rows with percentages 60 and 40"
+      ],
+      "verify": [
+        "text should display 'Total: 100.0%'",
+        "text should NOT be red (text-destructive)",
+        "text should NOT include '(should be 100%)'"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "LOW",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "bom-percentage-total"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-duplicate-component-rejected",
+      "name": "Duplicate BOM component is rejected by Zod refinement",
+      "category": "validation",
+      "oracle": "bomRefine tracks seen componentIds and issues 'Duplicate component' error on second occurrence",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "add two BOM rows",
+        "select the SAME component for both rows",
+        "fill quantities",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Duplicate component' should appear on the second row's component field"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-unique-item-component"
+        ],
+        "indicators": [
+          "bom-component-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-component-required",
+      "name": "BOM row with empty componentId is rejected",
+      "category": "validation",
+      "oracle": "bomRowSchema has componentId: z.string().min(1, 'Component is required')",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "enter a valid name",
+        "select a unit",
+        "add a BOM row",
+        "do NOT select a component",
+        "enter a quantity",
+        "submit"
+      ],
+      "verify": [
+        "submission should be blocked",
+        "error message 'Component is required' should appear on the component combobox"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-component-id-not-null"
+        ],
+        "indicators": [
+          "bom-component-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-self-reference-rejected-api",
+      "name": "Self-referencing BOM is rejected by API route",
+      "category": "validation",
+      "oracle": "PUT /api/items/[id] checks if bom contains componentId === id and returns 400 with errors.bom message",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product"
+      },
+      "actions": [
+        "open edit form for product with id 'X'",
+        "add a BOM row with componentId = 'X'",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (no self-ref check in Zod)",
+        "API should return 400 with { errors: { bom: ['An item cannot reference itself as a component'] } }",
+        "form should display the error message"
+      ],
+      "assertAt": [
+        "api-response",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-no-self-reference"
+        ],
+        "indicators": [
+          "update-self-reference-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "sku-whitespace-only-becomes-null",
+      "name": "Whitespace-only SKU normalizes to null",
+      "category": "validation",
+      "oracle": "nullableString trims then converts empty to null — '   ' should become null in payload",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "enter '   ' (spaces only) as SKU",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload sku should be null (not empty string, not whitespace)"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "stock-decimal-accepted",
+      "name": "Decimal stock value is accepted",
+      "category": "validation",
+      "oracle": "stock refine uses Number(v) which accepts decimals — '1.5' is a valid non-negative number",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "set stock to '1.5'",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload stock should be '1.5'"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "stock-field-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "unit-dialog-size-zero-rejected",
+      "name": "Unit dialog rejects size of 0 (POSITIVE_NUMBER_RE requires positive)",
+      "category": "validation",
+      "oracle": "POSITIVE_NUMBER_RE is /^\\d+\\.?\\d*$/ — '0' DOES match this regex (starts with digit), so button is enabled. However the field is named 'positive number' — this is a semantic ambiguity: 0 is non-negative but not positive.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "open unit creation dialog",
+        "enter 'test' as name",
+        "enter '0' as size",
+        "select a UOM"
+      ],
+      "verify": [
+        "POSITIVE_NUMBER_RE.test('0') returns true, so button should be ENABLED",
+        "the error text 'Must be a positive number' should NOT appear",
+        "NOTE: '0' passes the regex but semantically violates 'positive number' — potential bug"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "units-size-precision"
+        ],
+        "indicators": [
+          "unit-dialog-size-validation"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "unit-dialog-negative-size-rejected",
+      "name": "Unit dialog rejects negative size",
+      "category": "validation",
+      "oracle": "POSITIVE_NUMBER_RE is /^\\d+\\.?\\d*$/ — '-1' does NOT match (starts with minus sign), so button is disabled",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "open unit creation dialog",
+        "enter 'test' as name",
+        "enter '-1' as size",
+        "select a UOM"
+      ],
+      "verify": [
+        "Create button should be disabled",
+        "error text 'Must be a positive number' should appear on size field"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "units-size-precision"
+        ],
+        "indicators": [
+          "unit-dialog-size-validation"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "unit-dialog-all-fields-required",
+      "name": "Unit dialog Create button disabled until all fields filled",
+      "category": "validation",
+      "oracle": "Button disabled condition: !unitName.trim() || !POSITIVE_NUMBER_RE.test(unitSize.trim()) || !unitUom — all three must be satisfied",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "open unit creation dialog",
+        "leave all fields empty"
+      ],
+      "verify": [
+        "Create button should be disabled",
+        "entering only name should still leave button disabled",
+        "entering name + valid size should still leave button disabled (no UOM)",
+        "entering name + valid size + UOM should enable the button"
+      ],
+      "assertAt": [
+        "ui"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "unit-dialog-name-required",
+          "unit-dialog-size-validation",
+          "unit-dialog-uom-required"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-quantity-not-required-in-percentage-mode",
+      "name": "BOM quantity field is not required when bomMode is 'percentage'",
+      "category": "validation",
+      "oracle": "bomRefine only checks quantity when bomMode='quantity' — in percentage mode, null quantity should be accepted",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "set bomMode to 'percentage'",
+        "add a BOM row",
+        "select a component",
+        "enter a percentage",
+        "leave quantity as null",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload bom[0].quantity should be null",
+        "payload bom[0].percentage should have the entered value"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "stock-edit-optional",
+      "name": "Stock field is optional in edit mode",
+      "category": "validation",
+      "oracle": "updateItemSchema has stock as z.string().refine(...).optional() — undefined stock should be accepted",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material"
+      },
+      "actions": [
+        "open edit form",
+        "do not modify stock",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "if stock is undefined in payload, no stock adjustment should occur"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "sku-duplicate-rejected-by-db",
+      "name": "Duplicate SKU within same org is rejected by DB unique constraint",
+      "category": "validation",
+      "oracle": "uniqueIndex on (org_id, sku) WHERE sku IS NOT NULL AND deleted_at IS NULL — Zod does not check uniqueness (cannot), so DB enforces it. API should return a user-friendly error.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "create item with SKU 'DUPE-001'",
+        "create another item with SKU 'DUPE-001'"
+      ],
+      "verify": [
+        "first create should succeed",
+        "second create should fail with a uniqueness error from the API",
+        "error should be surfaced to the user (not a raw Postgres error)"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-sku-unique-partial"
+        ],
+        "indicators": [
+          "form-level-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "bom-percentage-exceeds-db-precision",
+      "name": "BOM percentage exceeding numeric(5,2) range causes DB error (Zod gap)",
+      "category": "validation",
+      "oracle": "DB column is numeric(5,2) which allows max 999.99. A value like '1000' passes Zod (truthy check only) but overflows the DB column.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product"
+      },
+      "actions": [
+        "set bomMode to 'percentage'",
+        "add a BOM row",
+        "select a component",
+        "enter '1000' as percentage",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (current behavior — gap)",
+        "API should return a DB error for numeric overflow",
+        "EXPECTED FIX: Zod should validate percentage is between 0 and 100 (or at minimum within numeric(5,2) range)"
+      ],
+      "assertAt": [
+        "payload",
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-percentage-precision"
+        ],
+        "indicators": [
+          "bom-percentage-total"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "insufficient-stock-on-update-rejected",
+      "name": "Reducing stock below committed quantity is rejected by API",
+      "category": "validation",
+      "oracle": "updateItem in DAL throws 'Insufficient stock' when new stock level would go below committed. API catches this and returns 400 with { errors: { stock: [message] } }.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material"
+      },
+      "actions": [
+        "edit item that has committed stock",
+        "reduce stock below committed quantity",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed (no committed-qty check in Zod)",
+        "API should return 400 with { errors: { stock: ['Insufficient stock...'] } }",
+        "form should display the stock error to the user"
+      ],
+      "assertAt": [
+        "api-response",
+        "ui"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": [
+          "update-insufficient-stock-error"
+        ]
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "description-null-undefined-both-accepted",
+      "name": "Description accepts both null and undefined (nullableString)",
+      "category": "validation",
+      "oracle": "nullableString uses .nullable() — accepts string, null, or undefined. Untouched fields send undefined, cleared fields send null. Both should normalize to null in payload.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material"
+      },
+      "actions": [
+        "enter a valid name",
+        "do NOT touch description field at all",
+        "fill all other required fields",
+        "submit"
+      ],
+      "verify": [
+        "Zod parse should succeed",
+        "payload description should be null (normalized from undefined)"
+      ],
+      "assertAt": [
+        "payload"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "schema",
+      "covers": {
+        "actions": [],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "validation"
+      ]
+    },
+    {
+      "id": "create-item-lot-inherits-purchase-price",
+      "name": "Initial lot costPerUnit equals defaultPurchasePrice on create",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock > 0 and a defaultPurchasePrice, the lot's costPerUnit must equal defaultPurchasePrice. When defaultPurchasePrice is null, costPerUnit must be null.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "defaultPurchasePrice set to '12.50', stock set to '10'"
+      },
+      "actions": [
+        "POST /api/items with { name, stock: '10', defaultPurchasePrice: '12.50', ... }",
+        "GET /api/items/:id to retrieve item",
+        "Query lots for the created item"
+      ],
+      "verify": [
+        "Exactly one lot exists for the item",
+        "lot.costPerUnit === '12.5000' (matches defaultPurchasePrice)",
+        "lot.quantity === '10.0000'",
+        "A stock movement exists with quantity '10.0000' linked to the lot"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-default-purchase-price-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "create-item-no-purchase-price-lot-null-cost",
+      "name": "Lot costPerUnit is null when defaultPurchasePrice is omitted",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock > 0 but no defaultPurchasePrice, the lot's costPerUnit must be null — not 0 or undefined.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "defaultPurchasePrice omitted (null), stock set to '5'"
+      },
+      "actions": [
+        "POST /api/items with { name, stock: '5', defaultPurchasePrice: null, ... }",
+        "Query lots for the created item"
+      ],
+      "verify": [
+        "Exactly one lot exists",
+        "lot.costPerUnit is null (not '0' or '0.0000')",
+        "lot.quantity === '5.0000'"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-default-purchase-price-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "create-item-zero-stock-no-lot",
+      "name": "No lot or stock movement created when initial stock is 0",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock = '0', no lots and no stock movements should be created. The stock subquery should return 0.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "relatedData": "stock set to '0'"
+      },
+      "actions": [
+        "POST /api/items with { name, stock: '0', ... }",
+        "Query lots for the created item",
+        "Query stock movements for the created item"
+      ],
+      "verify": [
+        "No lots exist for this item",
+        "No stock movements exist for this item",
+        "getItem returns stock === '0'"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "update-stock-increase-creates-new-lot",
+      "name": "Increasing stock on update creates a new lot and positive movement",
+      "category": "cross-feature",
+      "oracle": "When stock is increased via update (delta > 0), a new lot is created with the delta quantity and a positive stock movement is recorded. The new lot has NO costPerUnit (adjustStockInTx does not set it).",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "relatedData": "Item exists with 10 units in one lot"
+      },
+      "actions": [
+        "PUT /api/items/:id with { stock: '15', ... }",
+        "Query lots for the item",
+        "Query stock movements for the item"
+      ],
+      "verify": [
+        "Two lots exist (original + new)",
+        "New lot quantity === '5.0000' (delta)",
+        "New lot costPerUnit is null (adjustStockInTx does not set costPerUnit)",
+        "New stock movement quantity === '5.0000' (positive)",
+        "getItem returns stock === '15'"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "update-stock-decrease-fifo-deduction",
+      "name": "Decreasing stock deducts from oldest lot first (FIFO)",
+      "category": "cross-feature",
+      "oracle": "When stock is decreased, fifoDeduct consumes from the oldest lot first. If the oldest lot is insufficient, it drains it to 0 and continues to the next lot. Negative stock movements are created per lot allocation.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "relatedData": "Item has two lots: LOT-1 with 3 units (older), LOT-2 with 7 units (newer). Total stock = 10."
+      },
+      "actions": [
+        "PUT /api/items/:id with { stock: '5', ... } (delta = -5)",
+        "Query lots for the item ordered by receivedAt",
+        "Query stock movements for the item"
+      ],
+      "verify": [
+        "LOT-1 quantity === '0.0000' (fully drained from 3)",
+        "LOT-2 quantity === '5.0000' (reduced by 2, from 7)",
+        "Two negative stock movements created: one for LOT-1 (-3), one for LOT-2 (-2)",
+        "getItem returns stock === '5'"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "update-stock-decrease-below-available-rejected",
+      "name": "Stock reduction below available quantity returns error and rolls back",
+      "category": "cross-feature",
+      "oracle": "When the requested stock decrease exceeds available quantity, fifoDeduct throws 'Insufficient stock'. The entire update (including metadata changes) must roll back. The API returns { errors: { stock: [...] } } with 400.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "relatedData": "Item has 5 units total. User submits stock = '0' but also changes name."
+      },
+      "actions": [
+        "PUT /api/items/:id with { name: 'New Name', stock: '0', ... } where item has 5 units but some committed",
+        "Attempt to reduce more than available"
+      ],
+      "verify": [
+        "Response status === 400",
+        "Response body has errors.stock containing 'Insufficient stock'",
+        "Item name is NOT changed (transaction rolled back)",
+        "Lot quantities are unchanged (transaction rolled back)"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "delete-item-used-in-bom-blocked",
+      "name": "Deleting an item referenced as a BOM component is blocked",
+      "category": "cross-feature",
+      "oracle": "An item that is referenced as a componentId in any non-deleted item's BOM cannot be soft-deleted. The API returns a 400 error. The FK ON DELETE RESTRICT on bom_components.component_id is the DB-level backstop, but the DAL checks first.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "relatedData": "Material A exists. Product B has Material A in its BOM."
+      },
+      "actions": [
+        "DELETE /api/items/:materialA_id"
+      ],
+      "verify": [
+        "Response status === 400",
+        "Response body.error contains 'used as a component'",
+        "Material A is NOT soft-deleted (deletedAt remains null)",
+        "Product B's BOM is unchanged"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-component-id-fk"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "delete-parent-product-cascades-bom-rows",
+      "name": "Deleting a product (parent) soft-deletes it; BOM rows remain but are filtered out",
+      "category": "cross-feature",
+      "oracle": "When a product with BOM components is soft-deleted, the bom_components rows remain in the DB (no cascade on soft delete). But getBomComponents filters by isNull(items.deletedAt) on the parent join, so they stop appearing. The component items remain unaffected.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "relatedData": "Product P has 2 BOM components (Material A, Material B)"
+      },
+      "actions": [
+        "DELETE /api/items/:productP_id",
+        "Query bom_components where itemId = productP_id directly",
+        "Verify Material A and Material B are unaffected"
+      ],
+      "verify": [
+        "Product P has deletedAt set (soft-deleted)",
+        "bom_components rows still exist in DB (soft delete does not cascade)",
+        "getAvailableComponents no longer returns Product P",
+        "Material A and Material B are unaffected (deletedAt still null)"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-component-id-fk"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "soft-deleted-item-excluded-from-available-components",
+      "name": "Soft-deleted items do not appear in available BOM components",
+      "category": "cross-feature",
+      "oracle": "getAvailableComponents filters by isNull(items.deletedAt). A soft-deleted material must not appear in the list of components available for BOM selection.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "relatedData": "Material A exists and is then soft-deleted"
+      },
+      "actions": [
+        "Create Material A",
+        "DELETE /api/items/:materialA_id (soft delete)",
+        "GET available components for new product form"
+      ],
+      "verify": [
+        "Material A does NOT appear in available components list",
+        "Material A does NOT appear in getItems results",
+        "Material A does NOT appear in getCategories if it was the only item with that category"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-sku-unique-partial"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "sku-uniqueness-allows-reuse-after-soft-delete",
+      "name": "SKU can be reused after the original item is soft-deleted",
+      "category": "cross-feature",
+      "oracle": "The partial unique index on (org_id, sku) WHERE sku IS NOT NULL AND deleted_at IS NULL allows a new item to use the same SKU as a soft-deleted item.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "Material with SKU 'ABC-123' exists and is soft-deleted"
+      },
+      "actions": [
+        "Create Material A with sku 'ABC-123'",
+        "DELETE /api/items/:materialA_id (soft delete)",
+        "Create Material B with sku 'ABC-123'"
+      ],
+      "verify": [
+        "Material B is created successfully with sku 'ABC-123'",
+        "Both items exist in DB: Material A (deleted), Material B (active)",
+        "getItems returns only Material B"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-sku",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-sku-unique-partial"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "sku-uniqueness-blocks-duplicate-active",
+      "name": "Duplicate SKU on active items in same org is rejected by DB",
+      "category": "cross-feature",
+      "oracle": "Two active items in the same org cannot share the same non-null SKU. The partial unique index rejects the insert/update at the DB level. The API should return a 500 (no Zod-level SKU uniqueness check exists).",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "Material A with SKU 'DUP-001' already exists (active)"
+      },
+      "actions": [
+        "POST /api/items with { sku: 'DUP-001', ... }"
+      ],
+      "verify": [
+        "Response status === 500 (DB constraint violation surfaces as internal error)",
+        "No second item is created",
+        "Material A is unchanged"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-sku",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-sku-unique-partial"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "bom-self-reference-blocked-on-update",
+      "name": "Self-referencing BOM component is rejected on update",
+      "category": "cross-feature",
+      "oracle": "The PUT handler checks if any bom row has componentId === the item's own id. If so, it returns 400 with errors.bom. The DB also has a CHECK (item_id != component_id) as a backstop.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "relatedData": "Product P exists"
+      },
+      "actions": [
+        "PUT /api/items/:productP_id with { bom: [{ componentId: productP_id, quantity: '1', percentage: null }], ... }"
+      ],
+      "verify": [
+        "Response status === 400",
+        "Response body has errors.bom containing 'cannot reference itself'",
+        "No bom_components rows are modified"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "select-bom-component",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-no-self-reference"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "bom-update-delete-reinsert-atomicity",
+      "name": "BOM update is atomic: delete-all then reinsert in one transaction",
+      "category": "cross-feature",
+      "oracle": "updateItem deletes all existing bom_components for the item and reinserts the new set in a single transaction. If the reinsert fails (e.g., FK violation on componentId), the delete is also rolled back.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "relatedData": "Product P has BOM: [Material A]. Update changes to [Material B, invalid-id]."
+      },
+      "actions": [
+        "PUT /api/items/:productP_id with { bom: [{ componentId: materialB_id, ... }, { componentId: 'nonexistent-uuid', ... }], ... }"
+      ],
+      "verify": [
+        "Response status === 500 (FK violation on nonexistent componentId)",
+        "Product P's BOM still contains only Material A (transaction rolled back)",
+        "Product P's other metadata is unchanged (transaction rolled back)"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "select-bom-component",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-component-id-fk",
+          "bom-unique-item-component"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "bom-duplicate-component-in-same-item-rejected",
+      "name": "Duplicate componentId in same BOM is rejected by DB unique constraint",
+      "category": "cross-feature",
+      "oracle": "The unique constraint on (item_id, component_id) prevents inserting two BOM rows with the same component for the same item. Zod's bomRefine also catches duplicates at validation time, but the DB constraint is the backstop.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "relatedData": "Material A exists"
+      },
+      "actions": [
+        "POST /api/items with { bom: [{ componentId: materialA_id, quantity: '1', ... }, { componentId: materialA_id, quantity: '2', ... }], ... }"
+      ],
+      "verify": [
+        "Response status === 400 (Zod bomRefine catches duplicate before DB)",
+        "Response body has errors at path bom.1.componentId with 'Duplicate component'",
+        "No item is created"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "select-bom-component",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-unique-item-component"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "created-item-visible-in-list-and-detail",
+      "name": "Newly created item appears in list view and detail view with correct data",
+      "category": "cross-feature",
+      "oracle": "After creating an item via POST, getItems must include it with correct stock (computed from lots), unit name (joined from unit_definitions), and all metadata. getItem must return the full detail including unitName, unitSize, unitUom.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "relatedData": "Unit 'kg (1 kilogram)' exists. Create product with all fields populated."
+      },
+      "actions": [
+        "POST /api/items with { name: 'Widget', sku: 'WDG-001', category: 'Finished Goods', stock: '100', defaultPurchasePrice: '5.00', defaultSellingPrice: '12.99', bomMode: 'quantity', safetyStock: '10', ... }",
+        "GET /api/items?itemType=product",
+        "GET item detail via getItem"
+      ],
+      "verify": [
+        "List includes 'Widget' with stock '100', unit 'kg', category 'Finished Goods', sku 'WDG-001'",
+        "Detail shows defaultPurchasePrice '5.0000', defaultSellingPrice '12.99', safetyStock '10.0000'",
+        "Detail shows unitName, unitSize, unitUom from the linked unit_definitions row",
+        "calcStock returns 100 - 0 + 0 - 10 = 90"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-unit-definition-id-fk",
+          "items-name-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "category-list-reflects-active-items-only",
+      "name": "getCategories returns categories only from non-deleted items",
+      "category": "cross-feature",
+      "oracle": "getCategories uses isNull(items.deletedAt) filter. If the last active item with a given category is soft-deleted, that category must disappear from the list.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "Material A with category 'Raw' is the only item with that category"
+      },
+      "actions": [
+        "Verify getCategories includes 'Raw'",
+        "DELETE /api/items/:materialA_id (soft delete)",
+        "GET categories again"
+      ],
+      "verify": [
+        "Before delete: 'Raw' appears in categories",
+        "After delete: 'Raw' does NOT appear in categories",
+        "Other categories from other active items are unaffected"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "select-existing-category"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "stock-movement-audit-trail-on-create",
+      "name": "Stock movement records the creating user and links to the correct lot",
+      "category": "cross-feature",
+      "oracle": "When an item is created with stock > 0, the stock movement must record createdBy = userId (from auth), itemId = the new item, lotId = the new lot, and quantity = the stock amount.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "Authenticated user creates item with stock 25"
+      },
+      "actions": [
+        "POST /api/items with { stock: '25', ... }",
+        "Query stock movements for the created item"
+      ],
+      "verify": [
+        "Exactly one stock movement exists",
+        "movement.quantity === '25.0000'",
+        "movement.lotId matches the created lot's id",
+        "movement.createdBy is the authenticated user's id",
+        "movement.itemId is the created item's id"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "update-purchase-price-does-not-retroactively-change-lot-cost",
+      "name": "Changing defaultPurchasePrice on update does not alter existing lot costPerUnit",
+      "category": "cross-feature",
+      "oracle": "defaultPurchasePrice is only used as costPerUnit at item creation time (createItemWithLot). Updating it via PUT does not change any existing lot's costPerUnit. New lots created via stock increase also have null costPerUnit (adjustStockInTx doesn't set it).",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "relatedData": "Material created with purchasePrice '10.00', stock 5. Lot has costPerUnit '10.0000'."
+      },
+      "actions": [
+        "PUT /api/items/:id with { defaultPurchasePrice: '15.00', stock: '10', ... }",
+        "Query lots for the item"
+      ],
+      "verify": [
+        "Original lot still has costPerUnit === '10.0000' (unchanged)",
+        "New lot (delta = 5) has costPerUnit === null (adjustStockInTx does not set it)",
+        "Item's defaultPurchasePrice is updated to '15.0000'"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "enter-purchase-price",
+          "enter-stock",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "items-default-purchase-price-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "calculated-stock-formula-downstream",
+      "name": "calcStock formula produces correct result from stored values",
+      "category": "cross-feature",
+      "oracle": "calcStock = stock - committedQty + expectedQty - safetyStock, rounded to 4 decimal places. The data table and detail page both use this formula. Negative results render with destructive styling.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "Item with stock=100 (from lots), committedQty=30, expectedQty=20, safetyStock=50"
+      },
+      "actions": [
+        "Create item and manually set committedQty=30, expectedQty=20 in DB",
+        "Render data table and detail page"
+      ],
+      "verify": [
+        "calcStock = 100 - 30 + 20 - 50 = 40 (positive, no destructive styling)",
+        "If safetyStock were 100: calcStock = 100 - 30 + 20 - 100 = -10 (negative, destructive styling)",
+        "Detail page and list page show consistent calculated stock values"
+      ],
+      "assertAt": [
+        "api-response"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "ui-contract",
+      "covers": {
+        "actions": [
+          "enter-safety-stock",
+          "enter-stock"
+        ],
+        "constraints": [
+          "items-safety-stock-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "bom-components-display-filters-deleted-components",
+      "name": "getBomComponents excludes soft-deleted components from results",
+      "category": "cross-feature",
+      "oracle": "getBomComponents joins on items with isNull(items.deletedAt). If a component is somehow soft-deleted while still referenced in a BOM (bypassing the delete guard), it must not appear in the BOM display. This scenario tests the defense-in-depth filter.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "product",
+        "relatedData": "Product P has BOM with Material A. Material A is force-deleted at DB level (bypassing API guard)."
+      },
+      "actions": [
+        "Query getBomComponents for Product P before Material A is deleted",
+        "Force soft-delete Material A directly in DB (simulating a bypass)",
+        "Query getBomComponents for Product P after deletion"
+      ],
+      "verify": [
+        "Before: BOM shows Material A with correct quantity/percentage",
+        "After: BOM does NOT show Material A (filtered by isNull(items.deletedAt) on componentId join)",
+        "BOM count decreases by 1"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "bom-component-id-fk"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "lot-number-sequence-uniqueness",
+      "name": "Concurrent item creations get unique lot numbers",
+      "category": "cross-feature",
+      "oracle": "generateLotNumber uses a Postgres sequence (lot_number_seq). Even under concurrent inserts, each lot gets a unique LOT-NNNNNN number. The unique index on (org_id, lot_number) prevents collisions.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "material",
+        "relatedData": "Two items created in rapid succession with stock > 0"
+      },
+      "actions": [
+        "POST /api/items (item A with stock '10')",
+        "POST /api/items (item B with stock '5')",
+        "Query lots for both items"
+      ],
+      "verify": [
+        "Item A's lot has a unique lot number (LOT-NNNNNN format)",
+        "Item B's lot has a different lot number",
+        "Both lot numbers follow the LOT-NNNNNN format with zero-padded sequence"
+      ],
+      "assertAt": [
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "click-submit-button"
+        ],
+        "constraints": [],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "bom-mode-stale-values-reach-db",
+      "name": "Stale BOM field values from mode switch are persisted in DB",
+      "category": "cross-feature",
+      "oracle": "When a user enters quantity values in quantity mode, switches to percentage mode and enters percentages, then submits: the DB receives BOTH quantity and percentage values for each BOM row. The form does not clear stale fields. The API passes them through. The DB stores both nullable columns.",
+      "setup": {
+        "formMode": "create",
+        "itemType": "product",
+        "relatedData": "Material A exists. User enters quantity '5', switches to percentage mode, enters percentage '50'."
+      },
+      "actions": [
+        "POST /api/items with { bomMode: 'percentage', bom: [{ componentId: materialA_id, quantity: '5', percentage: '50' }], ... }",
+        "Query bom_components for the created item"
+      ],
+      "verify": [
+        "bom_components row has quantity = '5.0000' AND percentage = '50.00'",
+        "Both values are persisted — the API does not strip the inactive field",
+        "Detail page renders only the percentage (based on bomMode), not the stale quantity"
+      ],
+      "assertAt": [
+        "db",
+        "api-response"
+      ],
+      "impact": "HIGH",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [
+          "switch-bom-mode-quantity-to-percentage",
+          "enter-bom-quantity",
+          "enter-bom-percentage",
+          "click-submit-button"
+        ],
+        "constraints": [
+          "bom-quantity-precision",
+          "bom-percentage-precision"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "item-type-immutable-on-update",
+      "name": "itemType cannot be changed via PUT (omitted from update schema)",
+      "category": "cross-feature",
+      "oracle": "The updateItemSchema omits itemType. If a PUT payload includes itemType, it is stripped by Zod parsing and never reaches the DAL. A material cannot become a product via the update API.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "relatedData": "Material M exists"
+      },
+      "actions": [
+        "PUT /api/items/:materialM_id with { itemType: 'product', name: 'Updated', ... }"
+      ],
+      "verify": [
+        "Response status === 200 (Zod strips unknown fields, does not error)",
+        "Item's itemType remains 'material' in DB",
+        "Item's name IS updated to 'Updated' (other fields are processed normally)"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-item-type-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    },
+    {
+      "id": "unit-definition-immutable-on-update",
+      "name": "unitDefinitionId cannot be changed via PUT (omitted from update schema)",
+      "category": "cross-feature",
+      "oracle": "The updateItemSchema omits unitDefinitionId. Even if the PUT payload includes it, Zod strips it. The unit assigned at creation is permanent.",
+      "setup": {
+        "formMode": "edit",
+        "itemType": "material",
+        "relatedData": "Material M with unit 'kg' exists. Another unit 'lb' also exists."
+      },
+      "actions": [
+        "PUT /api/items/:materialM_id with { unitDefinitionId: lb_unit_id, name: 'Updated', ... }"
+      ],
+      "verify": [
+        "Response status === 200",
+        "Item's unitDefinitionId remains the original kg unit (not changed to lb)",
+        "getItem returns unitName === 'kg' (unchanged)"
+      ],
+      "assertAt": [
+        "api-response",
+        "db"
+      ],
+      "impact": "MEDIUM",
+      "testLane": "api-contract",
+      "covers": {
+        "actions": [],
+        "constraints": [
+          "items-unit-definition-id-fk",
+          "items-unit-definition-id-not-null"
+        ],
+        "indicators": []
+      },
+      "foundBy": [
+        "cross-feature"
+      ]
+    }
+  ]
+}
