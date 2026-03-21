@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:ui": "vitest run test/ui",
     "test:schema": "vitest run test/schema",
-    "test:api": "vitest run test/api"
+    "test:api": "vitest run test/api",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
@@ -40,6 +41,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

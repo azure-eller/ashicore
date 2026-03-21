@@ -90,10 +90,12 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
             {item.unitName} ({parseFloat(item.unitSize)} {item.unitUom})
           </dd>
         </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">Purchase Price</dt>
-          <dd className="mt-1 text-sm">{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</dd>
-        </div>
+        {itemType === "material" && (
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Purchase Price</dt>
+            <dd className="mt-1 text-sm">{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</dd>
+          </div>
+        )}
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Selling Price</dt>
           <dd className="mt-1 text-sm">{formatPrice(item.defaultSellingPrice) ?? "\u2014"}</dd>

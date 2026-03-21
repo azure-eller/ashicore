@@ -39,6 +39,34 @@ When you discover a new pattern or gotcha:
 | Feature planning | `docs/architecture.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
 
+## Database Roles
+
+Two Postgres roles, two connection strings:
+
+| Role | Env var | Used by | Can DDL? | RLS enforced? |
+|------|---------|---------|----------|---------------|
+| `neondb_owner` | `DATABASE_URL` | `drizzle-kit generate/migrate` only | yes | no (owner) |
+| `app_user` | `DATABASE_URL_APP` | App runtime (`lib/db/index.ts`) | **no** | **yes** |
+
+`lib/db/index.ts` reads `DATABASE_URL_APP` (falls back to `DATABASE_URL`).
+`drizzle.config.ts` reads `DATABASE_URL` (owner, for migrations).
+
+### When adding a new schema
+
+1. `GRANT USAGE ON SCHEMA <name> TO app_user;`
+2. `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA <name> TO app_user;`
+3. `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA <name> TO app_user;`
+4. `ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA <name> GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;`
+5. `ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA <name> GRANT USAGE, SELECT ON SEQUENCES TO app_user;`
+
+### When adding a new table with org isolation
+
+1. `ALTER TABLE <schema>.<table> ENABLE ROW LEVEL SECURITY;`
+2. `ALTER TABLE <schema>.<table> FORCE ROW LEVEL SECURITY;`
+3. Create the RLS policy checking `organization_id = current_setting('app.current_org_id', true)`
+
+Tables without `FORCE` bypass RLS for the table owner — this caused a real bug where test-org data leaked into the production org view.
+
 ## Critical Rules
 
 - No hardcoded Tailwind colors — shadcn semantic tokens only
