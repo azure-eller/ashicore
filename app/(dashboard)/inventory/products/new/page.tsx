@@ -13,15 +13,13 @@ export default async function NewProductPage() {
   ]);
 
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <div className="w-full max-w-3xl">
-        <ItemForm
-          itemType="product"
-          units={units}
-          categories={categories}
-          availableComponents={components}
-        />
-      </div>
+    <div className="mx-auto w-full max-w-6xl py-8">
+      <ItemForm
+        itemType="product"
+        units={units}
+        categories={categories}
+        availableComponents={components}
+      />
     </div>
   );
 }

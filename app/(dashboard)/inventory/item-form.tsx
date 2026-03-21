@@ -15,14 +15,6 @@ import { ITEM_TYPE_SEGMENTS } from "@/app/(dashboard)/inventory/types";
 import type { getItem } from "@/app/(dashboard)/inventory/queries";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -62,6 +54,7 @@ import {
   FieldSeparator,
   FieldSet,
 } from "@/components/ui/field";
+import { Separator } from "@/components/ui/separator";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 
 const CREATE_NEW_UNIT = "__create_new__";
@@ -89,7 +82,9 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
   const router = useRouter();
   const queryClient = useQueryClient();
   const segment = ITEM_TYPE_SEGMENTS[itemType];
+  const isEditing = Boolean(initialData);
   const typeLabel = itemType === "product" ? "Product" : "Material";
+  const fallbackPath = `/inventory/${segment}${initialData ? `/${initialData.id}` : ""}`;
   const [categoryInput, setCategoryInput] = useState("");
   const [localUnits, setLocalUnits] = useState(units);
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
@@ -135,6 +130,11 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
           name: "",
           itemType: itemType as "material" | "product",
           unitDefinitionId: "",
+          sku: null,
+          category: null,
+          description: null,
+          defaultPurchasePrice: null,
+          defaultSellingPrice: null,
           stock: "0",
           safetyStock: "0",
           bomMode: "quantity",
@@ -171,7 +171,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
-      router.push(`/inventory/${segment}${initialData ? `/${initialData.id}` : ""}`);
+      router.push(fallbackPath);
     },
     onError: (error) => {
       setFormError(error.message);
@@ -211,77 +211,87 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
     },
   });
 
+  const submitLabel = isEditing
+    ? (mutation.isPending ? "Saving..." : "Save Changes")
+    : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`);
+
+  const handleCancel = () => {
+    const referrer = document.referrer;
+
+    if (referrer) {
+      try {
+        const referrerUrl = new URL(referrer);
+        if (referrerUrl.origin === window.location.origin) {
+          router.back();
+          return;
+        }
+      } catch {
+        // Fall through to the known inventory destination.
+      }
+    }
+
+    router.push(fallbackPath);
+  };
+
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>{initialData ? `Edit ${typeLabel}` : `Add ${typeLabel}`}</CardTitle>
-        <CardDescription>
-          {initialData
-            ? `Update this ${typeLabel.toLowerCase()}'s details.`
-            : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          id="item-form"
-          onSubmit={form.handleSubmit((data) => { if (!mutation.isPending) mutation.mutate(data); })}
-        >
-          <FieldGroup>
-            <Controller
-              name="name"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Name</FieldLabel>
-                  <Input
-                    {...field}
-                    id={field.name}
-                    aria-invalid={fieldState.invalid}
-                    placeholder="e.g. Sand, Gravel, Topsoil"
-                    autoComplete="off"
-                  />
-                  {fieldState.invalid && (
-                    <FieldError errors={[fieldState.error]} />
-                  )}
-                </Field>
-              )}
-            />
+    <div className="mx-auto w-full max-w-4xl space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="space-y-1.5">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {isEditing ? `Edit ${typeLabel}` : `Add ${typeLabel}`}
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            {isEditing
+              ? `Update this ${typeLabel.toLowerCase()}'s details.`
+              : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
+          </p>
+        </div>
 
-            <Controller
-              name="description"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Description</FieldLabel>
-                  <Textarea
-                    {...field}
-                    id={field.name}
-                    value={field.value ?? ""}
-                    aria-invalid={fieldState.invalid}
-                    placeholder={`Optional notes about this ${typeLabel.toLowerCase()}`}
-                    rows={2}
-                    autoComplete="off"
-                  />
-                  {fieldState.invalid && (
-                    <FieldError errors={[fieldState.error]} />
-                  )}
-                </Field>
-              )}
-            />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="item-form"
+            disabled={mutation.isPending}
+          >
+            {submitLabel}
+          </Button>
+        </div>
+      </div>
 
-            <div className="grid grid-cols-2 gap-4">
+      <Separator />
+
+      {formError && <FieldError>{formError}</FieldError>}
+
+      <form
+        id="item-form"
+        className="space-y-0"
+        onSubmit={form.handleSubmit((data) => { if (!mutation.isPending) mutation.mutate(data); })}
+      >
+        <FieldGroup className="gap-8">
+          <FieldSet className="max-w-4xl gap-5">
+            <FieldLegend>Basics</FieldLegend>
+            <FieldDescription>
+              Name, category, and unit details for this {typeLabel.toLowerCase()}.
+            </FieldDescription>
+            <FieldGroup>
               <Controller
-                name="sku"
+                name="name"
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>SKU</FieldLabel>
+                    <FieldLabel htmlFor={field.name}>Name</FieldLabel>
                     <Input
                       {...field}
                       id={field.name}
-                      value={field.value ?? ""}
                       aria-invalid={fieldState.invalid}
-                      placeholder="MAT-001"
+                      placeholder="e.g. Sand, Gravel, Topsoil"
                       autoComplete="off"
                     />
                     {fieldState.invalid && (
@@ -292,107 +302,154 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
               />
 
               <Controller
-                name="category"
+                name="description"
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Category</FieldLabel>
-                    <Combobox
-                      items={categoryItems}
+                    <FieldLabel htmlFor={field.name}>Description</FieldLabel>
+                    <Textarea
+                      {...field}
+                      id={field.name}
                       value={field.value ?? ""}
-                      onValueChange={(v) => field.onChange(v || null)}
-                      onInputValueChange={setCategoryInput}
-                    >
-                      <ComboboxInput
-                        placeholder="Search or create category..."
-                      />
-                      <ComboboxContent>
-                        <ComboboxEmpty>
-                          Type to create a new category
-                        </ComboboxEmpty>
-                        <ComboboxList>
-                          {(item: string) => (
-                            <ComboboxItem key={item} value={item}>
-                              {categoriesSet.has(item.toLowerCase())
-                                ? item
-                                : `+ Create "${item}"`}
-                            </ComboboxItem>
-                          )}
-                        </ComboboxList>
-                      </ComboboxContent>
-                    </Combobox>
+                      aria-invalid={fieldState.invalid}
+                      placeholder={`Optional notes about this ${typeLabel.toLowerCase()}`}
+                      rows={3}
+                      autoComplete="off"
+                    />
                     {fieldState.invalid && (
                       <FieldError errors={[fieldState.error]} />
                     )}
                   </Field>
                 )}
               />
-            </div>
 
-            {initialData ? (
-              <Field>
-                <FieldLabel>Unit</FieldLabel>
-                <p className="text-sm py-2">
-                  {initialData.unitName} ({parseFloat(initialData.unitSize)} {initialData.unitUom})
-                </p>
-              </Field>
-            ) : (
-              <Controller
-                name="unitDefinitionId"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
-                    <Select
-                      key={field.value}
-                      name={field.name}
-                      value={field.value}
-                      onValueChange={(value) => {
-                        if (value === CREATE_NEW_UNIT) {
-                          setIsUnitDialogOpen(true);
-                        } else {
-                          field.onChange(value);
-                        }
-                      }}
-                    >
-                      <SelectTrigger
+              <div className="grid gap-4 md:grid-cols-2">
+                <Controller
+                  name="sku"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>SKU</FieldLabel>
+                      <Input
+                        {...field}
                         id={field.name}
+                        value={field.value ?? ""}
                         aria-invalid={fieldState.invalid}
-                        className="w-full"
+                        placeholder="MAT-001"
+                        autoComplete="off"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+
+                <Controller
+                  name="category"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Category</FieldLabel>
+                      <Combobox
+                        items={categoryItems}
+                        value={field.value ?? ""}
+                        onValueChange={(v) => field.onChange(v || null)}
+                        onInputValueChange={setCategoryInput}
                       >
-                        <SelectValue placeholder="Select a unit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {localUnits.map((u) => (
-                          <SelectItem key={u.id} value={u.id}>
-                            {u.name} ({parseFloat(u.size)} {u.uom})
+                        <ComboboxInput
+                          placeholder="Search or create category..."
+                        />
+                        <ComboboxContent>
+                          <ComboboxEmpty>
+                            Type to create a new category
+                          </ComboboxEmpty>
+                          <ComboboxList>
+                            {(item: string) => (
+                              <ComboboxItem key={item} value={item}>
+                                {categoriesSet.has(item.toLowerCase())
+                                  ? item
+                                  : `+ Create "${item}"`}
+                              </ComboboxItem>
+                            )}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+              </div>
+
+              {initialData ? (
+                <Field>
+                  <FieldLabel>Unit</FieldLabel>
+                  <p className="py-2 text-sm">
+                    {initialData.unitName} ({parseFloat(initialData.unitSize)} {initialData.unitUom})
+                  </p>
+                </Field>
+              ) : (
+                <Controller
+                  name="unitDefinitionId"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
+                      <Select
+                        key={field.value}
+                        name={field.name}
+                        value={field.value}
+                        onValueChange={(value) => {
+                          if (value === CREATE_NEW_UNIT) {
+                            setIsUnitDialogOpen(true);
+                          } else {
+                            field.onChange(value);
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          id={field.name}
+                          aria-invalid={fieldState.invalid}
+                          className="w-full"
+                        >
+                          <SelectValue placeholder="Select a unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {localUnits.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.name} ({parseFloat(u.size)} {u.uom})
+                            </SelectItem>
+                          ))}
+                          <SelectSeparator />
+                          <SelectItem value={CREATE_NEW_UNIT}>
+                            + Create new unit
                           </SelectItem>
-                        ))}
-                        <SelectSeparator />
-                        <SelectItem value={CREATE_NEW_UNIT}>
-                          + Create new unit
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
-            )}
+                        </SelectContent>
+                      </Select>
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+              )}
+            </FieldGroup>
+          </FieldSet>
 
-            <FieldSeparator />
+          <FieldSeparator />
 
-            <FieldSet>
-              <FieldLegend>Pricing & Stock</FieldLegend>
-              <FieldDescription>
-                {initialData
-                  ? "Update pricing, stock level, and safety stock threshold."
-                  : "Set the default pricing and starting inventory."}
-              </FieldDescription>
-              <FieldGroup>
-                <div className="grid grid-cols-2 gap-4">
+          <FieldSet className="max-w-4xl gap-5">
+            <FieldLegend>Pricing & Stock</FieldLegend>
+            <FieldDescription>
+              {isEditing
+                ? "Update pricing, stock level, and safety stock threshold."
+                : "Set the default pricing and starting inventory."}
+            </FieldDescription>
+            <FieldGroup>
+              <div className="grid gap-4 md:grid-cols-2">
+                {itemType === "material" && (
                   <Controller
                     name="defaultPurchasePrice"
                     control={form.control}
@@ -416,109 +473,96 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
                       </Field>
                     )}
                   />
+                )}
 
-                  <Controller
-                    name="defaultSellingPrice"
-                    control={form.control}
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
-                          Selling Price
-                        </FieldLabel>
-                        <Input
-                          {...field}
-                          id={field.name}
-                          value={field.value ?? ""}
-                          aria-invalid={fieldState.invalid}
-                          placeholder="0.00"
-                          inputMode="decimal"
-                          autoComplete="off"
-                        />
-                        {fieldState.invalid && (
-                          <FieldError errors={[fieldState.error]} />
-                        )}
-                      </Field>
-                    )}
-                  />
+                <Controller
+                  name="defaultSellingPrice"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>
+                        Selling Price
+                      </FieldLabel>
+                      <Input
+                        {...field}
+                        id={field.name}
+                        value={field.value ?? ""}
+                        aria-invalid={fieldState.invalid}
+                        placeholder="0.00"
+                        inputMode="decimal"
+                        autoComplete="off"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
 
-                  <Controller
-                    name="stock"
-                    control={form.control}
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
-                        <Input
-                          {...field}
-                          id={field.name}
-                          value={field.value ?? ""}
-                          aria-invalid={fieldState.invalid}
-                          placeholder="0"
-                          inputMode="decimal"
-                          autoComplete="off"
-                        />
-                        {fieldState.invalid && (
-                          <FieldError errors={[fieldState.error]} />
-                        )}
-                      </Field>
-                    )}
-                  />
+                <Controller
+                  name="stock"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
+                      <Input
+                        {...field}
+                        id={field.name}
+                        value={field.value ?? ""}
+                        aria-invalid={fieldState.invalid}
+                        placeholder="0"
+                        inputMode="decimal"
+                        autoComplete="off"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
 
-                  <Controller
-                    name="safetyStock"
-                    control={form.control}
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>Safety Stock</FieldLabel>
-                        <Input
-                          {...field}
-                          id={field.name}
-                          value={field.value ?? ""}
-                          aria-invalid={fieldState.invalid}
-                          placeholder="0"
-                          inputMode="decimal"
-                          autoComplete="off"
-                        />
-                        {fieldState.invalid && (
-                          <FieldError errors={[fieldState.error]} />
-                        )}
-                      </Field>
-                    )}
-                  />
-                </div>
-              </FieldGroup>
-            </FieldSet>
+                <Controller
+                  name="safetyStock"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Safety Stock</FieldLabel>
+                      <Input
+                        {...field}
+                        id={field.name}
+                        value={field.value ?? ""}
+                        aria-invalid={fieldState.invalid}
+                        placeholder="0"
+                        inputMode="decimal"
+                        autoComplete="off"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+              </div>
+            </FieldGroup>
+          </FieldSet>
 
-            {itemType === "product" && availableComponents && (
-              <>
-                <FieldSeparator />
+          {itemType === "product" && availableComponents && (
+            <>
+              <FieldSeparator />
+              <FieldSet className="gap-6">
+                <FieldLegend>Recipe / Bill of Materials</FieldLegend>
+                <FieldDescription>
+                  Ingredients needed to produce one unit of this product.
+                </FieldDescription>
                 <BomEditor
                   control={form.control}
                   availableComponents={availableComponents}
                 />
-              </>
-            )}
-          </FieldGroup>
-        </form>
-        {formError && <FieldError className="mt-2">{formError}</FieldError>}
-      </CardContent>
-      <CardFooter className="flex justify-end gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => router.push(initialData ? `/inventory/${segment}/${initialData.id}` : `/inventory/${segment}`)}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          form="item-form"
-          disabled={mutation.isPending}
-        >
-          {initialData
-            ? (mutation.isPending ? "Saving..." : "Save Changes")
-            : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`)}
-        </Button>
-      </CardFooter>
+              </FieldSet>
+            </>
+          )}
+        </FieldGroup>
+      </form>
       <Dialog
         open={isUnitDialogOpen}
         onOpenChange={(open) => {
@@ -605,6 +649,6 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 }

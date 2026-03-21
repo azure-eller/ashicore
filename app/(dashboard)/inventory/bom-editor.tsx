@@ -21,21 +21,12 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import {
-  FieldDescription,
   FieldError,
   FieldGroup,
-  FieldLabel,
   FieldLegend,
   FieldSet,
-  Field,
 } from "@/components/ui/field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -72,81 +63,80 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
   );
 
   return (
-    <FieldSet>
-      <FieldLegend>Recipe / Bill of Materials</FieldLegend>
-      <FieldDescription>
-        Ingredients needed to produce one unit of this product.
-      </FieldDescription>
-      <FieldGroup>
+    <FieldGroup className="gap-6">
+      <FieldSet className="max-w-sm gap-2">
+        <FieldLegend variant="label" className="mb-0">
+          Mode
+        </FieldLegend>
         <Controller
           name="bomMode"
           control={control}
           render={({ field }) => (
-            <Field>
-              <FieldLabel htmlFor={field.name}>Mode</FieldLabel>
-              <Select
-                name={field.name}
-                value={field.value ?? "quantity"}
-                onValueChange={field.onChange}
-              >
-                <SelectTrigger id={field.name} className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="quantity">Quantity per unit</SelectItem>
-                  <SelectItem value="percentage">Percentage</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={field.value ?? "quantity"}
+              aria-label="Bill of materials mode"
+              onValueChange={(val) => { if (val) field.onChange(val); }}
+            >
+              <ToggleGroupItem value="quantity">Quantity</ToggleGroupItem>
+              <ToggleGroupItem value="percentage">Percentage</ToggleGroupItem>
+            </ToggleGroup>
           )}
         />
+      </FieldSet>
 
-        {fields.length > 0 && (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Component</TableHead>
-                  <TableHead className="w-32">
-                    {bomMode === "percentage" ? "%" : "Qty"}
-                  </TableHead>
-                  <TableHead className="w-24">Unit</TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {fields.map((field, index) => (
-                  <BomRow
-                    key={field.id}
-                    index={index}
-                    control={control}
-                    bomMode={bomMode}
-                    componentIds={componentIds}
-                    componentMap={componentMap}
-                    onRemove={() => remove(index)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+      {fields.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Component</TableHead>
+                <TableHead className="w-32">
+                  {bomMode === "percentage" ? "%" : "Qty"}
+                </TableHead>
+                <TableHead className="w-24">Unit</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {fields.map((field, index) => (
+                <BomRow
+                  key={field.id}
+                  index={index}
+                  control={control}
+                  bomMode={bomMode}
+                  componentIds={componentIds}
+                  componentMap={componentMap}
+                  onRemove={() => remove(index)}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed px-4 py-6">
+          <p className="text-sm text-muted-foreground">
+            Add ingredients to define what goes into one unit of this product.
+          </p>
+        </div>
+      )}
 
-        {bomMode === "percentage" && fields.length > 0 && (
-          <PercentageTotal control={control} />
-        )}
+      {bomMode === "percentage" && fields.length > 0 && (
+        <PercentageTotal control={control} />
+      )}
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            append({ componentId: "", quantity: null, percentage: null })
-          }
-        >
-          + Add Ingredient
-        </Button>
-      </FieldGroup>
-    </FieldSet>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          append({ componentId: "", quantity: null, percentage: null })
+        }
+      >
+        + Add Ingredient
+      </Button>
+    </FieldGroup>
   );
 }
 

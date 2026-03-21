@@ -24,23 +24,21 @@ export default async function EditProductPage({
   if (!item) redirect("/inventory/products");
 
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <div className="w-full max-w-3xl">
-        <ItemForm
-          itemType="product"
-          units={units}
-          categories={categories}
-          availableComponents={components}
-          initialData={{
-            ...item,
-            bom: bom.map((b) => ({
-              componentId: b.componentId,
-              quantity: b.quantity,
-              percentage: b.percentage,
-            })),
-          }}
-        />
-      </div>
+    <div className="mx-auto w-full max-w-6xl py-8">
+      <ItemForm
+        itemType="product"
+        units={units}
+        categories={categories}
+        availableComponents={components}
+        initialData={{
+          ...item,
+          bom: bom.map((b) => ({
+            componentId: b.componentId,
+            quantity: b.quantity,
+            percentage: b.percentage,
+          })),
+        }}
+      />
     </div>
   );
 }

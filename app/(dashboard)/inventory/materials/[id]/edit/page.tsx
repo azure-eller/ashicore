@@ -20,15 +20,13 @@ export default async function EditMaterialPage({
   if (!item) redirect("/inventory/materials");
 
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <div className="w-full max-w-3xl">
-        <ItemForm
-          itemType="material"
-          units={units}
-          categories={categories}
-          initialData={item}
-        />
-      </div>
+    <div className="mx-auto w-full max-w-5xl py-8">
+      <ItemForm
+        itemType="material"
+        units={units}
+        categories={categories}
+        initialData={item}
+      />
     </div>
   );
 }

@@ -52,6 +52,63 @@ Then follow this pattern exactly:
 
 Canonical reference: `app/(dashboard)/inventory/materials/material-form.tsx`
 
+## Standalone Form Pages
+
+Use a dedicated page layout for create/edit routes. Do not center the entire form in a single card.
+
+- Use a centered page shell such as `mx-auto w-full max-w-5xl py-8` or `max-w-6xl` for wider product/BOM flows
+- Put the page title, description, and primary actions in the page header
+- Use stacked `FieldSet` sections and place `FieldSeparator` only between sections, not between a section title and its own fields
+- Keep text fields in a readable column inside each section, e.g. `FieldSet className="max-w-4xl"`
+- Use wider/full-width sections only where the content needs it, such as tables or BOM editors
+
+```tsx
+<div className="mx-auto w-full max-w-4xl py-8">
+  <div className="space-y-8">
+    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div className="space-y-1.5">
+        <h1 className="text-3xl font-semibold tracking-tight">Add Product</h1>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Create a new product in your inventory.
+        </p>
+      </div>
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Button variant="outline" onClick={handleCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" form="item-form">
+          Create Product
+        </Button>
+      </div>
+    </div>
+
+    <Separator />
+
+    <form id="item-form" className="space-y-0">
+      <FieldGroup className="gap-8">
+        <FieldSet className="max-w-4xl gap-5">
+          <FieldLegend>Basics</FieldLegend>
+          <FieldDescription>
+            Name, category, and unit details for this product.
+          </FieldDescription>
+          <FieldGroup>{/* fields */}</FieldGroup>
+        </FieldSet>
+
+        <FieldSeparator />
+
+        <FieldSet className="max-w-4xl gap-5">
+          <FieldLegend>Pricing & Stock</FieldLegend>
+          <FieldDescription>
+            Set the default pricing and starting inventory.
+          </FieldDescription>
+          <FieldGroup>{/* fields */}</FieldGroup>
+        </FieldSet>
+      </FieldGroup>
+    </form>
+  </div>
+</div>
+```
+
 ## Error Display
 
 - Use `<FieldError>` for validation errors — it renders nothing when empty
@@ -75,6 +132,10 @@ Canonical reference: `app/(dashboard)/inventory/materials/material-form.tsx`
 if (isLoading) return <MaterialFormSkeleton />;
 ```
 
+For create/edit routes that share the same form, reuse one route-level loading component per item type instead of duplicating a separate loader for `new` and `edit`.
+
+For detail routes, add a local `[id]/loading.tsx` per item type and point it at a shared detail loader. Do not let `/products/[id]` or `/materials/[id]` inherit the parent list/table skeleton from the segment above.
+
 **Button/form loading**: use `mutation.isPending`.
 
 ```tsx
@@ -87,29 +148,36 @@ No optimistic updates. No complex loading state machines.
 
 ## Portal Components (Dialogs, Dropdowns, Popovers, Tooltips)
 
-Portal-rendered components escape the component tree and lose Tailwind dark mode context. Always add the `dark` class to the container:
+Use semantic surface and text tokens on portal content. Do not hardcode `dark` on individual dialogs, menus, or popovers.
 
 ```tsx
-<DialogContent className="dark">
+<DialogContent className="bg-background text-foreground">
   ...
 </DialogContent>
 
-<DropdownMenuContent className="dark">
+<DropdownMenuContent className="bg-popover text-popover-foreground">
   ...
 </DropdownMenuContent>
 ```
 
-Without this, dark mode will not apply inside the portal.
-
 ## Navigation
 
-**Cancel buttons**: always use `router.back()`. Never hardcode a destination path.
+**Cancel buttons**: keep in-app back navigation when possible, but include a known fallback route for direct URLs and external referrers.
 
 ```tsx
-// ✓ Correct
-<Button variant="ghost" onClick={() => router.back()}>Cancel</Button>
+const handleCancel = () => {
+  if (document.referrer.startsWith(window.location.origin)) {
+    router.back()
+    return
+  }
 
-// ✗ Wrong — breaks when page is reached from different contexts
+  router.push("/inventory/materials")
+}
+
+// ✓ Correct
+<Button variant="ghost" onClick={handleCancel}>Cancel</Button>
+
+// ✗ Wrong — always discards the previous in-app context
 <Button variant="ghost" onClick={() => router.push("/inventory/materials")}>Cancel</Button>
 ```
 

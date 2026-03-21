@@ -92,6 +92,98 @@ defaultValues: {
 }
 ```
 
+### Standalone form pages
+
+Single-page create/edit forms should use a centered page shell with top actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one centered card for the entire form.
+
+```tsx
+// ✓ Correct — page-width shell, header actions, stacked FieldSet sections
+<div className="mx-auto w-full max-w-4xl py-8">
+  <ItemForm />
+</div>
+
+// Inside the form component:
+<div className="space-y-8">
+  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="space-y-1.5">
+      <h1 className="text-3xl font-semibold tracking-tight">Add Product</h1>
+      <p className="text-sm text-muted-foreground">Create a new product in your inventory.</p>
+    </div>
+    <div className="flex gap-3">
+      <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+      <Button type="submit" form="item-form">Create Product</Button>
+    </div>
+  </div>
+
+  <Separator />
+
+  <form className="space-y-0">
+    <FieldGroup className="gap-8">
+      <FieldSet className="max-w-4xl gap-5">
+        <FieldLegend>Basics</FieldLegend>
+        <FieldDescription>Name, category, and unit details.</FieldDescription>
+        <FieldGroup>{/* fields */}</FieldGroup>
+      </FieldSet>
+
+      <FieldSeparator />
+
+      <FieldSet className="max-w-4xl gap-5">
+        <FieldLegend>Pricing & Stock</FieldLegend>
+        <FieldDescription>Set pricing and stock defaults.</FieldDescription>
+        <FieldGroup>{/* fields */}</FieldGroup>
+      </FieldSet>
+    </FieldGroup>
+  </form>
+</div>
+
+// ✗ Wrong — narrow centered form that reads like a modal
+<div className="flex flex-1 items-center justify-center">
+  <div className="w-full max-w-3xl">
+    <Card>{/* whole form */}</Card>
+  </div>
+</div>
+```
+
+### Cancel button navigation
+
+Cancel actions should keep in-app back navigation when possible, but fall back to a known route for direct URLs or external referrers.
+
+```tsx
+const handleCancel = () => {
+  if (document.referrer.startsWith(window.location.origin)) {
+    router.back()
+    return
+  }
+
+  router.push("/inventory/materials")
+}
+```
+
+### Portal theming
+
+Portal components should use semantic background/text tokens on the portal content itself. Do not hardcode `dark` on individual dialogs or menus.
+
+```tsx
+<DialogContent className="bg-background text-foreground" />
+<DropdownMenuContent className="bg-popover text-popover-foreground" />
+```
+
+### Route loading reuse
+
+New/edit loading states for the same form should share one route-level loader per item type. Detail routes should also have a local `[id]/loading.tsx` per item type so they never fall back to a parent list skeleton.
+
+```tsx
+// ✓ Correct — one shared loader for material new/edit
+export { default } from "../../material-item-form-loading"
+
+// ✓ Correct — one shared loader for product new/edit
+export { default } from "../../product-item-form-loading"
+
+// ✓ Correct — detail routes point to a shared item-type detail loader
+export { default } from "../../material-item-detail-loading"
+export { default } from "../../product-item-detail-loading"
+```
+
 ### Postgres numeric fields
 
 Postgres `numeric` columns are returned as strings by the driver. Always parse:
