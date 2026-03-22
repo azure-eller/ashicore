@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { test, expect } from "@playwright/test";
+import { createItem, getUnitId } from "../helpers/api";
 
 /* ------------------------------------------------------------------ */
 /*  Auth — inject session cookie so every test hits an authenticated  */
@@ -12,6 +13,31 @@ const SESSION_COOKIE = env.TEST_SESSION_COOKIE; // "better-auth.session_token=�
 function parseCookie(raw: string) {
   const [name, ...rest] = raw.split("=");
   return { name, value: rest.join("=") };
+}
+
+async function createMaterialFixture() {
+  const materialName = `E2E BOM Material ${Date.now()}`;
+  const { status, body } = await createItem({
+    name: materialName,
+    itemType: "material",
+    unitDefinitionId: getUnitId(),
+    sku: null,
+    category: null,
+    description: null,
+    defaultPurchasePrice: "1.25",
+    defaultSellingPrice: null,
+    stock: "0",
+    safetyStock: "0",
+    bom: [],
+  });
+
+  expect(status).toBe(201);
+  expect(body).toEqual(expect.objectContaining({ id: expect.any(String) }));
+
+  return {
+    id: (body as { id: string }).id,
+    name: materialName,
+  };
 }
 
 test.beforeEach(async ({ context }) => {
@@ -168,6 +194,66 @@ test.describe("Product form — BOM editor", () => {
 
     await expect(page.getByRole("columnheader", { name: "Qty" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "%" })).toHaveCount(0);
+  });
+
+  test("submits and persists the expected quantity BOM payload", async ({ page }) => {
+    const material = await createMaterialFixture();
+    const productName = `E2E BOM Product ${Date.now()}`;
+
+    await page.goto("/inventory/products/new");
+    await expect(page.getByText("Add Product")).toBeVisible();
+
+    const postRequestPromise = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return request.method() === "POST" && url.pathname === "/api/items";
+    });
+    const postResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "POST" &&
+        url.pathname === "/api/items" &&
+        response.status() === 201
+      );
+    });
+
+    await page.getByLabel("Name").fill(productName);
+    await page.locator("#unitDefinitionId").click();
+    await page.getByRole("option").first().click();
+
+    await page.getByText("+ Add Ingredient").click();
+    const bomRow = page.locator("tbody tr").last();
+    await bomRow.getByPlaceholder("Search items...").click();
+    await bomRow.getByPlaceholder("Search items...").fill(material.name);
+    await page.getByRole("option", { name: material.name }).click();
+    await bomRow.locator("input[inputmode='decimal']").fill("2.5");
+
+    await page.getByRole("button", { name: "Create Product" }).click();
+
+    const postRequest = await postRequestPromise;
+    const postResponse = await postResponsePromise;
+    const payload = postRequest.postDataJSON() as {
+      bom?: Array<{ componentId: string; quantity: string | null }>;
+      bomMode?: string;
+      name: string;
+    };
+    const created = (await postResponse.json()) as { id: string };
+
+    expect(payload.name).toBe(productName);
+    expect(payload).not.toHaveProperty("bomMode");
+    expect(payload.bom).toEqual([
+      {
+        componentId: material.id,
+        quantity: "2.5",
+      },
+    ]);
+
+    await page.waitForURL("**/inventory/products");
+    await page.goto(`/inventory/products/${created.id}`);
+
+    const bomTable = page.locator("table").first();
+    await expect(page.getByRole("heading", { name: "Recipe / Bill of Materials" })).toBeVisible();
+    await expect(bomTable).toContainText(material.name);
+    await expect(bomTable).toContainText("2.5");
   });
 });
 
