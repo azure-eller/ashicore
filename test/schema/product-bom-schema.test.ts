@@ -1,15 +1,15 @@
+import {
+  numeric,
+  pgSchema,
+  text,
+  timestamp,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+
 // Mock the items table so createInsertSchema can derive the base schema
 // without needing a real DB connection.
 vi.mock("@/lib/db/schema", () => {
-  const {
-    pgSchema,
-    varchar,
-    text,
-    numeric,
-    timestamp,
-    uuid,
-  } = require("drizzle-orm/pg-core");
-
   const inventory = pgSchema("inventory");
 
   const items = inventory.table("items", {
@@ -38,7 +38,6 @@ vi.mock("@/lib/db/schema", () => {
     expectedQty: numeric("expected_qty", { precision: 12, scale: 4 })
       .notNull()
       .default("0"),
-    bomMode: varchar("bom_mode", { length: 20 }),
     deletedAt: timestamp("deleted_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -194,10 +193,9 @@ describe("product-bom schema", () => {
   test("bom-quantity-mode-valid-submission: accepts valid quantity-mode BOM", () => {
     const result = insertItemSchema.safeParse({
       ...validProduct,
-      bomMode: "quantity",
       bom: [
-        { componentId: "a", quantity: "2.5", percentage: null },
-        { componentId: "b", quantity: "1", percentage: null },
+        { componentId: "a", quantity: "2.5" },
+        { componentId: "b", quantity: "1" },
       ],
     });
 
@@ -210,34 +208,12 @@ describe("product-bom schema", () => {
   });
 
   // ---------------------------------------------------------------
-  // 10. bom-percentage-mode-valid-submission
-  // ---------------------------------------------------------------
-  test("bom-percentage-mode-valid-submission: accepts valid percentage-mode BOM", () => {
-    const result = insertItemSchema.safeParse({
-      ...validProduct,
-      bomMode: "percentage",
-      bom: [
-        { componentId: "a", quantity: null, percentage: "60" },
-        { componentId: "b", quantity: null, percentage: "40" },
-      ],
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.bom).toHaveLength(2);
-      expect(result.data.bom![0].percentage).toBe("60");
-      expect(result.data.bom![1].percentage).toBe("40");
-    }
-  });
-
-  // ---------------------------------------------------------------
   // 11. bom-quantity-mode-missing-quantity-rejected
   // ---------------------------------------------------------------
   test("bom-quantity-mode-missing-quantity-rejected: rejects BOM row with empty quantity in quantity mode", () => {
     const result = insertItemSchema.safeParse({
       ...validProduct,
-      bomMode: "quantity",
-      bom: [{ componentId: "a", quantity: "", percentage: null }],
+      bom: [{ componentId: "a", quantity: "" }],
     });
 
     // nullableString transforms "" to null, then bomRefine checks !row.quantity
@@ -254,37 +230,14 @@ describe("product-bom schema", () => {
   });
 
   // ---------------------------------------------------------------
-  // 12. bom-percentage-mode-missing-percentage-rejected
-  // ---------------------------------------------------------------
-  test("bom-percentage-mode-missing-percentage-rejected: rejects BOM row with empty percentage in percentage mode", () => {
-    const result = insertItemSchema.safeParse({
-      ...validProduct,
-      bomMode: "percentage",
-      bom: [{ componentId: "a", quantity: null, percentage: "" }],
-    });
-
-    // nullableString transforms "" to null, then bomRefine checks !row.percentage
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const messages = result.error.issues.map((i) => i.message);
-      expect(messages).toContain("Percentage is required");
-      const percentageIssue = result.error.issues.find(
-        (i) => i.message === "Percentage is required"
-      );
-      expect(percentageIssue?.path).toEqual(["bom", 0, "percentage"]);
-    }
-  });
-
-  // ---------------------------------------------------------------
   // 13. bom-duplicate-component-rejected
   // ---------------------------------------------------------------
   test("bom-duplicate-component-rejected: rejects duplicate componentId in BOM", () => {
     const result = insertItemSchema.safeParse({
       ...validProduct,
-      bomMode: "quantity",
       bom: [
-        { componentId: "a", quantity: "1", percentage: null },
-        { componentId: "a", quantity: "2", percentage: null },
+        { componentId: "a", quantity: "1" },
+        { componentId: "a", quantity: "2" },
       ],
     });
 
@@ -304,8 +257,7 @@ describe("product-bom schema", () => {
   test("bom-empty-component-rejected: rejects BOM row with empty componentId", () => {
     const result = insertItemSchema.safeParse({
       ...validProduct,
-      bomMode: "quantity",
-      bom: [{ componentId: "", quantity: "5", percentage: null }],
+      bom: [{ componentId: "", quantity: "5" }],
     });
 
     expect(result.success).toBe(false);
@@ -332,20 +284,18 @@ describe("product-bom schema", () => {
   });
 
   // ---------------------------------------------------------------
-  // 16. bom-percentage-non-numeric-accepted-bug
+  // 16. bom-quantity-non-numeric-accepted-bug
   // ---------------------------------------------------------------
-  test("bom-percentage-non-numeric-accepted-bug: nullableString has no numeric check so non-numeric percentage passes", () => {
+  test("bom-quantity-non-numeric-accepted-bug: nullableString has no numeric check so non-numeric quantity passes", () => {
     const result = insertItemSchema.safeParse({
       ...validProduct,
-      bomMode: "percentage",
-      bom: [{ componentId: "a", quantity: null, percentage: "not-a-number" }],
+      bom: [{ componentId: "a", quantity: "not-a-number" }],
     });
 
-    // Documents a bug: nullableString has no numeric validation,
-    // so "not-a-number" is accepted as a valid percentage.
+    // Documents a gap: nullableString only trims and normalizes blank input.
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.bom![0].percentage).toBe("not-a-number");
+      expect(result.data.bom![0].quantity).toBe("not-a-number");
     }
   });
 });

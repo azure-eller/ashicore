@@ -23,10 +23,7 @@ import {
 import {
   FieldError,
   FieldGroup,
-  FieldLegend,
-  FieldSet,
 } from "@/components/ui/field";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -50,8 +47,6 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
     name: "bom",
   });
 
-  const bomMode = useWatch({ control, name: "bomMode" }) ?? "quantity";
-
   const componentIds = useMemo(
     () => availableComponents.map((c) => c.id),
     [availableComponents]
@@ -64,37 +59,13 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
 
   return (
     <FieldGroup className="gap-6">
-      <FieldSet className="max-w-sm gap-2">
-        <FieldLegend variant="label" className="mb-0">
-          Mode
-        </FieldLegend>
-        <Controller
-          name="bomMode"
-          control={control}
-          render={({ field }) => (
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              value={field.value ?? "quantity"}
-              aria-label="Bill of materials mode"
-              onValueChange={(val) => { if (val) field.onChange(val); }}
-            >
-              <ToggleGroupItem value="quantity">Quantity</ToggleGroupItem>
-              <ToggleGroupItem value="percentage">Percentage</ToggleGroupItem>
-            </ToggleGroup>
-          )}
-        />
-      </FieldSet>
-
       {fields.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Component</TableHead>
-                <TableHead className="w-32">
-                  {bomMode === "percentage" ? "%" : "Qty"}
-                </TableHead>
+                <TableHead className="w-32">Qty</TableHead>
                 <TableHead className="w-24">Unit</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
@@ -105,7 +76,6 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
                   key={field.id}
                   index={index}
                   control={control}
-                  bomMode={bomMode}
                   componentIds={componentIds}
                   componentMap={componentMap}
                   onRemove={() => remove(index)}
@@ -122,16 +92,12 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
         </div>
       )}
 
-      {bomMode === "percentage" && fields.length > 0 && (
-        <PercentageTotal control={control} />
-      )}
-
       <Button
         type="button"
         variant="outline"
         size="sm"
         onClick={() =>
-          append({ componentId: "", quantity: null, percentage: null })
+          append({ componentId: "", quantity: null })
         }
       >
         + Add Ingredient
@@ -144,14 +110,12 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
 function BomRow({
   index,
   control,
-  bomMode,
   componentIds,
   componentMap,
   onRemove,
 }: {
   index: number;
   control: Control<InsertItem | UpdateItem>;
-  bomMode: string;
   componentIds: string[];
   componentMap: Map<string, AvailableComponent>;
   onRemove: () => void;
@@ -202,11 +166,7 @@ function BomRow({
       </TableCell>
       <TableCell>
         <Controller
-          name={
-            bomMode === "percentage"
-              ? `bom.${index}.percentage`
-              : `bom.${index}.quantity`
-          }
+          name={`bom.${index}.quantity`}
           control={control}
           render={({ field: f, fieldState }) => (
             <div>
@@ -241,20 +201,5 @@ function BomRow({
         </Button>
       </TableCell>
     </TableRow>
-  );
-}
-
-function PercentageTotal({ control }: { control: Control<InsertItem | UpdateItem> }) {
-  const bom = useWatch({ control, name: "bom" });
-  const total = (bom ?? []).reduce((sum, row) => {
-    const val = parseFloat(row?.percentage ?? "0");
-    return sum + (isNaN(val) ? 0 : val);
-  }, 0);
-
-  return (
-    <p className={`text-sm ${Math.abs(total - 100) < 0.01 ? "text-muted-foreground" : "text-destructive"}`}>
-      Total: {total.toFixed(1)}%
-      {Math.abs(total - 100) >= 0.01 && " (should be 100%)"}
-    </p>
   );
 }

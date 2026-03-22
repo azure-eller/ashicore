@@ -56,7 +56,6 @@ export async function getItem(id: string) {
         unitDefinitionId: items.unitDefinitionId,
         defaultPurchasePrice: items.defaultPurchasePrice,
         defaultSellingPrice: items.defaultSellingPrice,
-        bomMode: items.bomMode,
         stock: stockSubquery,
         committedQty: items.committedQty,
         expectedQty: items.expectedQty,
@@ -261,7 +260,7 @@ export async function updateItem(
   id: string,
   itemData: Omit<UpdateItem, "stock" | "bom">,
   stock?: number,
-  bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
+  bom?: Array<{ componentId: string; quantity: string | null }>,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -294,7 +293,6 @@ export async function updateItem(
             itemId: id,
             componentId: row.componentId,
             quantity: row.quantity,
-            percentage: row.percentage,
           }))
         );
       }
@@ -307,7 +305,7 @@ export async function updateItem(
 export async function createItemWithLot(
   data: Omit<InsertItem, "stock" | "bom">,
   stock: string,
-  bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }>,
+  bom?: Array<{ componentId: string; quantity: string | null }>,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -340,7 +338,6 @@ export async function createItemWithLot(
           itemId: item.id,
           componentId: row.componentId,
           quantity: row.quantity,
-          percentage: row.percentage,
         }))
       );
     }
@@ -373,7 +370,6 @@ export async function getBomComponents(itemId: string) {
         id: bomComponents.id,
         componentId: bomComponents.componentId,
         quantity: bomComponents.quantity,
-        percentage: bomComponents.percentage,
         componentName: items.name,
         componentItemType: items.itemType,
         componentUnit: unitDefinitions.name,

@@ -39,9 +39,6 @@ export const items = inventorySchema
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
       defaultSellingPrice: numeric("default_selling_price", { precision: 10, scale: 2 }),
 
-      // BOM mode — "quantity" or "percentage", null for non-products
-      bomMode: varchar("bom_mode", { length: 20 }),
-
       // Soft delete
       deletedAt: timestamp("deleted_at"),
 

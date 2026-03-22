@@ -1,3 +1,12 @@
+import {
+  numeric,
+  pgSchema,
+  text,
+  timestamp,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before imports that depend on them
 // ---------------------------------------------------------------------------
@@ -5,15 +14,6 @@
 // Mock the items table so createInsertSchema can derive the base schema
 // without needing a real DB connection.
 vi.mock("@/lib/db/schema", () => {
-  const {
-    pgSchema,
-    varchar,
-    text,
-    numeric,
-    timestamp,
-    uuid,
-  } = require("drizzle-orm/pg-core");
-
   const inventory = pgSchema("inventory");
 
   const items = inventory.table("items", {
@@ -42,7 +42,6 @@ vi.mock("@/lib/db/schema", () => {
     expectedQty: numeric("expected_qty", { precision: 12, scale: 4 })
       .notNull()
       .default("0"),
-    bomMode: varchar("bom_mode", { length: 20 }),
     deletedAt: timestamp("deleted_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -237,7 +236,7 @@ describe("product-bom API contracts", () => {
     expect(json).toEqual({ id: "item-123" });
 
     expect(mockUpdateItem).toHaveBeenCalledTimes(1);
-    const [id, , stock, bom] = mockUpdateItem.mock.calls[0];
+    const [id, , stock] = mockUpdateItem.mock.calls[0];
     expect(id).toBe("item-123");
     expect(stock).toBe(80);
   });
@@ -292,9 +291,7 @@ describe("product-bom API contracts", () => {
       new Error("invalid input syntax for type numeric")
     );
 
-    const res = await POST(
-      postReq({ ...validPostBody, safetyStock: "abc" })
-    );
+    await POST(postReq({ ...validPostBody, safetyStock: "abc" }));
 
     // The DAL was called — Zod did not reject the non-numeric value
     expect(mockCreateItemWithLot).toHaveBeenCalledTimes(1);
@@ -309,10 +306,7 @@ describe("product-bom API contracts", () => {
     const res = await PUT(
       putReq({
         ...validPutBody,
-        bomMode: "quantity",
-        bom: [
-          { componentId: "item-123", quantity: "5", percentage: null },
-        ],
+        bom: [{ componentId: "item-123", quantity: "5" }],
       }),
       putCtx("item-123")
     );
@@ -335,14 +329,11 @@ describe("product-bom API contracts", () => {
     mockUpdateItem.mockResolvedValue({ id: "item-123" });
 
     const bom = [
-      { componentId: "a", quantity: "3", percentage: null },
-      { componentId: "c", quantity: "7", percentage: null },
+      { componentId: "a", quantity: "3" },
+      { componentId: "c", quantity: "7" },
     ];
 
-    const res = await PUT(
-      putReq({ ...validPutBody, bomMode: "quantity", bom }),
-      putCtx()
-    );
+    const res = await PUT(putReq({ ...validPutBody, bom }), putCtx());
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -383,12 +374,10 @@ describe("product-bom API contracts", () => {
     );
 
     const bom = [
-      { componentId: "a", quantity: "two", percentage: null },
+      { componentId: "a", quantity: "two" },
     ];
 
-    const res = await POST(
-      postReq({ ...validPostBody, bomMode: "quantity", bom })
-    );
+    await POST(postReq({ ...validPostBody, bom }));
 
     // Zod passed it through — DAL was called
     expect(mockCreateItemWithLot).toHaveBeenCalledTimes(1);
@@ -421,13 +410,11 @@ describe("product-bom API contracts", () => {
     mockCreateItemWithLot.mockResolvedValue({ id: "new-id" });
 
     const bom = [
-      { componentId: "comp-a", quantity: "10", percentage: null },
-      { componentId: "comp-b", quantity: "5", percentage: null },
+      { componentId: "comp-a", quantity: "10" },
+      { componentId: "comp-b", quantity: "5" },
     ];
 
-    const res = await POST(
-      postReq({ ...validPostBody, bomMode: "quantity", bom })
-    );
+    const res = await POST(postReq({ ...validPostBody, bom }));
     const json = await res.json();
 
     expect(res.status).toBe(201);

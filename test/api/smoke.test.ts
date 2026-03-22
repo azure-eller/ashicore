@@ -10,9 +10,13 @@ describe("API smoke test (real auth, real DB)", () => {
       name: "Smoke Test Product",
       itemType: "product",
       unitDefinitionId: unitId,
+      sku: null,
+      category: null,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
-      bomMode: "quantity",
       bom: [],
     });
 

@@ -23,7 +23,6 @@ interface ItemDetailProps {
     committedQty: string;
     expectedQty: string;
     safetyStock: string;
-    bomMode: string | null;
   };
   itemType: ItemType;
   bom?: {
@@ -32,7 +31,6 @@ interface ItemDetailProps {
     componentItemType: string;
     componentUnit: string;
     quantity: string | null;
-    percentage: string | null;
   }[];
   lots: {
     id: string;
@@ -134,23 +132,14 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
         <>
           <Separator />
           <div className="space-y-3">
-            <h2 className="text-lg font-semibold tracking-tight">
-              Recipe / Bill of Materials
-              {item.bomMode && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({item.bomMode === "percentage" ? "Percentage" : "Quantity"} mode)
-                </span>
-              )}
-            </h2>
+            <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
             <div className="rounded-md border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="px-4 py-2 text-left font-medium text-muted-foreground">Component</th>
                     <th className="px-4 py-2 text-left font-medium text-muted-foreground">Type</th>
-                    <th className="px-4 py-2 text-right font-medium text-muted-foreground">
-                      {item.bomMode === "percentage" ? "%" : "Qty"}
-                    </th>
+                    <th className="px-4 py-2 text-right font-medium text-muted-foreground">Qty</th>
                     <th className="px-4 py-2 text-right font-medium text-muted-foreground">Unit</th>
                   </tr>
                 </thead>
@@ -162,9 +151,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
                         <Badge variant="outline">{b.componentItemType}</Badge>
                       </td>
                       <td className="px-4 py-2 text-right font-mono">
-                        {item.bomMode === "percentage"
-                          ? (b.percentage ? `${parseFloat(b.percentage)}%` : "\u2014")
-                          : (b.quantity ? parseFloat(b.quantity) : "\u2014")}
+                        {b.quantity ? parseFloat(b.quantity) : "\u2014"}
                       </td>
                       <td className="px-4 py-2 text-right">{b.componentUnit}</td>
                     </tr>
