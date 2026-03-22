@@ -10,7 +10,6 @@ const nullableString = z
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
   quantity: nullableString,
-  percentage: nullableString,
 });
 
 // Base schema without superRefine — used as the foundation for both insert and update.
@@ -25,7 +24,6 @@ const baseItemSchema = createInsertSchema(items, {
   defaultSellingPrice: nullableString,
   description: nullableString,
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
-  bomMode: z.enum(["quantity", "percentage"]).nullable().optional(),
 }).omit({
   id: true,
   organizationId: true,
@@ -42,7 +40,10 @@ const baseItemSchema = createInsertSchema(items, {
   bom: z.array(bomRowSchema).optional(),
 });
 
-function bomRefine(data: { bomMode?: string | null; bom?: Array<{ componentId: string; quantity: string | null; percentage: string | null }> }, ctx: z.RefinementCtx) {
+function bomRefine(
+  data: { bom?: Array<{ componentId: string; quantity: string | null }> },
+  ctx: z.RefinementCtx
+) {
   if (!data.bom || data.bom.length === 0) return;
   const seen = new Set<string>();
   for (let i = 0; i < data.bom.length; i++) {
@@ -55,18 +56,11 @@ function bomRefine(data: { bomMode?: string | null; bom?: Array<{ componentId: s
     }
     seen.add(data.bom[i].componentId);
     const row = data.bom[i];
-    if (data.bomMode === "quantity" && !row.quantity) {
+    if (!row.quantity) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Quantity is required",
         path: ["bom", i, "quantity"],
-      });
-    }
-    if (data.bomMode === "percentage" && !row.percentage) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Percentage is required",
-        path: ["bom", i, "percentage"],
       });
     }
   }
@@ -78,7 +72,7 @@ export type InsertItem = z.infer<typeof insertItemSchema>;
 
 // Update schema: itemType, unitDefinitionId are immutable after creation.
 // stock is optional — if provided, triggers a stock adjustment.
-// bom and bomMode are inherited from baseItemSchema — no need to re-add them.
+// bom is inherited from baseItemSchema — no need to re-add it.
 export const updateItemSchema = baseItemSchema.omit({
   itemType: true,
   unitDefinitionId: true,

@@ -22,7 +22,6 @@ export const bomComponents = inventorySchema
         .notNull()
         .references(() => items.id, { onDelete: "restrict" }),
       quantity: numeric("quantity", { precision: 12, scale: 4 }),
-      percentage: numeric("percentage", { precision: 5, scale: 2 }),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },

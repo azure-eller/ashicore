@@ -74,7 +74,7 @@ interface ItemFormProps {
   categories: string[];
   availableComponents?: AvailableComponent[];
   initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
-    bom?: { componentId: string; quantity: string | null; percentage: string | null }[];
+    bom?: { componentId: string; quantity: string | null }[];
   };
 }
 
@@ -123,7 +123,6 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
             : null,
           stock: String(parseFloat(initialData.stock)),
           safetyStock: String(parseFloat(initialData.safetyStock)),
-          bomMode: (initialData.bomMode ?? "quantity") as "quantity" | "percentage",
           bom: initialData.bom ?? [],
         }
       : {
@@ -137,7 +136,6 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
           defaultSellingPrice: null,
           stock: "0",
           safetyStock: "0",
-          bomMode: "quantity",
           bom: [],
         },
   });
