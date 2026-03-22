@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 /* ------------------------------------------------------------------ */
 /*  Auth — inject session cookie so every test hits an authenticated  */
@@ -20,25 +20,6 @@ test.beforeEach(async ({ context }) => {
     { name, value, domain: "localhost", path: "/" },
   ]);
 });
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                           */
-/* ------------------------------------------------------------------ */
-
-/** Fill a shadcn Select (radix trigger → popover → option click). */
-async function selectOption(page: Page, triggerId: string, optionText: string) {
-  await page.locator(`#${triggerId}`).click();
-  // Radix renders the popover in a portal — use a broad selector
-  await page.getByRole("option", { name: optionText }).click();
-}
-
-/** Type into a shadcn Combobox and pick the matching option. */
-async function comboboxSelect(page: Page, placeholder: string, search: string) {
-  const input = page.getByPlaceholder(placeholder);
-  await input.click();
-  await input.fill(search);
-  await page.getByRole("option", { name: search }).first().click();
-}
 
 /* ================================================================== */
 /*  Tests                                                             */
@@ -176,34 +157,17 @@ test.describe("Product form — BOM editor", () => {
     await expect(page.getByRole("columnheader", { name: "Component" })).not.toBeVisible();
   });
 
-  test("switching BOM mode changes column header", async ({ page }) => {
-    // Add a row so the table renders
+  test("BOM editor stays quantity-only", async ({ page }) => {
+    await expect(
+      page.getByText("Add ingredients to define what goes into one unit of this product.")
+    ).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Quantity" })).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "Percentage" })).toHaveCount(0);
+
     await page.getByText("+ Add Ingredient").click();
+
     await expect(page.getByRole("columnheader", { name: "Qty" })).toBeVisible();
-
-    // Switch to percentage mode
-    await page.getByRole("radio", { name: "Percentage" }).click();
-
-    // Header should now say %
-    await expect(page.getByRole("columnheader", { name: "%" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Qty" })).not.toBeVisible();
-  });
-
-  test("percentage mode shows total and warning when not 100%", async ({ page }) => {
-    // Switch to percentage mode
-    await page.getByRole("radio", { name: "Percentage" }).click();
-
-    // Add a row
-    await page.getByText("+ Add Ingredient").click();
-
-    // Fill percentage with 50 — target the BOM row input (inside tbody)
-    const percentInput = page.locator("tbody tr").last().locator("input[inputmode='decimal']");
-    await percentInput.fill("50");
-    await percentInput.blur();
-
-    // Should show "Total: 50.0% (should be 100%)" in red
-    await expect(page.getByText(/Total:.*50\.0%/)).toBeVisible();
-    await expect(page.getByText("(should be 100%)")).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "%" })).toHaveCount(0);
   });
 });
 
