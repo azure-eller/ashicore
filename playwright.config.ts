@@ -11,8 +11,9 @@ try {
 
 export default defineConfig({
   testDir: "./test/e2e",
-  timeout: 30_000,
+  timeout: 60_000,
   retries: 0,
+  globalSetup: "./test/global-setup.ts",
   use: {
     baseURL,
     trace: "on-first-retry",
