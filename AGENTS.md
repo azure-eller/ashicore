@@ -12,8 +12,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm dev` — start dev server
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
-- `pnpm test` — run all tests (Vitest)
-- `pnpm test:ui` — run UI contract tests only
+- `pnpm test` — run Playwright e2e tests (dev server must be running)
 - `pnpm drizzle-kit generate` — generate migration from schema changes
 - `pnpm drizzle-kit migrate` — apply migrations
 
@@ -21,12 +20,12 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 
 This repo has two layers of documentation:
 
-**AGENTS.md** (this file) — quick reference. Contains the rule and the correct code. Every agent reads this at session start.
+**AGENTS.md** (this file) — quick reference. Contains the rule and the correct code. Every agent reads this at session start. **Keep entries concise** — short rules with code examples, not essays. If you need to add something here, use the fewest words possible.
 
 **Domain docs** (`docs/`) — deep reference. Contains the why, the exceptions, and the canonical examples. Read the relevant doc before working in that area.
 
 When you discover a new pattern or gotcha:
-1. Add the **rule + correct code** to the Coding Patterns section of this file
+1. Add the **rule + correct code** to the Coding Patterns section of this file (keep it short)
 2. Add the **full explanation** to the relevant domain doc below
 3. New docs must have `read_when:` YAML frontmatter listing when to load them
 
@@ -38,6 +37,14 @@ When you discover a new pattern or gotcha:
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
+
+## Database Roles
+
+- `DATABASE_URL` (owner) — migrations only (`drizzle-kit generate/migrate`)
+- `DATABASE_URL_APP` (app_user) — app runtime, RLS enforced, no DDL
+
+New schemas: grant `app_user` USAGE + CRUD on tables + sequences (see `docs/database.md`).
+New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on `current_setting('app.current_org_id', true)`. Always use `FORCE` — without it the owner bypasses RLS.
 
 ## Critical Rules
 
@@ -208,61 +215,25 @@ Master data uses soft delete: `deletedAt = new Date()`. Filter with `isNull(item
 
 ## Testing
 
-### Test lanes
+**Playwright e2e only** — no Vitest, no unit tests, no mocks. `pnpm test` runs Playwright.
 
-| Lane | Command | What it tests |
-|------|---------|---------------|
-| All tests | `pnpm test` | Everything |
-| UI contracts | `pnpm test:ui` | Component behavior in JSDOM (no browser) |
+Tests follow a **linear story** mirroring real user workflows: create materials → create products → create products with BOMs → (eventually) sales orders → manufacturing orders, etc. Each test builds on items created by previous tests.
 
-### What to test
+### Key rules
 
-- **Schema tests**: Zod validation edge cases, cross-field refinements, nullable field handling
-- **UI contract tests**: Form submission payloads, mode switching, validation display, error rendering, disabled states
-- **API contract tests**: Route handler input/output shapes, error responses, status codes
+- `test.describe.configure({ mode: "serial" })` for tests that depend on each other
+- Share data between tests via variables at the describe level, not helper functions
+- All created items use `Date.now()` timestamps in names to avoid collisions
+- After form submission, **query the database directly** via the `db` fixture to verify the row
+- The `db` fixture uses the app role with RLS — same security path as the real app
+- Dev server must be running (`pnpm dev`) before `pnpm test`
 
-### UI contract test pattern
+### Key files
 
-Use React Testing Library with JSDOM. No real browser needed:
-
-```tsx
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-
-test("submit button triggers form submission", async () => {
-  const user = userEvent.setup();
-  render(<MyForm />);
-  await user.click(screen.getByRole("button", { name: /save/i }));
-  expect(mockFetch).toHaveBeenCalled();
-});
-```
-
-### When to add tests
-
-- New form or form field → UI contract test for submit payload and validation
-- New API route → API contract test for input/output shapes
-- New schema with cross-field validation → Schema test for edge cases
-- Bug fix → Regression test that fails without the fix
-
-### Edge case thinking checklist
-
-When writing tests, run through these questions for every feature you touch:
-
-**State transitions**: For every toggle, mode switch, or state change in the UI:
-- What happens to OTHER fields when this state changes?
-- What does the **submit payload** look like after the state change? (Don't just check the UI — inspect the data.)
-- What values from the previous state are still in the form data?
-
-**Validation boundaries**: For every validation rule or visual warning:
-- If the UI shows a warning (e.g. "percentages should sum to 100%"), does the schema actually **block submission**? Or can the user submit invalid data?
-- Test the boundary: just under, exactly at, just over the limit.
-
-**Cross-feature workflows**: Don't test the feature in isolation. Ask:
-- What happens upstream? (What data feeds into this form?)
-- What happens downstream? (What consumes the output of this form?)
-- Test the specific combinations that matter: e.g. product with BOM vs without, quantity mode vs percentage mode, nested BOM vs flat.
-
-**Submit payload verification**: For EVERY form test, verify the actual payload sent to the API, not just the visible UI state. The UI can look correct while the data underneath is wrong.
+- `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS)
+- `test/e2e/product-form.spec.ts` — serial creation flow + validation
+- `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
+- `test/helpers/api.ts` — authenticated fetch helpers
 
 ## PR Expectations
 

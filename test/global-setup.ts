@@ -1,10 +1,10 @@
 /**
- * Vitest global setup — runs once before ALL test files.
+ * Playwright global setup — runs once before ALL test files.
  *
  * 1. Signs up a test user (or signs in if already exists)
  * 2. Creates a test org (or reuses if already exists)
  * 3. Creates a default test unit (for item creation tests)
- * 4. Stores session cookie + IDs in process.env for test helpers
+ * 4. Stores session cookie + IDs in test/.test-env.json
  */
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
@@ -53,7 +53,7 @@ async function fetchWithCookies(
   });
 }
 
-export async function setup() {
+export default async function setup() {
   // Verify dev server is running
   try {
     await fetch(`${BASE_URL}/api/auth/ok`);
@@ -158,7 +158,5 @@ export async function setup() {
   );
 }
 
-export async function teardown() {
-  // Test data is isolated by RLS — no cleanup needed.
-  // The test org's data is invisible to real users.
-}
+// Test data is isolated by RLS — no cleanup needed.
+// The test org's data is invisible to real users.
