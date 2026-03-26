@@ -210,6 +210,11 @@ if (row.quantity) { ... }
 
 - `{ error: string }` for general errors
 - `{ errors: Record<string, string[]> }` for Zod field-level errors
+- Domain errors that carry status codes should extend `SalesError` and use `error.toResponse()` in route handlers — don't hand-roll the JSON response each time
+
+### Detail page tables
+
+Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell` — never raw `<table>` / `<tr>` / `<td>`. Raw HTML tables bypass theme tokens and won't pick up future Table component changes.
 
 ### Bulk delete mutations
 
@@ -342,8 +347,12 @@ After exiting plan mode and before making any changes:
 - DAL auth wrapper: `lib/dal/auth.ts`
 - Org context setter: `lib/db/with-org-context.ts`
 - Inventory DAL queries: `app/(dashboard)/inventory/queries.ts`
+- Sales DAL queries + SalesError: `app/(dashboard)/sales/queries.ts`
 - Item form (unified): `app/(dashboard)/inventory/item-form.tsx`
+- Order form (line items + oversell): `app/(dashboard)/sales/order-form.tsx`
 - BOM editor: `app/(dashboard)/inventory/bom-editor.tsx`
 - Data table: `app/(dashboard)/inventory/data-table.tsx`
+- Shared components: `components/sortable-header.tsx`, `components/field-skeleton.tsx`
+- Format helpers: `lib/format.ts`
 - API handler wrapper: `lib/api/handler.ts`
-- Zod schemas: `lib/schemas/items.ts`
+- Zod schemas: `lib/schemas/items.ts`, `lib/schemas/sales-orders.ts`, `lib/schemas/customers.ts`
