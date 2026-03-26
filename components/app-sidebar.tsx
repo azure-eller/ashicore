@@ -14,7 +14,12 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { PackageIcon, LayoutBottomIcon, Notification03Icon } from "@hugeicons/core-free-icons"
+import {
+  PackageIcon,
+  LayoutBottomIcon,
+  Notification03Icon,
+  ShoppingBag02Icon,
+} from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
@@ -52,6 +57,24 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
         {
           title: "Materials",
           url: "/inventory/materials",
+        },
+      ],
+    },
+    {
+      title: "Sales",
+      url: "/sales",
+      icon: (
+        <HugeiconsIcon icon={ShoppingBag02Icon} strokeWidth={2} />
+      ),
+      isActive: true,
+      items: [
+        {
+          title: "Orders",
+          url: "/sales/orders",
+        },
+        {
+          title: "Customers",
+          url: "/sales/customers",
         },
       ],
     },

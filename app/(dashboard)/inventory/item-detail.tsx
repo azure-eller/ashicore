@@ -2,6 +2,14 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
@@ -136,30 +144,30 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
           <div className="space-y-3">
             <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
             <div className="rounded-md border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Component</th>
-                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Type</th>
-                    <th className="px-4 py-2 text-right font-medium text-muted-foreground">Qty</th>
-                    <th className="px-4 py-2 text-right font-medium text-muted-foreground">Unit</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Component</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Unit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {bom.map((b) => (
-                    <tr key={b.id} className="border-b last:border-0">
-                      <td className="px-4 py-2">{b.componentName}</td>
-                      <td className="px-4 py-2">
+                    <TableRow key={b.id}>
+                      <TableCell>{b.componentName}</TableCell>
+                      <TableCell>
                         <Badge variant="outline">{b.componentItemType}</Badge>
-                      </td>
-                      <td className="px-4 py-2 text-right font-mono">
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
                         {b.quantity ? parseFloat(b.quantity) : "\u2014"}
-                      </td>
-                      <td className="px-4 py-2 text-right">{b.componentUnit}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="text-right">{b.componentUnit}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </div>
         </>
@@ -173,26 +181,26 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
           <p className="text-sm text-muted-foreground">No lots recorded.</p>
         ) : (
           <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Lot Number</th>
-                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Quantity</th>
-                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Cost / Unit</th>
-                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Received</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Lot Number</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Cost / Unit</TableHead>
+                  <TableHead className="text-right">Received</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {lots.map((lot) => (
-                  <tr key={lot.id} className="border-b last:border-0">
-                    <td className="px-4 py-2 font-mono">{lot.lotNumber}</td>
-                    <td className="px-4 py-2 text-right">{parseFloat(lot.quantity)}</td>
-                    <td className="px-4 py-2 text-right">{formatPrice(lot.costPerUnit) ?? "\u2014"}</td>
-                    <td className="px-4 py-2 text-right">{lot.receivedAt.toLocaleDateString("en-US")}</td>
-                  </tr>
+                  <TableRow key={lot.id}>
+                    <TableCell className="font-mono">{lot.lotNumber}</TableCell>
+                    <TableCell className="text-right">{parseFloat(lot.quantity)}</TableCell>
+                    <TableCell className="text-right">{formatPrice(lot.costPerUnit) ?? "\u2014"}</TableCell>
+                    <TableCell className="text-right">{lot.receivedAt.toLocaleDateString("en-US")}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>
@@ -205,29 +213,29 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
           <p className="text-sm text-muted-foreground">No stock movements recorded.</p>
         ) : (
           <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Date</th>
-                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Quantity</th>
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Lot</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead>Lot</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {movements.map((m) => {
                   const qty = parseFloat(m.quantity);
                   return (
-                    <tr key={m.id} className="border-b last:border-0">
-                      <td className="px-4 py-2">{m.createdAt.toLocaleDateString("en-US")}</td>
-                      <td className={`px-4 py-2 text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
+                    <TableRow key={m.id}>
+                      <TableCell>{m.createdAt.toLocaleDateString("en-US")}</TableCell>
+                      <TableCell className={`text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
                         {qty > 0 ? "+" : ""}{qty}
-                      </td>
-                      <td className="px-4 py-2 font-mono">{m.lotNumber ?? "\u2014"}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="font-mono">{m.lotNumber ?? "\u2014"}</TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

@@ -72,16 +72,23 @@ export function DataTable({ initialData, itemType }: DataTableProps) {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const results = await Promise.all(
-        ids.map((id) => fetch(`/api/items/${id}`, { method: "DELETE" }))
-      );
-      const failed = results.filter((r) => !r.ok);
-      if (failed.length) throw new Error(`Failed to delete ${failed.length} item(s)`);
+      const response = await fetch("/api/items", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to delete items.");
+      }
     },
     onMutate: (ids) => setDeletingIds(new Set(ids)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
       setRowSelection({});
+      setConfirmDeleteOpen(false);
+      setPendingDeleteIds([]);
     },
     onSettled: () => {
       setDeletingIds(new Set());
@@ -249,11 +256,10 @@ export function DataTable({ initialData, itemType }: DataTableProps) {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => {
-                bulkDeleteMutation.mutate(pendingDeleteIds);
-              }}
+              disabled={bulkDeleteMutation.isPending}
+              onClick={() => bulkDeleteMutation.mutate(pendingDeleteIds)}
             >
-              Delete
+              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

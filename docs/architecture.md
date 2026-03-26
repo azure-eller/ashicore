@@ -10,15 +10,17 @@ read_when:
 
 ## Module Map
 
-The ERP is built module by module. Current and planned inventory domains:
+The ERP is built module by module. Current and planned domains:
 
 | Module | Status | Description |
 |--------|--------|-------------|
 | Materials | Active | Raw inputs — purchased items tracked by lot, UOM, and SKU |
-| Products | Planned | Manufactured outputs — defined by a BOM of materials |
-| BOM (Bill of Materials) | Planned | Lines linking a product to its component materials with quantities |
-| Orders | Planned | Purchase and production orders |
-| Customers / Suppliers | Planned | Master data for trading partners |
+| Products | Active | Manufactured outputs — defined by a BOM of materials |
+| BOM (Bill of Materials) | Active | Lines linking a product to its component materials with quantities |
+| Sales Orders | Active | Multi-line customer orders with snapshots, soft delete, and committed-qty updates on confirmation |
+| Customers | Active | Sales customer master data |
+| Purchase / Production Orders | Planned | Future operational order flows |
+| Suppliers | Planned | Future vendor master data |
 
 > When pulling logic from the old repo (`/home/aeller/Projects/soil-erp`), take only the data model and business logic. Rewrite all UI to match current patterns.
 
@@ -54,6 +56,7 @@ Page component
 |---------|------|
 | API routes | `app/api/` |
 | DAL queries (inventory) | `app/(dashboard)/inventory/queries.ts` |
+| DAL queries (sales) | `app/(dashboard)/sales/queries.ts` |
 | DAL auth wrapper | `lib/dal/auth.ts` |
 | RLS org context setter | `lib/db/with-org-context.ts` |
 | Drizzle schemas | `lib/db/schema/` |
@@ -62,3 +65,5 @@ Page component
 | shadcn component config | `components.json` |
 | Canonical form example | `app/(dashboard)/inventory/materials/material-form.tsx` |
 | Canonical table example | `app/(dashboard)/inventory/data-table.tsx` |
+| Sales form example | `app/(dashboard)/sales/order-form.tsx` |
+| Sales table example | `app/(dashboard)/sales/orders-table.tsx` |

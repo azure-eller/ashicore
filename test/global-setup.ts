@@ -63,7 +63,6 @@ export default async function setup() {
     );
   }
 
-  // 1. Try to sign up (will fail with 400/409 if user exists, that's fine)
   const signupRes = await authFetch("/api/auth/sign-up/email", {
     name: TEST_NAME,
     email: TEST_EMAIL,
@@ -72,7 +71,6 @@ export default async function setup() {
 
   let cookies = extractCookies(signupRes);
 
-  // 2. If signup didn't return cookies (user already exists), sign in
   if (!cookies) {
     const signinRes = await authFetch("/api/auth/sign-in/email", {
       email: TEST_EMAIL,
@@ -88,7 +86,6 @@ export default async function setup() {
     }
   }
 
-  // 3. Check if test org exists by listing orgs
   const orgsRes = await fetchWithCookies(
     "/api/auth/organization/list",
     cookies
@@ -99,7 +96,6 @@ export default async function setup() {
     (o: { slug?: string }) => o.slug === TEST_ORG_SLUG
   );
 
-  // 4. Create org if it doesn't exist
   if (!testOrg) {
     const createOrgRes = await fetchWithCookies(
       "/api/auth/organization/create",
@@ -111,12 +107,10 @@ export default async function setup() {
     );
     const createOrgData = await createOrgRes.json().catch(() => null);
     testOrg = createOrgData;
-    // Creating an org may update the session cookie
     const newCookies = extractCookies(createOrgRes);
     if (newCookies) cookies = newCookies;
   }
 
-  // 5. Set active org
   const setOrgRes = await fetchWithCookies(
     "/api/auth/organization/set-active",
     cookies,
@@ -128,9 +122,6 @@ export default async function setup() {
   const setOrgCookies = extractCookies(setOrgRes);
   if (setOrgCookies) cookies = setOrgCookies;
 
-  // 6. Create a default test unit
-  // Try creating — if it already exists, the API returns an error but we
-  // can just create one with a unique name per run
   const unitName = `test-unit-${Date.now()}`;
   const unitRes = await fetchWithCookies("/api/units", cookies, {
     method: "POST",
@@ -139,8 +130,6 @@ export default async function setup() {
   const unitData = await unitRes.json().catch(() => null);
   const testUnitId = unitData?.id || "";
 
-  // Write to a file so test processes can read it
-  // (globalSetup runs in a separate process from tests)
   const fs = await import("node:fs");
   const testEnv = {
     TEST_SESSION_COOKIE: cookies,

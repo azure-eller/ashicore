@@ -13,6 +13,8 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
 - `pnpm test` — run Playwright e2e tests (dev server must be running)
+- `pnpm test:inventory` — run the inventory e2e flow only
+- `pnpm test:sales` — run the sales e2e flow only
 - `pnpm drizzle-kit generate` — generate migration from schema changes
 - `pnpm drizzle-kit migrate` — apply migrations
 
@@ -209,15 +211,80 @@ if (row.quantity) { ... }
 - `{ error: string }` for general errors
 - `{ errors: Record<string, string[]> }` for Zod field-level errors
 
+### Bulk delete mutations
+
+Bulk delete actions that can fail on business rules must go through one API mutation that validates all selected ids in a single transaction. Do not fire one `DELETE` per row from the client.
+
+```ts
+// ✓ Correct — one request, server validates and deletes atomically
+await fetch("/api/customers", {
+  method: "DELETE",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ ids }),
+})
+
+// ✗ Wrong — partial success if one delete fails
+await Promise.all(
+  ids.map((id) => fetch(`/api/customers/${id}`, { method: "DELETE" }))
+)
+```
+
+### Calendar date strings
+
+Date strings must validate both format and calendar validity before hitting Postgres.
+
+```ts
+const requestedDate = nullableString.refine(
+  (value) => value == null || isValidIsoDate(value),
+  "Requested date must be a real date in YYYY-MM-DD format"
+)
+```
+
+### Product deletes with active sales orders
+
+Products referenced by active draft or confirmed sales orders cannot be soft-deleted. Block the delete in inventory instead of teaching the sales form how to recover missing draft products.
+
+```ts
+const [activeOrderRef] = await tx
+  .select({ id: salesOrderLines.id })
+  .from(salesOrderLines)
+  .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+  .where(
+    and(
+      eq(salesOrderLines.itemId, id),
+      isNull(salesOrders.deletedAt),
+      inArray(salesOrders.status, ["draft", "confirmed"])
+    )
+  )
+  .limit(1)
+
+if (activeOrderRef) {
+  return { deleted: false, usedInActiveOrders: true }
+}
+```
+
 ### Soft deletes
 
 Master data uses soft delete: `deletedAt = new Date()`. Filter with `isNull(items.deletedAt)`. Never hard-delete master data via API.
+
+Sales orders use soft delete. Sales order lines follow the inventory line-table pattern: hard-delete and re-insert them when editing a draft order.
+
+```ts
+await tx.delete(salesOrderLines).where(eq(salesOrderLines.salesOrderId, id))
+
+await tx.insert(salesOrderLines).values(
+  preparedLines.map((line) => ({
+    salesOrderId: id,
+    ...line,
+  }))
+)
+```
 
 ## Testing
 
 **Playwright e2e only** — no Vitest, no unit tests, no mocks. `pnpm test` runs Playwright.
 
-Tests follow a **linear story** mirroring real user workflows: create materials → create products → create products with BOMs → (eventually) sales orders → manufacturing orders, etc. Each test builds on items created by previous tests.
+Tests follow **serial domain stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
 
 ### Key rules
 
@@ -231,7 +298,8 @@ Tests follow a **linear story** mirroring real user workflows: create materials 
 ### Key files
 
 - `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS)
-- `test/e2e/product-form.spec.ts` — serial creation flow + validation
+- `test/e2e/inventory-form.spec.ts` — serial inventory creation flow
+- `test/e2e/sales-order.spec.ts` — serial sales flow with its own product/customer setup
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
 - `test/helpers/api.ts` — authenticated fetch helpers
 

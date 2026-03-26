@@ -76,7 +76,8 @@ await tx.select().from(items).where(
 | Table type | Delete strategy |
 |------------|----------------|
 | Master data (items, units, customers, suppliers) | Soft delete: `deletedAt = new Date()` |
-| Line / detail tables (BOM lines, order lines) | Hard delete |
+| Line / detail tables (BOM lines) | Hard delete |
+| Sales order lines | Hard delete + replace on draft edits |
 
 Filter soft-deleted records with `isNull`:
 
@@ -85,6 +86,14 @@ Filter soft-deleted records with `isNull`:
 ```
 
 Never hard-delete master data via API.
+
+### Sales Order Lines
+
+Sales order lines follow the same replace-in-transaction pattern as BOM rows:
+
+- editing a draft order deletes all existing lines, then inserts the fresh set
+- deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
+- committed quantity calculations ignore soft-deleted orders
 
 ## Numeric Fields
 

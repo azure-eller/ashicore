@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:inventory": "playwright test test/e2e/inventory-form.spec.ts",
+    "test:sales": "playwright test test/e2e/sales-order.spec.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",

@@ -1,30 +1,12 @@
 "use client";
 
-import { ColumnDef, Column } from "@tanstack/react-table";
+import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { SortByDown02Icon, SortByUp02Icon } from "@hugeicons/core-free-icons";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SortableHeader } from "@/components/sortable-header";
 import { calcStock } from "./types";
 import type { ItemRow } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
-
-function SortableHeader({ column, label }: { column: Column<ItemRow>; label: string }) {
-  const sorted = column.getIsSorted();
-  const icon = sorted === "asc" ? SortByUp02Icon : SortByDown02Icon;
-  return (
-    <Button
-      variant="ghost"
-      className="-ml-3"
-      onClick={() => column.toggleSorting(sorted === "asc")}
-      aria-label={`Sort by ${label}${sorted === "asc" ? ", sorted ascending" : sorted === "desc" ? ", sorted descending" : ""}`}
-    >
-      {label}
-      <HugeiconsIcon icon={icon} className="ml-2 h-4 w-4" aria-hidden />
-    </Button>
-  );
-}
 
 export const columns: ColumnDef<ItemRow>[] = [
   {

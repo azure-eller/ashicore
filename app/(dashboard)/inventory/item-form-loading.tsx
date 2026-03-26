@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { FieldSeparator } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
-import { FieldSkeleton } from "./materials/field-skeleton";
+import { FieldSkeleton } from "@/components/field-skeleton";
 
 interface ItemFormLoadingProps {
   showBom?: boolean;

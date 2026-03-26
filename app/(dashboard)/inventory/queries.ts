@@ -1,8 +1,16 @@
 // Org isolation is enforced by RLS via app.current_org_id.
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
-import { and, eq, isNull, isNotNull, sql, desc } from "drizzle-orm";
-import { items, unitDefinitions, lots, stockMovements, bomComponents } from "@/lib/db/schema";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  bomComponents,
+  items,
+  lots,
+  salesOrderLines,
+  salesOrders,
+  stockMovements,
+  unitDefinitions,
+} from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
@@ -71,7 +79,9 @@ export async function getItem(id: string) {
   });
 }
 
-export async function deleteItem(id: string): Promise<{ deleted: boolean; usedInBom?: boolean }> {
+export async function deleteItem(
+  id: string
+): Promise<{ deleted: boolean; usedInBom?: boolean; usedInActiveOrders?: boolean }> {
   return withAuthedOrgContext(async (tx) => {
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
@@ -85,12 +95,87 @@ export async function deleteItem(id: string): Promise<{ deleted: boolean; usedIn
       return { deleted: false, usedInBom: true };
     }
 
+    const [activeOrderRef] = await tx
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesOrderLines.itemId, id),
+          isNull(salesOrders.deletedAt),
+          inArray(salesOrders.status, ["draft", "confirmed"])
+        )
+      )
+      .limit(1);
+
+    if (activeOrderRef) {
+      return { deleted: false, usedInActiveOrders: true };
+    }
+
     const [row] = await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
     return { deleted: row != null };
+  });
+}
+
+export async function deleteItems(
+  ids: string[]
+): Promise<{ deletedCount: number; error?: string }> {
+  return withAuthedOrgContext(async (tx) => {
+    const uniqueIds = [...new Set(ids)];
+
+    const [bomRef] = await tx
+      .select({ componentId: bomComponents.componentId })
+      .from(bomComponents)
+      .innerJoin(items, eq(bomComponents.itemId, items.id))
+      .where(
+        and(
+          inArray(bomComponents.componentId, uniqueIds),
+          isNull(items.deletedAt)
+        )
+      )
+      .limit(1);
+
+    if (bomRef) {
+      return {
+        deletedCount: 0,
+        error: "Cannot delete: one or more items are used as a component in other products.",
+      };
+    }
+
+    const [activeOrderRef] = await tx
+      .select({ itemId: salesOrderLines.itemId })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          inArray(salesOrderLines.itemId, uniqueIds),
+          isNull(salesOrders.deletedAt),
+          inArray(salesOrders.status, ["draft", "confirmed"])
+        )
+      )
+      .limit(1);
+
+    if (activeOrderRef) {
+      return {
+        deletedCount: 0,
+        error:
+          "Cannot delete: one or more items are used by draft or confirmed sales orders.",
+      };
+    }
+
+    const deleted = await tx
+      .update(items)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(inArray(items.id, uniqueIds), isNull(items.deletedAt))
+      )
+      .returning({ id: items.id });
+
+    return { deletedCount: deleted.length };
   });
 }
 

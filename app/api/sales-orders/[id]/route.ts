@@ -1,0 +1,40 @@
+import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api/handler";
+import { updateSalesOrderSchema } from "@/lib/schemas/sales-orders";
+import {
+  deleteSalesOrder,
+  SalesError,
+  updateSalesOrder,
+} from "@/app/(dashboard)/sales/queries";
+
+type RouteContext = { params: Promise<{ id: string }> };
+
+export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
+  const { id } = await (ctx as RouteContext).params;
+  const body = await request.json();
+  const data = updateSalesOrderSchema.parse(body);
+
+  try {
+    const order = await updateSalesOrder(id, data);
+
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(order);
+  } catch (error) {
+    if (error instanceof SalesError) return error.toResponse();
+    throw error;
+  }
+});
+
+export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
+  const { id } = await (ctx as RouteContext).params;
+  const result = await deleteSalesOrder(id);
+
+  if (!result.deleted) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ success: true });
+});

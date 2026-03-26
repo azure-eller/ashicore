@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import { eq } from "drizzle-orm";
 import { test, expect } from "./fixtures";
-import { items, bomComponents, lots, stockMovements } from "../../lib/db/schema";
+import {
+  bomComponents,
+  items,
+  lots,
+} from "../../lib/db/schema";
 
 const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
 const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
@@ -18,24 +22,18 @@ test.beforeEach(async ({ context }) => {
   ]);
 });
 
-/* ================================================================== */
-/*  Linear creation flow — each test builds on the previous ones      */
-/* ================================================================== */
-
-test.describe("Item creation flow", () => {
+test.describe("Inventory creation flow", () => {
   test.describe.configure({ mode: "serial" });
 
   const ts = Date.now();
 
-  // Shared state — populated by earlier tests, used by later ones
   let fullMaterialId: string;
   let fullMaterialName: string;
   let minimalMaterialId: string;
   let minimalMaterialName: string;
   let simpleProductId: string;
   let simpleProductName: string;
-
-  /* ── 1. Material with every field ────────────────────────────── */
+  let sellableProductName: string;
 
   test("creates a material with all fields", async ({ page, db }) => {
     fullMaterialName = `Sand ${ts}`;
@@ -48,16 +46,14 @@ test.describe("Item creation flow", () => {
     await page.getByLabel("Description").fill("Fine grain river sand");
     await page.getByLabel("SKU").fill(sku);
 
-    // Category — create a new one
-    const catInput = page.getByPlaceholder("Search or create category...");
-    await catInput.click();
-    await catInput.fill(`Aggregates ${ts}`);
+    const categoryInput = page.getByPlaceholder("Search or create category...");
+    await categoryInput.click();
+    await categoryInput.fill(`Aggregates ${ts}`);
     await page.getByRole("option", { name: new RegExp(`Create "Aggregates ${ts}"`) }).click();
+    await expect(
+      page.getByRole("option", { name: new RegExp(`Create "Aggregates ${ts}"`) })
+    ).not.toBeVisible();
 
-    // Wait for the category combobox to close before clicking the unit select
-    await expect(page.getByRole("option", { name: new RegExp(`Create "Aggregates ${ts}"`) })).not.toBeVisible();
-
-    // Unit — create a new one through the dialog
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option", { name: "+ Create new unit" }).click();
 
@@ -71,7 +67,6 @@ test.describe("Item creation flow", () => {
     await expect(page.getByText("Define a new unit of measure")).not.toBeVisible();
     await expect(page.locator("#unitDefinitionId")).toContainText(`Bag ${ts}`);
 
-    // Pricing & stock (materials have both Purchase and Selling Price)
     await page.getByLabel("Purchase Price").fill("3.50");
     await page.getByLabel("Selling Price").fill("6.00");
     await page.getByLabel("Stock", { exact: true }).fill("200");
@@ -80,28 +75,24 @@ test.describe("Item creation flow", () => {
     await page.getByRole("button", { name: "Create Material" }).click();
     await page.waitForURL("**/inventory/materials");
 
-    // ── Database check ──
     const rows = await db.select().from(items).where(eq(items.name, fullMaterialName));
     expect(rows).toHaveLength(1);
 
-    const mat = rows[0];
-    fullMaterialId = mat.id;
+    const material = rows[0];
+    fullMaterialId = material.id;
 
-    expect(mat.itemType).toBe("material");
-    expect(mat.description).toBe("Fine grain river sand");
-    expect(mat.sku).toBe(sku);
-    expect(mat.category).toBe(`Aggregates ${ts}`);
-    expect(mat.defaultPurchasePrice).toBe("3.5000");
-    expect(mat.defaultSellingPrice).toBe("6.00");
-    expect(mat.safetyStock).toBe("25.0000");
+    expect(material.itemType).toBe("material");
+    expect(material.description).toBe("Fine grain river sand");
+    expect(material.sku).toBe(sku);
+    expect(material.category).toBe(`Aggregates ${ts}`);
+    expect(material.defaultPurchasePrice).toBe("3.5000");
+    expect(material.defaultSellingPrice).toBe("6.00");
+    expect(material.safetyStock).toBe("25.0000");
 
-    // Stock should have created a lot
-    const lotRows = await db.select().from(lots).where(eq(lots.itemId, mat.id));
+    const lotRows = await db.select().from(lots).where(eq(lots.itemId, material.id));
     expect(lotRows).toHaveLength(1);
     expect(lotRows[0].quantity).toBe("200.0000");
   });
-
-  /* ── 2. Material with only required fields ───────────────────── */
 
   test("creates a material with only required fields", async ({ page, db }) => {
     minimalMaterialName = `Gravel ${ts}`;
@@ -110,34 +101,28 @@ test.describe("Item creation flow", () => {
     await expect(page.getByText("Add Material")).toBeVisible();
 
     await page.getByLabel("Name").fill(minimalMaterialName);
-
-    // Unit (required)
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option").first().click();
 
     await page.getByRole("button", { name: "Create Material" }).click();
     await page.waitForURL("**/inventory/materials");
 
-    // ── Database check ──
     const rows = await db.select().from(items).where(eq(items.name, minimalMaterialName));
     expect(rows).toHaveLength(1);
 
-    const mat = rows[0];
-    minimalMaterialId = mat.id;
+    const material = rows[0];
+    minimalMaterialId = material.id;
 
-    expect(mat.itemType).toBe("material");
-    expect(mat.description).toBeNull();
-    expect(mat.sku).toBeNull();
-    expect(mat.category).toBeNull();
-    expect(mat.defaultPurchasePrice).toBeNull();
-    expect(mat.defaultSellingPrice).toBeNull();
+    expect(material.itemType).toBe("material");
+    expect(material.description).toBeNull();
+    expect(material.sku).toBeNull();
+    expect(material.category).toBeNull();
+    expect(material.defaultPurchasePrice).toBeNull();
+    expect(material.defaultSellingPrice).toBeNull();
 
-    // No stock entered → no lot created
-    const lotRows = await db.select().from(lots).where(eq(lots.itemId, mat.id));
+    const lotRows = await db.select().from(lots).where(eq(lots.itemId, material.id));
     expect(lotRows).toHaveLength(0);
   });
-
-  /* ── 3. Product without BOM ──────────────────────────────────── */
 
   test("creates a product with all fields except BOM", async ({ page, db }) => {
     simpleProductName = `Base Mix ${ts}`;
@@ -149,14 +134,14 @@ test.describe("Item creation flow", () => {
     await page.getByLabel("Description").fill("Simple base product");
     await page.getByLabel("SKU").fill(`PROD-BASE-${ts}`);
 
-    // Category
-    const catInput3 = page.getByPlaceholder("Search or create category...");
-    await catInput3.click();
-    await catInput3.fill(`Mixes ${ts}`);
+    const categoryInput = page.getByPlaceholder("Search or create category...");
+    await categoryInput.click();
+    await categoryInput.fill(`Mixes ${ts}`);
     await page.getByRole("option", { name: new RegExp(`Create "Mixes ${ts}"`) }).click();
-    await expect(page.getByRole("option", { name: new RegExp(`Create "Mixes ${ts}"`) })).not.toBeVisible();
+    await expect(
+      page.getByRole("option", { name: new RegExp(`Create "Mixes ${ts}"`) })
+    ).not.toBeVisible();
 
-    // Unit — create a new one (different from the material's unit)
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option", { name: "+ Create new unit" }).click();
 
@@ -177,63 +162,57 @@ test.describe("Item creation flow", () => {
     await page.getByRole("button", { name: "Create Product" }).click();
     await page.waitForURL("**/inventory/products");
 
-    // ── Database check ──
     const rows = await db.select().from(items).where(eq(items.name, simpleProductName));
     expect(rows).toHaveLength(1);
 
-    const prod = rows[0];
-    simpleProductId = prod.id;
+    const product = rows[0];
+    simpleProductId = product.id;
 
-    expect(prod.itemType).toBe("product");
-    expect(prod.category).toBe(`Mixes ${ts}`);
-    expect(prod.defaultSellingPrice).toBe("12.00");
-    expect(prod.safetyStock).toBe("10.0000");
+    expect(product.itemType).toBe("product");
+    expect(product.category).toBe(`Mixes ${ts}`);
+    expect(product.defaultSellingPrice).toBe("12.00");
+    expect(product.safetyStock).toBe("10.0000");
 
-    // No BOM rows
-    const bomRows = await db.select().from(bomComponents).where(eq(bomComponents.itemId, prod.id));
+    const bomRows = await db
+      .select()
+      .from(bomComponents)
+      .where(eq(bomComponents.itemId, product.id));
     expect(bomRows).toHaveLength(0);
 
-    // Stock lot exists
-    const lotRows = await db.select().from(lots).where(eq(lots.itemId, prod.id));
+    const lotRows = await db.select().from(lots).where(eq(lots.itemId, product.id));
     expect(lotRows).toHaveLength(1);
     expect(lotRows[0].quantity).toBe("50.0000");
   });
 
-  /* ── 4. Product with BOM — references all items above ────────── */
-
   test("creates a product with BOM using the materials and product above", async ({ page, db }) => {
-    const productName = `Premium Topsoil ${ts}`;
+    sellableProductName = `Premium Topsoil ${ts}`;
 
     await page.goto("/inventory/products/new");
     await expect(page.getByText("Add Product")).toBeVisible();
 
-    await page.getByLabel("Name").fill(productName);
+    await page.getByLabel("Name").fill(sellableProductName);
     await page.getByLabel("Description").fill("Premium blend using all previous items");
 
-    // Category
-    const catInput4 = page.getByPlaceholder("Search or create category...");
-    await catInput4.click();
-    await catInput4.fill(`Blends ${ts}`);
+    const categoryInput = page.getByPlaceholder("Search or create category...");
+    await categoryInput.click();
+    await categoryInput.fill(`Blends ${ts}`);
     await page.getByRole("option", { name: new RegExp(`Create "Blends ${ts}"`) }).click();
-    await expect(page.getByRole("option", { name: new RegExp(`Create "Blends ${ts}"`) })).not.toBeVisible();
+    await expect(
+      page.getByRole("option", { name: new RegExp(`Create "Blends ${ts}"`) })
+    ).not.toBeVisible();
 
-    // Unit
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option").first().click();
-
     await page.getByLabel("Selling Price").fill("29.99");
 
-    // Add BOM row 1 — full material (Sand)
     await page.getByText("+ Add Ingredient").click();
     let row = page.locator("tbody tr").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(fullMaterialName);
     await page.getByRole("option", { name: fullMaterialName }).click();
     await row.locator("input[inputmode='decimal']").fill("4.5");
-    // Click the heading to blur and dismiss any popover before adding the next row
     await page.getByText("Recipe / Bill of Materials").click();
 
-    // Add BOM row 2 — minimal material (Gravel)
     await page.getByText("+ Add Ingredient").click();
     row = page.locator("tbody tr").last();
     await row.getByPlaceholder("Search items...").click();
@@ -242,7 +221,6 @@ test.describe("Item creation flow", () => {
     await row.locator("input[inputmode='decimal']").fill("3");
     await page.getByText("Recipe / Bill of Materials").click();
 
-    // Add BOM row 3 — product (Base Mix)
     await page.getByText("+ Add Ingredient").click();
     row = page.locator("tbody tr").last();
     await row.getByPlaceholder("Search items...").click();
@@ -250,12 +228,10 @@ test.describe("Item creation flow", () => {
     await page.getByRole("option", { name: simpleProductName }).click();
     await row.locator("input[inputmode='decimal']").fill("2");
 
-    // Submit
     await page.getByRole("button", { name: "Create Product" }).click();
     await page.waitForURL("**/inventory/products");
 
-    // ── Database check ──
-    const rows = await db.select().from(items).where(eq(items.name, productName));
+    const rows = await db.select().from(items).where(eq(items.name, sellableProductName));
     expect(rows).toHaveLength(1);
 
     const product = rows[0];
@@ -263,7 +239,6 @@ test.describe("Item creation flow", () => {
     expect(product.category).toBe(`Blends ${ts}`);
     expect(product.defaultSellingPrice).toBe("29.99");
 
-    // BOM — 3 ingredients
     const bomRows = await db
       .select()
       .from(bomComponents)
@@ -271,14 +246,13 @@ test.describe("Item creation flow", () => {
 
     expect(bomRows).toHaveLength(3);
 
-    const bomByComponent = new Map(bomRows.map((r) => [r.componentId, r.quantity]));
+    const bomByComponent = new Map(bomRows.map((row) => [row.componentId, row.quantity]));
     expect(bomByComponent.get(fullMaterialId)).toBe("4.5000");
     expect(bomByComponent.get(minimalMaterialId)).toBe("3.0000");
     expect(bomByComponent.get(simpleProductId)).toBe("2.0000");
 
-    // Detail page shows the BOM
     await page.goto(`/inventory/products/${product.id}`);
-    await expect(page.getByRole("heading", { name: productName })).toBeVisible();
+    await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
     const bomTable = page.locator("table").first();
     await expect(bomTable).toContainText(fullMaterialName);
     await expect(bomTable).toContainText(minimalMaterialName);

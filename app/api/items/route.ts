@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { getItems, createItemWithLot } from "@/app/(dashboard)/inventory/queries";
+import { z } from "zod";
+import { getItems, createItemWithLot, deleteItems } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { insertItemSchema } from "@/lib/schemas/items";
 import { apiHandler } from "@/lib/api/handler";
+
+const deleteItemsSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+});
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -14,6 +19,18 @@ export async function GET(request: Request) {
   const data = await getItems(itemType ? { itemType } : undefined);
   return NextResponse.json(data);
 }
+
+export const DELETE = apiHandler(async (request) => {
+  const body = await request.json();
+  const data = deleteItemsSchema.parse(body);
+  const result = await deleteItems(data.ids);
+
+  if (result.error) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
+
+  return NextResponse.json({ deletedCount: result.deletedCount });
+});
 
 export const POST = apiHandler(async (request) => {
   const body = await request.json();

@@ -214,18 +214,9 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
     : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`);
 
   const handleCancel = () => {
-    const referrer = document.referrer;
-
-    if (referrer) {
-      try {
-        const referrerUrl = new URL(referrer);
-        if (referrerUrl.origin === window.location.origin) {
-          router.back();
-          return;
-        }
-      } catch {
-        // Fall through to the known inventory destination.
-      }
+    if (document.referrer.startsWith(window.location.origin)) {
+      router.back();
+      return;
     }
 
     router.push(fallbackPath);
