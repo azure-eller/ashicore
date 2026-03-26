@@ -38,6 +38,7 @@ When you discover a new pattern or gotcha:
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
+| Manufacturing orders | `docs/manufacturing.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
 
 ## Database Roles
@@ -62,6 +63,16 @@ New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on
 ## Coding Patterns
 
 These are gotchas that have caused real bugs. Follow them exactly.
+
+### Shared Zod validators
+
+`nullableString`, `isValidIsoDate`, and `positiveDecimalString` live in `lib/schemas/shared.ts`. Import from there — never copy these into new schema files.
+
+For `createInsertSchema` overrides (items.ts), use `nullableStringStrict` (without `.optional()`) to match Drizzle's type handling.
+
+### Don't re-validate after Zod
+
+DAL functions receive Zod-parsed types. Don't add manual null/positive/required checks in the DAL — the schema already enforces these. Redundant validation adds dead code that can never trigger through the API.
 
 ### Nullable string fields (Zod schemas)
 
@@ -195,7 +206,7 @@ export { default } from "../../product-item-detail-loading"
 
 ### Postgres numeric fields
 
-Postgres `numeric` columns are returned as strings by the driver. Always parse:
+Postgres `numeric` columns are returned as strings by the driver. Always parse for display — use `formatQuantity()` from `lib/format.ts` or `parseFloat()`:
 
 ```ts
 // ✓ Correct — parseFloat returns NaN for non-numeric strings, handles "0"
@@ -206,11 +217,28 @@ if (!isNaN(qty)) { ... }
 if (row.quantity) { ... }
 ```
 
+When writing numeric values to Postgres, strip trailing zeros so the DB stores `1.5` not `1.5000`:
+
+```ts
+function normalizeQuantityString(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
+```
+
 ### API error shape
 
 - `{ error: string }` for general errors
 - `{ errors: Record<string, string[]> }` for Zod field-level errors
-- Domain errors that carry status codes should extend `SalesError` and use `error.toResponse()` in route handlers — don't hand-roll the JSON response each time
+- Domain errors (SalesError, ManufacturingError) use `error.toResponse()` in route handlers
+- Shared `lib/` code throws plain `Error` (can't import domain errors). Route handlers must catch these explicitly — don't let them bubble as 500s:
+
+```ts
+if (error instanceof ManufacturingError) return error.toResponse();
+if (error instanceof Error && error.message.startsWith("Insufficient stock")) {
+  return NextResponse.json({ error: error.message }, { status: 409 });
+}
+throw error;
+```
 
 ### Detail page tables
 
@@ -265,6 +293,61 @@ const [activeOrderRef] = await tx
 
 if (activeOrderRef) {
   return { deleted: false, usedInActiveOrders: true }
+}
+```
+
+### Manufacturing expected quantity
+
+Released manufacturing orders drive `items.expectedQty`. Never increment or decrement it directly; always recompute from active released orders after release, completion, or cancellation.
+
+```ts
+await recomputeExpectedQty(tx, [order.productId])
+```
+
+### Manufacturing shortages
+
+Release may warn with `409` + shortage payload and continue after confirmation. Completion must hard-block on shortages before any stock mutation.
+
+```ts
+if (shortages.length > 0 && !confirmShortage) {
+  throw new ManufacturingError("Short on ingredients", 409, {
+    shortage: { ingredients: shortages },
+  })
+}
+```
+
+### Manufacturing quantity math
+
+Round derived manufacturing quantities to 4 decimals before shortage checks or stock deltas. Never compare or deduct raw JS float multiplication.
+
+```ts
+const actualNeeded = multiplyQuantity(ingredient.quantityPerUnit, actualQuantity)
+```
+
+### Manufacturing sales-line snapshots
+
+`manufacturingOrders.salesOrderLineId` is a snapshot. Draft MO edits must survive sales-order line rewrites by re-linking via `salesOrderId + productId` when possible, or preserving the stored snapshot if the user did not change it.
+
+```ts
+if (isUnchangedSnapshot && replacementLine) return replacementLine
+if (isUnchangedSnapshot) return existingSnapshot
+```
+
+### Manufacturing product templates
+
+New manufacturing-order product pickers should only list products whose active BOM still has at least one non-deleted ingredient.
+
+```ts
+.filter((product) => (bomByProduct.get(product.id) ?? []).length > 0)
+```
+
+### Item deletes with active manufacturing orders
+
+Items used by draft or released manufacturing orders cannot be soft-deleted, whether they are the finished product or an ingredient snapshot row.
+
+```ts
+if (activeManufacturingRef) {
+  return { deleted: false, usedInActiveManufacturing: true }
 }
 ```
 

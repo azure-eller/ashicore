@@ -58,6 +58,15 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
       { status: 400 }
     );
   }
+  if (result.usedInActiveManufacturing) {
+    return NextResponse.json(
+      {
+        error:
+          "Cannot delete: this item is still used by one or more draft or released manufacturing orders.",
+      },
+      { status: 400 }
+    );
+  }
   if (!result.deleted) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }

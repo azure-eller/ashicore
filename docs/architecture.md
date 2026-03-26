@@ -17,9 +17,10 @@ The ERP is built module by module. Current and planned domains:
 | Materials | Active | Raw inputs — purchased items tracked by lot, UOM, and SKU |
 | Products | Active | Manufactured outputs — defined by a BOM of materials |
 | BOM (Bill of Materials) | Active | Lines linking a product to its component materials with quantities |
+| Manufacturing Orders | Active | Draft/release/complete workflow with BOM snapshots, shortage warnings, expected-qty recompute, FIFO consumption, and produced lots |
 | Sales Orders | Active | Multi-line customer orders with snapshots, soft delete, and committed-qty updates on confirmation |
 | Customers | Active | Sales customer master data |
-| Purchase / Production Orders | Planned | Future operational order flows |
+| Purchase Orders | Planned | Future purchasing workflow |
 | Suppliers | Planned | Future vendor master data |
 
 > When pulling logic from the old repo (`/home/aeller/Projects/soil-erp`), take only the data model and business logic. Rewrite all UI to match current patterns.
@@ -57,6 +58,7 @@ Page component
 | API routes | `app/api/` |
 | DAL queries (inventory) | `app/(dashboard)/inventory/queries.ts` |
 | DAL queries (sales) | `app/(dashboard)/sales/queries.ts` |
+| DAL queries (manufacturing) | `app/(dashboard)/manufacturing/queries.ts` |
 | DAL auth wrapper | `lib/dal/auth.ts` |
 | RLS org context setter | `lib/db/with-org-context.ts` |
 | Drizzle schemas | `lib/db/schema/` |
@@ -67,3 +69,5 @@ Page component
 | Canonical table example | `app/(dashboard)/inventory/data-table.tsx` |
 | Sales form example | `app/(dashboard)/sales/order-form.tsx` |
 | Sales table example | `app/(dashboard)/sales/orders-table.tsx` |
+| Manufacturing form example | `app/(dashboard)/manufacturing/manufacturing-order-form.tsx` |
+| Manufacturing table example | `app/(dashboard)/manufacturing/orders-table.tsx` |

@@ -92,19 +92,6 @@ function normalizeMoneyString(value: number) {
   return value.toFixed(2);
 }
 
-function parseRequiredPositiveNumber(value: string | null | undefined, label: string) {
-  if (value == null) {
-    throw new SalesError(`${label} is required`, 400);
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new SalesError(`${label} must be greater than 0`, 400);
-  }
-
-  return parsed;
-}
-
 function roundQuantity(value: number) {
   return Math.round(value * 10000) / 10000;
 }
@@ -267,8 +254,8 @@ async function prepareOrderPayload(
       throw new SalesError("Product not found", 404);
     }
 
-    const quantity = parseRequiredPositiveNumber(line.quantity, "Quantity");
-    const unitPrice = parseRequiredPositiveNumber(line.unitPrice, "Unit price");
+    const quantity = Number(line.quantity);
+    const unitPrice = Number(line.unitPrice);
     const lineTotal = quantity * unitPrice;
 
     return {

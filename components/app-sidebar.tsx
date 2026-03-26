@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  Layers01Icon,
   PackageIcon,
   LayoutBottomIcon,
   Notification03Icon,
@@ -75,6 +76,20 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
         {
           title: "Customers",
           url: "/sales/customers",
+        },
+      ],
+    },
+    {
+      title: "Manufacturing",
+      url: "/manufacturing",
+      icon: (
+        <HugeiconsIcon icon={Layers01Icon} strokeWidth={2} />
+      ),
+      isActive: true,
+      items: [
+        {
+          title: "Orders",
+          url: "/manufacturing/orders",
         },
       ],
     },

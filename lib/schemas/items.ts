@@ -1,11 +1,7 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { items } from "@/lib/db/schema";
-
-const nullableString = z
-  .string()
-  .nullable()
-  .transform((v) => (v != null ? v.trim() || null : null));
+import { nullableStringStrict as nullableString } from "./shared";
 
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),

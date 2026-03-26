@@ -1,12 +1,7 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { customers } from "@/lib/db/schema";
-
-const nullableString = z
-  .string()
-  .nullable()
-  .optional()
-  .transform((v) => (v != null ? v.trim() || null : null));
+import { nullableString } from "./shared";
 
 const baseCustomerSchema = createInsertSchema(customers, {
   name: z.string().trim().min(1, "Name is required"),

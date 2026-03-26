@@ -3,6 +3,7 @@ import {
   text,
   numeric,
   timestamp,
+  varchar,
   pgPolicy,
   index,
 } from "drizzle-orm/pg-core";
@@ -22,6 +23,11 @@ export const stockMovements = inventorySchema
         .references(() => items.id),
       lotId: uuid("lot_id").references(() => lots.id),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      movementType: varchar("movement_type", { length: 32 })
+        .notNull()
+        .default("manual_adjustment"),
+      referenceType: varchar("reference_type", { length: 32 }),
+      referenceId: uuid("reference_id"),
       createdBy: text("created_by").notNull(),
       createdAt: timestamp("created_at").notNull().defaultNow(),
     },

@@ -99,6 +99,13 @@
       "when": 1774228909136,
       "tag": "0013_hard_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774493624943,
+      "tag": "0014_clumsy_green_goblin",
+      "breakpoints": true
     }
   ]
 }

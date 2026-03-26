@@ -24,3 +24,13 @@ export function formatDateTime(value: Date | null | undefined): string {
   if (value == null) return "\u2014";
   return new Date(value).toLocaleString("en-US");
 }
+
+/**
+ * Format a Postgres numeric string for display.
+ * Strips trailing zeros: "1.5000" → "1.5", "10.0000" → "10".
+ * Returns "—" for null/undefined.
+ */
+export function formatQuantity(value: string | null | undefined): string {
+  if (value == null) return "\u2014";
+  return parseFloat(value).toString();
+}

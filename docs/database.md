@@ -48,7 +48,7 @@ export const itemsOrgPolicy = pgPolicy("items_org_policy", {
 
 `true` in `current_setting('app.current_org_id', true)` means: return NULL (not an error) when the setting is unset. NULL ≠ any org ID, so all rows are blocked — **fail-closed**.
 
-**Never** define RLS in hand-written migration SQL files. See `lib/db/schema/items.ts` for the canonical pattern.
+Define policies in schema files, but still patch generated SQL when needed for repo requirements such as `FORCE ROW LEVEL SECURITY`, schema grants, or sequences. See the manufacturing and sales migrations for the current pattern.
 
 The `system` schema (Better Auth tables) must **never** have RLS enabled.
 
@@ -78,6 +78,8 @@ await tx.select().from(items).where(
 | Master data (items, units, customers, suppliers) | Soft delete: `deletedAt = new Date()` |
 | Line / detail tables (BOM lines) | Hard delete |
 | Sales order lines | Hard delete + replace on draft edits |
+| Manufacturing orders | Soft delete on `draft`, `completed`, or `cancelled` only |
+| Manufacturing ingredient rows | Hard delete + replace on draft edits |
 
 Filter soft-deleted records with `isNull`:
 
@@ -94,6 +96,28 @@ Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 - editing a draft order deletes all existing lines, then inserts the fresh set
 - deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
 - committed quantity calculations ignore soft-deleted orders
+
+### Manufacturing Orders
+
+Manufacturing uses a header/ingredient snapshot split:
+
+- `manufacturing.manufacturing_orders` stores the order header, workflow state, product snapshots, optional sales traceability, and actual cost rollups
+- `manufacturing.manufacturing_order_ingredients` stores copied ingredient snapshots plus planned and actual quantities
+- `salesOrderLineId` is stored as a plain UUID snapshot reference, not an FK, because draft sales-order edits replace line rows
+
+Draft manufacturing edits replace ingredient rows in one transaction:
+
+- update the header
+- delete existing ingredient rows
+- insert the recalculated snapshot rows
+
+Released manufacturing orders are the only source for `items.expectedQty`. Recompute from the database after every release, completion, or cancellation; never apply deltas directly.
+
+Completion consumes ingredient lots FIFO and records stock movement metadata:
+
+- `movementType = manufacturing_consumed` for ingredient deductions
+- `movementType = manufacturing_produced` for the finished-product lot
+- `referenceType = manufacturing_order` and `referenceId = <mo id>` for traceability
 
 ## Numeric Fields
 

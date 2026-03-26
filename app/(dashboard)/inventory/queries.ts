@@ -1,18 +1,24 @@
 // Org isolation is enforced by RLS via app.current_org_id.
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
   bomComponents,
   items,
   lots,
+  manufacturingOrderIngredients,
+  manufacturingOrders,
   salesOrderLines,
   salesOrders,
   stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import type { Tx } from "@/lib/db/with-org-context";
+import {
+  applyStockDeltaInTx,
+  createPositiveLotAndMovementInTx,
+  getCurrentStockInTx,
+} from "@/lib/inventory/stock";
 import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
@@ -81,7 +87,12 @@ export async function getItem(id: string) {
 
 export async function deleteItem(
   id: string
-): Promise<{ deleted: boolean; usedInBom?: boolean; usedInActiveOrders?: boolean }> {
+): Promise<{
+  deleted: boolean;
+  usedInBom?: boolean;
+  usedInActiveOrders?: boolean;
+  usedInActiveManufacturing?: boolean;
+}> {
   return withAuthedOrgContext(async (tx) => {
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
@@ -110,6 +121,29 @@ export async function deleteItem(
 
     if (activeOrderRef) {
       return { deleted: false, usedInActiveOrders: true };
+    }
+
+    const [activeManufacturingRef] = await tx
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .leftJoin(
+        manufacturingOrderIngredients,
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+      )
+      .where(
+        and(
+          isNull(manufacturingOrders.deletedAt),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
+          or(
+            eq(manufacturingOrders.productId, id),
+            eq(manufacturingOrderIngredients.itemId, id)
+          )
+        )
+      )
+      .limit(1);
+
+    if (activeManufacturingRef) {
+      return { deleted: false, usedInActiveManufacturing: true };
     }
 
     const [row] = await tx
@@ -164,6 +198,33 @@ export async function deleteItems(
         deletedCount: 0,
         error:
           "Cannot delete: one or more items are used by draft or confirmed sales orders.",
+      };
+    }
+
+    const [activeManufacturingRef] = await tx
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .leftJoin(
+        manufacturingOrderIngredients,
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+      )
+      .where(
+        and(
+          isNull(manufacturingOrders.deletedAt),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
+          or(
+            inArray(manufacturingOrders.productId, uniqueIds),
+            inArray(manufacturingOrderIngredients.itemId, uniqueIds)
+          )
+        )
+      )
+      .limit(1);
+
+    if (activeManufacturingRef) {
+      return {
+        deletedCount: 0,
+        error:
+          "Cannot delete: one or more items are used by draft or released manufacturing orders.",
       };
     }
 
@@ -238,107 +299,6 @@ export async function getStockMovements(itemId: string) {
   });
 }
 
-
-async function generateLotNumber(tx: Tx): Promise<string> {
-  const result = await tx.execute(
-    sql`SELECT nextval('inventory.lot_number_seq') AS val`
-  );
-  const val = Number((result.rows[0] as { val: string }).val);
-  return `LOT-${String(val).padStart(6, "0")}`;
-}
-
-// Deduct stock FIFO across lots for a given item within an existing transaction.
-// Throws if insufficient stock — caller should catch and handle.
-async function fifoDeduct(
-  tx: Tx,
-  itemId: string,
-  amount: number
-): Promise<Array<{ lotId: string; quantity: number }>> {
-  const availableLots = await tx
-    .select({
-      id: lots.id,
-      quantity: lots.quantity,
-    })
-    .from(lots)
-    .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
-    .orderBy(lots.receivedAt);
-
-  const totalAvailable = availableLots.reduce(
-    (sum, lot) => sum + parseFloat(lot.quantity),
-    0
-  );
-
-  if (totalAvailable < amount) {
-    throw new Error(
-      `Insufficient stock. Available: ${totalAvailable}, requested: ${amount}`
-    );
-  }
-
-  let remaining = amount;
-  const allocations: Array<{ lotId: string; quantity: number }> = [];
-
-  for (const lot of availableLots) {
-    if (remaining <= 0) break;
-    const lotQty = parseFloat(lot.quantity);
-    const deduct = Math.min(lotQty, remaining);
-
-    await tx
-      .update(lots)
-      .set({
-        quantity: (lotQty - deduct).toString(),
-        updatedAt: new Date(),
-      })
-      .where(eq(lots.id, lot.id));
-
-    allocations.push({ lotId: lot.id, quantity: deduct });
-    remaining -= deduct;
-  }
-
-  return allocations;
-}
-
-// Adjust stock within an existing transaction. Does not create its own transaction.
-async function adjustStockInTx(
-  tx: Tx,
-  orgId: string,
-  userId: string,
-  itemId: string,
-  delta: number,
-): Promise<void> {
-  if (delta > 0) {
-    const lotNumber = await generateLotNumber(tx);
-    const [newLot] = await tx
-      .insert(lots)
-      .values({
-        organizationId: orgId,
-        itemId,
-        lotNumber,
-        quantity: delta.toString(),
-      })
-      .returning({ id: lots.id });
-
-    await tx.insert(stockMovements).values({
-      organizationId: orgId,
-      itemId,
-      lotId: newLot.id,
-      quantity: delta.toString(),
-      createdBy: userId,
-    });
-  } else {
-    const allocations = await fifoDeduct(tx, itemId, Math.abs(delta));
-
-    for (const alloc of allocations) {
-      await tx.insert(stockMovements).values({
-        organizationId: orgId,
-        itemId,
-        lotId: alloc.lotId,
-        quantity: (-alloc.quantity).toString(),
-        createdBy: userId,
-      });
-    }
-  }
-}
-
 // Update item metadata and optionally adjust stock in a single transaction.
 // If stock adjustment fails (e.g. insufficient stock), the entire update rolls back.
 export async function updateItem(
@@ -357,16 +317,17 @@ export async function updateItem(
     if (!item) return null;
 
     if (stock != null) {
-      const [stockResult] = await tx
-        .select({ total: sql<string>`COALESCE(SUM(${lots.quantity}), 0)` })
-        .from(lots)
-        .where(eq(lots.itemId, id));
-
-      const currentStock = parseFloat(stockResult.total);
+      const currentStock = await getCurrentStockInTx(tx, id);
       const delta = stock - currentStock;
 
       if (delta !== 0) {
-        await adjustStockInTx(tx, orgId, userId, id, delta);
+        await applyStockDeltaInTx(tx, {
+          orgId,
+          userId,
+          itemId: id,
+          delta,
+          movementType: "manual_adjustment",
+        });
       }
     }
 
@@ -399,21 +360,13 @@ export async function createItemWithLot(
       .returning({ id: items.id });
 
     if (parseFloat(stock) > 0) {
-      const lotNumber = await generateLotNumber(tx);
-      const [lot] = await tx.insert(lots).values({
-        organizationId: orgId,
+      await createPositiveLotAndMovementInTx(tx, {
+        orgId,
         itemId: item.id,
-        lotNumber,
-        quantity: stock,
+        quantity: parseFloat(stock),
+        userId,
         costPerUnit: data.defaultPurchasePrice ?? null,
-      }).returning({ id: lots.id });
-
-      await tx.insert(stockMovements).values({
-        organizationId: orgId,
-        itemId: item.id,
-        lotId: lot.id,
-        quantity: stock,
-        createdBy: userId,
+        movementType: "manual_adjustment",
       });
     }
 

@@ -157,7 +157,8 @@ test.describe("Sales order flow", () => {
     await page.locator("#name").blur();
 
     await page.getByRole("button", { name: "Create Customer" }).click();
-    await page.waitForURL("**/sales/customers");
+    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+    await page.goto("/sales/customers");
     await filterList(page, "Search customers", customerName);
 
     // UI — verify the row renders correctly in the list
@@ -197,7 +198,8 @@ test.describe("Sales order flow", () => {
     await page.locator("#name").blur();
 
     await page.getByRole("button", { name: "Create Customer" }).click();
-    await page.waitForURL("**/sales/customers");
+    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+    await page.goto("/sales/customers");
     await filterList(page, "Search customers", extraCustomerName);
 
     // UI — verify the row renders correctly (minimal fields show dashes)

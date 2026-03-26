@@ -1,15 +1,10 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { salesOrders } from "@/lib/db/schema";
+import { isValidIsoDate, nullableString } from "./shared";
 
 export const SALES_ORDER_STATUSES = ["draft", "confirmed", "cancelled"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
-
-const nullableString = z
-  .string()
-  .nullable()
-  .optional()
-  .transform((v) => (v != null ? v.trim() || null : null));
 
 const rawOrderLineSchema = z.object({
   itemId: z.string().default(""),
@@ -24,33 +19,6 @@ function isBlankLine(line: RawOrderLine) {
   const quantity = line.quantity?.trim() ?? "";
   const unitPrice = line.unitPrice?.trim() ?? "";
   return itemId === "" && quantity === "" && unitPrice === "";
-}
-
-function isValidIsoDate(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1
-  ) {
-    return false;
-  }
-
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
 }
 
 const cleanedLinesSchema = z
