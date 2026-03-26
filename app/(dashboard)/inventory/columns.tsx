@@ -82,6 +82,7 @@ export const columns: ColumnDef<ItemRow>[] = [
   },
   {
     accessorKey: "stock",
+    sortDescFirst: false,
     sortingFn: (rowA, rowB) =>
       parseFloat(rowA.getValue("stock")) - parseFloat(rowB.getValue("stock")),
     header: ({ column }) => <SortableHeader column={column} label="Stock" />,
@@ -89,7 +90,8 @@ export const columns: ColumnDef<ItemRow>[] = [
   },
   {
     id: "calculatedStock",
-    sortingFn: (rowA, rowB) => calcStock(rowA.original) - calcStock(rowB.original),
+    accessorFn: (row) => calcStock(row),
+    sortDescFirst: false,
     header: ({ column }) => (
       <SortableHeader
         column={column}
@@ -98,7 +100,7 @@ export const columns: ColumnDef<ItemRow>[] = [
       />
     ),
     cell: ({ row }) => {
-      const value = calcStock(row.original);
+      const value = row.getValue<number>("calculatedStock");
       return (
         <span className={value < 0 ? "text-destructive" : undefined}>
           {value}

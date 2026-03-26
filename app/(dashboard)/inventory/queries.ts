@@ -308,13 +308,13 @@ export async function updateItem(
   bom?: Array<{ componentId: string; quantity: string | null }>,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const [item] = await tx
-      .update(items)
-      .set({ ...itemData, updatedAt: new Date() })
+    const [existingItem] = await tx
+      .select({ id: items.id })
+      .from(items)
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
-      .returning({ id: items.id });
+      .for("update");
 
-    if (!item) return null;
+    if (!existingItem) return null;
 
     if (stock != null) {
       const currentStock = await getCurrentStockInTx(tx, id);
@@ -330,6 +330,12 @@ export async function updateItem(
         });
       }
     }
+
+    const [item] = await tx
+      .update(items)
+      .set({ ...itemData, updatedAt: new Date() })
+      .where(and(eq(items.id, id), isNull(items.deletedAt)))
+      .returning({ id: items.id });
 
     if (bom !== undefined) {
       await tx.delete(bomComponents).where(eq(bomComponents.itemId, id));

@@ -238,11 +238,11 @@ function normalizeQuantityString(value: number) {
 - `{ error: string }` for general errors
 - `{ errors: Record<string, string[]> }` for Zod field-level errors
 - Domain errors (SalesError, ManufacturingError) use `error.toResponse()` in route handlers
-- Shared `lib/` code throws plain `Error` (can't import domain errors). Route handlers must catch these explicitly — don't let them bubble as 500s:
+- Shared `lib/` code should throw typed errors when routes need non-500 handling. Catch them explicitly in route handlers:
 
 ```ts
 if (error instanceof ManufacturingError) return error.toResponse();
-if (error instanceof Error && error.message.startsWith("Insufficient stock")) {
+if (error instanceof InsufficientStockError) {
   return NextResponse.json({ error: error.message }, { status: 409 });
 }
 throw error;
@@ -310,6 +310,29 @@ Released manufacturing orders drive `items.expectedQty`. Never increment or decr
 
 ```ts
 await recomputeExpectedQty(tx, [order.productId])
+```
+
+### Stock and aggregate locking
+
+Any mutation that changes lot stock, `items.committedQty`, or `items.expectedQty` must lock affected `items` rows first. FIFO deductions must also lock candidate lot rows before reading balances.
+
+If a workflow decision depends on current row state, lock that row with `FOR UPDATE` before reading it. Use this for order status transitions and absolute stock-target edits.
+
+```ts
+const [order] = await tx
+  .select({ status: manufacturingOrders.status })
+  .from(manufacturingOrders)
+  .where(eq(manufacturingOrders.id, id))
+  .for("update")
+
+await lockItemsInTx(tx, affectedItemIds)
+
+const lotsForUpdate = await tx
+  .select()
+  .from(lots)
+  .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
+  .orderBy(asc(lots.receivedAt), asc(lots.id))
+  .for("update", { of: lots })
 ```
 
 ### Manufacturing shortages

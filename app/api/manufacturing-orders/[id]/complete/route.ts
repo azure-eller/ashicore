@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { InsufficientStockError } from "@/lib/inventory/stock";
 import { completeManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import {
   completeManufacturingOrder,
@@ -18,7 +19,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json(order);
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();
-    if (error instanceof Error && error.message.startsWith("Insufficient stock")) {
+    if (error instanceof InsufficientStockError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     throw error;

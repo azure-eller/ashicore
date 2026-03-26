@@ -25,6 +25,7 @@ import {
   applyStockDeltaInTx,
   createPositiveLotAndMovementInTx,
   getCurrentStockInTx,
+  lockItemsInTx,
 } from "@/lib/inventory/stock";
 import type {
   CompleteManufacturingOrder,
@@ -52,6 +53,16 @@ type SalesLineSnapshot = {
   salesOrderLineId: string;
   salesOrderNumber: string;
   customerName: string;
+};
+
+type LockedManufacturingOrder = {
+  id: string;
+  productId: string;
+  status: (typeof manufacturingOrders.$inferSelect)["status"];
+  salesOrderId: string | null;
+  salesOrderLineId: string | null;
+  salesOrderNumber: string | null;
+  salesCustomerName: string | null;
 };
 
 type ValidatedIngredient = {
@@ -96,6 +107,27 @@ async function generateMONumber(tx: Tx) {
   return `MO-${year}-${String(sequenceValue).padStart(4, "0")}`;
 }
 
+async function getLockedManufacturingOrderInTx(
+  tx: Tx,
+  id: string
+): Promise<LockedManufacturingOrder | null> {
+  const [order] = await tx
+    .select({
+      id: manufacturingOrders.id,
+      productId: manufacturingOrders.productId,
+      status: manufacturingOrders.status,
+      salesOrderId: manufacturingOrders.salesOrderId,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      salesOrderNumber: manufacturingOrders.salesOrderNumber,
+      salesCustomerName: manufacturingOrders.salesCustomerName,
+    })
+    .from(manufacturingOrders)
+    .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)))
+    .for("update");
+
+  return order ?? null;
+}
+
 export class ManufacturingError extends Error {
   status: number;
   errors?: Record<string, string[]>;
@@ -128,7 +160,13 @@ export class ManufacturingError extends Error {
 }
 
 async function recomputeExpectedQty(tx: Tx, itemIds: string[]) {
-  const uniqueItemIds = [...new Set(itemIds)];
+  const uniqueItemIds = [...new Set(itemIds)].sort();
+
+  if (uniqueItemIds.length === 0) {
+    return;
+  }
+
+  await lockItemsInTx(tx, uniqueItemIds);
 
   for (const itemId of uniqueItemIds) {
     const [row] = await tx
@@ -815,18 +853,7 @@ export async function updateManufacturingOrder(
   payload: UpdateManufacturingOrder
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx) => {
-    const [existing] = await tx
-      .select({
-        id: manufacturingOrders.id,
-        productId: manufacturingOrders.productId,
-        status: manufacturingOrders.status,
-        salesOrderId: manufacturingOrders.salesOrderId,
-        salesOrderLineId: manufacturingOrders.salesOrderLineId,
-        salesOrderNumber: manufacturingOrders.salesOrderNumber,
-        salesCustomerName: manufacturingOrders.salesCustomerName,
-      })
-      .from(manufacturingOrders)
-      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
+    const existing = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!existing) {
       return null;
@@ -899,14 +926,7 @@ export async function releaseManufacturingOrder(
   confirmShortage = false
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: manufacturingOrders.id,
-        productId: manufacturingOrders.productId,
-        status: manufacturingOrders.status,
-      })
-      .from(manufacturingOrders)
-      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
+    const order = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!order) {
       throw new ManufacturingError("Order not found", 404);
@@ -961,14 +981,7 @@ export async function completeManufacturingOrder(
   payload: CompleteManufacturingOrder
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const [order] = await tx
-      .select({
-        id: manufacturingOrders.id,
-        productId: manufacturingOrders.productId,
-        status: manufacturingOrders.status,
-      })
-      .from(manufacturingOrders)
-      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
+    const order = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!order) {
       throw new ManufacturingError("Order not found", 404);
@@ -996,6 +1009,11 @@ export async function completeManufacturingOrder(
       tx,
       ingredientRows.map((row) => row.itemId)
     );
+
+    await lockItemsInTx(tx, [
+      order.productId,
+      ...ingredientRows.map((row) => row.itemId),
+    ]);
 
     const shortages = await getCompletionShortagesInTx(
       tx,
@@ -1081,14 +1099,7 @@ export async function cancelManufacturingOrder(
   id: string
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: manufacturingOrders.id,
-        productId: manufacturingOrders.productId,
-        status: manufacturingOrders.status,
-      })
-      .from(manufacturingOrders)
-      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
+    const order = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!order) {
       return null;
@@ -1120,13 +1131,7 @@ export async function deleteManufacturingOrder(
   id: string
 ): Promise<{ deleted: boolean; error?: string }> {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: manufacturingOrders.id,
-        status: manufacturingOrders.status,
-      })
-      .from(manufacturingOrders)
-      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
+    const order = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!order) {
       return { deleted: false };
@@ -1154,17 +1159,21 @@ export async function deleteManufacturingOrders(
   return withAuthedOrgContext(async (tx) => {
     const uniqueIds = [...new Set(ids)];
 
-    const [releasedOrder] = await tx
-      .select({ id: manufacturingOrders.id })
+    const orders = await tx
+      .select({
+        id: manufacturingOrders.id,
+        status: manufacturingOrders.status,
+      })
       .from(manufacturingOrders)
       .where(
         and(
           inArray(manufacturingOrders.id, uniqueIds),
-          isNull(manufacturingOrders.deletedAt),
-          eq(manufacturingOrders.status, "released")
+          isNull(manufacturingOrders.deletedAt)
         )
       )
-      .limit(1);
+      .for("update");
+
+    const releasedOrder = orders.find((order) => order.status === "released");
 
     if (releasedOrder) {
       return {

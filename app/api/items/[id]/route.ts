@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { InsufficientStockError } from "@/lib/inventory/stock";
 import { updateItemSchema } from "@/lib/schemas/items";
 import { deleteItem, updateItem } from "@/app/(dashboard)/inventory/queries";
 
@@ -29,7 +30,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     }
     return NextResponse.json(item);
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Insufficient stock")) {
+    if (error instanceof InsufficientStockError) {
       return NextResponse.json(
         { errors: { stock: [error.message] } },
         { status: 400 }

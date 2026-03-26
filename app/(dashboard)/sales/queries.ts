@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import { lockItemsInTx } from "@/lib/inventory/stock";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
   InsertSalesOrder,
@@ -155,24 +156,37 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
 async function recomputeCommittedQty(tx: Tx, itemIds: string[]) {
   const uniqueItemIds = [...new Set(itemIds)];
 
-  for (const itemId of uniqueItemIds) {
-    const [row] = await tx
-      .select({
-        total: sql<string>`COALESCE(SUM(${salesOrderLines.quantity}), 0)`,
-      })
-      .from(salesOrderLines)
-      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(salesOrderLines.itemId, itemId),
-          isNull(salesOrders.deletedAt),
-          eq(salesOrders.status, "confirmed")
-        )
-      );
+  if (uniqueItemIds.length === 0) {
+    return;
+  }
 
+  await lockItemsInTx(tx, uniqueItemIds);
+
+  const totals = await tx
+    .select({
+      itemId: salesOrderLines.itemId,
+      total: sql<string>`COALESCE(SUM(${salesOrderLines.quantity}), 0)`,
+    })
+    .from(salesOrderLines)
+    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+    .where(
+      and(
+        inArray(salesOrderLines.itemId, uniqueItemIds),
+        isNull(salesOrders.deletedAt),
+        eq(salesOrders.status, "confirmed")
+      )
+    )
+    .groupBy(salesOrderLines.itemId);
+
+  const totalsByItem = new Map(totals.map((row) => [row.itemId, row.total]));
+
+  for (const itemId of uniqueItemIds) {
     await tx
       .update(items)
-      .set({ committedQty: row?.total ?? "0" })
+      .set({
+        committedQty: totalsByItem.get(itemId) ?? "0",
+        updatedAt: new Date(),
+      })
       .where(eq(items.id, itemId));
   }
 }
@@ -232,7 +246,8 @@ async function getValidatedProductsInTx(
 
 async function prepareOrderPayload(
   tx: Tx,
-  payload: InsertSalesOrder
+  payload: InsertSalesOrder,
+  options?: { lockProducts?: boolean }
 ): Promise<{
   customerId: string;
   customerName: string;
@@ -245,6 +260,11 @@ async function prepareOrderPayload(
 }> {
   const customer = await getValidatedCustomerInTx(tx, payload.customerId);
   const productIds = payload.lines.map((line) => line.itemId);
+
+  if (options?.lockProducts) {
+    await lockItemsInTx(tx, productIds);
+  }
+
   const products = await getValidatedProductsInTx(tx, productIds);
 
   const preparedLines = payload.lines.map((line, index) => {
@@ -651,9 +671,13 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
 
 export async function createSalesOrder(data: InsertSalesOrder) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const prepared = await prepareOrderPayload(tx, data);
+    const shouldCheckOversell =
+      data.status === "confirmed" && data.confirmOversell !== true;
+    const prepared = await prepareOrderPayload(tx, data, {
+      lockProducts: shouldCheckOversell,
+    });
 
-    if (data.status === "confirmed" && data.confirmOversell !== true) {
+    if (shouldCheckOversell) {
       const oversell = await buildOversellWarning(
         prepared.preparedLines,
         prepared.products
@@ -704,7 +728,8 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
         status: salesOrders.status,
       })
       .from(salesOrders)
-      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)));
+      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
+      .for("update");
 
     if (!existingOrder) {
       return null;
@@ -738,9 +763,13 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
       throw new SalesError("Draft orders cannot be cancelled.", 400);
     }
 
-    const prepared = await prepareOrderPayload(tx, data);
+    const shouldCheckOversell =
+      data.status === "confirmed" && data.confirmOversell !== true;
+    const prepared = await prepareOrderPayload(tx, data, {
+      lockProducts: shouldCheckOversell,
+    });
 
-    if (data.status === "confirmed" && data.confirmOversell !== true) {
+    if (shouldCheckOversell) {
       const oversell = await buildOversellWarning(
         prepared.preparedLines,
         prepared.products

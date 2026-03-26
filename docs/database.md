@@ -119,6 +119,53 @@ Completion consumes ingredient lots FIFO and records stock movement metadata:
 - `movementType = manufacturing_produced` for the finished-product lot
 - `referenceType = manufacturing_order` and `referenceId = <mo id>` for traceability
 
+## Concurrent Stock Writes
+
+Use Postgres row locks to serialize stock-facing writes for the same item.
+
+- Lock affected `inventory.items` rows in a stable sorted order before mutating lot stock, `items.committedQty`, or `items.expectedQty`.
+- Lock workflow rows with `FOR UPDATE` before decisions that depend on current state, such as order status transitions or absolute stock-target edits.
+- FIFO consumption must lock candidate `inventory.lots` rows with `FOR UPDATE` before reading balances.
+- Warning and shortage checks must read after those locks are acquired.
+- Keep recompute helpers database-derived. Lock first, then aggregate, then write the cached field.
+- Keep the existing transaction wrapper. We do not use `SERIALIZABLE`, advisory locks, or trigger-based cache maintenance in v1.
+
+This prevents read-modify-write races like:
+
+1. transaction A reads the same lots as transaction B
+2. both compute deductions in JS
+3. both write back stale balances or stale cached totals
+
+Canonical pattern:
+
+```ts
+const [order] = await tx
+  .select({ status: manufacturingOrders.status })
+  .from(manufacturingOrders)
+  .where(eq(manufacturingOrders.id, id))
+  .for("update")
+
+await lockItemsInTx(tx, affectedItemIds)
+
+const availableLots = await tx
+  .select({
+    id: lots.id,
+    quantity: lots.quantity,
+  })
+  .from(lots)
+  .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
+  .orderBy(asc(lots.receivedAt), asc(lots.id))
+  .for("update", { of: lots })
+
+await tx
+  .update(lots)
+  .set({
+    quantity: sql`${lots.quantity} - ${deduct}`,
+    updatedAt: new Date(),
+  })
+  .where(and(eq(lots.id, lotId), sql`${lots.quantity} >= ${deduct}`))
+```
+
 ## Numeric Fields
 
 Postgres `numeric` columns are returned as **strings** by the driver (e.g. `"1.5"`, `"0"`). Always parse them:

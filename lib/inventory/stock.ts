@@ -1,7 +1,7 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
-import { lots, stockMovements } from "@/lib/db/schema";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { items, lots, stockMovements } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const STOCK_MOVEMENT_TYPES = [
@@ -19,6 +19,55 @@ export type FifoAllocation = {
   quantity: number;
   costPerUnit: number | null;
 };
+
+function getStableItemIds(itemIds: string[]) {
+  return [...new Set(itemIds)].sort();
+}
+
+export class InsufficientStockError extends Error {
+  itemId: string;
+  available: number;
+  requested: number;
+
+  constructor(params: { itemId: string; available: number; requested: number }) {
+    super(
+      `Insufficient stock. Available: ${params.available}, requested: ${params.requested}`
+    );
+    this.name = "InsufficientStockError";
+    this.itemId = params.itemId;
+    this.available = params.available;
+    this.requested = params.requested;
+  }
+}
+
+export async function lockItemsInTx(tx: Tx, itemIds: string[]) {
+  const stableItemIds = getStableItemIds(itemIds);
+
+  if (stableItemIds.length === 0) {
+    return;
+  }
+
+  await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(inArray(items.id, stableItemIds))
+    .orderBy(asc(items.id))
+    .for("update");
+}
+
+async function getLockedPositiveLotsInTx(tx: Tx, itemId: string) {
+  return tx
+    .select({
+      id: lots.id,
+      lotNumber: lots.lotNumber,
+      quantity: lots.quantity,
+      costPerUnit: lots.costPerUnit,
+    })
+    .from(lots)
+    .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
+    .orderBy(asc(lots.receivedAt), asc(lots.id))
+    .for("update");
+}
 
 export async function generateLotNumber(tx: Tx): Promise<string> {
   const result = await tx.execute(
@@ -75,6 +124,8 @@ export async function createPositiveLotAndMovementInTx(
     referenceId?: string | null;
   }
 ): Promise<{ lotId: string; lotNumber: string }> {
+  await lockItemsInTx(tx, [params.itemId]);
+
   const lotNumber = await generateLotNumber(tx);
   const [newLot] = await tx
     .insert(lots)
@@ -106,16 +157,9 @@ export async function fifoConsumeStockInTx(
   itemId: string,
   amount: number
 ): Promise<FifoAllocation[]> {
-  const availableLots = await tx
-    .select({
-      id: lots.id,
-      lotNumber: lots.lotNumber,
-      quantity: lots.quantity,
-      costPerUnit: lots.costPerUnit,
-    })
-    .from(lots)
-    .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
-    .orderBy(lots.receivedAt);
+  await lockItemsInTx(tx, [itemId]);
+
+  const availableLots = await getLockedPositiveLotsInTx(tx, itemId);
 
   const totalAvailable = availableLots.reduce(
     (sum, lot) => sum + parseFloat(lot.quantity),
@@ -123,9 +167,11 @@ export async function fifoConsumeStockInTx(
   );
 
   if (totalAvailable < amount) {
-    throw new Error(
-      `Insufficient stock. Available: ${totalAvailable}, requested: ${amount}`
-    );
+    throw new InsufficientStockError({
+      itemId,
+      available: totalAvailable,
+      requested: amount,
+    });
   }
 
   let remaining = amount;
@@ -137,13 +183,22 @@ export async function fifoConsumeStockInTx(
     const lotQty = parseFloat(lot.quantity);
     const deduct = Math.min(lotQty, remaining);
 
-    await tx
+    const [updatedLot] = await tx
       .update(lots)
       .set({
-        quantity: (lotQty - deduct).toString(),
+        quantity: sql`${lots.quantity} - ${deduct}`,
         updatedAt: new Date(),
       })
-      .where(eq(lots.id, lot.id));
+      .where(and(eq(lots.id, lot.id), sql`${lots.quantity} >= ${deduct}`))
+      .returning({ id: lots.id });
+
+    if (!updatedLot) {
+      throw new InsufficientStockError({
+        itemId,
+        available: totalAvailable,
+        requested: amount,
+      });
+    }
 
     allocations.push({
       lotId: lot.id,

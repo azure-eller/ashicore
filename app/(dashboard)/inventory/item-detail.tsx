@@ -72,9 +72,10 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
     <span
       className={
         calculatedStock < 0
-          ? "inline-flex items-center gap-1.5 text-destructive"
+          ? "inline-flex w-fit items-center gap-1.5 text-destructive outline-none"
           : undefined
       }
+      tabIndex={calculatedStock < 0 ? 0 : undefined}
     >
       {calculatedStock < 0 && (
         <span

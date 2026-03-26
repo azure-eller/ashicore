@@ -211,21 +211,29 @@ test.describe("Inventory creation flow", () => {
     await page.getByLabel("Search items").fill(String(ts));
 
     const calculatedStockHeader = page.getByRole("button", {
-      name: /^Sort by Calculated Stock$/,
+      name: /^Sort by Calculated Stock/,
     });
     await calculatedStockHeader.hover();
     await expect(
       page.getByText("Stock - committed + expected - safety stock.")
     ).toBeVisible();
 
+    await page.mouse.move(0, 0);
     await calculatedStockHeader.click();
+    await expect(calculatedStockHeader).toHaveAttribute(
+      "aria-label",
+      /sorted ascending/
+    );
+
     const firstRow = page.locator("tbody tr").first();
-    await expect(firstRow.getByRole("link")).toContainText(lowStockMaterialName);
+    const firstRowLink = firstRow.getByRole("link");
+    await expect(firstRowLink).toContainText(lowStockMaterialName);
 
     const lowStockLink = page.getByRole("link", {
       name: new RegExp(lowStockMaterialName),
     });
-    await lowStockLink.hover();
+    await page.mouse.move(0, 0);
+    await lowStockLink.focus();
     await expect(
       page.getByText(
         "Calculated stock is below zero, so this item is below its safety stock threshold."
@@ -241,7 +249,9 @@ test.describe("Inventory creation flow", () => {
       page.getByText("Stock - committed + expected - safety stock.")
     ).toBeVisible();
 
-    await page.locator("dd").filter({ hasText: "-5" }).first().hover();
+    await page.keyboard.press("Escape");
+
+    await page.locator("dd span.text-destructive").focus();
     await expect(
       page.getByText(
         "Calculated stock is below zero, so this item is below its safety stock threshold."
