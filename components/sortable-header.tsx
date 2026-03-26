@@ -5,18 +5,25 @@ import {
   SortByUp02Icon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function SortableHeader<T>({
   column,
   label,
+  tooltip,
 }: {
   column: Column<T>;
   label: string;
+  tooltip?: string;
 }) {
   const sorted = column.getIsSorted();
   const icon = sorted === "asc" ? SortByUp02Icon : SortByDown02Icon;
 
-  return (
+  const button = (
     <Button
       variant="ghost"
       className="-ml-3"
@@ -26,5 +33,16 @@ export function SortableHeader<T>({
       {label}
       <HugeiconsIcon icon={icon} className="ml-2 h-4 w-4" aria-hidden />
     </Button>
+  );
+
+  if (!tooltip) {
+    return button;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }

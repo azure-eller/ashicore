@@ -188,6 +188,14 @@ Portal components should use semantic background/text tokens on the portal conte
 <DropdownMenuContent className="bg-popover text-popover-foreground" />
 ```
 
+### Tooltips
+
+Use tooltips only for computed terms or alert indicators that need brief clarification. Reuse the existing label/link as the trigger — no extra info icons unless there is no natural hover target.
+
+```tsx
+<SortableHeader column={column} label="Calculated Stock" tooltip="Stock - committed + expected - safety stock." />
+```
+
 ### Route loading reuse
 
 New/edit loading states for the same form should share one route-level loader per item type. Detail routes should also have a local `[id]/loading.tsx` per item type so they never fall back to a parent list skeleton.

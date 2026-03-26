@@ -63,6 +63,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import type {
   CustomerOption,
   OversellWarningPayload,
@@ -89,6 +95,25 @@ function buildLinesErrorMessage(linesError: unknown) {
     return linesError.message;
   }
   return null;
+}
+
+function TooltipHeader({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
@@ -494,13 +519,43 @@ export function OrderForm({
                 <TableRow>
                   <TableHead>Product</TableHead>
                   <TableHead>Current Stock</TableHead>
-                  <TableHead>Current Committed</TableHead>
-                  <TableHead>Expected</TableHead>
-                  <TableHead>Safety</TableHead>
-                  <TableHead>Current Calculated</TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Current Committed"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentCommitted}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Expected"
+                      tooltip={OVERSELL_TOOLTIP_COPY.expected}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Safety"
+                      tooltip={OVERSELL_TOOLTIP_COPY.safety}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Current Calculated"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
+                    />
+                  </TableHead>
                   <TableHead>Added Qty</TableHead>
-                  <TableHead>Projected Committed</TableHead>
-                  <TableHead>Projected Calculated</TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Projected Committed"
+                      tooltip={OVERSELL_TOOLTIP_COPY.projectedCommitted}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Projected Calculated"
+                      tooltip={OVERSELL_TOOLTIP_COPY.projectedCalculated}
+                    />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

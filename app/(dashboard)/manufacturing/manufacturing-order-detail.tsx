@@ -28,7 +28,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
+import { MANUFACTURING_SHORTAGE_TOOLTIP } from "@/lib/tooltip-copy";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type {
   ManufacturingOrderDetail as ManufacturingOrderDetailType,
@@ -40,6 +46,25 @@ type ApiError = {
   error?: string;
   shortage?: ManufacturingReleaseWarningPayload;
 };
+
+function TooltipHeader({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function ManufacturingOrderDetail({
   order,
@@ -465,7 +490,12 @@ export function ManufacturingOrderDetail({
                   <TableHead>Ingredient</TableHead>
                   <TableHead className="text-right">Needed</TableHead>
                   <TableHead className="text-right">Available</TableHead>
-                  <TableHead className="text-right">Shortage</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader
+                      label="Shortage"
+                      tooltip={MANUFACTURING_SHORTAGE_TOOLTIP}
+                    />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

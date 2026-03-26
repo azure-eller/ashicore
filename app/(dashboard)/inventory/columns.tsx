@@ -4,6 +4,15 @@ import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SortableHeader } from "@/components/sortable-header";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  CALCULATED_STOCK_ALERT_TOOLTIP,
+  CALCULATED_STOCK_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { calcStock } from "./types";
 import type { ItemRow } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
@@ -37,7 +46,7 @@ export const columns: ColumnDef<ItemRow>[] = [
     cell: ({ row }) => {
       // TODO: /inventory/products/[id] does not exist yet — will 404 for product rows
       const isLow = calcStock(row.original) < 0;
-      return (
+      const link = (
         <Link
           href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
           className="inline-flex items-center gap-1.5 hover:underline"
@@ -50,6 +59,19 @@ export const columns: ColumnDef<ItemRow>[] = [
           )}
           {row.getValue("name")}
         </Link>
+      );
+
+      if (!isLow) {
+        return link;
+      }
+
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>{link}</TooltipTrigger>
+          <TooltipContent side="top">
+            {CALCULATED_STOCK_ALERT_TOOLTIP}
+          </TooltipContent>
+        </Tooltip>
       );
     },
   },
@@ -69,7 +91,11 @@ export const columns: ColumnDef<ItemRow>[] = [
     id: "calculatedStock",
     sortingFn: (rowA, rowB) => calcStock(rowA.original) - calcStock(rowB.original),
     header: ({ column }) => (
-      <SortableHeader column={column} label="Calculated Stock" />
+      <SortableHeader
+        column={column}
+        label="Calculated Stock"
+        tooltip={CALCULATED_STOCK_TOOLTIP}
+      />
     ),
     cell: ({ row }) => {
       const value = calcStock(row.original);

@@ -444,6 +444,10 @@ test.describe("Sales order flow", () => {
 
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible();
+    await oversellDialog.getByText("Current Committed", { exact: true }).hover();
+    await expect(
+      page.getByText("Quantity already reserved by confirmed sales orders.")
+    ).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).scrollIntoViewIfNeeded();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
     await page.waitForURL(`**/sales/orders/${oversellOrderId}`);

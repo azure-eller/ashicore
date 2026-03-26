@@ -160,6 +160,35 @@ Use semantic surface and text tokens on portal content. Do not hardcode `dark` o
 </DropdownMenuContent>
 ```
 
+## Tooltips
+
+Use tooltips sparingly. They are for short clarifications on computed terms, condensed labels, or alert indicators that need one extra sentence of context.
+
+- Prefer the existing label, link, or status marker as the trigger
+- Do not add extra info icons if the UI already has a natural hover target
+- Keep tooltip copy to one short line
+- Skip tooltips on obvious labels and actions
+
+```tsx
+<SortableHeader
+  column={column}
+  label="Calculated Stock"
+  tooltip="Stock - committed + expected - safety stock."
+/>
+
+<Tooltip>
+  <TooltipTrigger asChild>
+    <span className="inline-flex items-center gap-1.5">
+      <span className="h-2 w-2 rounded-full bg-destructive" aria-label="Below safety stock" />
+      {name}
+    </span>
+  </TooltipTrigger>
+  <TooltipContent side="top">
+    Calculated stock is below zero, so this item is below its safety stock threshold.
+  </TooltipContent>
+</Tooltip>
+```
+
 ## Navigation
 
 **Cancel buttons**: keep in-app back navigation when possible, but include a known fallback route for direct URLs and external referrers.

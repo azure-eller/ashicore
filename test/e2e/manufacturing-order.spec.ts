@@ -452,6 +452,8 @@ test.describe("Manufacturing order flow", () => {
     await expect(shortageDialog.locator("table")).toContainText(sandName);
     await expect(shortageDialog.locator("table")).toContainText("21");
     await expect(shortageDialog.locator("table")).toContainText("20");
+    await shortageDialog.getByText("Shortage", { exact: true }).hover();
+    await expect(page.getByText("Needed minus available right now.")).toBeVisible();
 
     await page.getByRole("button", { name: "Release Anyway" }).click();
 

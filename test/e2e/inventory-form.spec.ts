@@ -31,6 +31,8 @@ test.describe("Inventory creation flow", () => {
   let fullMaterialName: string;
   let minimalMaterialId: string;
   let minimalMaterialName: string;
+  let lowStockMaterialId: string;
+  let lowStockMaterialName: string;
   let simpleProductId: string;
   let simpleProductName: string;
   let sellableProductName: string;
@@ -122,6 +124,72 @@ test.describe("Inventory creation flow", () => {
 
     const lotRows = await db.select().from(lots).where(eq(lots.itemId, material.id));
     expect(lotRows).toHaveLength(0);
+  });
+
+  test("shows calculated stock tooltips and preserves calculated stock sorting", async ({
+    page,
+    db,
+  }) => {
+    lowStockMaterialName = `Silt ${ts}`;
+
+    await page.goto("/inventory/materials/new");
+    await expect(page.getByText("Add Material")).toBeVisible();
+
+    await page.getByLabel("Name").fill(lowStockMaterialName);
+    await page.locator("#unitDefinitionId").click();
+    await page.getByRole("option").first().click();
+    await page.getByLabel("Safety Stock").fill("5");
+
+    await page.getByRole("button", { name: "Create Material" }).click();
+    await page.waitForURL("**/inventory/materials");
+
+    const rows = await db.select().from(items).where(eq(items.name, lowStockMaterialName));
+    expect(rows).toHaveLength(1);
+
+    const material = rows[0];
+    lowStockMaterialId = material.id;
+
+    expect(material.safetyStock).toBe("5.0000");
+
+    await page.getByLabel("Search items").fill(String(ts));
+
+    const calculatedStockHeader = page.getByRole("button", {
+      name: /^Sort by Calculated Stock$/,
+    });
+    await calculatedStockHeader.hover();
+    await expect(
+      page.getByText("Stock - committed + expected - safety stock.")
+    ).toBeVisible();
+
+    await calculatedStockHeader.click();
+    const firstRow = page.locator("tbody tr").first();
+    await expect(firstRow.getByRole("link")).toContainText(lowStockMaterialName);
+
+    const lowStockLink = page.getByRole("link", {
+      name: new RegExp(lowStockMaterialName),
+    });
+    await lowStockLink.hover();
+    await expect(
+      page.getByText(
+        "Calculated stock is below zero, so this item is below its safety stock threshold."
+      )
+    ).toBeVisible();
+
+    await lowStockLink.click();
+    await page.waitForURL(`**/inventory/materials/${lowStockMaterialId}`);
+    await expect(page.getByRole("heading", { name: lowStockMaterialName })).toBeVisible();
+
+    await page.getByText("Calculated Stock", { exact: true }).hover();
+    await expect(
+      page.getByText("Stock - committed + expected - safety stock.")
+    ).toBeVisible();
+
+    await page.locator("dd").filter({ hasText: "-5" }).first().hover();
+    await expect(
+      page.getByText(
+        "Calculated stock is below zero, so this item is below its safety stock threshold."
+      )
+    ).toBeVisible();
   });
 
   test("creates a product with all fields except BOM", async ({ page, db }) => {

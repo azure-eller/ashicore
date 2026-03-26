@@ -3,6 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Table,
   TableBody,
   TableCell,
@@ -14,6 +19,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { formatPrice } from "@/lib/format";
+import {
+  CALCULATED_STOCK_ALERT_TOOLTIP,
+  CALCULATED_STOCK_TOOLTIP,
+} from "@/lib/tooltip-copy";
 
 interface ItemDetailProps {
   item: {
@@ -59,6 +68,23 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
   const calculatedStock = calcStock(item);
   const basePath = `/inventory/${ITEM_TYPE_SEGMENTS[itemType]}`;
   const typeLabel = itemType === "product" ? "Products" : "Materials";
+  const calculatedStockValue = (
+    <span
+      className={
+        calculatedStock < 0
+          ? "inline-flex items-center gap-1.5 text-destructive"
+          : undefined
+      }
+    >
+      {calculatedStock < 0 && (
+        <span
+          className="h-2 w-2 shrink-0 rounded-full bg-destructive"
+          aria-label="Below safety stock"
+        />
+      )}
+      {calculatedStock} {item.unitName}
+    </span>
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -125,14 +151,29 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
           <dd className="mt-1 text-sm">{parseFloat(item.safetyStock)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Calculated Stock</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
+                  Calculated Stock
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {CALCULATED_STOCK_TOOLTIP}
+              </TooltipContent>
+            </Tooltip>
+          </dt>
           <dd className="mt-1 text-sm">
-            <span className={calculatedStock < 0 ? "inline-flex items-center gap-1.5 text-destructive" : undefined}>
-              {calculatedStock < 0 && (
-                <span className="h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Below safety stock" />
-              )}
-              {calculatedStock} {item.unitName}
-            </span>
+            {calculatedStock < 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>{calculatedStockValue}</TooltipTrigger>
+                <TooltipContent side="top">
+                  {CALCULATED_STOCK_ALERT_TOOLTIP}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              calculatedStockValue
+            )}
           </dd>
         </div>
       </dl>
