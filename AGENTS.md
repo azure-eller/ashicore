@@ -39,6 +39,7 @@ When you discover a new pattern or gotcha:
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
+| Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
 
 ## Database Roles
@@ -225,13 +226,19 @@ if (!isNaN(qty)) { ... }
 if (row.quantity) { ... }
 ```
 
-When writing numeric values to Postgres, strip trailing zeros so the DB stores `1.5` not `1.5000`:
+When writing ANY numeric value to Postgres — quantities, costs, amounts, prices — always strip trailing zeros. This applies to every `normalizeXxxString` helper, not just quantities:
 
 ```ts
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
+// ✓ Correct — use this pattern for ALL numeric normalization
+return value.toFixed(4).replace(/\.?0+$/, "");
+
+// ✗ Wrong — toFixed without stripping stores "1.5000"
+return value.toFixed(4);
 ```
+
+### Sequence-backed document numbers
+
+If a DAL uses `nextval()` for order/lot numbers, the migration must `CREATE SEQUENCE` and `GRANT USAGE, SELECT ON SEQUENCE ... TO app_user`.
 
 ### API error shape
 
@@ -306,10 +313,22 @@ if (activeOrderRef) {
 
 ### Manufacturing expected quantity
 
-Released manufacturing orders drive `items.expectedQty`. Never increment or decrement it directly; always recompute from active released orders after release, completion, or cancellation.
+`items.expectedQty` is inbound supply, not a manual counter. Recompute it from active released manufacturing orders plus active ordered/partial purchase orders after every status-changing write.
 
 ```ts
-await recomputeExpectedQty(tx, [order.productId])
+await recomputeExpectedQty(tx, affectedItemIds)
+```
+
+### Purchase receipts
+
+PO receiving must create lots through the shared stock helper and write purchasing movement metadata.
+
+```ts
+await createPositiveLotAndMovementInTx(tx, {
+  movementType: "purchase_received",
+  referenceType: "purchase_order",
+  referenceId: id,
+})
 ```
 
 ### Stock and aggregate locking

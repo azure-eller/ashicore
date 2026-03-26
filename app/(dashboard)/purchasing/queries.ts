@@ -1,0 +1,902 @@
+import { NextResponse } from "next/server";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  items,
+  purchaseOrderLines,
+  purchaseOrders,
+  suppliers,
+  unitDefinitions,
+} from "@/lib/db/schema";
+import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { Tx } from "@/lib/db/with-org-context";
+import { recomputeExpectedQty } from "@/lib/inventory/expected";
+import {
+  createPositiveLotAndMovementInTx,
+  lockItemsInTx,
+} from "@/lib/inventory/stock";
+import type {
+  InsertPurchaseOrder,
+  PurchaseOrderStatus,
+  ReceivePurchaseOrder,
+  UpdatePurchaseOrder,
+} from "@/lib/schemas/purchase-orders";
+import type { InsertSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
+import type {
+  PurchaseOrderDetail,
+  PurchaseOrderDetailLine,
+  PurchaseOrderEditData,
+  PurchaseOrderListRow,
+  PurchaseOrderMaterialOption,
+  SupplierRow,
+} from "./types";
+
+type PreparedPurchaseOrderLine = {
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  unitName: string;
+  quantityOrdered: string;
+  quantityReceived: string;
+  unitCost: string;
+  lineTotal: string;
+  sortOrder: number;
+};
+
+type MaterialValidationRow = {
+  id: string;
+  name: string;
+  sku: string | null;
+  unitName: string;
+  defaultPurchasePrice: string | null;
+};
+
+export class PurchasingError extends Error {
+  status: number;
+  errors?: Record<string, string[]>;
+
+  constructor(
+    message: string,
+    status = 400,
+    options?: { errors?: Record<string, string[]> }
+  ) {
+    super(message);
+    this.name = "PurchasingError";
+    this.status = status;
+    this.errors = options?.errors;
+  }
+
+  toResponse() {
+    const body = this.errors
+      ? { errors: this.errors }
+      : { error: this.message };
+
+    return NextResponse.json(body, { status: this.status });
+  }
+}
+
+function normalizeQuantityString(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function normalizeAmountString(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function summarizeItems(lines: Array<{ itemName: string }>) {
+  if (lines.length === 0) return "\u2014";
+  if (lines.length === 1) return lines[0].itemName;
+  return `${lines[0].itemName} + ${lines.length - 1} more`;
+}
+
+async function generateOrderNumber(tx: Tx) {
+  const result = await tx.execute(
+    sql`SELECT nextval('purchasing.order_number_seq') AS val`
+  );
+  const raw = (result.rows[0] as { val: string | number }).val;
+  const sequenceValue = Number(raw);
+  const year = new Date().getFullYear();
+  return `PO-${year}-${String(sequenceValue).padStart(4, "0")}`;
+}
+
+async function getValidatedSupplierInTx(tx: Tx, supplierId: string) {
+  const [supplier] = await tx
+    .select({
+      id: suppliers.id,
+      name: suppliers.name,
+    })
+    .from(suppliers)
+    .where(and(eq(suppliers.id, supplierId), isNull(suppliers.deletedAt)));
+
+  if (!supplier) {
+    throw new PurchasingError("Supplier not found", 404, {
+      errors: {
+        supplierId: ["Select an active supplier"],
+      },
+    });
+  }
+
+  return supplier;
+}
+
+async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
+  const uniqueIds = [...new Set(itemIds)];
+
+  const rows = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      sku: items.sku,
+      unitName: unitDefinitions.name,
+      defaultPurchasePrice: items.defaultPurchasePrice,
+    })
+    .from(items)
+    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .where(
+      and(
+        inArray(items.id, uniqueIds),
+        eq(items.itemType, "material"),
+        isNull(items.deletedAt)
+      )
+    );
+
+  const itemMap = new Map(rows.map((row) => [row.id, row as MaterialValidationRow]));
+
+  if (itemMap.size !== uniqueIds.length) {
+    throw new PurchasingError("Material not found", 404);
+  }
+
+  return itemMap;
+}
+
+async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
+  return tx
+    .select({
+      id: purchaseOrderLines.id,
+      itemId: purchaseOrderLines.itemId,
+      itemName: purchaseOrderLines.itemName,
+      itemSku: purchaseOrderLines.itemSku,
+      unitName: purchaseOrderLines.unitName,
+      quantityOrdered: purchaseOrderLines.quantityOrdered,
+      quantityReceived: purchaseOrderLines.quantityReceived,
+      unitCost: purchaseOrderLines.unitCost,
+      lineTotal: purchaseOrderLines.lineTotal,
+      sortOrder: purchaseOrderLines.sortOrder,
+      createdAt: purchaseOrderLines.createdAt,
+      updatedAt: purchaseOrderLines.updatedAt,
+    })
+    .from(purchaseOrderLines)
+    .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+    .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
+}
+
+async function preparePurchaseOrderPayload(
+  tx: Tx,
+  payload: InsertPurchaseOrder | UpdatePurchaseOrder
+): Promise<{
+  supplierId: string;
+  supplierName: string;
+  expectedDate: string | null;
+  notes: string | null;
+  totalAmount: string;
+  preparedLines: PreparedPurchaseOrderLine[];
+  affectedItemIds: string[];
+}> {
+  const supplier = await getValidatedSupplierInTx(tx, payload.supplierId);
+  const materials = await getValidatedMaterialsInTx(
+    tx,
+    payload.lines.map((line) => line.itemId)
+  );
+
+  const preparedLines = payload.lines.map((line, index) => {
+    const material = materials.get(line.itemId);
+
+    if (!material) {
+      throw new PurchasingError("Material not found", 404);
+    }
+
+    const quantityOrdered = Number(line.quantityOrdered);
+    const unitCost = Number(line.unitCost);
+    const lineTotal = quantityOrdered * unitCost;
+
+    return {
+      itemId: material.id,
+      itemName: material.name,
+      itemSku: material.sku,
+      unitName: material.unitName,
+      quantityOrdered: normalizeQuantityString(quantityOrdered),
+      quantityReceived: "0",
+      unitCost: normalizeAmountString(unitCost),
+      lineTotal: normalizeAmountString(lineTotal),
+      sortOrder: index,
+    };
+  });
+
+  const totalAmount = preparedLines.reduce(
+    (sum, line) => sum + parseFloat(line.lineTotal),
+    0
+  );
+
+  return {
+    supplierId: supplier.id,
+    supplierName: supplier.name,
+    expectedDate: payload.expectedDate,
+    notes: payload.notes,
+    totalAmount: normalizeAmountString(totalAmount),
+    preparedLines,
+    affectedItemIds: preparedLines.map((line) => line.itemId),
+  };
+}
+
+async function ensureSuppliersDeletableInTx(tx: Tx, supplierIds: string[]) {
+  const uniqueSupplierIds = [...new Set(supplierIds)];
+
+  const [blockingOrder] = await tx
+    .select({ id: purchaseOrders.id })
+    .from(purchaseOrders)
+    .where(
+      and(
+        inArray(purchaseOrders.supplierId, uniqueSupplierIds),
+        isNull(purchaseOrders.deletedAt),
+        inArray(purchaseOrders.status, ["draft", "ordered", "partial"])
+      )
+    )
+    .limit(1);
+
+  if (blockingOrder) {
+    throw new PurchasingError(
+      "Cannot delete supplier with active draft, ordered, or partially received purchase orders.",
+      400
+    );
+  }
+
+  return uniqueSupplierIds;
+}
+
+async function softDeleteSuppliersInTx(tx: Tx, supplierIds: string[]) {
+  if (supplierIds.length === 0) {
+    return [];
+  }
+
+  return tx
+    .update(suppliers)
+    .set({
+      deletedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(inArray(suppliers.id, supplierIds), isNull(suppliers.deletedAt)))
+    .returning({ id: suppliers.id });
+}
+
+export async function getSuppliers(): Promise<SupplierRow[]> {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: suppliers.id,
+        name: suppliers.name,
+        code: suppliers.code,
+        contactName: suppliers.contactName,
+        email: suppliers.email,
+        phone: suppliers.phone,
+        address: suppliers.address,
+        paymentTerms: suppliers.paymentTerms,
+        notes: suppliers.notes,
+        deletedAt: suppliers.deletedAt,
+        createdAt: suppliers.createdAt,
+        updatedAt: suppliers.updatedAt,
+      })
+      .from(suppliers)
+      .where(isNull(suppliers.deletedAt))
+      .orderBy(asc(suppliers.name));
+  });
+}
+
+export async function getSupplier(
+  id: string,
+  options?: { includeDeleted?: boolean }
+): Promise<SupplierRow | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const conditions = [eq(suppliers.id, id)];
+
+    if (!options?.includeDeleted) {
+      conditions.push(isNull(suppliers.deletedAt));
+    }
+
+    const [supplier] = await tx
+      .select({
+        id: suppliers.id,
+        name: suppliers.name,
+        code: suppliers.code,
+        contactName: suppliers.contactName,
+        email: suppliers.email,
+        phone: suppliers.phone,
+        address: suppliers.address,
+        paymentTerms: suppliers.paymentTerms,
+        notes: suppliers.notes,
+        deletedAt: suppliers.deletedAt,
+        createdAt: suppliers.createdAt,
+        updatedAt: suppliers.updatedAt,
+      })
+      .from(suppliers)
+      .where(and(...conditions));
+
+    return supplier ?? null;
+  });
+}
+
+export async function createSupplier(data: InsertSupplier) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [supplier] = await tx
+      .insert(suppliers)
+      .values({
+        organizationId: orgId,
+        ...data,
+      })
+      .returning({ id: suppliers.id });
+
+    return supplier;
+  });
+}
+
+export async function updateSupplier(id: string, data: UpdateSupplier) {
+  return withAuthedOrgContext(async (tx) => {
+    const [supplier] = await tx
+      .update(suppliers)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)))
+      .returning({ id: suppliers.id });
+
+    return supplier ?? null;
+  });
+}
+
+export async function deleteSupplier(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const supplierIds = await ensureSuppliersDeletableInTx(tx, [id]);
+    const [supplier] = await softDeleteSuppliersInTx(tx, supplierIds);
+    return { deleted: supplier != null };
+  });
+}
+
+export async function deleteSuppliers(ids: string[]) {
+  return withAuthedOrgContext(async (tx) => {
+    const supplierIds = await ensureSuppliersDeletableInTx(tx, ids);
+    const deletedSuppliers = await softDeleteSuppliersInTx(tx, supplierIds);
+    return { deletedCount: deletedSuppliers.length };
+  });
+}
+
+export async function getPurchaseOrderMaterialOptions(): Promise<
+  PurchaseOrderMaterialOption[]
+> {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: items.id,
+        name: items.name,
+        sku: items.sku,
+        unitName: unitDefinitions.name,
+        defaultPurchasePrice: items.defaultPurchasePrice,
+      })
+      .from(items)
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(eq(items.itemType, "material"), isNull(items.deletedAt)))
+      .orderBy(asc(items.name));
+  });
+}
+
+export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const orderRows = await tx
+      .select({
+        id: purchaseOrders.id,
+        orderNumber: purchaseOrders.orderNumber,
+        supplierName: purchaseOrders.supplierName,
+        status: purchaseOrders.status,
+        expectedDate: purchaseOrders.expectedDate,
+        totalAmount: purchaseOrders.totalAmount,
+        deletedAt: purchaseOrders.deletedAt,
+        createdAt: purchaseOrders.createdAt,
+        updatedAt: purchaseOrders.updatedAt,
+        receivedAt: purchaseOrders.receivedAt,
+      })
+      .from(purchaseOrders)
+      .where(isNull(purchaseOrders.deletedAt))
+      .orderBy(desc(purchaseOrders.createdAt));
+
+    if (orderRows.length === 0) {
+      return [];
+    }
+
+    const orderIds = orderRows.map((order) => order.id);
+    const lines = await tx
+      .select({
+        purchaseOrderId: purchaseOrderLines.purchaseOrderId,
+        itemName: purchaseOrderLines.itemName,
+        sortOrder: purchaseOrderLines.sortOrder,
+      })
+      .from(purchaseOrderLines)
+      .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
+      .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
+
+    const linesByOrderId = new Map<string, Array<{ itemName: string }>>();
+    lines.forEach((line) => {
+      const bucket = linesByOrderId.get(line.purchaseOrderId) ?? [];
+      bucket.push({ itemName: line.itemName });
+      linesByOrderId.set(line.purchaseOrderId, bucket);
+    });
+
+    return orderRows.map((order) => ({
+      ...order,
+      status: order.status as PurchaseOrderStatus,
+      itemSummary: summarizeItems(linesByOrderId.get(order.id) ?? []),
+    }));
+  });
+}
+
+export async function getPurchaseOrder(
+  id: string,
+  options?: { includeDeleted?: boolean }
+): Promise<PurchaseOrderDetail | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const conditions = [eq(purchaseOrders.id, id)];
+
+    if (!options?.includeDeleted) {
+      conditions.push(isNull(purchaseOrders.deletedAt));
+    }
+
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        supplierId: purchaseOrders.supplierId,
+        supplierName: purchaseOrders.supplierName,
+        orderNumber: purchaseOrders.orderNumber,
+        status: purchaseOrders.status,
+        expectedDate: purchaseOrders.expectedDate,
+        notes: purchaseOrders.notes,
+        totalAmount: purchaseOrders.totalAmount,
+        orderedAt: purchaseOrders.orderedAt,
+        receivedAt: purchaseOrders.receivedAt,
+        cancelledAt: purchaseOrders.cancelledAt,
+        deletedAt: purchaseOrders.deletedAt,
+        createdAt: purchaseOrders.createdAt,
+        updatedAt: purchaseOrders.updatedAt,
+      })
+      .from(purchaseOrders)
+      .where(and(...conditions));
+
+    if (!order) {
+      return null;
+    }
+
+    const lines = await getPurchaseOrderLinesInTx(tx, id);
+
+    return {
+      ...order,
+      status: order.status as PurchaseOrderStatus,
+      lines: lines.map((line) => ({
+        ...line,
+        quantityRemaining: normalizeQuantityString(
+          parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
+        ),
+      })) as PurchaseOrderDetailLine[],
+    };
+  });
+}
+
+export async function getEditablePurchaseOrder(
+  id: string
+): Promise<PurchaseOrderEditData | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        supplierId: purchaseOrders.supplierId,
+        status: purchaseOrders.status,
+        expectedDate: purchaseOrders.expectedDate,
+        notes: purchaseOrders.notes,
+      })
+      .from(purchaseOrders)
+      .where(
+        and(
+          eq(purchaseOrders.id, id),
+          isNull(purchaseOrders.deletedAt),
+          eq(purchaseOrders.status, "draft")
+        )
+      );
+
+    if (!order) {
+      return null;
+    }
+
+    const lines = await getPurchaseOrderLinesInTx(tx, id);
+
+    return {
+      ...order,
+      status: "draft",
+      lines: lines.map((line) => ({
+        itemId: line.itemId,
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+      })),
+    };
+  });
+}
+
+export async function createPurchaseOrder(data: InsertPurchaseOrder) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const prepared = await preparePurchaseOrderPayload(tx, data);
+    const orderNumber = await generateOrderNumber(tx);
+
+    const [order] = await tx
+      .insert(purchaseOrders)
+      .values({
+        organizationId: orgId,
+        orderNumber,
+        supplierId: prepared.supplierId,
+        supplierName: prepared.supplierName,
+        status: "draft",
+        expectedDate: prepared.expectedDate,
+        notes: prepared.notes,
+        totalAmount: prepared.totalAmount,
+      })
+      .returning({ id: purchaseOrders.id });
+
+    await tx.insert(purchaseOrderLines).values(
+      prepared.preparedLines.map((line) => ({
+        purchaseOrderId: order.id,
+        ...line,
+      }))
+    );
+
+    return order;
+  });
+}
+
+export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+
+    if (!order) {
+      return null;
+    }
+
+    if (order.status !== "draft") {
+      throw new PurchasingError("Only draft purchase orders can be edited.", 400);
+    }
+
+    const prepared = await preparePurchaseOrderPayload(tx, data);
+
+    await tx
+      .delete(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, id));
+
+    await tx.insert(purchaseOrderLines).values(
+      prepared.preparedLines.map((line) => ({
+        purchaseOrderId: id,
+        ...line,
+      }))
+    );
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        supplierId: prepared.supplierId,
+        supplierName: prepared.supplierName,
+        expectedDate: prepared.expectedDate,
+        notes: prepared.notes,
+        totalAmount: prepared.totalAmount,
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    return { id };
+  });
+}
+
+export async function submitPurchaseOrder(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+
+    if (!order) {
+      return null;
+    }
+
+    if (order.status !== "draft") {
+      throw new PurchasingError("Only draft purchase orders can be submitted.", 400);
+    }
+
+    const lines = await getPurchaseOrderLinesInTx(tx, id);
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        status: "ordered",
+        orderedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    await recomputeExpectedQty(
+      tx,
+      lines.map((line) => line.itemId)
+    );
+
+    return { id };
+  });
+}
+
+export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrder) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    // Lock the PO row first to prevent concurrent receipts from
+    // reading stale quantityReceived values on the lines.
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)))
+      .for("update");
+
+    if (!order) {
+      return null;
+    }
+
+    if (!["ordered", "partial"].includes(order.status)) {
+      throw new PurchasingError(
+        "Only ordered or partially received purchase orders can be received.",
+        400
+      );
+    }
+
+    const existingLines = await getPurchaseOrderLinesInTx(tx, id);
+    const lineMap = new Map(existingLines.map((line) => [line.id, line]));
+    const seenLineIds = new Set<string>();
+
+    const receiveEntries = data.lines.map((line, index) => {
+      if (seenLineIds.has(line.lineId)) {
+        throw new PurchasingError("Duplicate receipt line", 400, {
+          errors: {
+            [`lines.${index}.quantityReceived`]: [
+              "Each line can only be received once per submission",
+            ],
+          },
+        });
+      }
+      seenLineIds.add(line.lineId);
+
+      const existingLine = lineMap.get(line.lineId);
+
+      if (!existingLine) {
+        throw new PurchasingError("Purchase order line not found", 404, {
+          errors: {
+            [`lines.${index}.quantityReceived`]: ["Select a valid purchase order line"],
+          },
+        });
+      }
+
+      const quantityReceived = Number(line.quantityReceived);
+      const remaining =
+        parseFloat(existingLine.quantityOrdered) -
+        parseFloat(existingLine.quantityReceived);
+
+      if (quantityReceived > remaining) {
+        throw new PurchasingError("Cannot receive more than remaining quantity.", 400, {
+          errors: {
+            [`lines.${index}.quantityReceived`]: [
+              `Must be ${normalizeQuantityString(remaining)} or less`,
+            ],
+          },
+        });
+      }
+
+      return {
+        line: existingLine,
+        quantityReceived,
+      };
+    });
+
+    await getValidatedMaterialsInTx(
+      tx,
+      receiveEntries.map((entry) => entry.line.itemId)
+    );
+
+    await lockItemsInTx(
+      tx,
+      existingLines.map((line) => line.itemId)
+    );
+
+    const updatedLines = new Map(
+      existingLines.map((line) => [line.id, { ...line }])
+    );
+
+    for (const entry of receiveEntries) {
+      const currentLine = updatedLines.get(entry.line.id);
+
+      if (!currentLine) {
+        continue;
+      }
+
+      await createPositiveLotAndMovementInTx(tx, {
+        orgId,
+        itemId: currentLine.itemId,
+        quantity: entry.quantityReceived,
+        userId,
+        costPerUnit: currentLine.unitCost,
+        movementType: "purchase_received",
+        referenceType: "purchase_order",
+        referenceId: id,
+      });
+
+      const newQuantityReceived =
+        parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
+
+      const normalizedReceived = normalizeQuantityString(newQuantityReceived);
+
+      await tx
+        .update(purchaseOrderLines)
+        .set({
+          quantityReceived: normalizedReceived,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseOrderLines.id, currentLine.id));
+
+      updatedLines.set(currentLine.id, {
+        ...currentLine,
+        quantityReceived: normalizedReceived,
+        updatedAt: new Date(),
+      });
+    }
+
+    const allReceived = [...updatedLines.values()].every(
+      (line) => parseFloat(line.quantityReceived) >= parseFloat(line.quantityOrdered)
+    );
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        status: allReceived ? "received" : "partial",
+        receivedAt: allReceived ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    await recomputeExpectedQty(
+      tx,
+      existingLines.map((line) => line.itemId)
+    );
+
+    return { id };
+  });
+}
+
+export async function cancelPurchaseOrder(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+
+    if (!order) {
+      return null;
+    }
+
+    if (!["ordered", "partial"].includes(order.status)) {
+      throw new PurchasingError(
+        "Only ordered or partially received purchase orders can be cancelled.",
+        400
+      );
+    }
+
+    const lines = await getPurchaseOrderLinesInTx(tx, id);
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        status: "cancelled",
+        cancelledAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    await recomputeExpectedQty(
+      tx,
+      lines.map((line) => line.itemId)
+    );
+
+    return { id };
+  });
+}
+
+export async function deletePurchaseOrder(
+  id: string
+): Promise<{ deleted: boolean; error?: string }> {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+
+    if (!order) {
+      return { deleted: false };
+    }
+
+    if (["ordered", "partial"].includes(order.status)) {
+      return {
+        deleted: false,
+        error:
+          "Ordered or partially received purchase orders must be cancelled or fully received before deleting.",
+      };
+    }
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    return { deleted: true };
+  });
+}
+
+export async function deletePurchaseOrders(
+  ids: string[]
+): Promise<{ deletedCount: number; error?: string }> {
+  return withAuthedOrgContext(async (tx) => {
+    const uniqueIds = [...new Set(ids)];
+
+    const [activeOrder] = await tx
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(
+        and(
+          inArray(purchaseOrders.id, uniqueIds),
+          isNull(purchaseOrders.deletedAt),
+          inArray(purchaseOrders.status, ["ordered", "partial"])
+        )
+      )
+      .limit(1);
+
+    if (activeOrder) {
+      return {
+        deletedCount: 0,
+        error:
+          "Ordered or partially received purchase orders must be cancelled or fully received before deleting.",
+      };
+    }
+
+    const deleted = await tx
+      .update(purchaseOrders)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(inArray(purchaseOrders.id, uniqueIds), isNull(purchaseOrders.deletedAt)))
+      .returning({ id: purchaseOrders.id });
+
+    return { deletedCount: deleted.length };
+  });
+}

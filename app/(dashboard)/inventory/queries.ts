@@ -8,6 +8,8 @@ import {
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  purchaseOrderLines,
+  purchaseOrders,
   salesOrderLines,
   salesOrders,
   stockMovements,
@@ -92,6 +94,7 @@ export async function deleteItem(
   usedInBom?: boolean;
   usedInActiveOrders?: boolean;
   usedInActiveManufacturing?: boolean;
+  usedInActivePurchasing?: boolean;
 }> {
   return withAuthedOrgContext(async (tx) => {
     // Check BOM usage inside the same transaction to avoid race conditions
@@ -144,6 +147,26 @@ export async function deleteItem(
 
     if (activeManufacturingRef) {
       return { deleted: false, usedInActiveManufacturing: true };
+    }
+
+    const [activePurchasingRef] = await tx
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .innerJoin(
+        purchaseOrderLines,
+        eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id)
+      )
+      .where(
+        and(
+          eq(purchaseOrderLines.itemId, id),
+          isNull(purchaseOrders.deletedAt),
+          inArray(purchaseOrders.status, ["draft", "ordered", "partial"])
+        )
+      )
+      .limit(1);
+
+    if (activePurchasingRef) {
+      return { deleted: false, usedInActivePurchasing: true };
     }
 
     const [row] = await tx
@@ -225,6 +248,30 @@ export async function deleteItems(
         deletedCount: 0,
         error:
           "Cannot delete: one or more items are used by draft or released manufacturing orders.",
+      };
+    }
+
+    const [activePurchasingRef] = await tx
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .innerJoin(
+        purchaseOrderLines,
+        eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id)
+      )
+      .where(
+        and(
+          inArray(purchaseOrderLines.itemId, uniqueIds),
+          isNull(purchaseOrders.deletedAt),
+          inArray(purchaseOrders.status, ["draft", "ordered", "partial"])
+        )
+      )
+      .limit(1);
+
+    if (activePurchasingRef) {
+      return {
+        deletedCount: 0,
+        error:
+          "Cannot delete: one or more items are used by draft, ordered, or partially received purchase orders.",
       };
     }
 

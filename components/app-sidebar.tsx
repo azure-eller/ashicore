@@ -19,6 +19,7 @@ import {
   PackageIcon,
   LayoutBottomIcon,
   Notification03Icon,
+  Store04Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
@@ -90,6 +91,24 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
         {
           title: "Orders",
           url: "/manufacturing/orders",
+        },
+      ],
+    },
+    {
+      title: "Purchasing",
+      url: "/purchasing",
+      icon: (
+        <HugeiconsIcon icon={Store04Icon} strokeWidth={2} />
+      ),
+      isActive: true,
+      items: [
+        {
+          title: "Orders",
+          url: "/purchasing/orders",
+        },
+        {
+          title: "Suppliers",
+          url: "/purchasing/suppliers",
         },
       ],
     },

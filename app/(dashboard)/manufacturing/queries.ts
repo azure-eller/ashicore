@@ -21,6 +21,7 @@ import {
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import { recomputeExpectedQty } from "@/lib/inventory/expected";
 import {
   applyStockDeltaInTx,
   createPositiveLotAndMovementInTx,
@@ -156,39 +157,6 @@ export class ManufacturingError extends Error {
         : { error: this.message };
 
     return NextResponse.json(body, { status: this.status });
-  }
-}
-
-async function recomputeExpectedQty(tx: Tx, itemIds: string[]) {
-  const uniqueItemIds = [...new Set(itemIds)].sort();
-
-  if (uniqueItemIds.length === 0) {
-    return;
-  }
-
-  await lockItemsInTx(tx, uniqueItemIds);
-
-  for (const itemId of uniqueItemIds) {
-    const [row] = await tx
-      .select({
-        total: sql<string>`COALESCE(SUM(${manufacturingOrders.plannedQuantity}), 0)`,
-      })
-      .from(manufacturingOrders)
-      .where(
-        and(
-          eq(manufacturingOrders.productId, itemId),
-          isNull(manufacturingOrders.deletedAt),
-          eq(manufacturingOrders.status, "released")
-        )
-      );
-
-    await tx
-      .update(items)
-      .set({
-        expectedQty: row?.total ?? "0",
-        updatedAt: new Date(),
-      })
-      .where(eq(items.id, itemId));
   }
 }
 

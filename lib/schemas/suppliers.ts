@@ -1,0 +1,43 @@
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+import { suppliers } from "@/lib/db/schema";
+import { nullableString } from "./shared";
+
+const nullableEmail = nullableString.refine(
+  (value) => value == null || z.string().email().safeParse(value).success,
+  "Email must be a valid email address"
+);
+
+const baseSupplierSchema = createInsertSchema(suppliers, {
+  name: z.string().trim().min(1, "Name is required"),
+  code: nullableString,
+  contactName: nullableString,
+  email: nullableEmail,
+  phone: nullableString,
+  address: nullableString,
+  paymentTerms: nullableString,
+  notes: nullableString,
+}).omit({
+  id: true,
+  organizationId: true,
+  deletedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSupplierSchema = baseSupplierSchema;
+export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
+
+export const updateSupplierSchema = baseSupplierSchema;
+export type UpdateSupplier = z.infer<typeof updateSupplierSchema>;
+
+export const supplierDefaultValues: InsertSupplier = {
+  name: "",
+  code: null,
+  contactName: null,
+  email: null,
+  phone: null,
+  address: null,
+  paymentTerms: null,
+  notes: null,
+};

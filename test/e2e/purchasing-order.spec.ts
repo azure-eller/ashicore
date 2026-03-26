@@ -1,0 +1,366 @@
+import fs from "node:fs";
+import { and, asc, eq } from "drizzle-orm";
+import { test, expect } from "./fixtures";
+import {
+  items,
+  lots,
+  purchaseOrderLines,
+  purchaseOrders,
+  stockMovements,
+  suppliers as purchasingSuppliers,
+} from "../../lib/db/schema";
+import {
+  createItem,
+  deleteItem,
+  getUnitId,
+  testFetch,
+} from "../helpers/api";
+
+const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
+const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
+
+function parseCookie(raw: string) {
+  const [name, ...rest] = raw.split("=");
+  return { name, value: rest.join("=") };
+}
+
+function getIdFromUrl(url: string) {
+  const id = url.split("/").at(-1);
+  if (!id) {
+    throw new Error(`Could not parse id from URL: ${url}`);
+  }
+  return id;
+}
+
+test.beforeEach(async ({ context }) => {
+  const { name, value } = parseCookie(SESSION_COOKIE);
+  await context.addCookies([{ name, value, domain: "localhost", path: "/" }]);
+});
+
+test.describe("Purchasing flow", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const barkName = `Purchasing Bark ${ts}`;
+  const sandName = `Purchasing Sand ${ts}`;
+  const supplierName = `Mesa Supply ${ts}`;
+
+  let barkId: string;
+  let sandId: string;
+  let supplierId: string;
+  let purchaseOrderId: string;
+  let purchaseOrderNumber: string;
+
+  test("creates material fixtures for purchasing", async ({ db }) => {
+    expect(unitId).toBeTruthy();
+
+    const barkCreate = await createItem({
+      name: barkName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `PO-BARK-${ts}`,
+      category: `Purchasing ${ts}`,
+      description: "Primary purchasing test material",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(barkCreate.status).toBe(201);
+    barkId = barkCreate.body.id;
+
+    const sandCreate = await createItem({
+      name: sandName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `PO-SAND-${ts}`,
+      category: `Purchasing ${ts}`,
+      description: "Secondary purchasing test material",
+      defaultPurchasePrice: "1.50",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(sandCreate.status).toBe(201);
+    sandId = sandCreate.body.id;
+
+    const rows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.category, `Purchasing ${ts}`), eq(items.itemType, "material")));
+
+    expect(rows).toHaveLength(2);
+  });
+
+  test("creates a supplier with all fields", async ({ page, db }) => {
+    await page.goto("/purchasing/suppliers/new");
+    await expect(page.getByText("Add Supplier")).toBeVisible();
+
+    await page.locator("#name").pressSequentially(supplierName, { delay: 20 });
+    await page.locator("#code").pressSequentially(`SUP-${ts}`, { delay: 20 });
+    await page.locator("#contactName").pressSequentially("Jordan Mesa", { delay: 20 });
+    await page.locator("#paymentTerms").pressSequentially("Net 15", { delay: 20 });
+    await page.locator("#email").pressSequentially(`purchasing-${ts}@example.com`, {
+      delay: 20,
+    });
+    await page.locator("#phone").pressSequentially("555-0215", { delay: 20 });
+    await page.locator("#address").pressSequentially("88 Supply Road", { delay: 20 });
+    await page.locator("#notes").pressSequentially("Primary mulch and sand vendor", {
+      delay: 20,
+    });
+
+    await page.getByRole("button", { name: "Create Supplier" }).click();
+    await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
+    supplierId = getIdFromUrl(page.url());
+
+    const [supplier] = await db
+      .select()
+      .from(purchasingSuppliers)
+      .where(eq(purchasingSuppliers.id, supplierId));
+
+    expect(supplier.name).toBe(supplierName);
+    expect(supplier.code).toBe(`SUP-${ts}`);
+    expect(supplier.contactName).toBe("Jordan Mesa");
+    expect(supplier.paymentTerms).toBe("Net 15");
+    expect(supplier.deletedAt).toBeNull();
+  });
+
+  test("creates a draft purchase order", async ({ page, db }) => {
+    await page.goto("/purchasing/orders/new");
+    await expect(page.getByText("Add Purchase Order")).toBeVisible();
+
+    const supplierInput = page.getByPlaceholder("Search suppliers...");
+    await supplierInput.click();
+    await supplierInput.fill(supplierName);
+    await page.getByRole("option", { name: new RegExp(supplierName) }).click();
+
+    await page.locator("#expectedDate").fill("2026-05-01");
+    await page.locator("#notes").fill("Rush first load, standard second load.");
+
+    const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
+    await firstMaterialInput.click();
+    await firstMaterialInput.fill(barkName);
+    await page.getByRole("option", { name: new RegExp(barkName) }).click();
+    await page.getByPlaceholder("0").first().fill("10");
+
+    await page.getByRole("button", { name: "Add Material" }).click();
+
+    const secondRow = page.locator("tbody tr").nth(1);
+    const secondMaterialInput = secondRow.getByPlaceholder("Search materials...");
+    await secondMaterialInput.click();
+    await secondMaterialInput.fill(sandName);
+    await page.getByRole("option", { name: new RegExp(sandName) }).click();
+    await secondRow.getByPlaceholder("0").fill("5");
+
+    await page.getByRole("button", { name: "Create Order" }).click();
+    await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
+    purchaseOrderId = getIdFromUrl(page.url());
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+
+    purchaseOrderNumber = order.orderNumber;
+
+    expect(order.status).toBe("draft");
+    expect(order.supplierName).toBe(supplierName);
+    expect(order.expectedDate).toBe("2026-05-01");
+    expect(order.totalAmount).toBe("27.5000");
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0].itemId).toBe(barkId);
+    expect(lines[0].quantityOrdered).toBe("10");
+    expect(lines[0].quantityReceived).toBe("0.0000");
+    expect(lines[0].unitCost).toBe("2.0000");
+    expect(lines[1].itemId).toBe(sandId);
+    expect(lines[1].quantityOrdered).toBe("5");
+    expect(lines[1].unitCost).toBe("1.5000");
+  });
+
+  test("edits the draft purchase order", async ({ page, db }) => {
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.getByRole("link", { name: "Edit" }).click();
+    await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
+
+    await page.locator("#expectedDate").fill("2026-05-03");
+    await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
+
+    const secondRow = page.locator("tbody tr").nth(1);
+    await secondRow.getByPlaceholder("0").fill("6");
+
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+
+    expect(order.expectedDate).toBe("2026-05-03");
+    expect(order.totalAmount).toBe("29.0000");
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+
+    expect(lines).toHaveLength(2);
+    expect(lines[1].quantityOrdered).toBe("6");
+  });
+
+  test("submits the purchase order and blocks active deletes", async ({ page, db }) => {
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await expect(page.getByRole("heading", { name: purchaseOrderNumber })).toBeVisible();
+
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page.getByText("Ordered")).toBeVisible();
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+
+    expect(order.status).toBe("ordered");
+    expect(order.orderedAt).not.toBeNull();
+
+    const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
+    const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
+
+    expect(barkItem.expectedQty).toBe("10");
+    expect(sandItem.expectedQty).toBe("6");
+
+    const supplierDelete = await testFetch(`/api/suppliers/${supplierId}`, {
+      method: "DELETE",
+    });
+    const supplierBody = await supplierDelete.json().catch(() => null);
+
+    expect(supplierDelete.status).toBe(400);
+    expect(supplierBody?.error).toContain("purchase orders");
+
+    const barkDelete = await deleteItem(barkId);
+    expect(barkDelete.status).toBe(400);
+    expect(barkDelete.body?.error).toContain("purchase orders");
+  });
+
+  test("partially receives the purchase order", async ({ page, db }) => {
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.getByRole("button", { name: "Receive" }).click();
+
+    const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
+    await expect(receiveDialog).toBeVisible();
+
+    await receiveDialog.getByPlaceholder("0").first().fill("4");
+    await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
+    await expect(receiveDialog).not.toBeVisible();
+    await expect(page.getByText("Partially Received")).toBeVisible();
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+    expect(order.status).toBe("partial");
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+
+    expect(lines[0].quantityReceived).toBe("4");
+    expect(lines[1].quantityReceived).toBe("0.0000");
+
+    const barkLots = await db.select().from(lots).where(eq(lots.itemId, barkId));
+    expect(barkLots).toHaveLength(1);
+    expect(barkLots[0].quantity).toBe("4");
+    expect(barkLots[0].costPerUnit).toBe("2.0000");
+
+    const barkMovements = await db
+      .select()
+      .from(stockMovements)
+      .where(
+        and(
+          eq(stockMovements.itemId, barkId),
+          eq(stockMovements.referenceId, purchaseOrderId),
+          eq(stockMovements.movementType, "purchase_received")
+        )
+      );
+
+    expect(barkMovements).toHaveLength(1);
+    expect(barkMovements[0].referenceType).toBe("purchase_order");
+
+    const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
+    const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
+
+    expect(barkItem.expectedQty).toBe("6");
+    expect(sandItem.expectedQty).toBe("6");
+  });
+
+  test("fully receives the remaining quantities", async ({ page, db }) => {
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.getByRole("button", { name: "Receive" }).click();
+
+    const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
+    await expect(receiveDialog).toBeVisible();
+
+    await receiveDialog.getByPlaceholder("0").first().fill("6");
+    await receiveDialog.getByPlaceholder("0").nth(1).fill("6");
+    await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
+    await expect(receiveDialog).not.toBeVisible();
+    await expect(page.getByText("Received")).toBeVisible();
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+
+    expect(order.status).toBe("received");
+    expect(order.receivedAt).not.toBeNull();
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+
+    expect(lines[0].quantityReceived).toBe("10");
+    expect(lines[1].quantityReceived).toBe("6");
+
+    const barkLots = await db.select().from(lots).where(eq(lots.itemId, barkId));
+    const sandLots = await db.select().from(lots).where(eq(lots.itemId, sandId));
+
+    expect(barkLots).toHaveLength(2);
+    expect(sandLots).toHaveLength(1);
+
+    const receiveMovements = await db
+      .select()
+      .from(stockMovements)
+      .where(
+        and(
+          eq(stockMovements.referenceId, purchaseOrderId),
+          eq(stockMovements.movementType, "purchase_received")
+        )
+      );
+
+    expect(receiveMovements).toHaveLength(3);
+
+    const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
+    const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
+
+    expect(barkItem.expectedQty).toBe("0");
+    expect(sandItem.expectedQty).toBe("0");
+  });
+});

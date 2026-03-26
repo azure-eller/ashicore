@@ -8,10 +8,11 @@ export const STOCK_MOVEMENT_TYPES = [
   "manual_adjustment",
   "manufacturing_consumed",
   "manufacturing_produced",
+  "purchase_received",
 ] as const;
 
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
-export type StockReferenceType = "manufacturing_order" | null;
+export type StockReferenceType = "manufacturing_order" | "purchase_order" | null;
 
 export type FifoAllocation = {
   lotId: string;
@@ -68,6 +69,7 @@ async function getLockedPositiveLotsInTx(tx: Tx, itemId: string) {
     .orderBy(asc(lots.receivedAt), asc(lots.id))
     .for("update");
 }
+
 
 export async function generateLotNumber(tx: Tx): Promise<string> {
   const result = await tx.execute(

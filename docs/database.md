@@ -78,6 +78,8 @@ await tx.select().from(items).where(
 | Master data (items, units, customers, suppliers) | Soft delete: `deletedAt = new Date()` |
 | Line / detail tables (BOM lines) | Hard delete |
 | Sales order lines | Hard delete + replace on draft edits |
+| Purchase order lines | Hard delete + replace on draft edits |
+| Purchase orders | Soft delete on `draft`, `received`, or `cancelled` only |
 | Manufacturing orders | Soft delete on `draft`, `completed`, or `cancelled` only |
 | Manufacturing ingredient rows | Hard delete + replace on draft edits |
 
@@ -166,6 +168,28 @@ await tx
   .where(and(eq(lots.id, lotId), sql`${lots.quantity} >= ${deduct}`))
 ```
 
+## Purchasing
+
+Purchasing uses the same header/line snapshot pattern as sales and manufacturing:
+
+- `purchasing.purchase_orders` stores the order header, supplier snapshot, workflow state, and total
+- `purchasing.purchase_order_lines` stores copied material snapshots plus ordered, received, and cost fields
+- editing a draft purchase order hard-deletes existing lines, then inserts the fresh snapshot set
+
+Status and inventory rules:
+
+- `draft` orders are editable and do not affect inventory aggregates
+- `ordered` and `partial` orders contribute remaining quantity to `items.expectedQty`
+- `received` and `cancelled` orders are terminal historical states
+- receiving creates positive lots and `inventory.stock_movements` rows with `movementType = purchase_received`, `referenceType = purchase_order`, and `referenceId = <po id>`
+
+`items.expectedQty` is shared inbound supply:
+
+- released manufacturing orders contribute finished-product planned quantity
+- ordered and partially received purchase orders contribute material remaining quantity
+- always recompute from the database after submit, receive, cancel, release, complete, or manufacturing cancellation
+- never increment/decrement `expectedQty` directly
+
 ## Numeric Fields
 
 Postgres `numeric` columns are returned as **strings** by the driver (e.g. `"1.5"`, `"0"`). Always parse them:
@@ -232,6 +256,13 @@ pnpm drizzle-kit migrate    # applies pending migrations
 ```
 
 **Never use `drizzle push`** — it bypasses the migration file system and can cause drift.
+
+When a module generates human-readable document numbers with `nextval()` in the DAL, patch the migration SQL to create and grant the backing sequence explicitly. Drizzle does not currently keep these sequence definitions in the schema files we use for sales/manufacturing/purchasing, so the SQL migration is the source of truth.
+
+```sql
+CREATE SEQUENCE "purchasing"."order_number_seq";
+GRANT USAGE, SELECT ON SEQUENCE "purchasing"."order_number_seq" TO app_user;
+```
 
 ## Partial Unique Indexes
 

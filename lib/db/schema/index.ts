@@ -5,4 +5,5 @@ export * from "./stock-movements";
 export * from "./bom";
 export * from "./sales";
 export * from "./manufacturing";
+export * from "./purchasing";
 export * from "./auth";

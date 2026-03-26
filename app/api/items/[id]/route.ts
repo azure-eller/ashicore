@@ -68,6 +68,15 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
       { status: 400 }
     );
   }
+  if (result.usedInActivePurchasing) {
+    return NextResponse.json(
+      {
+        error:
+          "Cannot delete: this material is still used by one or more draft, ordered, or partially received purchase orders.",
+      },
+      { status: 400 }
+    );
+  }
   if (!result.deleted) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
