@@ -92,6 +92,11 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
   const [unitSize, setUnitSize] = useState("");
   const [unitUom, setUnitUom] = useState("");
   const unitSizeInvalid = unitSize.trim() !== "" && !POSITIVE_NUMBER_RE.test(unitSize.trim());
+  const resetUnitForm = () => {
+    setUnitName("");
+    setUnitSize("");
+    setUnitUom("");
+  };
 
   const categoriesSet = useMemo(
     () => new Set(categories.map((c) => c.toLowerCase())),
@@ -196,9 +201,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
       setLocalUnits((prev) => [...prev, newUnit]);
       form.setValue("unitDefinitionId", newUnit.id);
       setIsUnitDialogOpen(false);
-      setUnitName("");
-      setUnitSize("");
-      setUnitUom("");
+      resetUnitForm();
       setUnitError(null);
     },
     onError: (error) => {
@@ -557,9 +560,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
         onOpenChange={(open) => {
           setIsUnitDialogOpen(open);
           if (!open) {
-            setUnitName("");
-            setUnitSize("");
-            setUnitUom("");
+            resetUnitForm();
             setUnitError(null);
           }
         }}

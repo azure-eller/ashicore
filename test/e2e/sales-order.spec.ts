@@ -242,6 +242,7 @@ test.describe("Sales order flow", () => {
     expect(order.status).toBe("draft");
     expect(order.requestedDate).toBe("2026-04-15");
     expect(order.notes).toBe("Full lifecycle test order");
+    expect(order.totalAmount).toBe("113.97");
     expect(order.deletedAt).toBeNull();
 
     const lineRows = await db
@@ -252,7 +253,9 @@ test.describe("Sales order flow", () => {
 
     const lineByItem = new Map(lineRows.map((line) => [line.itemId, line]));
     expect(lineByItem.get(primaryProductId)?.quantity).toBe("3.0000");
+    expect(lineByItem.get(primaryProductId)?.lineTotal).toBe("89.97");
     expect(lineByItem.get(secondaryProductId)?.quantity).toBe("2.0000");
+    expect(lineByItem.get(secondaryProductId)?.lineTotal).toBe("24.00");
 
     const [primaryItem] = await db.select().from(items).where(eq(items.id, primaryProductId));
     const [secondaryItem] = await db.select().from(items).where(eq(items.id, secondaryProductId));
@@ -289,6 +292,7 @@ test.describe("Sales order flow", () => {
     expect(orderRows).toHaveLength(1);
     expect(orderRows[0].status).toBe("draft");
     expect(orderRows[0].notes).toBe("Updated to 5 units");
+    expect(orderRows[0].totalAmount).toBe("173.95");
   });
 
   test("confirms the draft order — handles oversell dialog — and commits stock", async ({ page, db }) => {
