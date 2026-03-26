@@ -25,7 +25,11 @@ test.beforeEach(async ({ context }) => {
 test.describe("Inventory creation flow", () => {
   test.describe.configure({ mode: "serial" });
 
+  // Inventory owns the timestamp — fresh each run, written to the shared file
+  // so sales can find these products later.
   const ts = Date.now();
+  env.TEST_TIMESTAMP = ts;
+  fs.writeFileSync("test/.test-env.json", JSON.stringify(env, null, 2));
 
   let fullMaterialId: string;
   let fullMaterialName: string;
@@ -35,7 +39,10 @@ test.describe("Inventory creation flow", () => {
   let lowStockMaterialName: string;
   let simpleProductId: string;
   let simpleProductName: string;
+  let sellableProductId: string;
   let sellableProductName: string;
+
+  /* ── 1. Material with every field ────────────────────────────── */
 
   test("creates a material with all fields", async ({ page, db }) => {
     fullMaterialName = `Sand ${ts}`;
@@ -51,10 +58,9 @@ test.describe("Inventory creation flow", () => {
     const categoryInput = page.getByPlaceholder("Search or create category...");
     await categoryInput.click();
     await categoryInput.fill(`Aggregates ${ts}`);
-    await page.getByRole("option", { name: new RegExp(`Create "Aggregates ${ts}"`) }).click();
-    await expect(
-      page.getByRole("option", { name: new RegExp(`Create "Aggregates ${ts}"`) })
-    ).not.toBeVisible();
+    // Select the category — may be "Create" if first run, or an existing option on re-runs
+    await page.getByRole("option", { name: new RegExp(`Aggregates ${ts}`) }).first().click();
+    await expect(page.getByRole("listbox")).not.toBeVisible();
 
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option", { name: "+ Create new unit" }).click();
@@ -75,8 +81,15 @@ test.describe("Inventory creation flow", () => {
     await page.getByLabel("Safety Stock").fill("25");
 
     await page.getByRole("button", { name: "Create Material" }).click();
-    await page.waitForURL("**/inventory/materials");
+    await page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/);
 
+    // UI — verify the detail page
+    await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
+    await expect(page.getByText("Fine grain river sand")).toBeVisible();
+    await expect(page.getByText(sku)).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("Invalid");
+
+    // DB
     const rows = await db.select().from(items).where(eq(items.name, fullMaterialName));
     expect(rows).toHaveLength(1);
 
@@ -96,6 +109,44 @@ test.describe("Inventory creation flow", () => {
     expect(lotRows[0].quantity).toBe("200.0000");
   });
 
+  /* ── 1b. Edit the full material ──────────────────────────────── */
+
+  test("edits the full material — verifies pre-population and saves changes", async ({ page, db }) => {
+    await page.goto(`/inventory/materials/${fullMaterialId}`);
+    await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
+    await page.getByRole("link", { name: "Edit" }).click();
+    await expect(page.getByText("Edit Material")).toBeVisible();
+
+    // Verify key fields pre-populated
+    await expect(page.getByLabel("Name")).toHaveValue(fullMaterialName);
+    await expect(page.getByLabel("Description")).toHaveValue("Fine grain river sand");
+    await expect(page.getByLabel("SKU")).toHaveValue(`MAT-SAND-${ts}`);
+    await expect(page.getByLabel("Purchase Price")).toHaveValue("3.5");
+    await expect(page.getByLabel("Selling Price")).toHaveValue("6");
+    await expect(page.getByLabel("Safety Stock")).toHaveValue("25");
+
+    // Make changes
+    await page.getByLabel("Description").fill("Coarse river sand — updated");
+    await page.getByLabel("Safety Stock").fill("30");
+
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(`**/inventory/materials/${fullMaterialId}`);
+
+    // UI — verify detail page reflects the edits
+    await expect(page.getByText("Coarse river sand — updated")).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("Invalid");
+
+    // DB
+    const [updated] = await db.select().from(items).where(eq(items.id, fullMaterialId));
+    expect(updated.description).toBe("Coarse river sand — updated");
+    expect(updated.safetyStock).toBe("30.0000");
+    // Unchanged fields should still be intact
+    expect(updated.sku).toBe(`MAT-SAND-${ts}`);
+    expect(updated.defaultPurchasePrice).toBe("3.5000");
+  });
+
+  /* ── 2. Material with only required fields ───────────────────── */
+
   test("creates a material with only required fields", async ({ page, db }) => {
     minimalMaterialName = `Gravel ${ts}`;
 
@@ -107,8 +158,13 @@ test.describe("Inventory creation flow", () => {
     await page.getByRole("option").first().click();
 
     await page.getByRole("button", { name: "Create Material" }).click();
-    await page.waitForURL("**/inventory/materials");
+    await page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/);
 
+    // UI — verify the detail page
+    await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("Invalid");
+
+    // DB
     const rows = await db.select().from(items).where(eq(items.name, minimalMaterialName));
     expect(rows).toHaveLength(1);
 
@@ -141,7 +197,7 @@ test.describe("Inventory creation flow", () => {
     await page.getByLabel("Safety Stock").fill("5");
 
     await page.getByRole("button", { name: "Create Material" }).click();
-    await page.waitForURL("**/inventory/materials");
+    await page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/);
 
     const rows = await db.select().from(items).where(eq(items.name, lowStockMaterialName));
     expect(rows).toHaveLength(1);
@@ -151,6 +207,7 @@ test.describe("Inventory creation flow", () => {
 
     expect(material.safetyStock).toBe("5.0000");
 
+    await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(String(ts));
 
     const calculatedStockHeader = page.getByRole("button", {
@@ -192,6 +249,8 @@ test.describe("Inventory creation flow", () => {
     ).toBeVisible();
   });
 
+  /* ── 3. Product without BOM ──────────────────────────────────── */
+
   test("creates a product with all fields except BOM", async ({ page, db }) => {
     simpleProductName = `Base Mix ${ts}`;
 
@@ -205,10 +264,8 @@ test.describe("Inventory creation flow", () => {
     const categoryInput = page.getByPlaceholder("Search or create category...");
     await categoryInput.click();
     await categoryInput.fill(`Mixes ${ts}`);
-    await page.getByRole("option", { name: new RegExp(`Create "Mixes ${ts}"`) }).click();
-    await expect(
-      page.getByRole("option", { name: new RegExp(`Create "Mixes ${ts}"`) })
-    ).not.toBeVisible();
+    await page.getByRole("option", { name: new RegExp(`Mixes ${ts}`) }).first().click();
+    await expect(page.getByRole("listbox")).not.toBeVisible();
 
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option", { name: "+ Create new unit" }).click();
@@ -228,8 +285,15 @@ test.describe("Inventory creation flow", () => {
     await page.getByLabel("Safety Stock").fill("10");
 
     await page.getByRole("button", { name: "Create Product" }).click();
-    await page.waitForURL("**/inventory/products");
+    await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+$/);
 
+    // UI — verify the detail page
+    await expect(page.getByRole("heading", { name: simpleProductName })).toBeVisible();
+    await expect(page.getByText("Simple base product")).toBeVisible();
+    await expect(page.getByText(`PROD-BASE-${ts}`)).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("Invalid");
+
+    // DB
     const rows = await db.select().from(items).where(eq(items.name, simpleProductName));
     expect(rows).toHaveLength(1);
 
@@ -252,6 +316,8 @@ test.describe("Inventory creation flow", () => {
     expect(lotRows[0].quantity).toBe("50.0000");
   });
 
+  /* ── 4. Product with BOM ─────────────────────────────────────── */
+
   test("creates a product with BOM using the materials and product above", async ({ page, db }) => {
     sellableProductName = `Premium Topsoil ${ts}`;
 
@@ -264,15 +330,14 @@ test.describe("Inventory creation flow", () => {
     const categoryInput = page.getByPlaceholder("Search or create category...");
     await categoryInput.click();
     await categoryInput.fill(`Blends ${ts}`);
-    await page.getByRole("option", { name: new RegExp(`Create "Blends ${ts}"`) }).click();
-    await expect(
-      page.getByRole("option", { name: new RegExp(`Create "Blends ${ts}"`) })
-    ).not.toBeVisible();
+    await page.getByRole("option", { name: new RegExp(`Blends ${ts}`) }).first().click();
+    await expect(page.getByRole("listbox")).not.toBeVisible();
 
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option").first().click();
     await page.getByLabel("Selling Price").fill("29.99");
 
+    // BOM row 1 — Sand
     await page.getByText("+ Add Ingredient").click();
     let row = page.locator("tbody tr").last();
     await row.getByPlaceholder("Search items...").click();
@@ -281,6 +346,7 @@ test.describe("Inventory creation flow", () => {
     await row.locator("input[inputmode='decimal']").fill("4.5");
     await page.getByText("Recipe / Bill of Materials").click();
 
+    // BOM row 2 — Gravel
     await page.getByText("+ Add Ingredient").click();
     row = page.locator("tbody tr").last();
     await row.getByPlaceholder("Search items...").click();
@@ -289,6 +355,7 @@ test.describe("Inventory creation flow", () => {
     await row.locator("input[inputmode='decimal']").fill("3");
     await page.getByText("Recipe / Bill of Materials").click();
 
+    // BOM row 3 — Base Mix
     await page.getByText("+ Add Ingredient").click();
     row = page.locator("tbody tr").last();
     await row.getByPlaceholder("Search items...").click();
@@ -297,12 +364,23 @@ test.describe("Inventory creation flow", () => {
     await row.locator("input[inputmode='decimal']").fill("2");
 
     await page.getByRole("button", { name: "Create Product" }).click();
-    await page.waitForURL("**/inventory/products");
+    await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+$/);
 
+    // UI — verify the detail page and BOM table
+    await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
+    const bomTable = page.locator("table").first();
+    await expect(bomTable).toContainText(fullMaterialName);
+    await expect(bomTable).toContainText(minimalMaterialName);
+    await expect(bomTable).toContainText(simpleProductName);
+    await expect(page.locator("body")).not.toContainText("Invalid");
+
+    // DB
     const rows = await db.select().from(items).where(eq(items.name, sellableProductName));
     expect(rows).toHaveLength(1);
 
     const product = rows[0];
+    sellableProductId = product.id;
+
     expect(product.itemType).toBe("product");
     expect(product.category).toBe(`Blends ${ts}`);
     expect(product.defaultSellingPrice).toBe("29.99");
@@ -314,16 +392,52 @@ test.describe("Inventory creation flow", () => {
 
     expect(bomRows).toHaveLength(3);
 
-    const bomByComponent = new Map(bomRows.map((row) => [row.componentId, row.quantity]));
+    const bomByComponent = new Map(bomRows.map((r) => [r.componentId, r.quantity]));
     expect(bomByComponent.get(fullMaterialId)).toBe("4.5000");
     expect(bomByComponent.get(minimalMaterialId)).toBe("3.0000");
     expect(bomByComponent.get(simpleProductId)).toBe("2.0000");
+  });
 
-    await page.goto(`/inventory/products/${product.id}`);
+  /* ── 4b. Edit the BOM product ────────────────────────────────── */
+
+  test("edits the BOM product — verifies pre-population, changes a quantity, adds a note", async ({ page, db }) => {
+    await page.goto(`/inventory/products/${sellableProductId}`);
     await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
-    const bomTable = page.locator("table").first();
-    await expect(bomTable).toContainText(fullMaterialName);
-    await expect(bomTable).toContainText(minimalMaterialName);
-    await expect(bomTable).toContainText(simpleProductName);
+    await page.getByRole("link", { name: "Edit" }).click();
+    await expect(page.getByText("Edit Product")).toBeVisible();
+
+    // Verify key fields pre-populated
+    await expect(page.getByLabel("Name")).toHaveValue(sellableProductName);
+    await expect(page.getByLabel("Description")).toHaveValue("Premium blend using all previous items");
+    await expect(page.getByLabel("Selling Price")).toHaveValue("29.99");
+
+    // Verify BOM rows are pre-populated (3 rows in the table)
+    const bomRows = page.locator("tbody tr");
+    await expect(bomRows).toHaveCount(3);
+
+    // Change the selling price
+    await page.getByLabel("Selling Price").fill("34.99");
+
+    // Update description
+    await page.getByLabel("Description").fill("Premium blend — updated recipe");
+
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(`**/inventory/products/${sellableProductId}`);
+
+    // UI — verify detail page reflects the edits
+    await expect(page.getByText("Premium blend — updated recipe")).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("Invalid");
+
+    // DB
+    const [updated] = await db.select().from(items).where(eq(items.id, sellableProductId));
+    expect(updated.description).toBe("Premium blend — updated recipe");
+    expect(updated.defaultSellingPrice).toBe("34.99");
+
+    // BOM should still have 3 ingredients
+    const bom = await db
+      .select()
+      .from(bomComponents)
+      .where(eq(bomComponents.itemId, sellableProductId));
+    expect(bom).toHaveLength(3);
   });
 });

@@ -131,12 +131,25 @@ export default async function setup() {
   const testUnitId = unitData?.id || "";
 
   const fs = await import("node:fs");
-  const testEnv = {
+
+  // Preserve TEST_TIMESTAMP if it exists — inventory owns it and overwrites on each run.
+  let existingTimestamp: number | undefined;
+  try {
+    const prev = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
+    existingTimestamp = prev.TEST_TIMESTAMP;
+  } catch {
+    // First run — no file yet
+  }
+
+  const testEnv: Record<string, unknown> = {
     TEST_SESSION_COOKIE: cookies,
     TEST_ORG_ID: testOrg.id,
     TEST_UNIT_ID: testUnitId || "",
     TEST_BASE_URL: BASE_URL,
   };
+  if (existingTimestamp != null) {
+    testEnv.TEST_TIMESTAMP = existingTimestamp;
+  }
   fs.writeFileSync(
     "test/.test-env.json",
     JSON.stringify(testEnv, null, 2)

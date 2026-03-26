@@ -167,9 +167,9 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
       }
       return res.json();
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
-      router.push(fallbackPath);
+      router.push(isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`);
     },
     onError: (error) => {
       setFormError(error.message);
