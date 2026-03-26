@@ -331,15 +331,29 @@ When multiple agents may be working in the repo:
 
 ## Workflow
 
-Use git worktrees for all feature work. Worktree directory: `.worktrees/`
+Use git worktrees for all feature work. Main stays clean — never commit feature work directly to main.
 
-After exiting plan mode and before making any changes:
-1. Create a worktree: `git worktree add .worktrees/<branch-name> -b <branch-name>`
-2. Work inside the worktree: `cd .worktrees/<branch-name>` and run `pnpm install`
-3. Implement the changes and commit them
-4. Push the branch: `git push -u origin <branch-name>`
-5. Create a PR to merge back into main on GitHub
-6. After merge, clean up: `git worktree remove .worktrees/<branch-name>`
+```bash
+# 1. Create worktree (`.worktrees/` is gitignored)
+git worktree add .worktrees/<branch-name> -b <branch-name>
+
+# 2. Install deps (pnpm uses a shared store — fast, mostly symlinks)
+cd .worktrees/<branch-name> && pnpm install
+
+# 3. Work, commit, push
+git push -u origin <branch-name>
+
+# 4. Open PR via `gh pr create`
+
+# 5. After merge, clean up both worktree and branch
+git worktree remove .worktrees/<branch-name>
+git branch -d <branch-name>
+```
+
+**Rules:**
+- Always `pnpm install` in new worktrees — lockfile resolution differs per working tree
+- Run `pnpm build` and `pnpm test` inside the worktree before pushing
+- Clean up merged worktrees promptly: `git worktree list` to audit
 
 ## Canonical References
 
