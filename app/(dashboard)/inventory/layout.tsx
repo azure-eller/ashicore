@@ -1,10 +1,13 @@
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { InventoryHeader } from "./inventory-header";
 
-export default function InventoryLayout({
+export default async function InventoryLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await requireModuleReadAccess("inventory");
+
   return (
     <>
       <InventoryHeader />

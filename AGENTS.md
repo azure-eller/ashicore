@@ -38,6 +38,7 @@ When you discover a new pattern or gotcha:
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
+| Auth, roles, team invites | `docs/auth-team.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
@@ -245,6 +246,7 @@ If a DAL uses `nextval()` for order/lot numbers, the migration must `CREATE SEQU
 - `{ error: string }` for general errors
 - `{ errors: Record<string, string[]> }` for Zod field-level errors
 - Domain errors (SalesError, ManufacturingError) use `error.toResponse()` in route handlers
+- Guarded API `GET` handlers should also use `apiHandler`, not bare `export async function GET`, so `AuthorizationError` returns JSON instead of a 500
 - Shared `lib/` code should throw typed errors when routes need non-500 handling. Catch them explicitly in route handlers:
 
 ```ts
@@ -254,6 +256,17 @@ if (error instanceof InsufficientStockError) {
 }
 throw error;
 ```
+
+### Roles and module guards
+
+Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access, guard dashboard reads in layouts/pages, and guard API reads/writes in routes.
+
+```ts
+await requireModuleReadAccess("sales")
+await assertModuleWriteAccess("manufacturing", request.headers)
+```
+
+Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` must auto-activate a signed-in user’s only org membership before showing org creation.
 
 ### Detail page tables
 

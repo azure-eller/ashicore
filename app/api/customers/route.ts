@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
 import {
   createCustomer,
@@ -13,12 +14,14 @@ const deleteCustomersSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
 });
 
-export async function GET() {
+export const GET = apiHandler(async (request) => {
+  await assertModuleReadAccess("sales", request.headers);
   const data = await getCustomers();
   return NextResponse.json(data);
-}
+});
 
 export const POST = apiHandler(async (request) => {
+  await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json();
   const data = insertCustomerSchema.parse(body);
   const customer = await createCustomer(data);
@@ -26,6 +29,7 @@ export const POST = apiHandler(async (request) => {
 });
 
 export const DELETE = apiHandler(async (request) => {
+  await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json();
   const data = deleteCustomersSchema.parse(body);
 

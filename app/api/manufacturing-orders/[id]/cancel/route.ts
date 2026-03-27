@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   cancelManufacturingOrder,
   ManufacturingError,
@@ -8,6 +9,7 @@ import {
 type RouteContext = { params: Promise<{ id: string }> };
 
 export const POST = apiHandler(async (_request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("manufacturing", _request.headers);
   const { id } = await (ctx as RouteContext).params;
 
   try {

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { ManufacturingOrderForm } from "@/app/(dashboard)/manufacturing/manufacturing-order-form";
 import {
   getManufacturingOrderEditData,
@@ -10,6 +11,7 @@ export default async function EditManufacturingOrderPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireModuleWriteAccess("manufacturing");
   const { id } = await params;
   const [order, salesLines] = await Promise.all([
     getManufacturingOrderEditData(id),

@@ -21,7 +21,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { UnfoldMoreIcon, CheckmarkBadgeIcon, LogoutIcon } from "@hugeicons/core-free-icons"
+import {
+  UnfoldMoreIcon,
+  CheckmarkBadgeIcon,
+  LogoutIcon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons"
 import { authClient } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
 
@@ -37,12 +42,14 @@ function getInitials(name: string) {
 
 export function NavUser({
   user,
+  canManageTeam,
 }: {
   user: {
     name: string
     email: string
     avatar?: string
   }
+  canManageTeam: boolean
 }) {
   const { isMobile } = useSidebar()
   const router = useRouter()
@@ -74,7 +81,7 @@ export function NavUser({
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg bg-popover text-popover-foreground"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
@@ -97,6 +104,12 @@ export function NavUser({
                 <HugeiconsIcon icon={CheckmarkBadgeIcon} strokeWidth={2} />
                 Account
               </DropdownMenuItem>
+              {canManageTeam && (
+                <DropdownMenuItem onClick={() => router.push("/settings/team")}>
+                  <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
+                  Team
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>

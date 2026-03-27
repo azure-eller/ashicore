@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   deleteManufacturingOrdersSchema,
   insertManufacturingOrderSchema,
@@ -11,12 +12,14 @@ import {
   ManufacturingError,
 } from "@/app/(dashboard)/manufacturing/queries";
 
-export async function GET() {
+export const GET = apiHandler(async (request) => {
+  await assertModuleReadAccess("manufacturing", request.headers);
   const data = await getManufacturingOrders();
   return NextResponse.json(data);
-}
+});
 
 export const DELETE = apiHandler(async (request) => {
+  await assertModuleWriteAccess("manufacturing", request.headers);
   const body = await request.json();
   const data = deleteManufacturingOrdersSchema.parse(body);
   const result = await deleteManufacturingOrders(data.ids);
@@ -29,6 +32,7 @@ export const DELETE = apiHandler(async (request) => {
 });
 
 export const POST = apiHandler(async (request) => {
+  await assertModuleWriteAccess("manufacturing", request.headers);
   const body = await request.json();
   const data = insertManufacturingOrderSchema.parse(body);
 

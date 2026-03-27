@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { InsufficientStockError } from "@/lib/inventory/stock";
 import { completeManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -10,6 +11,7 @@ import {
 type RouteContext = { params: Promise<{ id: string }> };
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("manufacturing", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
   const data = completeManufacturingOrderSchema.parse(body);
