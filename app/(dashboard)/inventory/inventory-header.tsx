@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 const tabs = [
-  { label: "Materials", href: "/inventory/materials" },
   { label: "Products", href: "/inventory/products" },
+  { label: "Materials", href: "/inventory/materials" },
+  { label: "Stocktakes", href: "/inventory/stocktakes" },
 ];
 
 export function InventoryHeader() {

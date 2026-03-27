@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { normalizeNumeric } from "@/lib/format";
 import {
   items,
   manufacturingOrders,
@@ -9,10 +10,6 @@ import {
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockItemsInTx } from "./stock";
-
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
 
 function roundQuantity(value: number) {
   return Math.round(value * 10000) / 10000;
@@ -78,7 +75,7 @@ export async function recomputeExpectedQty(tx: Tx, itemIds: string[]) {
     await tx
       .update(items)
       .set({
-        expectedQty: normalizeQuantityString(expectedByItem.get(itemId) ?? 0),
+        expectedQty: normalizeNumeric(expectedByItem.get(itemId) ?? 0),
         updatedAt: new Date(),
       })
       .where(eq(items.id, itemId));

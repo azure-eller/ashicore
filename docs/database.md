@@ -190,6 +190,32 @@ Status and inventory rules:
 - always recompute from the database after submit, receive, cancel, release, complete, or manufacturing cancellation
 - never increment/decrement `expectedQty` directly
 
+## Stocktakes
+
+Stocktakes are inventory-native snapshot rows:
+
+- `inventory.stocktakes` stores the header, scope, and workflow state
+- `inventory.stocktake_items` stores copied item snapshots plus `expectedQty`, `countedQty`, `varianceQty`, and `appliedDeltaQty`
+
+Workflow rules:
+
+- `draft` stocktakes are editable and block item soft deletes
+- saving counts updates snapshot rows only; it must not mutate live stock
+- completing a stocktake applies deltas from current live stock to counted truth and writes `stocktake_adjustment` movements with `referenceType = stocktake`
+- if current live stock differs from the original snapshot `expectedQty`, completion returns `409` until the caller confirms the stale apply
+- `cancelled` stocktakes keep history and do not mutate stock
+
+Positive stock writes must always have a lot cost:
+
+- purchase receipts use the PO line unit cost
+- manufacturing output uses the computed actual cost per unit
+- manual adjustments and positive stocktake deltas derive cost from the current item:
+  - materials use `defaultPurchasePrice`
+  - products derive cost from active BOM ingredients recursively
+- if no cost basis exists, fail the write instead of creating a null-cost lot
+
+This keeps future FIFO allocations from being consumed at zero cost.
+
 ## Numeric Fields
 
 Postgres `numeric` columns are returned as **strings** by the driver (e.g. `"1.5"`, `"0"`). Always parse them:

@@ -15,7 +15,7 @@ import {
   insertSalesOrderSchema,
   salesOrderDefaultValues,
 } from "@/lib/schemas/sales-orders";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, getFieldArrayError, parsePositive } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,25 +76,11 @@ import type {
   SalesOrderProductOption,
 } from "./types";
 
-function parsePositive(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 function lineTotalLabel(quantity: string | null | undefined, unitPrice: string | null | undefined) {
   const qty = parsePositive(quantity);
   const price = parsePositive(unitPrice);
   if (qty == null || price == null) return "\u2014";
   return formatPrice((qty * price).toFixed(2)) ?? "\u2014";
-}
-
-function buildLinesErrorMessage(linesError: unknown) {
-  if (!linesError || typeof linesError !== "object") return null;
-  if ("message" in linesError && typeof linesError.message === "string") {
-    return linesError.message;
-  }
-  return null;
 }
 
 function TooltipHeader({
@@ -250,7 +236,7 @@ export function OrderForm({
     router.push(fallbackPath);
   };
 
-  const linesError = buildLinesErrorMessage(form.formState.errors.lines);
+  const linesError = getFieldArrayError(form.formState.errors.lines);
 
   return (
     <>

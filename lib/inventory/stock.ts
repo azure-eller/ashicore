@@ -1,7 +1,8 @@
 import "server-only";
 
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { items, lots, stockMovements } from "@/lib/db/schema";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { normalizeNumeric } from "@/lib/format";
+import { bomComponents, items, lots, stockMovements } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const STOCK_MOVEMENT_TYPES = [
@@ -9,10 +10,15 @@ export const STOCK_MOVEMENT_TYPES = [
   "manufacturing_consumed",
   "manufacturing_produced",
   "purchase_received",
+  "stocktake_adjustment",
 ] as const;
 
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
-export type StockReferenceType = "manufacturing_order" | "purchase_order" | null;
+export type StockReferenceType =
+  | "manufacturing_order"
+  | "purchase_order"
+  | "stocktake"
+  | null;
 
 export type FifoAllocation = {
   lotId: string;
@@ -38,6 +44,25 @@ export class InsufficientStockError extends Error {
     this.itemId = params.itemId;
     this.available = params.available;
     this.requested = params.requested;
+  }
+}
+
+export class MissingStockCostError extends Error {
+  itemId: string;
+  itemName: string | null;
+  field: "defaultPurchasePrice" | "stock";
+
+  constructor(params: {
+    itemId: string;
+    itemName: string | null;
+    field: "defaultPurchasePrice" | "stock";
+    message: string;
+  }) {
+    super(params.message);
+    this.name = "MissingStockCostError";
+    this.itemId = params.itemId;
+    this.itemName = params.itemName;
+    this.field = params.field;
   }
 }
 
@@ -68,6 +93,119 @@ async function getLockedPositiveLotsInTx(tx: Tx, itemId: string) {
     .where(and(eq(lots.itemId, itemId), sql`${lots.quantity} > 0`))
     .orderBy(asc(lots.receivedAt), asc(lots.id))
     .for("update");
+}
+
+async function resolvePositiveLotCostInTx(
+  tx: Tx,
+  itemId: string,
+  costPerUnit: string | null | undefined
+): Promise<string> {
+  async function resolveDerivedItemCostInTx(
+    currentItemId: string,
+    visited = new Set<string>()
+  ): Promise<string> {
+    if (visited.has(currentItemId)) {
+      const [cycleItem] = await tx
+        .select({ name: items.name })
+        .from(items)
+        .where(eq(items.id, currentItemId));
+
+      throw new MissingStockCostError({
+        itemId: currentItemId,
+        itemName: cycleItem?.name ?? null,
+        field: "stock",
+        message: cycleItem?.name
+          ? `Cannot add stock for ${cycleItem.name} because its BOM contains a cost cycle.`
+          : "Cannot add stock because the BOM contains a cost cycle.",
+      });
+    }
+
+    const [item] = await tx
+      .select({
+        name: items.name,
+        itemType: items.itemType,
+        defaultPurchasePrice: items.defaultPurchasePrice,
+      })
+      .from(items)
+      .where(eq(items.id, currentItemId));
+
+    if (!item) {
+      throw new MissingStockCostError({
+        itemId: currentItemId,
+        itemName: null,
+        field: "stock",
+        message: "Cannot add stock because the item no longer exists.",
+      });
+    }
+
+    if (item.itemType === "material") {
+      if (item.defaultPurchasePrice != null) {
+        return item.defaultPurchasePrice;
+      }
+
+      throw new MissingStockCostError({
+        itemId: currentItemId,
+        itemName: item.name,
+        field: "defaultPurchasePrice",
+        message: `Cannot add stock for ${item.name} without a default purchase price.`,
+      });
+    }
+
+    const bomRows = await tx
+      .select({
+        componentId: bomComponents.componentId,
+        quantity: bomComponents.quantity,
+      })
+      .from(bomComponents)
+      .innerJoin(items, eq(bomComponents.componentId, items.id))
+      .where(and(eq(bomComponents.itemId, currentItemId), isNull(items.deletedAt)));
+
+    if (bomRows.length === 0) {
+      throw new MissingStockCostError({
+        itemId: currentItemId,
+        itemName: item.name,
+        field: "stock",
+        message: `Cannot add stock for ${item.name} without at least one active BOM ingredient.`,
+      });
+    }
+
+    let totalCost = 0;
+    const nextVisited = new Set(visited);
+    nextVisited.add(currentItemId);
+
+    for (const component of bomRows) {
+      if (component.quantity == null) {
+        throw new MissingStockCostError({
+          itemId: currentItemId,
+          itemName: item.name,
+          field: "stock",
+          message: `Cannot add stock for ${item.name} because one BOM ingredient is missing a quantity.`,
+        });
+      }
+
+      const componentCost = parseFloat(
+        await resolveDerivedItemCostInTx(component.componentId, nextVisited)
+      );
+      totalCost += parseFloat(component.quantity) * componentCost;
+    }
+
+    return normalizeNumeric(totalCost);
+  }
+
+  if (costPerUnit !== undefined) {
+    if (costPerUnit !== null) {
+      return costPerUnit;
+    }
+
+    throw new MissingStockCostError({
+      itemId,
+      itemName: null,
+      field: "defaultPurchasePrice",
+      message: "Cannot add stock without a default purchase price.",
+    });
+  }
+
+  return resolveDerivedItemCostInTx(itemId);
 }
 
 
@@ -127,6 +265,47 @@ export async function createPositiveLotAndMovementInTx(
   }
 ): Promise<{ lotId: string; lotNumber: string }> {
   await lockItemsInTx(tx, [params.itemId]);
+  const costPerUnit = await resolvePositiveLotCostInTx(
+    tx,
+    params.itemId,
+    params.costPerUnit
+  );
+
+  if (costPerUnit == null) {
+    const [item] = await tx
+      .select({
+        name: items.name,
+        itemType: items.itemType,
+        defaultPurchasePrice: items.defaultPurchasePrice,
+      })
+      .from(items)
+      .where(eq(items.id, params.itemId));
+
+    if (!item) {
+      throw new MissingStockCostError({
+        itemId: params.itemId,
+        itemName: null,
+        field: "stock",
+        message: "Cannot add stock because the item no longer exists.",
+      });
+    }
+
+    if (item.itemType === "material" && item.defaultPurchasePrice == null) {
+      throw new MissingStockCostError({
+        itemId: params.itemId,
+        itemName: item.name,
+        field: "defaultPurchasePrice",
+        message: `Cannot add stock for ${item.name} without a default purchase price.`,
+      });
+    }
+
+    throw new MissingStockCostError({
+      itemId: params.itemId,
+      itemName: item.name,
+      field: "stock",
+      message: `Cannot add stock for ${item.name} without a cost basis.`,
+    });
+  }
 
   const lotNumber = await generateLotNumber(tx);
   const [newLot] = await tx
@@ -136,7 +315,7 @@ export async function createPositiveLotAndMovementInTx(
       itemId: params.itemId,
       lotNumber,
       quantity: params.quantity.toString(),
-      costPerUnit: params.costPerUnit ?? null,
+      costPerUnit,
     })
     .returning({ id: lots.id });
 

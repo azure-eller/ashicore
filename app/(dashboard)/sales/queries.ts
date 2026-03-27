@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { normalizeNumeric, normalizeMoney } from "@/lib/format";
 import {
   customers,
   items,
@@ -83,14 +84,6 @@ export class SalesError extends Error {
         : { error: this.message };
     return NextResponse.json(body, { status: this.status });
   }
-}
-
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
-
-function normalizeMoneyString(value: number) {
-  return value.toFixed(2);
 }
 
 function roundQuantity(value: number) {
@@ -283,9 +276,9 @@ async function prepareOrderPayload(
       itemName: product.name,
       itemSku: product.sku,
       unitName: product.unitName,
-      quantity: normalizeQuantityString(quantity),
-      unitPrice: normalizeMoneyString(unitPrice),
-      lineTotal: normalizeMoneyString(lineTotal),
+      quantity: normalizeNumeric(quantity),
+      unitPrice: normalizeMoney(unitPrice),
+      lineTotal: normalizeMoney(lineTotal),
       sortOrder: index,
     };
   });
@@ -300,7 +293,7 @@ async function prepareOrderPayload(
     customerName: customer.name,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
-    totalAmount: normalizeMoneyString(totalAmount),
+    totalAmount: normalizeMoney(totalAmount),
     preparedLines,
     affectedProductIds: preparedLines.map((line) => line.itemId),
     products,
