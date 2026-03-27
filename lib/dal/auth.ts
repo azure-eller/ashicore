@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -61,13 +62,31 @@ async function resolveMemberContext(requestHeaders: HeadersInit) {
   } satisfies MemberContext;
 }
 
+const getRequestAuthState = cache(async () => {
+  const requestHeaders = await headers();
+  const normalizedHeaders =
+    requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
+  const session = await auth.api.getSession({
+    headers: normalizedHeaders,
+  });
+
+  if (!session || !session.session.activeOrganizationId) {
+    return {
+      session,
+      context: null as MemberContext | null,
+    };
+  }
+
+  return {
+    session,
+    context: await resolveMemberContext(normalizedHeaders),
+  };
+});
+
 export async function getAuthedMemberContext(): Promise<MemberContext> {
-  const sessionHeaders = await headers();
-  const context = await resolveMemberContext(sessionHeaders);
+  const { session, context } = await getRequestAuthState();
 
   if (!context) {
-    const session = await auth.api.getSession({ headers: sessionHeaders });
-
     if (!session) {
       redirect("/sign-in");
     }
