@@ -156,7 +156,7 @@ test.describe("Purchasing flow", () => {
     await secondMaterialInput.click();
     await secondMaterialInput.fill(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
-    await secondRow.locator('input[placeholder="0"]').first().fill("5");
+    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
     await page.getByRole("button", { name: "Create Order" }).click();
     await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
@@ -199,7 +199,7 @@ test.describe("Purchasing flow", () => {
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);
-    await secondRow.locator('input[placeholder="0"]').first().fill("6");
+    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("6");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);

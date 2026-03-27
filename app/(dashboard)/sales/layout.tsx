@@ -1,10 +1,13 @@
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { SalesHeader } from "./sales-header";
 
-export default function SalesLayout({
+export default async function SalesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await requireModuleReadAccess("sales");
+
   return (
     <>
       <SalesHeader />

@@ -2,6 +2,11 @@
 
 import * as React from "react"
 
+import {
+  canManageTeam,
+  canReadModule,
+  type AppRole,
+} from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import { LocationSwitcher } from "@/components/location-switcher"
@@ -20,9 +25,21 @@ import {
   LayoutBottomIcon,
   Notification03Icon,
   Store04Icon,
+  Settings02Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
+
+type NavMainItem = {
+  title: string
+  url: string
+  icon?: React.ReactNode
+  isActive?: boolean
+  items?: {
+    title: string
+    url: string
+  }[]
+}
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: {
@@ -30,9 +47,10 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
     email: string
     avatar?: string
   }
+  role: AppRole
 }
 
-export function AppSidebar({ user, ...props }: AppSidebarProps) {
+export function AppSidebar({ user, role, ...props }: AppSidebarProps) {
   const locations = [
     {
       name: "Paonia Soil Co",
@@ -43,8 +61,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
     },
   ]
 
-  const navMain = [
-    {
+  const navMain = ([
+    canReadModule(role, "inventory") ? {
       title: "Inventory",
       url: "/inventory",
       icon: (
@@ -65,8 +83,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           url: "/inventory/stocktakes",
         },
       ],
-    },
-    {
+    } : null,
+    canReadModule(role, "sales") ? {
       title: "Sales",
       url: "/sales",
       icon: (
@@ -83,8 +101,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           url: "/sales/customers",
         },
       ],
-    },
-    {
+    } : null,
+    canReadModule(role, "manufacturing") ? {
       title: "Manufacturing",
       url: "/manufacturing",
       icon: (
@@ -97,8 +115,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           url: "/manufacturing/orders",
         },
       ],
-    },
-    {
+    } : null,
+    canReadModule(role, "purchasing") ? {
       title: "Purchasing",
       url: "/purchasing",
       icon: (
@@ -115,8 +133,22 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           url: "/purchasing/suppliers",
         },
       ],
-    },
-  ]
+    } : null,
+    canManageTeam(role) ? {
+      title: "Settings",
+      url: "/settings",
+      icon: (
+        <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+      ),
+      isActive: true,
+      items: [
+        {
+          title: "Team",
+          url: "/settings/team",
+        },
+      ],
+    } : null,
+  ] as Array<NavMainItem | null>).filter((item): item is NavMainItem => item !== null)
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -138,7 +170,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
         <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={user} />
+        <NavUser user={user} canManageTeam={canManageTeam(role)} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

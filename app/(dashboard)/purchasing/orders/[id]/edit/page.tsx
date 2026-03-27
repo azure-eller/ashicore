@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import {
   getEditablePurchaseOrder,
@@ -11,6 +12,7 @@ export default async function EditPurchaseOrderPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireModuleWriteAccess("purchasing");
   const { id } = await params;
   const [order, supplierRows, materials] = await Promise.all([
     getEditablePurchaseOrder(id),

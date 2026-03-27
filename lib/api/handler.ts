@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { AuthorizationError } from "@/lib/authz";
 
 export function apiHandler(
   fn: (request: Request, ...args: unknown[]) => Promise<NextResponse>
@@ -11,6 +12,9 @@ export function apiHandler(
     } catch (error) {
       // Let Next.js redirect() errors propagate — swallowing them returns a 500
       if (isRedirectError(error)) throw error;
+      if (error instanceof AuthorizationError) {
+        return error.toResponse();
+      }
       if (error instanceof z.ZodError) {
         return NextResponse.json(
           { errors: error.flatten().fieldErrors },

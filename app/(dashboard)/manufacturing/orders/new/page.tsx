@@ -1,3 +1,4 @@
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { ManufacturingOrderForm } from "@/app/(dashboard)/manufacturing/manufacturing-order-form";
 import {
   getManufacturingProductTemplates,
@@ -5,6 +6,7 @@ import {
 } from "@/app/(dashboard)/manufacturing/queries";
 
 export default async function NewManufacturingOrderPage() {
+  await requireModuleWriteAccess("manufacturing");
   const [products, salesLines] = await Promise.all([
     getManufacturingProductTemplates(),
     getManufacturingSalesLineOptions(),

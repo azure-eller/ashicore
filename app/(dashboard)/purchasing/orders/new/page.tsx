@@ -1,3 +1,4 @@
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import {
   getPurchaseOrderMaterialOptions,
@@ -5,6 +6,7 @@ import {
 } from "@/app/(dashboard)/purchasing/queries";
 
 export default async function NewPurchaseOrderPage() {
+  await requireModuleWriteAccess("purchasing");
   const [supplierRows, materials] = await Promise.all([
     getSuppliers(),
     getPurchaseOrderMaterialOptions(),

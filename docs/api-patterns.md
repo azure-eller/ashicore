@@ -24,6 +24,8 @@ export const POST = apiHandler(async (req) => {
 
 `apiHandler` handles auth, error boundaries, and response formatting.
 
+Do not leave guarded `GET` handlers as bare `export async function GET(...) { ... }`. If a read guard throws `AuthorizationError`, only `apiHandler` will turn it into the repo-standard JSON `403` instead of a framework `500`.
+
 ## Validation Error Shape
 
 Field-level validation errors (Zod failures):

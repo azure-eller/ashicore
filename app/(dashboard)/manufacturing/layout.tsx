@@ -1,10 +1,13 @@
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { ManufacturingHeader } from "./manufacturing-header";
 
-export default function ManufacturingLayout({
+export default async function ManufacturingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await requireModuleReadAccess("manufacturing");
+
   return (
     <>
       <ManufacturingHeader />
