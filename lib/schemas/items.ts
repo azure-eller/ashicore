@@ -58,6 +58,16 @@ function bomRefine(
         message: "Quantity is required",
         path: ["bom", i, "quantity"],
       });
+      continue;
+    }
+
+    const quantity = Number(row.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Quantity must be greater than 0",
+        path: ["bom", i, "quantity"],
+      });
     }
   }
 }

@@ -36,6 +36,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [fulfillOpen, setFulfillOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const deleteMutation = useMutation({
@@ -91,8 +92,35 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     },
   });
 
+  const fulfillMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/sales-orders/${order.id}/fulfill`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to fulfill order.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setFulfillOpen(false);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
+  const canFulfill = !isDeleted && order.status === "confirmed";
   const canCancel = !isDeleted && order.status === "confirmed";
   const canDelete = !isDeleted;
 
@@ -118,6 +146,16 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
             {canEdit && (
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/sales/orders/${order.id}/edit`}>Edit</Link>
+              </Button>
+            )}
+            {canFulfill && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFulfillOpen(true)}
+                disabled={fulfillMutation.isPending}
+              >
+                Fulfill
               </Button>
             )}
             {canCancel && (
@@ -180,6 +218,12 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
           </div>
+          {order.fulfilledAt && (
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">Fulfilled</dt>
+              <dd className="mt-1 text-sm">{formatDateTime(order.fulfilledAt)}</dd>
+            </div>
+          )}
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
@@ -224,6 +268,23 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={fulfillOpen} onOpenChange={setFulfillOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fulfill this order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will consume inventory now, mark the order fulfilled, and remove it from committed quantity.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction disabled={fulfillMutation.isPending} onClick={() => fulfillMutation.mutate()}>
+              {fulfillMutation.isPending ? "Fulfilling..." : "Fulfill Order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <AlertDialogContent>

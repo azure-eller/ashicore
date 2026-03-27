@@ -35,6 +35,7 @@ export type SalesOrderListRow = {
   customerName: string;
   status: SalesOrderStatus;
   requestedDate: string | null;
+  fulfilledAt: Date | null;
   totalAmount: string;
   itemSummary: string;
   deletedAt: Date | null;
@@ -64,6 +65,7 @@ export type SalesOrderDetail = {
   status: SalesOrderStatus;
   requestedDate: string | null;
   notes: string | null;
+  fulfilledAt: Date | null;
   totalAmount: string;
   deletedAt: Date | null;
   createdAt: Date;

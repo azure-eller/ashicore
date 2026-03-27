@@ -78,6 +78,10 @@ export function AppSidebar({ user, role, ...props }: AppSidebarProps) {
           title: "Materials",
           url: "/inventory/materials",
         },
+        {
+          title: "Stocktakes",
+          url: "/inventory/stocktakes",
+        },
       ],
     } : null,
     canReadModule(role, "sales") ? {

@@ -61,6 +61,7 @@ export const salesOrders = salesSchema
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       requestedDate: date("requested_date", { mode: "string" }),
       notes: text("notes"),
+      fulfilledAt: timestamp("fulfilled_at"),
       totalAmount: numeric("total_amount", { precision: 12, scale: 2 })
         .notNull()
         .default("0"),

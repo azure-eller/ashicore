@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getItems, createItemWithLot, deleteItems } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
+import { MissingStockCostError } from "@/lib/inventory/stock";
 import { insertItemSchema } from "@/lib/schemas/items";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
@@ -39,6 +40,22 @@ export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
   const { stock, bom, ...data } = insertItemSchema.parse(body);
-  const item = await createItemWithLot(data, stock, bom);
-  return NextResponse.json(item, { status: 201 });
+
+  try {
+    const item = await createItemWithLot(data, stock, bom);
+    return NextResponse.json(item, { status: 201 });
+  } catch (error) {
+    if (error instanceof MissingStockCostError) {
+      return NextResponse.json(
+        {
+          errors: {
+            [error.field]: [error.message],
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    throw error;
+  }
 });

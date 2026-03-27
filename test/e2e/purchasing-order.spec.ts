@@ -226,13 +226,19 @@ test.describe("Purchasing flow", () => {
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { name: purchaseOrderNumber })).toBeVisible();
 
-    const submitResponse = page.waitForResponse(
+    const submitResponsePromise = page.waitForResponse(
       (response) =>
-        response.url().includes(`/api/purchase-orders/${purchaseOrderId}/submit`) &&
-        response.request().method() === "POST"
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/submit`)
     );
+
     await page.getByRole("button", { name: "Submit" }).click();
-    await expect(submitResponse).resolves.toBeTruthy();
+    const submitResponse = await submitResponsePromise;
+    expect(submitResponse.status()).toBe(200);
+
+    await expect(
+      page.locator("main").getByText("Ordered", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const [order] = await db
       .select()
@@ -268,14 +274,21 @@ test.describe("Purchasing flow", () => {
     const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
     await expect(receiveDialog).toBeVisible();
 
-    await receiveDialog.getByPlaceholder("0").first().fill("4");
-    const partialReceiveResponse = page.waitForResponse(
+    const partialReceiveResponsePromise = page.waitForResponse(
       (response) =>
-        response.url().includes(`/api/purchase-orders/${purchaseOrderId}/receive`) &&
-        response.request().method() === "POST"
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/receive`)
     );
+
+    await receiveDialog.getByPlaceholder("0").first().fill("4");
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
-    await expect(partialReceiveResponse).resolves.toBeTruthy();
+    const partialReceiveResponse = await partialReceiveResponsePromise;
+    expect(partialReceiveResponse.status()).toBe(200);
+
+    await expect(receiveDialog).not.toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator("main").getByText("Partially Received", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const [order] = await db
       .select()
@@ -325,15 +338,22 @@ test.describe("Purchasing flow", () => {
     const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
     await expect(receiveDialog).toBeVisible();
 
+    const finalReceiveResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/receive`)
+    );
+
     await receiveDialog.getByPlaceholder("0").first().fill("6");
     await receiveDialog.getByPlaceholder("0").nth(1).fill("6");
-    const finalReceiveResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes(`/api/purchase-orders/${purchaseOrderId}/receive`) &&
-        response.request().method() === "POST"
-    );
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
-    await expect(finalReceiveResponse).resolves.toBeTruthy();
+    const finalReceiveResponse = await finalReceiveResponsePromise;
+    expect(finalReceiveResponse.status()).toBe(200);
+
+    await expect(receiveDialog).not.toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator("main").getByText("Received", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const [order] = await db
       .select()

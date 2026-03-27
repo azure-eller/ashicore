@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   items,
@@ -72,14 +73,6 @@ export class PurchasingError extends Error {
 
     return NextResponse.json(body, { status: this.status });
   }
-}
-
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
-
-function normalizeAmountString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
 function summarizeItems(lines: Array<{ itemName: string }>) {
@@ -203,10 +196,10 @@ async function preparePurchaseOrderPayload(
       itemName: material.name,
       itemSku: material.sku,
       unitName: material.unitName,
-      quantityOrdered: normalizeQuantityString(quantityOrdered),
+      quantityOrdered: normalizeNumeric(quantityOrdered),
       quantityReceived: "0",
-      unitCost: normalizeAmountString(unitCost),
-      lineTotal: normalizeAmountString(lineTotal),
+      unitCost: normalizeNumeric(unitCost),
+      lineTotal: normalizeNumeric(lineTotal),
       sortOrder: index,
     };
   });
@@ -221,7 +214,7 @@ async function preparePurchaseOrderPayload(
     supplierName: supplier.name,
     expectedDate: payload.expectedDate,
     notes: payload.notes,
-    totalAmount: normalizeAmountString(totalAmount),
+    totalAmount: normalizeNumeric(totalAmount),
     preparedLines,
     affectedItemIds: preparedLines.map((line) => line.itemId),
   };
@@ -478,7 +471,7 @@ export async function getPurchaseOrder(
       status: order.status as PurchaseOrderStatus,
       lines: lines.map((line) => ({
         ...line,
-        quantityRemaining: normalizeQuantityString(
+        quantityRemaining: normalizeNumeric(
           parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
         ),
       })) as PurchaseOrderDetailLine[],
@@ -699,7 +692,7 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
         throw new PurchasingError("Cannot receive more than remaining quantity.", 400, {
           errors: {
             [`lines.${index}.quantityReceived`]: [
-              `Must be ${normalizeQuantityString(remaining)} or less`,
+              `Must be ${normalizeNumeric(remaining)} or less`,
             ],
           },
         });
@@ -746,7 +739,7 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
       const newQuantityReceived =
         parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
 
-      const normalizedReceived = normalizeQuantityString(newQuantityReceived);
+      const normalizedReceived = normalizeNumeric(newQuantityReceived);
 
       await tx
         .update(purchaseOrderLines)
