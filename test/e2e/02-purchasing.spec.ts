@@ -465,9 +465,15 @@ test.describe("Chapter 2 — Purchasing: Paonia Soil Co.", () => {
     await receiveDialog.getByPlaceholder("0").nth(1).fill("150");
     // Leave rice hulls and worm castings blank
 
+    const receiveResponse = page.waitForResponse(
+      (r) => r.url().includes("/receive") && r.request().method() === "POST"
+    );
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
+    const res = await receiveResponse;
+    expect(res.status(), `Receive API returned ${res.status()}`).toBe(200);
     await expect(receiveDialog).not.toBeVisible({ timeout: 30000 });
-    await expect(page.getByText("Partially Received")).toBeVisible({ timeout: 15000 });
+    await page.reload();
+    await expect(page.getByText("Partially Received").first()).toBeVisible({ timeout: 15000 });
 
     // ── DB verification: order status ──
     const [order] = await db
@@ -562,9 +568,15 @@ test.describe("Chapter 2 — Purchasing: Paonia Soil Co.", () => {
     await receiveDialog.getByPlaceholder("0").nth(2).fill("100");
     await receiveDialog.getByPlaceholder("0").nth(3).fill("80");
 
+    const po2ReceiveRes = page.waitForResponse(
+      (r) => r.url().includes("/receive") && r.request().method() === "POST"
+    );
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
+    const po2Res = await po2ReceiveRes;
+    expect(po2Res.status()).toBe(200);
     await expect(receiveDialog).not.toBeVisible({ timeout: 30000 });
-    await expect(page.getByText("Received")).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("Received").first()).toBeVisible({ timeout: 15000 });
 
     // ── DB verification: PO #2 fully received ──
     const [order2] = await db
@@ -603,9 +615,15 @@ test.describe("Chapter 2 — Purchasing: Paonia Soil Co.", () => {
       await receiveDialog.getByPlaceholder("0").nth(i).fill(po1Quantities[i]);
     }
 
+    const po1ReceiveRes = page.waitForResponse(
+      (r) => r.url().includes("/receive") && r.request().method() === "POST"
+    );
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
+    const po1Res = await po1ReceiveRes;
+    expect(po1Res.status()).toBe(200);
     await expect(receiveDialog).not.toBeVisible({ timeout: 30000 });
-    await expect(page.getByText("Received")).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("Received").first()).toBeVisible({ timeout: 15000 });
 
     // ── DB verification: PO #1 fully received ──
     const [order1] = await db
