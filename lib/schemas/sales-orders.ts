@@ -3,7 +3,12 @@ import { z } from "zod";
 import { salesOrders } from "@/lib/db/schema";
 import { isValidIsoDate, nullableString } from "./shared";
 
-export const SALES_ORDER_STATUSES = ["draft", "confirmed", "cancelled"] as const;
+export const SALES_ORDER_STATUSES = [
+  "draft",
+  "confirmed",
+  "fulfilled",
+  "cancelled",
+] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 
 const rawOrderLineSchema = z.object({
@@ -109,6 +114,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   organizationId: true,
   orderNumber: true,
   customerName: true,
+  fulfilledAt: true,
   totalAmount: true,
   deletedAt: true,
   createdAt: true,
