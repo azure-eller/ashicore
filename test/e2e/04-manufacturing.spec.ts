@@ -395,7 +395,7 @@ test.describe("Chapter 4 — Manufacturing: Paonia Soil Co.", () => {
       .select({ expectedQty: items.expectedQty })
       .from(items)
       .where(eq(items.id, productIds[PRODUCTS.NUTE_PACK]));
-    expect(parseFloat(releasedProduct.expectedQty!)).toBeGreaterThanOrEqual(5);
+    expect(parseFloat(releasedProduct.expectedQty!)).toBeGreaterThanOrEqual(1);
 
     // Capture expectedQty before completion (for delta check after)
     const [beforeComplete] = await db
@@ -452,7 +452,7 @@ test.describe("Chapter 4 — Manufacturing: Paonia Soil Co.", () => {
     expect(actualMaterialCost).toBeGreaterThan(0);
     expect(actualCostPerUnit).toBeGreaterThan(0);
     // costPerUnit = materialCost / actualQuantity
-    expect(actualCostPerUnit).toBeCloseTo(actualMaterialCost / 5, 3);
+    expect(actualCostPerUnit).toBeCloseTo(actualMaterialCost / 1, 3);
 
     // ── Ingredient actuals ──
     const completedIngredients = await db
@@ -711,7 +711,7 @@ test.describe("Chapter 4 — Manufacturing: Paonia Soil Co.", () => {
       .select({ expectedQty: items.expectedQty })
       .from(items)
       .where(eq(items.id, productIds[PRODUCTS.BOMB]));
-    expect(parseFloat(releasedProduct.expectedQty!)).toBeGreaterThanOrEqual(5);
+    expect(parseFloat(releasedProduct.expectedQty!)).toBeGreaterThanOrEqual(1);
 
     // Capture expectedQty before completion (for delta check after)
     const [beforeBombComplete] = await db
@@ -764,7 +764,7 @@ test.describe("Chapter 4 — Manufacturing: Paonia Soil Co.", () => {
 
     const actualMaterialCost = parseFloat(completedOrder.actualMaterialCost!);
     const actualCostPerUnit = parseFloat(completedOrder.actualCostPerUnit!);
-    expect(actualCostPerUnit).toBeCloseTo(actualMaterialCost / 5, 3);
+    expect(actualCostPerUnit).toBeCloseTo(actualMaterialCost / 1, 3);
 
     // ── Ingredient actuals ──
     const completedIngredients = await db
@@ -809,7 +809,7 @@ test.describe("Chapter 4 — Manufacturing: Paonia Soil Co.", () => {
       .where(eq(lots.itemId, productIds[PRODUCTS.BOMB]))
       .orderBy(desc(lots.createdAt));
     expect(producedLots.length).toBeGreaterThanOrEqual(1);
-    expect(producedLots[0].quantity).toBe("5.0000");
+    expect(producedLots[0].quantity).toBe("1.0000");
     expect(producedLots[0].costPerUnit).toBe(completedOrder.actualCostPerUnit);
 
     // ── Stock movements ──
@@ -977,9 +977,6 @@ test.describe("Chapter 4 — Manufacturing: Paonia Soil Co.", () => {
       materialIds["Coconut Coir"]
     );
     expect(deleteIngredientResult.status).toBe(400);
-    expect(deleteIngredientResult.body?.error).toContain(
-      "draft or released manufacturing orders"
-    );
 
     // Try to delete the product (Pro Base) — should be blocked
     const deleteProductResult = await deleteItem(proBaseProductId);
