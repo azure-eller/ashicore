@@ -1,27 +1,26 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { normalizeNumeric, normalizeMoney } from "@/lib/format";
 import {
   customers,
   items,
   lots,
+  manufacturingOrders,
   salesOrderLines,
   salesOrders,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import {
-  applyStockDeltaInTx,
-  InsufficientStockError,
-  lockItemsInTx,
-} from "@/lib/inventory/stock";
+import { lockItemsInTx } from "@/lib/inventory/stock";
+import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
+  BulkConfirmSalesOrders,
   InsertSalesOrder,
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
 import type {
+  BulkOversellWarningPayload,
   CustomerRow,
   OversellWarningPayload,
   SalesOrderDetail,
@@ -60,10 +59,18 @@ type ProductValidationRow = {
   safetyStock: string;
 };
 
+type DraftOrderConfirmationPayload = {
+  id: string;
+  orderNumber: string;
+  preparedLines: PreparedOrderLine[];
+  affectedProductIds: string[];
+};
+
 export class SalesError extends Error {
   status: number;
   errors?: Record<string, string[]>;
   oversell?: OversellWarningPayload;
+  bulkOversell?: BulkOversellWarningPayload;
 
   constructor(
     message: string,
@@ -71,6 +78,7 @@ export class SalesError extends Error {
     options?: {
       errors?: Record<string, string[]>;
       oversell?: OversellWarningPayload;
+      bulkOversell?: BulkOversellWarningPayload;
     }
   ) {
     super(message);
@@ -78,16 +86,27 @@ export class SalesError extends Error {
     this.status = status;
     this.errors = options?.errors;
     this.oversell = options?.oversell;
+    this.bulkOversell = options?.bulkOversell;
   }
 
   toResponse() {
-    const body = this.oversell
-      ? { error: this.message, oversell: this.oversell }
-      : this.errors
-        ? { errors: this.errors }
-        : { error: this.message };
+    const body = this.bulkOversell
+      ? { error: this.message, oversell: this.bulkOversell }
+      : this.oversell
+        ? { error: this.message, oversell: this.oversell }
+        : this.errors
+          ? { errors: this.errors }
+          : { error: this.message };
     return NextResponse.json(body, { status: this.status });
   }
+}
+
+function normalizeQuantityString(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function normalizeMoneyString(value: number) {
+  return value.toFixed(2);
 }
 
 function roundQuantity(value: number) {
@@ -150,17 +169,106 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
     .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 }
 
-async function getLockedSalesOrderInTx(tx: Tx, id: string) {
-  const [order] = await tx
+async function prepareDraftOrdersForConfirmationInTx(
+  tx: Tx,
+  orderIds: string[],
+  options?: { lockProducts?: boolean }
+): Promise<{
+  orders: DraftOrderConfirmationPayload[];
+  products: Map<string, ProductValidationRow>;
+}> {
+  const uniqueIds = [...new Set(orderIds)];
+
+  const orders = await tx
     .select({
       id: salesOrders.id,
+      orderNumber: salesOrders.orderNumber,
+      customerId: salesOrders.customerId,
       status: salesOrders.status,
+      createdAt: salesOrders.createdAt,
     })
     .from(salesOrders)
-    .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
+    .where(and(inArray(salesOrders.id, uniqueIds), isNull(salesOrders.deletedAt)))
+    .orderBy(asc(salesOrders.createdAt))
     .for("update");
 
-  return order ?? null;
+  if (orders.length !== uniqueIds.length) {
+    throw new SalesError("One or more orders were not found.", 404);
+  }
+
+  if (orders.some((order) => order.status !== "draft")) {
+    throw new SalesError("Only draft orders can be confirmed.", 400);
+  }
+
+  const lines = await tx
+    .select({
+      salesOrderId: salesOrderLines.salesOrderId,
+      itemId: salesOrderLines.itemId,
+      quantity: salesOrderLines.quantity,
+      unitPrice: salesOrderLines.unitPrice,
+      lineTotal: salesOrderLines.lineTotal,
+      sortOrder: salesOrderLines.sortOrder,
+      createdAt: salesOrderLines.createdAt,
+    })
+    .from(salesOrderLines)
+    .where(inArray(salesOrderLines.salesOrderId, uniqueIds))
+    .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
+
+  const linesByOrderId = new Map<string, typeof lines>();
+  lines.forEach((line) => {
+    const bucket = linesByOrderId.get(line.salesOrderId) ?? [];
+    bucket.push(line);
+    linesByOrderId.set(line.salesOrderId, bucket);
+  });
+
+  const productIds = [...new Set(lines.map((line) => line.itemId))];
+
+  if (options?.lockProducts && productIds.length > 0) {
+    await lockItemsInTx(tx, productIds);
+  }
+
+  const products = productIds.length
+    ? await getValidatedProductsInTx(tx, productIds)
+    : new Map<string, ProductValidationRow>();
+
+  const preparedOrders: DraftOrderConfirmationPayload[] = [];
+
+  for (const order of orders) {
+    await getValidatedCustomerInTx(tx, order.customerId);
+
+    const orderLines = linesByOrderId.get(order.id) ?? [];
+    if (orderLines.length === 0) {
+      throw new SalesError("Orders must have at least one line to confirm.", 400);
+    }
+
+    const preparedLines = orderLines.map((line) => {
+      const product = products.get(line.itemId);
+
+      if (!product) {
+        throw new SalesError("Product not found", 404);
+      }
+
+      return {
+        itemId: product.id,
+        itemName: product.name,
+        itemSku: product.sku,
+        unitName: product.unitName,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        lineTotal: line.lineTotal,
+        sortOrder: line.sortOrder,
+      };
+    });
+
+    preparedOrders.push({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      preparedLines,
+      affectedProductIds: preparedLines.map((line) => line.itemId),
+    });
+  }
+
+  return { orders: preparedOrders, products };
 }
 
 async function recomputeCommittedQty(tx: Tx, itemIds: string[]) {
@@ -293,9 +401,9 @@ async function prepareOrderPayload(
       itemName: product.name,
       itemSku: product.sku,
       unitName: product.unitName,
-      quantity: normalizeNumeric(quantity),
-      unitPrice: normalizeMoney(unitPrice),
-      lineTotal: normalizeMoney(lineTotal),
+      quantity: normalizeQuantityString(quantity),
+      unitPrice: normalizeMoneyString(unitPrice),
+      lineTotal: normalizeMoneyString(lineTotal),
       sortOrder: index,
     };
   });
@@ -310,7 +418,7 @@ async function prepareOrderPayload(
     customerName: customer.name,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
-    totalAmount: normalizeMoney(totalAmount),
+    totalAmount: normalizeMoneyString(totalAmount),
     preparedLines,
     affectedProductIds: preparedLines.map((line) => line.itemId),
     products,
@@ -368,6 +476,93 @@ async function buildOversellWarning(
   }
 
   return { products: warningProducts };
+}
+
+async function buildBulkOversellWarning(
+  orders: DraftOrderConfirmationPayload[],
+  products: Map<string, ProductValidationRow>
+): Promise<BulkOversellWarningPayload | null> {
+  const totalByProduct = new Map<string, number>();
+
+  for (const order of orders) {
+    for (const line of order.preparedLines) {
+      totalByProduct.set(
+        line.itemId,
+        roundQuantity(
+          (totalByProduct.get(line.itemId) ?? 0) + parseFloat(line.quantity)
+        )
+      );
+    }
+  }
+
+  const oversoldProducts = new Map<
+    string,
+    Omit<OversellWarningPayload["products"][number], "addedQty" | "itemName" | "itemSku" | "unitName">
+  >();
+
+  totalByProduct.forEach((addedQty, itemId) => {
+    const product = products.get(itemId);
+    if (!product) return;
+
+    const currentCommittedQty = parseFloat(product.committedQty);
+    const projectedCommittedQty = roundQuantity(currentCommittedQty + addedQty);
+    const calculatedStock = calcProjectedStock(product);
+    const projectedCalculatedStock = roundQuantity(calculatedStock - addedQty);
+
+    if (projectedCalculatedStock >= 0) {
+      return;
+    }
+
+    oversoldProducts.set(itemId, {
+      itemId: product.id,
+      inStock: roundQuantity(parseFloat(product.stock)),
+      committedQty: roundQuantity(currentCommittedQty),
+      expectedQty: roundQuantity(parseFloat(product.expectedQty)),
+      safetyStock: roundQuantity(parseFloat(product.safetyStock)),
+      calculatedStock,
+      projectedCommittedQty,
+      projectedCalculatedStock,
+    });
+  });
+
+  if (oversoldProducts.size === 0) {
+    return null;
+  }
+
+  const warningOrders = orders
+    .map((order) => {
+      const warningProducts = order.preparedLines
+        .map((line) => {
+          const metrics = oversoldProducts.get(line.itemId);
+          if (!metrics) return null;
+
+          return {
+            ...metrics,
+            itemName: line.itemName,
+            itemSku: line.itemSku,
+            unitName: line.unitName,
+            addedQty: roundQuantity(parseFloat(line.quantity)),
+          };
+        })
+        .filter((product): product is OversellWarningPayload["products"][number] => product != null);
+
+      if (warningProducts.length === 0) {
+        return null;
+      }
+
+      return {
+        salesOrderId: order.id,
+        salesOrderNumber: order.orderNumber,
+        products: warningProducts,
+      };
+    })
+    .filter((order): order is BulkOversellWarningPayload["orders"][number] => order != null);
+
+  if (warningOrders.length === 0) {
+    return null;
+  }
+
+  return { orders: warningOrders };
 }
 
 export async function getCustomers(): Promise<CustomerRow[]> {
@@ -543,7 +738,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         customerName: salesOrders.customerName,
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
-        fulfilledAt: salesOrders.fulfilledAt,
         totalAmount: salesOrders.totalAmount,
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -558,29 +752,21 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
     }
 
     const orderIds = orderRows.map((order) => order.id);
-    const lines = await tx
-      .select({
-        salesOrderId: salesOrderLines.salesOrderId,
-        itemName: salesOrderLines.itemName,
-        sortOrder: salesOrderLines.sortOrder,
-      })
-      .from(salesOrderLines)
-      .where(inArray(salesOrderLines.salesOrderId, orderIds))
-      .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
-
-    const linesByOrderId = new Map<string, Array<{ itemName: string }>>();
-    lines.forEach((line) => {
-      const bucket = linesByOrderId.get(line.salesOrderId) ?? [];
-      bucket.push({ itemName: line.itemName });
-      linesByOrderId.set(line.salesOrderId, bucket);
-    });
+    const manufacturingSummaries = await getSalesOrderManufacturingSummariesInTx(
+      tx,
+      orderIds
+    );
 
     return orderRows.map((order) => {
-      const orderLines = linesByOrderId.get(order.id) ?? [];
+      const manufacturingSummary = manufacturingSummaries.get(order.id);
       return {
         ...order,
         status: order.status as SalesOrderListRow["status"],
-        itemSummary: summarizeItems(orderLines),
+        itemSummary: summarizeItems(manufacturingSummary?.lines ?? []),
+        hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
+        manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
+        manufacturableDisabledReason:
+          manufacturingSummary?.disabledReason ?? "No manufacturable lines remain on this order.",
       };
     });
   });
@@ -605,7 +791,6 @@ export async function getSalesOrder(
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
-        fulfilledAt: salesOrders.fulfilledAt,
         totalAmount: salesOrders.totalAmount,
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -636,10 +821,41 @@ export async function getSalesOrder(
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 
+    const manufacturingSummary = (
+      await getSalesOrderManufacturingSummariesInTx(tx, [id])
+    ).get(id);
+
+    const linkedManufacturingOrders = await tx
+      .select({
+        id: manufacturingOrders.id,
+        orderNumber: manufacturingOrders.orderNumber,
+        productName: manufacturingOrders.productName,
+        productSku: manufacturingOrders.productSku,
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        unitName: manufacturingOrders.unitName,
+        status: manufacturingOrders.status,
+      })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.salesOrderId, id),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .orderBy(desc(manufacturingOrders.createdAt));
+
     return {
       ...order,
       status: order.status as SalesOrderDetail["status"],
       lines: lines as SalesOrderDetailLine[],
+      hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
+      manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
+      manufacturableDisabledReason:
+        manufacturingSummary?.disabledReason ?? "No manufacturable lines remain on this order.",
+      linkedManufacturingOrders: linkedManufacturingOrders.map((row) => ({
+        ...row,
+        status: row.status as SalesOrderDetail["linkedManufacturingOrders"][number]["status"],
+      })),
     };
   });
 }
@@ -734,7 +950,14 @@ export async function createSalesOrder(data: InsertSalesOrder) {
 
 export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
   return withAuthedOrgContext(async (tx) => {
-    const existingOrder = await getLockedSalesOrderInTx(tx, id);
+    const [existingOrder] = await tx
+      .select({
+        id: salesOrders.id,
+        status: salesOrders.status,
+      })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
+      .for("update");
 
     if (!existingOrder) {
       return null;
@@ -762,10 +985,6 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
 
     if (existingOrder.status === "cancelled") {
       throw new SalesError("Cancelled orders cannot be changed.", 400);
-    }
-
-    if (existingOrder.status === "fulfilled") {
-      throw new SalesError("Fulfilled orders cannot be changed.", 400);
     }
 
     if (isCancelPayload(data)) {
@@ -824,74 +1043,98 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
   });
 }
 
-export async function fulfillSalesOrder(id: string) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const order = await getLockedSalesOrderInTx(tx, id);
+export async function confirmSalesOrder(
+  id: string,
+  confirmOversell = false
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const { orders, products } = await prepareDraftOrdersForConfirmationInTx(
+      tx,
+      [id],
+      { lockProducts: true }
+    );
+    const [order] = orders;
 
-    if (!order) {
-      return null;
-    }
+    if (!confirmOversell) {
+      const oversell = await buildOversellWarning(order.preparedLines, products);
 
-    if (order.status === "draft") {
-      throw new SalesError("Only confirmed orders can be fulfilled.", 400);
-    }
-
-    if (order.status === "cancelled") {
-      throw new SalesError("Cancelled orders cannot be fulfilled.", 400);
-    }
-
-    if (order.status === "fulfilled") {
-      throw new SalesError("Order is already fulfilled.", 400);
-    }
-
-    const lines = await getOrderLinesInTx(tx, id);
-    const affectedItemIds = lines.map((line) => line.itemId);
-
-    await lockItemsInTx(tx, affectedItemIds);
-
-    for (const line of lines) {
-      try {
-        await applyStockDeltaInTx(tx, {
-          orgId,
-          userId,
-          itemId: line.itemId,
-          delta: -parseFloat(line.quantity),
-          movementType: "sales_fulfilled",
-          referenceType: "sales_order",
-          referenceId: id,
-        });
-      } catch (error) {
-        if (error instanceof InsufficientStockError) {
-          throw new SalesError(
-            `Cannot fulfill order. Insufficient stock for ${line.itemName}.`,
-            409
-          );
-        }
-
-        throw error;
+      if (oversell) {
+        throw new SalesError(
+          "This confirmation would oversell one or more products.",
+          409,
+          { oversell }
+        );
       }
     }
 
-    const fulfilledAt = new Date();
-    const [fulfilled] = await tx
+    await tx
       .update(salesOrders)
       .set({
-        status: "fulfilled",
-        fulfilledAt,
-        updatedAt: fulfilledAt,
+        status: "confirmed",
+        updatedAt: new Date(),
       })
-      .where(eq(salesOrders.id, id))
-      .returning({ id: salesOrders.id });
+      .where(eq(salesOrders.id, id));
 
-    await recomputeCommittedQty(tx, affectedItemIds);
+    await recomputeCommittedQty(tx, order.affectedProductIds);
 
-    return fulfilled;
+    return { id };
+  });
+}
+
+export async function bulkConfirmSalesOrders(
+  payload: BulkConfirmSalesOrders
+): Promise<{ confirmedCount: number }> {
+  return withAuthedOrgContext(async (tx) => {
+    const { orders, products } = await prepareDraftOrdersForConfirmationInTx(
+      tx,
+      payload.ids,
+      { lockProducts: true }
+    );
+
+    if (orders.length === 0) {
+      return { confirmedCount: 0 };
+    }
+
+    if (!payload.confirmOversell) {
+      const bulkOversell = await buildBulkOversellWarning(orders, products);
+
+      if (bulkOversell) {
+        throw new SalesError(
+          "These confirmations would oversell one or more products.",
+          409,
+          { bulkOversell }
+        );
+      }
+    }
+
+    const orderIds = orders.map((order) => order.id);
+
+    await tx
+      .update(salesOrders)
+      .set({
+        status: "confirmed",
+        updatedAt: new Date(),
+      })
+      .where(inArray(salesOrders.id, orderIds));
+
+    await recomputeCommittedQty(
+      tx,
+      orders.flatMap((order) => order.affectedProductIds)
+    );
+
+    return { confirmedCount: orderIds.length };
   });
 }
 
 export async function deleteSalesOrder(id: string) {
   return withAuthedOrgContext(async (tx) => {
-    const order = await getLockedSalesOrderInTx(tx, id);
+    const [order] = await tx
+      .select({
+        id: salesOrders.id,
+        deletedAt: salesOrders.deletedAt,
+      })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)));
 
     if (!order) {
       return { deleted: false };
@@ -929,8 +1172,7 @@ export async function deleteSalesOrders(ids: string[]) {
           inArray(salesOrders.id, uniqueIds),
           isNull(salesOrders.deletedAt)
         )
-      )
-      .for("update");
+      );
 
     if (orders.length === 0) {
       return { deletedCount: 0 };

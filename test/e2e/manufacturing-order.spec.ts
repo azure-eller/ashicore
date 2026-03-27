@@ -47,9 +47,11 @@ async function createCustomer(name: string) {
 
 async function createSalesOrder(payload: {
   customerId: string;
-  itemId: string;
-  quantity: string;
-  unitPrice: string;
+  lines: Array<{
+    itemId: string;
+    quantity: string;
+    unitPrice: string;
+  }>;
   requestedDate?: string | null;
   notes?: string | null;
 }) {
@@ -60,13 +62,7 @@ async function createSalesOrder(payload: {
       status: "draft",
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
-      lines: [
-        {
-          itemId: payload.itemId,
-          quantity: payload.quantity,
-          unitPrice: payload.unitPrice,
-        },
-      ],
+      lines: payload.lines,
       confirmOversell: false,
     }),
   });
@@ -76,6 +72,17 @@ async function createSalesOrder(payload: {
   expect(body?.id).toBeTruthy();
 
   return body.id as string;
+}
+
+async function confirmSalesOrder(orderId: string, confirmOversell = false) {
+  const response = await testFetch(`/api/sales-orders/${orderId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ confirmOversell }),
+  });
+  const body = await response.json().catch(() => null);
+
+  expect(response.status).toBe(200);
+  expect(body?.id).toBe(orderId);
 }
 
 async function updateSalesOrder(payload: {
@@ -113,17 +120,20 @@ async function updateSalesOrder(payload: {
 async function createManufacturingOrder(payload: {
   productId: string;
   plannedQuantity: string;
+  plannedDate?: string | null;
   notes?: string | null;
+  salesOrderId?: string | null;
+  salesOrderLineId?: string | null;
   ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
 }) {
   const response = await testFetch("/api/manufacturing-orders", {
     method: "POST",
     body: JSON.stringify({
       productId: payload.productId,
-      salesOrderId: null,
-      salesOrderLineId: null,
+      salesOrderId: payload.salesOrderId ?? null,
+      salesOrderLineId: payload.salesOrderLineId ?? null,
       plannedQuantity: payload.plannedQuantity,
-      plannedDate: null,
+      plannedDate: payload.plannedDate ?? null,
       notes: payload.notes ?? null,
       ingredients: payload.ingredients,
       confirmShortage: false,
@@ -135,6 +145,34 @@ async function createManufacturingOrder(payload: {
   expect(body?.id).toBeTruthy();
 
   return body.id as string;
+}
+
+async function createLinkedManufacturingOrderExpectingFailure(payload: {
+  productId: string;
+  plannedQuantity: string;
+  plannedDate?: string | null;
+  notes?: string | null;
+  salesOrderId: string;
+  salesOrderLineId: string;
+  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+}) {
+  const response = await testFetch("/api/manufacturing-orders", {
+    method: "POST",
+    body: JSON.stringify({
+      productId: payload.productId,
+      salesOrderId: payload.salesOrderId,
+      salesOrderLineId: payload.salesOrderLineId,
+      plannedQuantity: payload.plannedQuantity,
+      plannedDate: payload.plannedDate ?? null,
+      notes: payload.notes ?? null,
+      ingredients: payload.ingredients,
+      confirmShortage: false,
+    }),
+  });
+  const body = await response.json().catch(() => null);
+
+  expect(response.status).toBe(400);
+  expect(body?.error).toContain("Create sales-linked manufacturing orders");
 }
 
 async function releaseManufacturingOrder(orderId: string) {
@@ -172,15 +210,18 @@ test.describe("Manufacturing order flow", () => {
   const sandName = `Manufacturing Sand ${ts}`;
   const compostName = `Manufacturing Compost ${ts}`;
   const productName = `Garden Blend ${ts}`;
+  const nonManufacturableProductName = `Display Mix ${ts}`;
   const customerName = `Manufacturing Customer ${ts}`;
 
   let sandId: string;
   let compostId: string;
   let productId: string;
+  let nonManufacturableProductId: string;
   let customerId: string;
   let salesOrderId: string;
   let salesOrderLineId: string;
   let salesOrderNumber: string;
+  let batchSalesOrderId: string;
 
   let releasedOrderId: string;
   let completionOrderId: string;
@@ -258,12 +299,33 @@ test.describe("Manufacturing order flow", () => {
     expect(productCreate.status).toBe(201);
     productId = productCreate.body.id;
 
+    const nonManufacturableProductCreate = await createItem({
+      name: nonManufacturableProductName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-DISPLAY-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Confirmed sales order line without a BOM",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "18.00",
+      stock: "8",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(nonManufacturableProductCreate.status).toBe(201);
+    nonManufacturableProductId = nonManufacturableProductCreate.body.id;
+
     customerId = await createCustomer(customerName);
     salesOrderId = await createSalesOrder({
       customerId,
-      itemId: productId,
-      quantity: "4",
-      unitPrice: "45.00",
+      lines: [
+        {
+          itemId: productId,
+          quantity: "4",
+          unitPrice: "45.00",
+        },
+      ],
       requestedDate: "2026-04-20",
       notes: "Manufacturing link coverage",
     });
@@ -319,36 +381,38 @@ test.describe("Manufacturing order flow", () => {
     expect(productRow.committedQty).toBe("0.0000");
   });
 
-  test("creates a draft manufacturing order with BOM snapshots and sales traceability", async ({
+  test("blocks direct sales-linked creation through the manual manufacturing API", async () => {
+    await createLinkedManufacturingOrderExpectingFailure({
+      productId,
+      salesOrderId,
+      salesOrderLineId,
+      plannedQuantity: "5",
+      plannedDate: "2026-04-25",
+      notes: "Legacy direct linked create should fail",
+      ingredients: [
+        { itemId: sandId, quantityPerUnit: "2" },
+        { itemId: compostId, quantityPerUnit: "1" },
+      ],
+    });
+  });
+
+  test("creates a draft manufacturing order, then links it from edit with BOM snapshots intact", async ({
     page,
     db,
   }) => {
-    await page.goto("/manufacturing/orders/new");
-    await expect(page.getByText("Add Manufacturing Order")).toBeVisible();
+    releasedOrderId = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "5",
+      plannedDate: "2026-04-25",
+      notes: "Initial draft manufacturing order",
+      ingredients: [
+        { itemId: sandId, quantityPerUnit: "2" },
+        { itemId: compostId, quantityPerUnit: "1" },
+      ],
+    });
 
-    const productInput = page.getByPlaceholder("Search products...");
-    await productInput.click();
-    await productInput.fill(productName);
-    await page.getByRole("option", { name: new RegExp(productName) }).click();
-
-    await expect(page.locator("tbody tr")).toHaveCount(2);
-    await expect(page.locator("table")).toContainText(sandName);
-    await expect(page.locator("table")).toContainText(compostName);
-
-    await page.getByLabel("Planned Quantity").fill("5");
-    await page.getByLabel("Planned Date").fill("2026-04-25");
-
-    const salesLineInput = page.getByPlaceholder("Search sales lines...");
-    await salesLineInput.click();
-    await salesLineInput.fill(salesOrderNumber);
-    await page.getByRole("option", { name: new RegExp(salesOrderNumber) }).click();
-
-    await page.getByLabel("Notes").fill("Initial draft manufacturing order");
-    await page.getByRole("button", { name: "Create Order" }).click();
-
-    await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
-    releasedOrderId = page.url().split("/").at(-1) ?? "";
-    expect(releasedOrderId).toBeTruthy();
+    await page.goto(`/manufacturing/orders/${releasedOrderId}`);
+    await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
 
     const [order] = await db
       .select()
@@ -359,10 +423,10 @@ test.describe("Manufacturing order flow", () => {
     expect(order.status).toBe("draft");
     expect(order.orderNumber).toMatch(/^MO-\d{4}-\d{4}$/);
     expect(order.productId).toBe(productId);
-    expect(order.salesOrderId).toBe(salesOrderId);
-    expect(order.salesOrderLineId).toBe(salesOrderLineId);
-    expect(order.salesOrderNumber).toBe(salesOrderNumber);
-    expect(order.salesCustomerName).toBe(customerName);
+    expect(order.salesOrderId).toBeNull();
+    expect(order.salesOrderLineId).toBeNull();
+    expect(order.salesOrderNumber).toBeNull();
+    expect(order.salesCustomerName).toBeNull();
     expect(order.plannedQuantity).toBe("5.0000");
     expect(order.plannedDate).toBe("2026-04-25");
     expect(order.notes).toBe("Initial draft manufacturing order");
@@ -381,6 +445,118 @@ test.describe("Manufacturing order flow", () => {
     expect(ingredientByItemId.get(compostId)?.itemName).toBe(compostName);
     expect(ingredientByItemId.get(compostId)?.quantityPerUnit).toBe("1.0000");
     expect(ingredientByItemId.get(compostId)?.plannedQuantity).toBe("5.0000");
+
+    await page.goto(`/manufacturing/orders/${releasedOrderId}/edit`);
+    await expect(page.getByText("Edit Manufacturing Order")).toBeVisible();
+
+    const salesLineInput = page.getByLabel("Sales Order Line");
+    await salesLineInput.click();
+    await salesLineInput.fill(salesOrderNumber);
+    await page
+      .getByRole("option", {
+        name: new RegExp(`${salesOrderNumber}.*${customerName}`, "i"),
+      })
+      .click();
+
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(new RegExp(`/manufacturing/orders/${releasedOrderId}$`));
+
+    const [linkedOrder] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, releasedOrderId));
+
+    expect(linkedOrder.salesOrderId).toBe(salesOrderId);
+    expect(linkedOrder.salesOrderLineId).toBe(salesOrderLineId);
+    expect(linkedOrder.salesOrderNumber).toBe(salesOrderNumber);
+    expect(linkedOrder.salesCustomerName).toBe(customerName);
+  });
+
+  test("creates manufacturing orders from a confirmed sales order and skips non-manufacturable lines", async ({
+    page,
+    db,
+  }) => {
+    batchSalesOrderId = await createSalesOrder({
+      customerId,
+      lines: [
+        {
+          itemId: productId,
+          quantity: "2",
+          unitPrice: "45.00",
+        },
+        {
+          itemId: nonManufacturableProductId,
+          quantity: "3",
+          unitPrice: "18.00",
+        },
+      ],
+      requestedDate: "2026-04-30",
+      notes: "Batch manufacturing coverage",
+    });
+
+    const [batchOrder] = await db
+      .select({
+        orderNumber: salesOrders.orderNumber,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, batchSalesOrderId));
+
+    expect(batchOrder).toBeTruthy();
+    await confirmSalesOrder(batchSalesOrderId, true);
+
+    await page.goto(`/manufacturing/orders/new?salesOrderId=${batchSalesOrderId}`);
+    await expect(page.getByText("Sales Order Preview")).toBeVisible();
+    await expect(page.getByText(batchOrder.orderNumber)).toBeVisible();
+    await expect(page.locator("table")).toContainText(productName);
+    await expect(page.locator("table")).toContainText(nonManufacturableProductName);
+    await expect(page.locator("table")).toContainText("Will create");
+    await expect(page.locator("table")).toContainText("Skipped");
+    await expect(page.locator("table")).toContainText(
+      "Product has no active BOM ingredients."
+    );
+
+    await page.getByLabel("Batch Planned Date").fill("2026-05-01");
+    await page.getByLabel("Notes").fill("Batch manufacturing coverage");
+    await page.getByRole("button", { name: "Create 1 Order" }).click();
+
+    await page.waitForURL(`**/sales/orders/${batchSalesOrderId}`);
+    await expect(page.getByText("Linked Manufacturing Orders")).toBeVisible();
+
+    const lineRows = await db
+      .select({
+        id: salesOrderLines.id,
+        itemId: salesOrderLines.itemId,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, batchSalesOrderId));
+    const lineByItemId = new Map(lineRows.map((line) => [line.itemId, line.id]));
+
+    const createdOrders = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.salesOrderId, batchSalesOrderId));
+
+    expect(createdOrders).toHaveLength(1);
+
+    const batchManufacturingOrder = createdOrders[0];
+    expect(batchManufacturingOrder.productId).toBe(productId);
+    expect(batchManufacturingOrder.salesOrderLineId).toBe(lineByItemId.get(productId));
+    expect(batchManufacturingOrder.plannedQuantity).toBe("2.0000");
+    expect(batchManufacturingOrder.plannedDate).toBe("2026-05-01");
+    expect(batchManufacturingOrder.notes).toBe("Batch manufacturing coverage");
+
+    const batchIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(
+        eq(
+          manufacturingOrderIngredients.manufacturingOrderId,
+          batchManufacturingOrder.id
+        )
+      );
+
+    expect(batchIngredients).toHaveLength(2);
+    await expect(page.getByText(batchManufacturingOrder.orderNumber)).toBeVisible();
   });
 
   test("edits the draft order, recalculates ingredient totals, and releases with a shortage warning", async ({
@@ -779,7 +955,7 @@ test.describe("Manufacturing order flow", () => {
 
     const deleteSalesOrderResponse = await testFetch("/api/sales-orders", {
       method: "DELETE",
-      body: JSON.stringify({ ids: [salesOrderId] }),
+      body: JSON.stringify({ ids: [salesOrderId, batchSalesOrderId] }),
     });
     expect(deleteSalesOrderResponse.status).toBe(200);
 
