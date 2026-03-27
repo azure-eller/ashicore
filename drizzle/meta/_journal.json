@@ -113,6 +113,13 @@
       "when": 1774550658738,
       "tag": "0015_omniscient_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1774561585032,
+      "tag": "0016_crazy_devos",
+      "breakpoints": true
     }
   ]
 }

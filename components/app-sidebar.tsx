@@ -60,6 +60,10 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
           title: "Materials",
           url: "/inventory/materials",
         },
+        {
+          title: "Stocktakes",
+          url: "/inventory/stocktakes",
+        },
       ],
     },
     {

@@ -22,6 +22,7 @@ The ERP is built module by module. Current and planned domains:
 | Customers | Active | Sales customer master data |
 | Purchase Orders | Active | Draft/order/receive/cancel workflow for material purchasing with lot-backed receiving |
 | Suppliers | Active | Purchasing supplier master data |
+| Stocktakes | Active | Inventory-native snapshot/reconciliation workflow with count entry and stocktake adjustment movements |
 
 > When pulling logic from the old repo (`/home/aeller/Projects/soil-erp`), take only the data model and business logic. Rewrite all UI to match current patterns.
 
@@ -60,6 +61,7 @@ Page component
 | DAL queries (sales) | `app/(dashboard)/sales/queries.ts` |
 | DAL queries (manufacturing) | `app/(dashboard)/manufacturing/queries.ts` |
 | DAL queries (purchasing) | `app/(dashboard)/purchasing/queries.ts` |
+| DAL queries (stocktakes) | `app/(dashboard)/inventory/stocktakes/queries.ts` |
 | DAL auth wrapper | `lib/dal/auth.ts` |
 | RLS org context setter | `lib/db/with-org-context.ts` |
 | Drizzle schemas | `lib/db/schema/` |

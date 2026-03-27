@@ -6,6 +6,7 @@ import {
   items,
   lots,
 } from "../../lib/db/schema";
+import { createItem, getUnitId, updateItem } from "../helpers/api";
 
 const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
 const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
@@ -291,7 +292,7 @@ test.describe("Inventory creation flow", () => {
     await expect(page.locator("#unitDefinitionId")).toContainText(`Bucket ${ts}`);
 
     await page.getByLabel("Selling Price").fill("12.00");
-    await page.getByLabel("Stock", { exact: true }).fill("50");
+    await page.getByLabel("Stock", { exact: true }).fill("0");
     await page.getByLabel("Safety Stock").fill("10");
 
     await page.getByRole("button", { name: "Create Product" }).click();
@@ -322,8 +323,7 @@ test.describe("Inventory creation flow", () => {
     expect(bomRows).toHaveLength(0);
 
     const lotRows = await db.select().from(lots).where(eq(lots.itemId, product.id));
-    expect(lotRows).toHaveLength(1);
-    expect(lotRows[0].quantity).toBe("50.0000");
+    expect(lotRows).toHaveLength(0);
   });
 
   /* ── 4. Product with BOM ─────────────────────────────────────── */
@@ -444,6 +444,55 @@ test.describe("Inventory creation flow", () => {
     expect(updated.defaultSellingPrice).toBe("34.99");
 
     // BOM should still have 3 ingredients
+    const bom = await db
+      .select()
+      .from(bomComponents)
+      .where(eq(bomComponents.itemId, sellableProductId));
+    expect(bom).toHaveLength(3);
+  });
+
+  test("rejects non-positive BOM quantities through the item API", async ({ db }) => {
+    const invalidCreateName = `Invalid BOM Product ${ts}`;
+    const unitId = getUnitId();
+
+    const invalidCreate = await createItem({
+      name: invalidCreateName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-BAD-BOM-${ts}`,
+      category: `Blends ${ts}`,
+      description: "Should fail because the BOM quantity is zero",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "19.99",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: fullMaterialId, quantity: "0" }],
+    });
+
+    expect(invalidCreate.status).toBe(400);
+    expect(invalidCreate.body?.errors?.bom?.[0]).toContain("greater than 0");
+
+    const createdRows = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(eq(items.name, invalidCreateName));
+    expect(createdRows).toHaveLength(0);
+
+    const invalidUpdate = await updateItem(sellableProductId, {
+      name: sellableProductName,
+      sku: null,
+      category: `Blends ${ts}`,
+      description: "Premium blend — updated recipe",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "34.99",
+      safetyStock: "0",
+      stock: "0",
+      bom: [{ componentId: fullMaterialId, quantity: "-1" }],
+    });
+
+    expect(invalidUpdate.status).toBe(400);
+    expect(invalidUpdate.body?.errors?.bom?.[0]).toContain("greater than 0");
+
     const bom = await db
       .select()
       .from(bomComponents)

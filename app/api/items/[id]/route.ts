@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { InsufficientStockError } from "@/lib/inventory/stock";
+import { InsufficientStockError, MissingStockCostError } from "@/lib/inventory/stock";
 import { updateItemSchema } from "@/lib/schemas/items";
 import { deleteItem, updateItem } from "@/app/(dashboard)/inventory/queries";
 
@@ -33,6 +33,12 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     if (error instanceof InsufficientStockError) {
       return NextResponse.json(
         { errors: { stock: [error.message] } },
+        { status: 400 }
+      );
+    }
+    if (error instanceof MissingStockCostError) {
+      return NextResponse.json(
+        { errors: { [error.field]: [error.message] } },
         { status: 400 }
       );
     }
@@ -73,6 +79,15 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
       {
         error:
           "Cannot delete: this material is still used by one or more draft, ordered, or partially received purchase orders.",
+      },
+      { status: 400 }
+    );
+  }
+  if (result.usedInDraftStocktakes) {
+    return NextResponse.json(
+      {
+        error:
+          "Cannot delete: this item is still included in one or more draft stocktakes.",
       },
       { status: 400 }
     );

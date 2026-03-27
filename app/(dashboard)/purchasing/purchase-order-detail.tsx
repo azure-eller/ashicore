@@ -40,7 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
+import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderDetail as PurchaseOrderDetailType } from "./types";
@@ -50,13 +50,6 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
-function buildLinesErrorMessage(linesError: unknown) {
-  if (!linesError || typeof linesError !== "object") return null;
-  if ("message" in linesError && typeof linesError.message === "string") {
-    return linesError.message;
-  }
-  return null;
-}
 
 type ReceiveFormValues = z.input<typeof receivePurchaseOrderSchema>;
 
@@ -212,7 +205,7 @@ export function PurchaseOrderDetail({
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canCancel = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canDelete = !isDeleted && !["ordered", "partial"].includes(order.status);
-  const receiveLinesError = buildLinesErrorMessage(receiveForm.formState.errors.lines);
+  const receiveLinesError = getFieldArrayError(receiveForm.formState.errors.lines);
 
   return (
     <>

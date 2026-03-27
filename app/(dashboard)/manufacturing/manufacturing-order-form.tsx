@@ -15,6 +15,7 @@ import {
   insertManufacturingOrderSchema,
   manufacturingOrderDefaultValues,
 } from "@/lib/schemas/manufacturing-orders";
+import { getFieldArrayError, parsePositive } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -71,20 +72,6 @@ type ApiError = {
   error?: string;
   errors?: Record<string, string[]>;
 };
-
-function parsePositive(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function buildIngredientsErrorMessage(ingredientsError: unknown) {
-  if (!ingredientsError || typeof ingredientsError !== "object") return null;
-  if ("message" in ingredientsError && typeof ingredientsError.message === "string") {
-    return ingredientsError.message;
-  }
-  return null;
-}
 
 function formatSalesLineLabel(
   value: string,
@@ -260,7 +247,7 @@ export function ManufacturingOrderForm({
     );
   };
 
-  const ingredientsError = buildIngredientsErrorMessage(
+  const ingredientsError = getFieldArrayError(
     form.formState.errors.ingredients
   );
 

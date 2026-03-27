@@ -12,6 +12,8 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
+  stocktakeItems,
+  stocktakes,
   stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
@@ -20,6 +22,7 @@ import {
   applyStockDeltaInTx,
   createPositiveLotAndMovementInTx,
   getCurrentStockInTx,
+  lockItemsInTx,
 } from "@/lib/inventory/stock";
 import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
@@ -95,8 +98,11 @@ export async function deleteItem(
   usedInActiveOrders?: boolean;
   usedInActiveManufacturing?: boolean;
   usedInActivePurchasing?: boolean;
+  usedInDraftStocktakes?: boolean;
 }> {
   return withAuthedOrgContext(async (tx) => {
+    await lockItemsInTx(tx, [id]);
+
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
       .select({ id: bomComponents.id })
@@ -169,6 +175,22 @@ export async function deleteItem(
       return { deleted: false, usedInActivePurchasing: true };
     }
 
+    const [draftStocktakeRef] = await tx
+      .select({ id: stocktakes.id })
+      .from(stocktakes)
+      .innerJoin(stocktakeItems, eq(stocktakeItems.stocktakeId, stocktakes.id))
+      .where(
+        and(
+          eq(stocktakeItems.itemId, id),
+          eq(stocktakes.status, "draft")
+        )
+      )
+      .limit(1);
+
+    if (draftStocktakeRef) {
+      return { deleted: false, usedInDraftStocktakes: true };
+    }
+
     const [row] = await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -183,6 +205,8 @@ export async function deleteItems(
 ): Promise<{ deletedCount: number; error?: string }> {
   return withAuthedOrgContext(async (tx) => {
     const uniqueIds = [...new Set(ids)];
+
+    await lockItemsInTx(tx, uniqueIds);
 
     const [bomRef] = await tx
       .select({ componentId: bomComponents.componentId })
@@ -275,6 +299,26 @@ export async function deleteItems(
       };
     }
 
+    const [draftStocktakeRef] = await tx
+      .select({ id: stocktakes.id })
+      .from(stocktakes)
+      .innerJoin(stocktakeItems, eq(stocktakeItems.stocktakeId, stocktakes.id))
+      .where(
+        and(
+          inArray(stocktakeItems.itemId, uniqueIds),
+          eq(stocktakes.status, "draft")
+        )
+      )
+      .limit(1);
+
+    if (draftStocktakeRef) {
+      return {
+        deletedCount: 0,
+        error:
+          "Cannot delete: one or more items are used by a draft stocktake.",
+      };
+    }
+
     const deleted = await tx
       .update(items)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -356,27 +400,17 @@ export async function updateItem(
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [existingItem] = await tx
-      .select({ id: items.id })
+      .select({
+        id: items.id,
+      })
       .from(items)
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .for("update");
 
     if (!existingItem) return null;
 
-    if (stock != null) {
-      const currentStock = await getCurrentStockInTx(tx, id);
-      const delta = stock - currentStock;
-
-      if (delta !== 0) {
-        await applyStockDeltaInTx(tx, {
-          orgId,
-          userId,
-          itemId: id,
-          delta,
-          movementType: "manual_adjustment",
-        });
-      }
-    }
+    const delta =
+      stock != null ? stock - (await getCurrentStockInTx(tx, id)) : null;
 
     const [item] = await tx
       .update(items)
@@ -397,6 +431,16 @@ export async function updateItem(
       }
     }
 
+    if (delta != null && delta !== 0) {
+      await applyStockDeltaInTx(tx, {
+        orgId,
+        userId,
+        itemId: id,
+        delta,
+        movementType: "manual_adjustment",
+      });
+    }
+
     return item;
   });
 }
@@ -412,17 +456,6 @@ export async function createItemWithLot(
       .values({ ...data, organizationId: orgId })
       .returning({ id: items.id });
 
-    if (parseFloat(stock) > 0) {
-      await createPositiveLotAndMovementInTx(tx, {
-        orgId,
-        itemId: item.id,
-        quantity: parseFloat(stock),
-        userId,
-        costPerUnit: data.defaultPurchasePrice ?? null,
-        movementType: "manual_adjustment",
-      });
-    }
-
     if (bom && bom.length > 0) {
       await tx.insert(bomComponents).values(
         bom.map((row) => ({
@@ -431,6 +464,16 @@ export async function createItemWithLot(
           quantity: row.quantity,
         }))
       );
+    }
+
+    if (parseFloat(stock) > 0) {
+      await createPositiveLotAndMovementInTx(tx, {
+        orgId,
+        itemId: item.id,
+        quantity: parseFloat(stock),
+        userId,
+        movementType: "manual_adjustment",
+      });
     }
 
     return item;

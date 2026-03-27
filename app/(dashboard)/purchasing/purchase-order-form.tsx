@@ -21,7 +21,7 @@ import {
   insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, getFieldArrayError, parsePositive } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -66,12 +66,6 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
-function parsePositive(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 function parseNonNegative(value: string | null | undefined) {
   if (value == null || value.trim() === "") return null;
   const parsed = Number(value);
@@ -86,14 +80,6 @@ function lineTotalLabel(
   const cost = parseNonNegative(unitCost);
   if (quantity == null || cost == null) return "\u2014";
   return formatPrice((quantity * cost).toFixed(4)) ?? "\u2014";
-}
-
-function buildLinesErrorMessage(linesError: unknown) {
-  if (!linesError || typeof linesError !== "object") return null;
-  if ("message" in linesError && typeof linesError.message === "string") {
-    return linesError.message;
-  }
-  return null;
 }
 
 export function PurchaseOrderForm({
@@ -210,7 +196,7 @@ export function PurchaseOrderForm({
     router.push(fallbackPath);
   };
 
-  const linesError = buildLinesErrorMessage(form.formState.errors.lines);
+  const linesError = getFieldArrayError(form.formState.errors.lines);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">

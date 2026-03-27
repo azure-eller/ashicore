@@ -40,6 +40,7 @@ When you discover a new pattern or gotcha:
 | Feature planning | `docs/architecture.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
+| Stocktakes, reconciliation | `docs/stocktakes.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
 
 ## Database Roles
@@ -64,6 +65,10 @@ New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on
 ## Coding Patterns
 
 These are gotchas that have caused real bugs. Follow them exactly.
+
+### No local utility functions
+
+Before defining a helper in a module, check `lib/format.ts` and `lib/schemas/shared.ts` first. Common helpers that exist there: `normalizeNumeric`, `normalizeMoney`, `parsePositive`, `getFieldArrayError`, `formatQuantity`, `formatDate`, `formatDateTime`, `formatPrice`. Never copy these into module files.
 
 ### Shared Zod validators
 
@@ -239,6 +244,26 @@ return value.toFixed(4);
 ### Sequence-backed document numbers
 
 If a DAL uses `nextval()` for order/lot numbers, the migration must `CREATE SEQUENCE` and `GRANT USAGE, SELECT ON SEQUENCE ... TO app_user`.
+
+### Stocktake completion
+
+Saving stocktake counts updates snapshot rows only. Completion applies counted truth from current live stock; if live stock changed since snapshot, return `409` with a stale payload and require confirmation.
+
+### Stocktake snapshot locking
+
+Draft stocktake creation and item soft deletes must both lock affected `items` rows before checking draft references, so snapshot creation cannot race with delete.
+
+### Positive stock additions need cost
+
+Any positive stock write that creates a lot must resolve a non-null `costPerUnit`. Materials use `defaultPurchasePrice`. Products derive cost from active BOM ingredients. If no cost basis exists, fail instead of creating a null-cost lot.
+
+```ts
+if (item.itemType === "material") {
+  return item.defaultPurchasePrice
+}
+
+return deriveBomIngredientCost(...)
+```
 
 ### API error shape
 

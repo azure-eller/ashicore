@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeNumeric } from "@/lib/format";
 import {
   and,
   asc,
@@ -77,12 +78,9 @@ type ValidatedIngredient = {
   sortOrder: number;
 };
 
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
 
 function normalizeQuantityNumber(value: number) {
-  return Number(normalizeQuantityString(value));
+  return Number(normalizeNumeric(value));
 }
 
 function multiplyQuantity(quantityPerUnit: string, quantity: number) {
@@ -333,8 +331,8 @@ async function prepareCreateIngredientsInTx(
       itemSku: row.itemSku,
       itemType: row.itemType,
       unitName: row.unitName,
-      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
+      quantityPerUnit: normalizeNumeric(quantityPerUnit),
+      plannedQuantity: normalizeNumeric(quantityPerUnit * plannedQuantity),
       sortOrder: index,
     };
   });
@@ -386,8 +384,8 @@ async function prepareUpdatedIngredientsInTx(
       itemSku: row.itemSku,
       itemType: row.itemType,
       unitName: row.unitName,
-      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
+      quantityPerUnit: normalizeNumeric(quantityPerUnit),
+      plannedQuantity: normalizeNumeric(quantityPerUnit * plannedQuantity),
       sortOrder: row.sortOrder,
     };
   });
@@ -792,7 +790,7 @@ export async function createManufacturingOrder(
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
         salesCustomerName: salesLink?.customerName ?? null,
         status: "draft",
-        plannedQuantity: normalizeQuantityString(plannedQuantity),
+        plannedQuantity: normalizeNumeric(plannedQuantity),
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
       })
@@ -859,7 +857,7 @@ export async function updateManufacturingOrder(
         salesOrderLineId: salesLink?.salesOrderLineId ?? null,
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
         salesCustomerName: salesLink?.customerName ?? null,
-        plannedQuantity: normalizeQuantityString(plannedQuantity),
+        plannedQuantity: normalizeNumeric(plannedQuantity),
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
         updatedAt: new Date(),
@@ -1024,8 +1022,8 @@ export async function completeManufacturingOrder(
       await tx
         .update(manufacturingOrderIngredients)
         .set({
-          actualQuantity: normalizeQuantityString(actualNeeded),
-          actualCostTotal: normalizeQuantityString(actualCostTotal),
+          actualQuantity: normalizeNumeric(actualNeeded),
+          actualCostTotal: normalizeNumeric(actualCostTotal),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrderIngredients.id, ingredient.id));
@@ -1038,7 +1036,7 @@ export async function completeManufacturingOrder(
       itemId: order.productId,
       quantity: actualQuantity,
       userId,
-      costPerUnit: normalizeQuantityString(actualCostPerUnit),
+      costPerUnit: normalizeNumeric(actualCostPerUnit),
       movementType: "manufacturing_produced",
       referenceType: "manufacturing_order",
       referenceId: id,
@@ -1048,9 +1046,9 @@ export async function completeManufacturingOrder(
       .update(manufacturingOrders)
       .set({
         status: "completed",
-        actualQuantity: normalizeQuantityString(actualQuantity),
-        actualMaterialCost: normalizeQuantityString(totalMaterialCost),
-        actualCostPerUnit: normalizeQuantityString(actualCostPerUnit),
+        actualQuantity: normalizeNumeric(actualQuantity),
+        actualMaterialCost: normalizeNumeric(totalMaterialCost),
+        actualCostPerUnit: normalizeNumeric(actualCostPerUnit),
         completedAt: new Date(),
         updatedAt: new Date(),
       })
