@@ -156,7 +156,7 @@ test.describe("Purchasing flow", () => {
     await secondMaterialInput.click();
     await secondMaterialInput.fill(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
-    await secondRow.getByPlaceholder("0").fill("5");
+    await secondRow.locator('input[placeholder="0"]').first().fill("5");
 
     await page.getByRole("button", { name: "Create Order" }).click();
     await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
@@ -182,11 +182,11 @@ test.describe("Purchasing flow", () => {
 
     expect(lines).toHaveLength(2);
     expect(lines[0].itemId).toBe(barkId);
-    expect(lines[0].quantityOrdered).toBe("10");
+    expect(lines[0].quantityOrdered).toBe("10.0000");
     expect(lines[0].quantityReceived).toBe("0.0000");
     expect(lines[0].unitCost).toBe("2.0000");
     expect(lines[1].itemId).toBe(sandId);
-    expect(lines[1].quantityOrdered).toBe("5");
+    expect(lines[1].quantityOrdered).toBe("5.0000");
     expect(lines[1].unitCost).toBe("1.5000");
   });
 
@@ -199,7 +199,7 @@ test.describe("Purchasing flow", () => {
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);
-    await secondRow.getByPlaceholder("0").fill("6");
+    await secondRow.locator('input[placeholder="0"]').first().fill("6");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);
@@ -219,15 +219,26 @@ test.describe("Purchasing flow", () => {
       .orderBy(asc(purchaseOrderLines.sortOrder));
 
     expect(lines).toHaveLength(2);
-    expect(lines[1].quantityOrdered).toBe("6");
+    expect(lines[1].quantityOrdered).toBe("6.0000");
   });
 
   test("submits the purchase order and blocks active deletes", async ({ page, db }) => {
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { name: purchaseOrderNumber })).toBeVisible();
 
+    const submitResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/submit`)
+    );
+
     await page.getByRole("button", { name: "Submit" }).click();
-    await expect(page.getByText("Ordered")).toBeVisible();
+    const submitResponse = await submitResponsePromise;
+    expect(submitResponse.status()).toBe(200);
+
+    await expect(
+      page.locator("main").getByText("Ordered", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const [order] = await db
       .select()
@@ -240,8 +251,8 @@ test.describe("Purchasing flow", () => {
     const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
     const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
 
-    expect(barkItem.expectedQty).toBe("10");
-    expect(sandItem.expectedQty).toBe("6");
+    expect(barkItem.expectedQty).toBe("10.0000");
+    expect(sandItem.expectedQty).toBe("6.0000");
 
     const supplierDelete = await testFetch(`/api/suppliers/${supplierId}`, {
       method: "DELETE",
@@ -263,10 +274,21 @@ test.describe("Purchasing flow", () => {
     const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
     await expect(receiveDialog).toBeVisible();
 
+    const partialReceiveResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/receive`)
+    );
+
     await receiveDialog.getByPlaceholder("0").first().fill("4");
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
-    await expect(receiveDialog).not.toBeVisible();
-    await expect(page.getByText("Partially Received")).toBeVisible();
+    const partialReceiveResponse = await partialReceiveResponsePromise;
+    expect(partialReceiveResponse.status()).toBe(200);
+
+    await expect(receiveDialog).not.toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator("main").getByText("Partially Received", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const [order] = await db
       .select()
@@ -280,12 +302,12 @@ test.describe("Purchasing flow", () => {
       .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
       .orderBy(asc(purchaseOrderLines.sortOrder));
 
-    expect(lines[0].quantityReceived).toBe("4");
+    expect(lines[0].quantityReceived).toBe("4.0000");
     expect(lines[1].quantityReceived).toBe("0.0000");
 
     const barkLots = await db.select().from(lots).where(eq(lots.itemId, barkId));
     expect(barkLots).toHaveLength(1);
-    expect(barkLots[0].quantity).toBe("4");
+    expect(barkLots[0].quantity).toBe("4.0000");
     expect(barkLots[0].costPerUnit).toBe("2.0000");
 
     const barkMovements = await db
@@ -305,8 +327,8 @@ test.describe("Purchasing flow", () => {
     const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
     const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
 
-    expect(barkItem.expectedQty).toBe("6");
-    expect(sandItem.expectedQty).toBe("6");
+    expect(barkItem.expectedQty).toBe("6.0000");
+    expect(sandItem.expectedQty).toBe("6.0000");
   });
 
   test("fully receives the remaining quantities", async ({ page, db }) => {
@@ -316,11 +338,22 @@ test.describe("Purchasing flow", () => {
     const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
     await expect(receiveDialog).toBeVisible();
 
+    const finalReceiveResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/receive`)
+    );
+
     await receiveDialog.getByPlaceholder("0").first().fill("6");
     await receiveDialog.getByPlaceholder("0").nth(1).fill("6");
     await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
-    await expect(receiveDialog).not.toBeVisible();
-    await expect(page.getByText("Received")).toBeVisible();
+    const finalReceiveResponse = await finalReceiveResponsePromise;
+    expect(finalReceiveResponse.status()).toBe(200);
+
+    await expect(receiveDialog).not.toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator("main").getByText("Received", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const [order] = await db
       .select()
@@ -336,8 +369,8 @@ test.describe("Purchasing flow", () => {
       .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
       .orderBy(asc(purchaseOrderLines.sortOrder));
 
-    expect(lines[0].quantityReceived).toBe("10");
-    expect(lines[1].quantityReceived).toBe("6");
+    expect(lines[0].quantityReceived).toBe("10.0000");
+    expect(lines[1].quantityReceived).toBe("6.0000");
 
     const barkLots = await db.select().from(lots).where(eq(lots.itemId, barkId));
     const sandLots = await db.select().from(lots).where(eq(lots.itemId, sandId));
@@ -360,7 +393,7 @@ test.describe("Purchasing flow", () => {
     const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
     const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
 
-    expect(barkItem.expectedQty).toBe("0");
-    expect(sandItem.expectedQty).toBe("0");
+    expect(barkItem.expectedQty).toBe("0.0000");
+    expect(sandItem.expectedQty).toBe("0.0000");
   });
 });

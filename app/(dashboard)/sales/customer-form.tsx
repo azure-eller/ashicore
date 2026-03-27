@@ -162,6 +162,8 @@ export function CustomerForm({ initialData }: { initialData?: CustomerRow }) {
                     <Input
                       {...field}
                       id={field.name}
+                      value={field.value ?? ""}
+                      onChange={(event) => field.onChange(event.target.value)}
                       aria-invalid={fieldState.invalid}
                       autoComplete="off"
                     />

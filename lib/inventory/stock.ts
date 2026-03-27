@@ -11,6 +11,7 @@ export const STOCK_MOVEMENT_TYPES = [
   "manufacturing_produced",
   "purchase_received",
   "stocktake_adjustment",
+  "sales_fulfilled",
 ] as const;
 
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
@@ -18,6 +19,7 @@ export type StockReferenceType =
   | "manufacturing_order"
   | "purchase_order"
   | "stocktake"
+  | "sales_order"
   | null;
 
 export type FifoAllocation = {

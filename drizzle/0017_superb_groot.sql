@@ -1,0 +1,1 @@
+ALTER TABLE "sales"."sales_orders" ADD COLUMN "fulfilled_at" timestamp;
