@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -171,6 +170,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
   const table = useReactTable({
     data,
     columns,
+    enableRowSelection: (row) => row.original.status === "draft",
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
@@ -323,7 +323,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
       </div>
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>
               Delete {pendingDeleteIds.length} stocktake
@@ -336,13 +336,13 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
               variant="destructive"
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate(pendingDeleteIds)}
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

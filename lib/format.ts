@@ -81,6 +81,20 @@ export function summarizeItems(lines: Array<{ itemName: string }>): string {
   return `${lines[0].itemName} + ${lines.length - 1} more`;
 }
 
+const MOVEMENT_TYPE_LABELS: Record<string, string> = {
+  manual_adjustment: "Manual",
+  purchase_received: "Purchase",
+  manufacturing_consumed: "MO consumed",
+  manufacturing_produced: "MO produced",
+  sales_fulfilled: "Sale",
+  stocktake_adjustment: "Stocktake",
+};
+
+export function formatMovementType(type: string | null): string {
+  if (!type) return "\u2014";
+  return MOVEMENT_TYPE_LABELS[type] ?? type;
+}
+
 export function getFieldArrayError(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
   if ("message" in error && typeof error.message === "string") {

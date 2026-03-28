@@ -183,6 +183,7 @@ export async function getStocktakes(): Promise<StocktakeListRow[]> {
         updatedAt: stocktakes.updatedAt,
       })
       .from(stocktakes)
+      .where(sql`${stocktakes.status} != 'cancelled'`)
       .orderBy(desc(stocktakes.createdAt));
 
     if (rows.length === 0) {

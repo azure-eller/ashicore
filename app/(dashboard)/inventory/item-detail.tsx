@@ -18,25 +18,11 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, formatMovementType } from "@/lib/format";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
 } from "@/lib/tooltip-copy";
-
-const MOVEMENT_TYPE_LABELS: Record<string, string> = {
-  manual_adjustment: "Manual",
-  purchase_received: "Purchase",
-  manufacturing_consumed: "MO consumed",
-  manufacturing_produced: "MO produced",
-  sales_fulfilled: "Sale",
-  stocktake_adjustment: "Stocktake",
-};
-
-function formatMovementType(type: string | null): string {
-  if (!type) return "\u2014";
-  return MOVEMENT_TYPE_LABELS[type] ?? type;
-}
 
 interface ItemDetailProps {
   item: {
