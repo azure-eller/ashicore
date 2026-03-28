@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useFieldArray, useForm, useWatch, type Control } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -227,14 +228,7 @@ export function OrderForm({
     },
   });
 
-  const handleCancel = () => {
-    if (document.referrer.startsWith(window.location.origin)) {
-      router.back();
-      return;
-    }
-
-    router.push(fallbackPath);
-  };
+  const handleCancel = useSmartBack(fallbackPath);
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
 

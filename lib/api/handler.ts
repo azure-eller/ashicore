@@ -3,6 +3,8 @@ import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { AuthorizationError } from "@/lib/authz";
 
+export type RouteContext = { params: Promise<{ id: string }> };
+
 export function apiHandler(
   fn: (request: Request, ...args: unknown[]) => Promise<NextResponse>
 ) {

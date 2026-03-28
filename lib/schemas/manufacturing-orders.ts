@@ -168,7 +168,6 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<
   typeof createManufacturingOrdersFromSalesOrderSchema
 >;
-
 export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
   productId: "",
   salesOrderId: null,

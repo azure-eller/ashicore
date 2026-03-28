@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
+import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import {
   createCustomer,
   deleteCustomers,
@@ -10,9 +10,6 @@ import {
   SalesError,
 } from "@/app/(dashboard)/sales/queries";
 
-const deleteCustomersSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1),
-});
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("sales", request.headers);
@@ -31,7 +28,7 @@ export const POST = apiHandler(async (request) => {
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json();
-  const data = deleteCustomersSchema.parse(body);
+  const data = bulkDeleteSchema.parse(body);
 
   try {
     const result = await deleteCustomers(data.ids);

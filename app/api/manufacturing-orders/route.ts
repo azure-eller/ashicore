@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  deleteManufacturingOrdersSchema,
-  insertManufacturingOrderSchema,
-} from "@/lib/schemas/manufacturing-orders";
+import { bulkDeleteSchema } from "@/lib/schemas/shared";
+import { insertManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import {
   createManufacturingOrder,
   deleteManufacturingOrders,
@@ -21,7 +19,7 @@ export const GET = apiHandler(async (request) => {
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const body = await request.json();
-  const data = deleteManufacturingOrdersSchema.parse(body);
+  const data = bulkDeleteSchema.parse(body);
   const result = await deleteManufacturingOrders(data.ids);
 
   if (result.error) {

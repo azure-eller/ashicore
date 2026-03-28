@@ -64,6 +64,37 @@ export function parsePositive(value: string | null | undefined): number | null {
 /**
  * Extract root-level error message from a react-hook-form field array error.
  */
+/**
+ * Round a quantity to 4 decimal places to avoid JS float imprecision.
+ */
+export function roundQuantity(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+/**
+ * Summarize a list of line items for display in table columns.
+ * e.g. "Widget A + 2 more"
+ */
+export function summarizeItems(lines: Array<{ itemName: string }>): string {
+  if (lines.length === 0) return "\u2014";
+  if (lines.length === 1) return lines[0].itemName;
+  return `${lines[0].itemName} + ${lines.length - 1} more`;
+}
+
+const MOVEMENT_TYPE_LABELS: Record<string, string> = {
+  manual_adjustment: "Manual",
+  purchase_received: "Purchase",
+  manufacturing_consumed: "MO consumed",
+  manufacturing_produced: "MO produced",
+  sales_fulfilled: "Sale",
+  stocktake_adjustment: "Stocktake",
+};
+
+export function formatMovementType(type: string | null): string {
+  if (!type) return "\u2014";
+  return MOVEMENT_TYPE_LABELS[type] ?? type;
+}
+
 export function getFieldArrayError(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
   if ("message" in error && typeof error.message === "string") {

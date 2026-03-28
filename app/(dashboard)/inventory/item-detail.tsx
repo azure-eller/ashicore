@@ -18,7 +18,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, formatMovementType } from "@/lib/format";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
@@ -59,6 +59,9 @@ interface ItemDetailProps {
   movements: {
     id: string;
     quantity: string;
+    movementType: string | null;
+    referenceType: string | null;
+    referenceId: string | null;
     lotNumber: string | null;
     createdAt: Date;
   }[];
@@ -259,6 +262,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead>Lot</TableHead>
                 </TableRow>
@@ -269,6 +273,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
                   return (
                     <TableRow key={m.id}>
                       <TableCell>{m.createdAt.toLocaleDateString("en-US")}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatMovementType(m.movementType)}</TableCell>
                       <TableCell className={`text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
                         {qty > 0 ? "+" : ""}{qty}
                       </TableCell>

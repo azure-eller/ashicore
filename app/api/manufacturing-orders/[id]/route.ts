@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -9,7 +9,6 @@ import {
   updateManufacturingOrder,
 } from "@/app/(dashboard)/manufacturing/queries";
 
-type RouteContext = { params: Promise<{ id: string }> };
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   await assertModuleReadAccess("manufacturing", _request.headers);

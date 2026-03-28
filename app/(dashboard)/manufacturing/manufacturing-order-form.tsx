@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
   Controller,
   type Resolver,
@@ -350,14 +351,7 @@ export function ManufacturingOrderForm({
     },
   });
 
-  const handleCancel = () => {
-    if (document.referrer.startsWith(window.location.origin)) {
-      router.back();
-      return;
-    }
-
-    router.push(fallbackPath);
-  };
+  const handleCancel = useSmartBack(fallbackPath);
 
   const handleSalesOrderChange = (salesOrderId: string) => {
     const selected = salesOrderMap.get(salesOrderId);

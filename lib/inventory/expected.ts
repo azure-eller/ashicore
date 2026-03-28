@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { normalizeNumeric } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
   items,
   manufacturingOrders,
@@ -10,10 +10,6 @@ import {
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockItemsInTx } from "./stock";
-
-function roundQuantity(value: number) {
-  return Math.round(value * 10000) / 10000;
-}
 
 export async function recomputeExpectedQty(tx: Tx, itemIds: string[]) {
   const uniqueItemIds = [...new Set(itemIds)].sort();

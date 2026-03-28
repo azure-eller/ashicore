@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { updateStocktakeCountsSchema } from "@/lib/schemas/stocktakes";
 import {
   getStocktake,
@@ -7,7 +7,6 @@ import {
   updateStocktakeCounts,
 } from "@/app/(dashboard)/inventory/stocktakes/queries";
 
-type RouteContext = { params: Promise<{ id: string }> };
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;

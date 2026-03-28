@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -107,14 +108,7 @@ export function StocktakeForm() {
     },
   });
 
-  const handleCancel = () => {
-    if (document.referrer.startsWith(window.location.origin)) {
-      router.back();
-      return;
-    }
-
-    router.push("/inventory/stocktakes");
-  };
+  const handleCancel = useSmartBack("/inventory/stocktakes");
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-8">
