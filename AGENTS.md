@@ -425,6 +425,14 @@ if (isUnchangedSnapshot && replacementLine) return replacementLine
 if (isUnchangedSnapshot) return existingSnapshot
 ```
 
+### Manufacturing sales-line claims
+
+`manufacturingOrders.salesOrderLineId` is also a one-time claim for sales-driven MO creation. Linked `draft`, `released`, and `completed` MOs block another linked MO for that sales line; only `cancelled` reopens it.
+
+```ts
+inArray(manufacturingOrders.status, ["draft", "released", "completed"])
+```
+
 ### Manufacturing product templates
 
 New manufacturing-order product pickers should only list products whose active BOM still has at least one non-deleted ingredient.

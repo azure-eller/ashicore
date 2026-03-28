@@ -20,6 +20,51 @@ export type ManufacturingSalesLineOption = {
   status: "draft" | "confirmed";
 };
 
+export type ManufacturingSalesOrderOption = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  requestedDate: string | null;
+  manufacturableLineCount: number;
+  hasManufacturableLines: boolean;
+  disabledReason: string | null;
+};
+
+export type ManufacturingSalesOrderPreviewLine = {
+  salesOrderLineId: string;
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  quantity: string;
+  unitName: string;
+  status: "will_create" | "skipped";
+  skipReason: "inactive_product" | "no_active_bom" | "existing_active_mo" | null;
+  skipMessage: string | null;
+};
+
+export type ManufacturingSalesOrderPreview = {
+  salesOrderId: string;
+  salesOrderNumber: string;
+  customerName: string;
+  requestedDate: string | null;
+  manufacturableLineCount: number;
+  hasManufacturableLines: boolean;
+  disabledReason: string | null;
+  lines: ManufacturingSalesOrderPreviewLine[];
+};
+
+export type ManufacturingOrdersFromSalesOrderResult = {
+  created: Array<{
+    salesOrderLineId: string;
+    manufacturingOrderId: string;
+    orderNumber: string;
+  }>;
+  skipped: Array<{
+    salesOrderLineId: string;
+    reason: "inactive_product" | "no_active_bom" | "existing_active_mo";
+  }>;
+};
+
 export type ManufacturingReleaseWarningIngredient = {
   itemId: string;
   itemName: string;

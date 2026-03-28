@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { normalizeNumeric } from "@/lib/format";
 import {
   and,
   asc,
@@ -29,17 +28,22 @@ import {
   getCurrentStockInTx,
   lockItemsInTx,
 } from "@/lib/inventory/stock";
+import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import type {
   CompleteManufacturingOrder,
+  CreateManufacturingOrdersFromSalesOrder,
   InsertManufacturingOrder,
   UpdateManufacturingOrder,
 } from "@/lib/schemas/manufacturing-orders";
 import type {
   ManufacturingOrderDetail,
   ManufacturingOrderEditData,
+  ManufacturingOrdersFromSalesOrderResult,
   ManufacturingOrderListRow,
   ManufacturingProductOption,
   ManufacturingReleaseWarningPayload,
+  ManufacturingSalesOrderOption,
+  ManufacturingSalesOrderPreview,
   ManufacturingSalesLineOption,
 } from "./types";
 
@@ -78,9 +82,12 @@ type ValidatedIngredient = {
   sortOrder: number;
 };
 
+function normalizeQuantityString(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
 
 function normalizeQuantityNumber(value: number) {
-  return Number(normalizeNumeric(value));
+  return Number(normalizeQuantityString(value));
 }
 
 function multiplyQuantity(quantityPerUnit: string, quantity: number) {
@@ -331,11 +338,94 @@ async function prepareCreateIngredientsInTx(
       itemSku: row.itemSku,
       itemType: row.itemType,
       unitName: row.unitName,
-      quantityPerUnit: normalizeNumeric(quantityPerUnit),
-      plannedQuantity: normalizeNumeric(quantityPerUnit * plannedQuantity),
+      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
+      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
       sortOrder: index,
     };
   });
+}
+
+async function prepareCreateIngredientsFromBomInTx(
+  tx: Tx,
+  productId: string,
+  plannedQuantity: number
+): Promise<ValidatedIngredient[]> {
+  const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
+
+  if (bomRows.length === 0) {
+    throw new ManufacturingError(
+      "Products need a BOM before creating a manufacturing order",
+      400
+    );
+  }
+
+  return bomRows.map((row, index) => {
+    const quantityPerUnit = Number(row.quantityPerUnit);
+
+    return {
+      itemId: row.itemId,
+      itemName: row.itemName,
+      itemSku: row.itemSku,
+      itemType: row.itemType,
+      unitName: row.unitName,
+      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
+      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
+      sortOrder: index,
+    };
+  });
+}
+
+async function insertManufacturingOrderInTx(
+  tx: Tx,
+  orgId: string,
+  values: {
+    product: ProductSnapshot;
+    salesLink: SalesLineSnapshot | null;
+    plannedQuantity: number;
+    plannedDate: string | null;
+    notes: string | null;
+    ingredients: ValidatedIngredient[];
+  }
+) {
+  const orderNumber = await generateMONumber(tx);
+  const [order] = await tx
+    .insert(manufacturingOrders)
+    .values({
+      organizationId: orgId,
+      orderNumber,
+      productId: values.product.id,
+      salesOrderId: values.salesLink?.salesOrderId ?? null,
+      salesOrderLineId: values.salesLink?.salesOrderLineId ?? null,
+      productName: values.product.name,
+      productSku: values.product.sku,
+      unitName: values.product.unitName,
+      salesOrderNumber: values.salesLink?.salesOrderNumber ?? null,
+      salesCustomerName: values.salesLink?.customerName ?? null,
+      status: "draft",
+      plannedQuantity: normalizeQuantityString(values.plannedQuantity),
+      plannedDate: values.plannedDate,
+      notes: values.notes,
+    })
+    .returning({
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+    });
+
+  await tx.insert(manufacturingOrderIngredients).values(
+    values.ingredients.map((ingredient) => ({
+      manufacturingOrderId: order.id,
+      itemId: ingredient.itemId,
+      itemName: ingredient.itemName,
+      itemSku: ingredient.itemSku,
+      itemType: ingredient.itemType,
+      unitName: ingredient.unitName,
+      quantityPerUnit: ingredient.quantityPerUnit,
+      plannedQuantity: ingredient.plannedQuantity,
+      sortOrder: ingredient.sortOrder,
+    }))
+  );
+
+  return order;
 }
 
 async function prepareUpdatedIngredientsInTx(
@@ -384,8 +474,8 @@ async function prepareUpdatedIngredientsInTx(
       itemSku: row.itemSku,
       itemType: row.itemType,
       unitName: row.unitName,
-      quantityPerUnit: normalizeNumeric(quantityPerUnit),
-      plannedQuantity: normalizeNumeric(quantityPerUnit * plannedQuantity),
+      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
+      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
       sortOrder: row.sortOrder,
     };
   });
@@ -587,6 +677,95 @@ export async function getManufacturingProductTemplates(): Promise<
   });
 }
 
+export async function getManufacturingSalesOrderOptions(): Promise<
+  ManufacturingSalesOrderOption[]
+> {
+  return withAuthedOrgContext(async (tx) => {
+    const orders = await tx
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+        requestedDate: salesOrders.requestedDate,
+        createdAt: salesOrders.createdAt,
+      })
+      .from(salesOrders)
+      .where(
+        and(
+          isNull(salesOrders.deletedAt),
+          eq(salesOrders.status, "confirmed")
+        )
+      )
+      .orderBy(desc(salesOrders.createdAt));
+
+    if (orders.length === 0) {
+      return [];
+    }
+
+    const summaries = await getSalesOrderManufacturingSummariesInTx(
+      tx,
+      orders.map((order) => order.id)
+    );
+
+    return orders.map((order) => {
+      const summary = summaries.get(order.id);
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        requestedDate: order.requestedDate,
+        manufacturableLineCount: summary?.manufacturableLineCount ?? 0,
+        hasManufacturableLines: summary?.hasManufacturableLines ?? false,
+        disabledReason:
+          summary?.disabledReason ?? "No manufacturable lines remain on this order.",
+      };
+    });
+  });
+}
+
+export async function getManufacturingSalesOrderPreview(
+  id: string
+): Promise<ManufacturingSalesOrderPreview | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+        requestedDate: salesOrders.requestedDate,
+      })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.id, id),
+          isNull(salesOrders.deletedAt),
+          eq(salesOrders.status, "confirmed")
+        )
+      );
+
+    if (!order) {
+      return null;
+    }
+
+    const summary = (
+      await getSalesOrderManufacturingSummariesInTx(tx, [id])
+    ).get(id);
+
+    return {
+      salesOrderId: order.id,
+      salesOrderNumber: order.orderNumber,
+      customerName: order.customerName,
+      requestedDate: order.requestedDate,
+      manufacturableLineCount: summary?.manufacturableLineCount ?? 0,
+      hasManufacturableLines: summary?.hasManufacturableLines ?? false,
+      disabledReason:
+        summary?.disabledReason ?? "No manufacturable lines remain on this order.",
+      lines: summary?.lines ?? [],
+    };
+  });
+}
+
 export async function getManufacturingSalesLineOptions(
   productId?: string
 ): Promise<ManufacturingSalesLineOption[]> {
@@ -761,6 +940,13 @@ export async function createManufacturingOrder(
   payload: InsertManufacturingOrder
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    if (payload.salesOrderId != null || payload.salesOrderLineId != null) {
+      throw new ManufacturingError(
+        "Create sales-linked manufacturing orders from the sales order Create MOs flow.",
+        400
+      );
+    }
+
     const plannedQuantity = Number(payload.plannedQuantity);
     const product = await getValidatedProductInTx(tx, payload.productId);
     const salesLink = await validateSalesLineLinkInTx(tx, {
@@ -774,43 +960,104 @@ export async function createManufacturingOrder(
       plannedQuantity,
       payload.ingredients
     );
-    const orderNumber = await generateMONumber(tx);
+    const order = await insertManufacturingOrderInTx(tx, orgId, {
+      product,
+      salesLink,
+      plannedQuantity,
+      plannedDate: payload.plannedDate ?? null,
+      notes: payload.notes ?? null,
+      ingredients,
+    });
 
+    return { id: order.id };
+  });
+}
+
+export async function createManufacturingOrdersFromSalesOrder(
+  salesOrderId: string,
+  payload: CreateManufacturingOrdersFromSalesOrder
+): Promise<ManufacturingOrdersFromSalesOrderResult> {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
-      .insert(manufacturingOrders)
-      .values({
-        organizationId: orgId,
-        orderNumber,
-        productId: product.id,
-        salesOrderId: salesLink?.salesOrderId ?? null,
-        salesOrderLineId: salesLink?.salesOrderLineId ?? null,
-        productName: product.name,
-        productSku: product.sku,
-        unitName: product.unitName,
-        salesOrderNumber: salesLink?.salesOrderNumber ?? null,
-        salesCustomerName: salesLink?.customerName ?? null,
-        status: "draft",
-        plannedQuantity: normalizeNumeric(plannedQuantity),
-        plannedDate: payload.plannedDate ?? null,
-        notes: payload.notes ?? null,
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+        requestedDate: salesOrders.requestedDate,
+        status: salesOrders.status,
       })
-      .returning({ id: manufacturingOrders.id });
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.id, salesOrderId),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .for("update");
 
-    await tx.insert(manufacturingOrderIngredients).values(
-      ingredients.map((ingredient) => ({
-        manufacturingOrderId: order.id,
-        itemId: ingredient.itemId,
-        itemName: ingredient.itemName,
-        itemSku: ingredient.itemSku,
-        itemType: ingredient.itemType,
-        unitName: ingredient.unitName,
-        quantityPerUnit: ingredient.quantityPerUnit,
-        plannedQuantity: ingredient.plannedQuantity,
-        sortOrder: ingredient.sortOrder,
-      }))
-    );
+    if (!order) {
+      throw new ManufacturingError("Sales order not found", 404);
+    }
 
-    return order;
+    if (order.status !== "confirmed") {
+      throw new ManufacturingError(
+        "Only confirmed sales orders can create manufacturing orders",
+        400
+      );
+    }
+
+    const summary = (
+      await getSalesOrderManufacturingSummariesInTx(tx, [salesOrderId])
+    ).get(salesOrderId);
+
+    if (!summary || !summary.hasManufacturableLines) {
+      throw new ManufacturingError(
+        summary?.disabledReason ?? "No manufacturable lines remain on this order.",
+        400
+      );
+    }
+
+    const plannedDate = payload.plannedDate ?? order.requestedDate ?? null;
+    const created: ManufacturingOrdersFromSalesOrderResult["created"] = [];
+    const skipped: ManufacturingOrdersFromSalesOrderResult["skipped"] = [];
+
+    for (const line of summary.lines) {
+      if (line.status === "skipped" || line.skipReason != null) {
+        skipped.push({
+          salesOrderLineId: line.salesOrderLineId,
+          reason: line.skipReason ?? "existing_active_mo",
+        });
+        continue;
+      }
+
+      const product = await getValidatedProductInTx(tx, line.itemId);
+      const ingredients = await prepareCreateIngredientsFromBomInTx(
+        tx,
+        line.itemId,
+        Number(line.quantity)
+      );
+      const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
+        product,
+        salesLink: {
+          salesOrderId: order.id,
+          salesOrderLineId: line.salesOrderLineId,
+          salesOrderNumber: order.orderNumber,
+          customerName: order.customerName,
+        },
+        plannedQuantity: Number(line.quantity),
+        plannedDate,
+        notes: payload.notes ?? null,
+        ingredients,
+      });
+
+      created.push({
+        salesOrderLineId: line.salesOrderLineId,
+        manufacturingOrderId: createdOrder.id,
+        orderNumber: createdOrder.orderNumber,
+      });
+    }
+
+    return { created, skipped };
   });
 }
 
@@ -857,7 +1104,7 @@ export async function updateManufacturingOrder(
         salesOrderLineId: salesLink?.salesOrderLineId ?? null,
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
         salesCustomerName: salesLink?.customerName ?? null,
-        plannedQuantity: normalizeNumeric(plannedQuantity),
+        plannedQuantity: normalizeQuantityString(plannedQuantity),
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
         updatedAt: new Date(),
@@ -1022,8 +1269,8 @@ export async function completeManufacturingOrder(
       await tx
         .update(manufacturingOrderIngredients)
         .set({
-          actualQuantity: normalizeNumeric(actualNeeded),
-          actualCostTotal: normalizeNumeric(actualCostTotal),
+          actualQuantity: normalizeQuantityString(actualNeeded),
+          actualCostTotal: normalizeQuantityString(actualCostTotal),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrderIngredients.id, ingredient.id));
@@ -1036,7 +1283,7 @@ export async function completeManufacturingOrder(
       itemId: order.productId,
       quantity: actualQuantity,
       userId,
-      costPerUnit: normalizeNumeric(actualCostPerUnit),
+      costPerUnit: normalizeQuantityString(actualCostPerUnit),
       movementType: "manufacturing_produced",
       referenceType: "manufacturing_order",
       referenceId: id,
@@ -1046,9 +1293,9 @@ export async function completeManufacturingOrder(
       .update(manufacturingOrders)
       .set({
         status: "completed",
-        actualQuantity: normalizeNumeric(actualQuantity),
-        actualMaterialCost: normalizeNumeric(totalMaterialCost),
-        actualCostPerUnit: normalizeNumeric(actualCostPerUnit),
+        actualQuantity: normalizeQuantityString(actualQuantity),
+        actualMaterialCost: normalizeQuantityString(totalMaterialCost),
+        actualCostPerUnit: normalizeQuantityString(actualCostPerUnit),
         completedAt: new Date(),
         updatedAt: new Date(),
       })
