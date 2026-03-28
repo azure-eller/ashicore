@@ -306,6 +306,9 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     },
   });
 
+  // TanStack Table returns instance methods that React Compiler treats as incompatible.
+  // This table still needs custom bulk-confirm and row actions that do not fit the shared shell.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
