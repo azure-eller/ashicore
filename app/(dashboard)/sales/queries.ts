@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { normalizeNumeric, normalizeMoney } from "@/lib/format";
 import {
   customers,
   items,
@@ -11,8 +12,11 @@ import {
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import { lockItemsInTx } from "@/lib/inventory/stock";
-import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
+import {
+  applyStockDeltaInTx,
+  InsufficientStockError,
+  lockItemsInTx,
+} from "@/lib/inventory/stock";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
   BulkConfirmSalesOrders,
@@ -20,15 +24,16 @@ import type {
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
 import type {
-  BulkOversellWarningPayload,
   CustomerRow,
   OversellWarningPayload,
+  BulkOversellWarningPayload,
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderEditData,
   SalesOrderListRow,
   SalesOrderProductOption,
 } from "./types";
+import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 
 const stockSubquery = sql<string>`(
   SELECT COALESCE(SUM(${lots.quantity}), 0)
@@ -101,14 +106,6 @@ export class SalesError extends Error {
   }
 }
 
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
-
-function normalizeMoneyString(value: number) {
-  return value.toFixed(2);
-}
-
 function roundQuantity(value: number) {
   return Math.round(value * 10000) / 10000;
 }
@@ -167,6 +164,19 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
     .from(salesOrderLines)
     .where(eq(salesOrderLines.salesOrderId, orderId))
     .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
+}
+
+async function getLockedSalesOrderInTx(tx: Tx, id: string) {
+  const [order] = await tx
+    .select({
+      id: salesOrders.id,
+      status: salesOrders.status,
+    })
+    .from(salesOrders)
+    .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
+    .for("update");
+
+  return order ?? null;
 }
 
 async function prepareDraftOrdersForConfirmationInTx(
@@ -401,9 +411,9 @@ async function prepareOrderPayload(
       itemName: product.name,
       itemSku: product.sku,
       unitName: product.unitName,
-      quantity: normalizeQuantityString(quantity),
-      unitPrice: normalizeMoneyString(unitPrice),
-      lineTotal: normalizeMoneyString(lineTotal),
+      quantity: normalizeNumeric(quantity),
+      unitPrice: normalizeMoney(unitPrice),
+      lineTotal: normalizeMoney(lineTotal),
       sortOrder: index,
     };
   });
@@ -418,7 +428,7 @@ async function prepareOrderPayload(
     customerName: customer.name,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
-    totalAmount: normalizeMoneyString(totalAmount),
+    totalAmount: normalizeMoney(totalAmount),
     preparedLines,
     affectedProductIds: preparedLines.map((line) => line.itemId),
     products,
@@ -738,6 +748,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         customerName: salesOrders.customerName,
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
+        fulfilledAt: salesOrders.fulfilledAt,
         totalAmount: salesOrders.totalAmount,
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -791,6 +802,7 @@ export async function getSalesOrder(
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
+        fulfilledAt: salesOrders.fulfilledAt,
         totalAmount: salesOrders.totalAmount,
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -950,14 +962,7 @@ export async function createSalesOrder(data: InsertSalesOrder) {
 
 export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
   return withAuthedOrgContext(async (tx) => {
-    const [existingOrder] = await tx
-      .select({
-        id: salesOrders.id,
-        status: salesOrders.status,
-      })
-      .from(salesOrders)
-      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
-      .for("update");
+    const existingOrder = await getLockedSalesOrderInTx(tx, id);
 
     if (!existingOrder) {
       return null;
@@ -985,6 +990,10 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
 
     if (existingOrder.status === "cancelled") {
       throw new SalesError("Cancelled orders cannot be changed.", 400);
+    }
+
+    if (existingOrder.status === "fulfilled") {
+      throw new SalesError("Fulfilled orders cannot be changed.", 400);
     }
 
     if (isCancelPayload(data)) {
@@ -1040,6 +1049,71 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
     ]);
 
     return { id };
+  });
+}
+
+export async function fulfillSalesOrder(id: string) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const order = await getLockedSalesOrderInTx(tx, id);
+
+    if (!order) {
+      return null;
+    }
+
+    if (order.status === "draft") {
+      throw new SalesError("Only confirmed orders can be fulfilled.", 400);
+    }
+
+    if (order.status === "cancelled") {
+      throw new SalesError("Cancelled orders cannot be fulfilled.", 400);
+    }
+
+    if (order.status === "fulfilled") {
+      throw new SalesError("Order is already fulfilled.", 400);
+    }
+
+    const lines = await getOrderLinesInTx(tx, id);
+    const affectedItemIds = lines.map((line) => line.itemId);
+
+    await lockItemsInTx(tx, affectedItemIds);
+
+    for (const line of lines) {
+      try {
+        await applyStockDeltaInTx(tx, {
+          orgId,
+          userId,
+          itemId: line.itemId,
+          delta: -parseFloat(line.quantity),
+          movementType: "sales_fulfilled",
+          referenceType: "sales_order",
+          referenceId: id,
+        });
+      } catch (error) {
+        if (error instanceof InsufficientStockError) {
+          throw new SalesError(
+            `Cannot fulfill order. Insufficient stock for ${line.itemName}.`,
+            409
+          );
+        }
+
+        throw error;
+      }
+    }
+
+    const fulfilledAt = new Date();
+    const [fulfilled] = await tx
+      .update(salesOrders)
+      .set({
+        status: "fulfilled",
+        fulfilledAt,
+        updatedAt: fulfilledAt,
+      })
+      .where(eq(salesOrders.id, id))
+      .returning({ id: salesOrders.id });
+
+    await recomputeCommittedQty(tx, affectedItemIds);
+
+    return fulfilled;
   });
 }
 
@@ -1128,13 +1202,7 @@ export async function bulkConfirmSalesOrders(
 
 export async function deleteSalesOrder(id: string) {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: salesOrders.id,
-        deletedAt: salesOrders.deletedAt,
-      })
-      .from(salesOrders)
-      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)));
+    const order = await getLockedSalesOrderInTx(tx, id);
 
     if (!order) {
       return { deleted: false };
@@ -1172,7 +1240,8 @@ export async function deleteSalesOrders(ids: string[]) {
           inArray(salesOrders.id, uniqueIds),
           isNull(salesOrders.deletedAt)
         )
-      );
+      )
+      .for("update");
 
     if (orders.length === 0) {
       return { deletedCount: 0 };

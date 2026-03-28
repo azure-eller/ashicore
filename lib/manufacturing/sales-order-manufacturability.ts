@@ -43,7 +43,7 @@ function getSkipMessage(reason: SalesOrderManufacturingSkipReason) {
     case "no_active_bom":
       return "Product has no active BOM ingredients.";
     case "existing_active_mo":
-      return "An active manufacturing order already exists.";
+      return "A linked manufacturing order already exists.";
   }
 }
 
@@ -56,12 +56,12 @@ function getDisabledReason(lines: SalesOrderManufacturingLineSummary[]) {
     .map((line) => line.skipReason)
     .filter((reason): reason is SalesOrderManufacturingSkipReason => reason != null);
 
-  if (
-    skippedReasons.length === lines.length &&
-    skippedReasons.every((reason) => reason === "existing_active_mo")
-  ) {
-    return "All manufacturable lines already have active manufacturing orders.";
-  }
+    if (
+      skippedReasons.length === lines.length &&
+      skippedReasons.every((reason) => reason === "existing_active_mo")
+    ) {
+      return "All manufacturable lines already have linked manufacturing orders.";
+    }
 
   if (
     skippedReasons.length === lines.length &&
@@ -142,7 +142,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
       )
     );
 
-  const activeManufacturingRefs = salesOrderLineIds.length
+  const existingManufacturingRefs = salesOrderLineIds.length
     ? await tx
         .select({
           salesOrderLineId: manufacturingOrders.salesOrderLineId,
@@ -152,15 +152,19 @@ export async function getSalesOrderManufacturingSummariesInTx(
           and(
             inArray(manufacturingOrders.salesOrderLineId, salesOrderLineIds),
             isNull(manufacturingOrders.deletedAt),
-            inArray(manufacturingOrders.status, ["draft", "released"])
+            inArray(manufacturingOrders.status, [
+              "draft",
+              "released",
+              "completed",
+            ])
           )
         )
     : [];
 
   const activeProductIds = new Set(activeProducts.map((row) => row.id));
   const bomBackedProductIds = new Set(bomRows.map((row) => row.productId));
-  const activeManufacturingLineIds = new Set(
-    activeManufacturingRefs
+  const existingManufacturingLineIds = new Set(
+    existingManufacturingRefs
       .map((row) => row.salesOrderLineId)
       .filter((value): value is string => value != null)
   );
@@ -170,7 +174,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
 
     if (!activeProductIds.has(line.itemId)) {
       skipReason = "inactive_product";
-    } else if (activeManufacturingLineIds.has(line.salesOrderLineId)) {
+    } else if (existingManufacturingLineIds.has(line.salesOrderLineId)) {
       skipReason = "existing_active_mo";
     } else if (!bomBackedProductIds.has(line.itemId)) {
       skipReason = "no_active_bom";

@@ -175,6 +175,40 @@ async function createLinkedManufacturingOrderExpectingFailure(payload: {
   expect(body?.error).toContain("Create sales-linked manufacturing orders");
 }
 
+async function createManufacturingOrdersFromSalesOrder(payload: {
+  salesOrderId: string;
+  plannedDate?: string | null;
+  notes?: string | null;
+}) {
+  const response = await testFetch(
+    `/api/sales-orders/${payload.salesOrderId}/manufacturing-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        plannedDate: payload.plannedDate ?? null,
+        notes: payload.notes ?? null,
+      }),
+    }
+  );
+  const body = (await response.json().catch(() => null)) as
+    | {
+        created?: Array<{
+          salesOrderLineId: string;
+          manufacturingOrderId: string;
+          orderNumber: string;
+        }>;
+        skipped?: Array<{
+          salesOrderLineId: string;
+          reason: string;
+        }>;
+      }
+    | null;
+
+  expect(response.status).toBe(201);
+
+  return body;
+}
+
 async function releaseManufacturingOrder(orderId: string) {
   const response = await testFetch(`/api/manufacturing-orders/${orderId}/release`, {
     method: "POST",
@@ -557,6 +591,118 @@ test.describe("Manufacturing order flow", () => {
 
     expect(batchIngredients).toHaveLength(2);
     await expect(page.getByText(batchManufacturingOrder.orderNumber)).toBeVisible();
+  });
+
+  test("completed linked manufacturing orders keep Create MOs blocked for that sales line", async ({
+    page,
+    db,
+  }) => {
+    const repeatMaterialName = `Repeat-block Resin ${ts}`;
+    const repeatProductName = `Repeat-block Blend ${ts}`;
+
+    const repeatMaterialCreate = await createItem({
+      name: repeatMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-REPEAT-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Repeat linked-order guard ingredient",
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(repeatMaterialCreate.status).toBe(201);
+    const repeatMaterialId = repeatMaterialCreate.body.id as string;
+
+    const repeatProductCreate = await createItem({
+      name: repeatProductName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-REPEAT-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Repeat linked-order guard product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "14.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: repeatMaterialId, quantity: "1" }],
+    });
+
+    expect(repeatProductCreate.status).toBe(201);
+    const repeatProductId = repeatProductCreate.body.id as string;
+
+    const repeatSalesOrderId = await createSalesOrder({
+      customerId,
+      lines: [
+        {
+          itemId: repeatProductId,
+          quantity: "2",
+          unitPrice: "14.00",
+        },
+      ],
+      requestedDate: "2026-05-02",
+      notes: "Completed linked order should still block repeat create",
+    });
+
+    await confirmSalesOrder(repeatSalesOrderId, true);
+
+    const batchCreateBody = await createManufacturingOrdersFromSalesOrder({
+      salesOrderId: repeatSalesOrderId,
+      plannedDate: "2026-05-03",
+      notes: "Repeat linked-order guard coverage",
+    });
+
+    expect(batchCreateBody?.created).toHaveLength(1);
+    const repeatOrderId = batchCreateBody?.created?.[0]?.manufacturingOrderId;
+    expect(repeatOrderId).toBeTruthy();
+
+    await releaseManufacturingOrder(repeatOrderId!);
+
+    const completeResult = await completeManufacturingOrder(repeatOrderId!, "2");
+    expect(completeResult.status).toBe(200);
+    expect(completeResult.body?.id).toBe(repeatOrderId);
+
+    await page.goto(`/sales/orders/${repeatSalesOrderId}`);
+    const detailCreateButton = page.getByRole("button", {
+      name: "Create MOs",
+      exact: true,
+    });
+    await expect(detailCreateButton).toBeDisabled();
+    await detailCreateButton.hover({ force: true });
+    await expect(
+      page.getByText(
+        "All manufacturable lines already have linked manufacturing orders."
+      )
+    ).toBeVisible();
+
+    const retryResponse = await testFetch(
+      `/api/sales-orders/${repeatSalesOrderId}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          plannedDate: "2026-05-04",
+          notes: "Second linked order should be blocked",
+        }),
+      }
+    );
+    const retryBody = await retryResponse.json().catch(() => null);
+
+    expect(retryResponse.status).toBe(400);
+    expect(retryBody?.error).toBe(
+      "All manufacturable lines already have linked manufacturing orders."
+    );
+
+    const repeatOrders = await db
+      .select({
+        id: manufacturingOrders.id,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.salesOrderId, repeatSalesOrderId));
+
+    expect(repeatOrders).toHaveLength(1);
   });
 
   test("edits the draft order, recalculates ingredient totals, and releases with a shortage warning", async ({
