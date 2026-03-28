@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { InsufficientStockError, MissingStockCostError } from "@/lib/inventory/stock";
 import { updateItemSchema } from "@/lib/schemas/items";
 import { deleteItem, updateItem } from "@/app/(dashboard)/inventory/queries";
 
-type RouteContext = { params: Promise<{ id: string }> };
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);

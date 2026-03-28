@@ -99,10 +99,6 @@ export type CompleteManufacturingOrder = z.infer<
   typeof completeManufacturingOrderSchema
 >;
 
-export const deleteManufacturingOrdersSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1),
-});
-
 export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
   productId: "",
   salesOrderId: null,

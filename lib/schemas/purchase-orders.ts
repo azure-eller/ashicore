@@ -184,8 +184,3 @@ export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
   ],
 };
 
-export const receivePurchaseOrderDefaultValues: z.input<
-  typeof receivePurchaseOrderSchema
-> = {
-  lines: [],
-};

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { normalizeNumeric, normalizeMoney } from "@/lib/format";
+import { normalizeNumeric, normalizeMoney, roundQuantity, summarizeItems } from "@/lib/format";
+import { calcStock } from "@/app/(dashboard)/inventory/types";
 import {
   customers,
   items,
@@ -88,30 +89,6 @@ export class SalesError extends Error {
         : { error: this.message };
     return NextResponse.json(body, { status: this.status });
   }
-}
-
-function roundQuantity(value: number) {
-  return Math.round(value * 10000) / 10000;
-}
-
-function calcProjectedStock(values: {
-  stock: string;
-  committedQty: string;
-  expectedQty: string;
-  safetyStock: string;
-}) {
-  return roundQuantity(
-    parseFloat(values.stock) -
-      parseFloat(values.committedQty) +
-      parseFloat(values.expectedQty) -
-      parseFloat(values.safetyStock)
-  );
-}
-
-function summarizeItems(lines: Array<{ itemName: string }>) {
-  if (lines.length === 0) return "\u2014";
-  if (lines.length === 1) return lines[0].itemName;
-  return `${lines[0].itemName} + ${lines.length - 1} more`;
 }
 
 function isCancelPayload(
@@ -339,7 +316,7 @@ async function buildOversellWarning(
 
       const currentCommittedQty = parseFloat(product.committedQty);
       const projectedCommittedQty = roundQuantity(currentCommittedQty + addedQty);
-      const calculatedStock = calcProjectedStock(product);
+      const calculatedStock = calcStock(product);
       const projectedCalculatedStock = roundQuantity(calculatedStock - addedQty);
 
       if (projectedCalculatedStock >= 0) {

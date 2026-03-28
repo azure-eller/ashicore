@@ -64,6 +64,23 @@ export function parsePositive(value: string | null | undefined): number | null {
 /**
  * Extract root-level error message from a react-hook-form field array error.
  */
+/**
+ * Round a quantity to 4 decimal places to avoid JS float imprecision.
+ */
+export function roundQuantity(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+/**
+ * Summarize a list of line items for display in table columns.
+ * e.g. "Widget A + 2 more"
+ */
+export function summarizeItems(lines: Array<{ itemName: string }>): string {
+  if (lines.length === 0) return "\u2014";
+  if (lines.length === 1) return lines[0].itemName;
+  return `${lines[0].itemName} + ${lines.length - 1} more`;
+}
+
 export function getFieldArrayError(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
   if ("message" in error && typeof error.message === "string") {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeNumeric } from "@/lib/format";
+import { normalizeNumeric, summarizeItems } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   items,
@@ -86,12 +86,6 @@ async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
     .for("update");
 
   return order ?? null;
-}
-
-function summarizeItems(lines: Array<{ itemName: string }>) {
-  if (lines.length === 0) return "\u2014";
-  if (lines.length === 1) return lines[0].itemName;
-  return `${lines[0].itemName} + ${lines.length - 1} more`;
 }
 
 async function generateOrderNumber(tx: Tx) {

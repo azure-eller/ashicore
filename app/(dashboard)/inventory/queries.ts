@@ -539,14 +539,3 @@ export async function getAvailableComponents(excludeItemId?: string) {
   });
 }
 
-export async function isItemUsedInBom(itemId: string): Promise<boolean> {
-  return withAuthedOrgContext(async (tx) => {
-    const [row] = await tx
-      .select({ id: bomComponents.id })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.itemId, items.id))
-      .where(and(eq(bomComponents.componentId, itemId), isNull(items.deletedAt)))
-      .limit(1);
-    return row != null;
-  });
-}

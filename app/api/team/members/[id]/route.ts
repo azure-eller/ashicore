@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { updateTeamMemberRoleSchema } from "@/lib/schemas/team";
 import {
   callAuthApi,
@@ -8,7 +8,6 @@ import {
 } from "@/app/(dashboard)/settings/queries";
 import { authApiResponseToNextResponse } from "../../_utils";
 
-type RouteContext = { params: Promise<{ id: string }> };
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
