@@ -13,13 +13,19 @@ export default function StocktakesDataTableSkeleton() {
     <div className="w-full">
       <div className="flex items-center justify-between py-4">
         <Skeleton className="h-10 w-full max-w-sm" />
-        <Skeleton className="h-10 w-10" />
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-10 w-10" />
+          <Skeleton className="h-10 w-10" />
+        </div>
       </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              {Array.from({ length: 7 }).map((_, index) => (
+              <TableHead className="w-10">
+                <Skeleton className="h-4 w-4" />
+              </TableHead>
+              {Array.from({ length: 8 }).map((_, index) => (
                 <TableHead key={index}>
                   <Skeleton className="h-4 w-16" />
                 </TableHead>
@@ -29,7 +35,10 @@ export default function StocktakesDataTableSkeleton() {
           <TableBody>
             {Array.from({ length: 5 }).map((_, rowIndex) => (
               <TableRow key={rowIndex}>
-                {Array.from({ length: 7 }).map((_, cellIndex) => (
+                <TableCell>
+                  <Skeleton className="h-4 w-4" />
+                </TableCell>
+                {Array.from({ length: 8 }).map((_, cellIndex) => (
                   <TableCell key={cellIndex}>
                     <Skeleton className="h-4 w-full max-w-24" />
                   </TableCell>
@@ -38,6 +47,13 @@ export default function StocktakesDataTableSkeleton() {
             ))}
           </TableBody>
         </Table>
+      </div>
+      <div className="flex items-center justify-between py-4">
+        <Skeleton className="h-4 w-48" />
+        <div className="flex items-center space-x-2">
+          <Skeleton className="h-9 w-20" />
+          <Skeleton className="h-9 w-20" />
+        </div>
       </div>
     </div>
   );

@@ -24,6 +24,20 @@ import {
   CALCULATED_STOCK_TOOLTIP,
 } from "@/lib/tooltip-copy";
 
+const MOVEMENT_TYPE_LABELS: Record<string, string> = {
+  manual_adjustment: "Manual",
+  purchase_received: "Purchase",
+  manufacturing_consumed: "MO consumed",
+  manufacturing_produced: "MO produced",
+  sales_fulfilled: "Sale",
+  stocktake_adjustment: "Stocktake",
+};
+
+function formatMovementType(type: string | null): string {
+  if (!type) return "\u2014";
+  return MOVEMENT_TYPE_LABELS[type] ?? type;
+}
+
 interface ItemDetailProps {
   item: {
     id: string;
@@ -59,6 +73,9 @@ interface ItemDetailProps {
   movements: {
     id: string;
     quantity: string;
+    movementType: string | null;
+    referenceType: string | null;
+    referenceId: string | null;
     lotNumber: string | null;
     createdAt: Date;
   }[];
@@ -259,6 +276,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead>Lot</TableHead>
                 </TableRow>
@@ -269,6 +287,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
                   return (
                     <TableRow key={m.id}>
                       <TableCell>{m.createdAt.toLocaleDateString("en-US")}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatMovementType(m.movementType)}</TableCell>
                       <TableCell className={`text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
                         {qty > 0 ? "+" : ""}{qty}
                       </TableCell>

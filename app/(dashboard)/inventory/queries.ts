@@ -379,6 +379,9 @@ export async function getStockMovements(itemId: string) {
       .select({
         id: stockMovements.id,
         quantity: stockMovements.quantity,
+        movementType: stockMovements.movementType,
+        referenceType: stockMovements.referenceType,
+        referenceId: stockMovements.referenceId,
         createdBy: stockMovements.createdBy,
         createdAt: stockMovements.createdAt,
         lotNumber: lots.lotNumber,

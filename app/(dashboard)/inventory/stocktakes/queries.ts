@@ -492,3 +492,40 @@ export async function cancelStocktake(id: string) {
     return { id };
   });
 }
+
+export async function deleteStocktakes(
+  ids: string[]
+): Promise<{ deletedCount: number; error?: string }> {
+  return withAuthedOrgContext(async (tx) => {
+    const uniqueIds = [...new Set(ids)];
+
+    const rows = await tx
+      .select({ id: stocktakes.id, status: stocktakes.status })
+      .from(stocktakes)
+      .where(inArray(stocktakes.id, uniqueIds))
+      .for("update");
+
+    const nonDraft = rows.find((r) => r.status !== "draft");
+
+    if (nonDraft) {
+      return {
+        deletedCount: 0,
+        error: "Only draft stocktakes can be deleted.",
+      };
+    }
+
+    if (rows.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    const rowIds = rows.map((r) => r.id);
+    const cancelledAt = new Date();
+
+    await tx
+      .update(stocktakes)
+      .set({ status: "cancelled", cancelledAt, updatedAt: cancelledAt })
+      .where(inArray(stocktakes.id, rowIds));
+
+    return { deletedCount: rows.length };
+  });
+}
