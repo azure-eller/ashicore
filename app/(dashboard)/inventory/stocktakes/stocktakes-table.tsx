@@ -53,21 +53,30 @@ import { formatScope, type StocktakeListRow } from "./types";
 const columns: ColumnDef<StocktakeListRow>[] = [
   {
     id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all stocktakes"
-      />
-    ),
+    header: ({ table }) => {
+      const canSelectAny = table
+        .getPaginationRowModel()
+        .flatRows.some((row) => row.getCanSelect());
+
+      return (
+        <Checkbox
+          checked={
+            canSelectAny &&
+            (table.getIsAllPageRowsSelected() ||
+              (table.getIsSomePageRowsSelected() && "indeterminate"))
+          }
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all draft stocktakes"
+          disabled={!canSelectAny}
+        />
+      );
+    },
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}
         onCheckedChange={(value) => row.toggleSelected(!!value)}
         aria-label={`Select ${row.original.name}`}
+        disabled={!row.getCanSelect()}
       />
     ),
     enableSorting: false,
