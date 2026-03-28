@@ -731,7 +731,6 @@ test.describe("Chapter 1 — Inventory: Paonia Soil Co.", () => {
     await page.getByRole("option").first().click();
 
     await page.getByLabel("Selling Price").fill("25.00");
-    await page.getByLabel("Stock", { exact: true }).fill("50");
     await page.getByLabel("Safety Stock").fill("10");
 
     await page.getByRole("button", { name: "Create Product" }).click();
@@ -762,13 +761,12 @@ test.describe("Chapter 1 — Inventory: Paonia Soil Co.", () => {
       .where(eq(bomComponents.itemId, product.id));
     expect(bomRows).toHaveLength(0);
 
-    // Stock=50 means a lot was created
+    // No stock (no BOM = no cost basis for lots)
     const lotRows = await db
       .select()
       .from(lots)
       .where(eq(lots.itemId, product.id));
-    expect(lotRows).toHaveLength(1);
-    expect(lotRows[0].quantity).toBe("50.0000");
+    expect(lotRows).toHaveLength(0);
   });
 
   /* ══════════════════════════════════════════════════════════════════
