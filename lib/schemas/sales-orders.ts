@@ -137,6 +137,17 @@ const cancelSalesOrderSchema = z.object({
 export const updateSalesOrderSchema = z.union([draftUpdateSchema, cancelSalesOrderSchema]);
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
+export const confirmSalesOrderSchema = z.object({
+  confirmOversell: z.boolean().optional(),
+});
+export type ConfirmSalesOrder = z.infer<typeof confirmSalesOrderSchema>;
+
+export const bulkConfirmSalesOrdersSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+  confirmOversell: z.boolean().optional(),
+});
+export type BulkConfirmSalesOrders = z.infer<typeof bulkConfirmSalesOrdersSchema>;
+
 export const salesOrderDefaultValues: InsertSalesOrder = {
   customerId: "",
   status: "draft",

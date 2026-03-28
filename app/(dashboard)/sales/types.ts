@@ -38,6 +38,9 @@ export type SalesOrderListRow = {
   fulfilledAt: Date | null;
   totalAmount: string;
   itemSummary: string;
+  hasManufacturableLines: boolean;
+  manufacturableLineCount: number;
+  manufacturableDisabledReason: string | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -67,10 +70,22 @@ export type SalesOrderDetail = {
   notes: string | null;
   fulfilledAt: Date | null;
   totalAmount: string;
+  hasManufacturableLines: boolean;
+  manufacturableLineCount: number;
+  manufacturableDisabledReason: string | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   lines: SalesOrderDetailLine[];
+  linkedManufacturingOrders: Array<{
+    id: string;
+    orderNumber: string;
+    productName: string;
+    productSku: string | null;
+    plannedQuantity: string;
+    unitName: string;
+    status: "draft" | "released" | "completed" | "cancelled";
+  }>;
 };
 
 export type SalesOrderEditData = {
@@ -103,4 +118,12 @@ export type OversellWarningProduct = {
 
 export type OversellWarningPayload = {
   products: OversellWarningProduct[];
+};
+
+export type BulkOversellWarningPayload = {
+  orders: Array<{
+    salesOrderId: string;
+    salesOrderNumber: string;
+    products: OversellWarningProduct[];
+  }>;
 };

@@ -13,20 +13,19 @@ export default async function EditManufacturingOrderPage({
 }) {
   await requireModuleWriteAccess("manufacturing");
   const { id } = await params;
-  const [order, salesLines] = await Promise.all([
-    getManufacturingOrderEditData(id),
-    getManufacturingSalesLineOptions(),
-  ]);
+  const order = await getManufacturingOrderEditData(id);
 
   if (!order) {
     redirect("/manufacturing/orders");
   }
 
+  const salesLineOptions = await getManufacturingSalesLineOptions(order.productId);
+
   return (
     <div className="mx-auto w-full max-w-5xl py-8">
       <ManufacturingOrderForm
         initialData={order}
-        salesLineOptions={salesLines}
+        salesLineOptions={salesLineOptions}
       />
     </div>
   );
