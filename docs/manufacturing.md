@@ -104,6 +104,8 @@ Manufacturing may optionally link one sales order line:
 - eligible lines come from non-deleted `draft` or `confirmed` sales orders
 - the linked line must match the selected finished product
 - the link is informational only; it does not create or complete anything in sales
+- the link blocks duplicate sales-driven MO creation for that line; a cancelled linked MO is required before another one can be created
+- linked MOs in `draft`, `released`, or `completed` keep claiming the line; only `cancelled` frees it
 
 `salesOrderLineId` is stored as a snapshot reference because sales draft edits replace line rows. Draft manufacturing-order edits should therefore keep working when the original line id goes stale:
 

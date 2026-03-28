@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import {
   createPurchaseOrder,
   deletePurchaseOrders,
@@ -9,16 +10,15 @@ import {
 } from "@/app/(dashboard)/purchasing/queries";
 import { insertPurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 
-const deletePurchaseOrdersSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1),
-});
 
-export async function GET() {
+export const GET = apiHandler(async (request) => {
+  await assertModuleReadAccess("purchasing", request.headers);
   const data = await getPurchaseOrders();
   return NextResponse.json(data);
-}
+});
 
 export const POST = apiHandler(async (request) => {
+  await assertModuleWriteAccess("purchasing", request.headers);
   const body = await request.json();
   const data = insertPurchaseOrderSchema.parse(body);
 
@@ -32,8 +32,9 @@ export const POST = apiHandler(async (request) => {
 });
 
 export const DELETE = apiHandler(async (request) => {
+  await assertModuleWriteAccess("purchasing", request.headers);
   const body = await request.json();
-  const data = deletePurchaseOrdersSchema.parse(body);
+  const data = bulkDeleteSchema.parse(body);
   const result = await deletePurchaseOrders(data.ids);
 
   if (result.error) {

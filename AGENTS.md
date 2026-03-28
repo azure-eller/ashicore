@@ -38,6 +38,7 @@ When you discover a new pattern or gotcha:
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
+| Auth, roles, team invites | `docs/auth-team.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |
@@ -274,6 +275,7 @@ Sales fulfillment is one-shot: `confirmed -> fulfilled` consumes stock FIFO, wri
 - `{ error: string }` for general errors
 - `{ errors: Record<string, string[]> }` for Zod field-level errors
 - Domain errors (SalesError, ManufacturingError) use `error.toResponse()` in route handlers
+- Guarded API `GET` handlers should also use `apiHandler`, not bare `export async function GET`, so `AuthorizationError` returns JSON instead of a 500
 - Shared `lib/` code should throw typed errors when routes need non-500 handling. Catch them explicitly in route handlers:
 
 ```ts
@@ -283,6 +285,17 @@ if (error instanceof InsufficientStockError) {
 }
 throw error;
 ```
+
+### Roles and module guards
+
+Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access, guard dashboard reads in layouts/pages, and guard API reads/writes in routes.
+
+```ts
+await requireModuleReadAccess("sales")
+await assertModuleWriteAccess("manufacturing", request.headers)
+```
+
+Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` must auto-activate a signed-in user’s only org membership before showing org creation.
 
 ### Detail page tables
 
@@ -410,6 +423,14 @@ const actualNeeded = multiplyQuantity(ingredient.quantityPerUnit, actualQuantity
 ```ts
 if (isUnchangedSnapshot && replacementLine) return replacementLine
 if (isUnchangedSnapshot) return existingSnapshot
+```
+
+### Manufacturing sales-line claims
+
+`manufacturingOrders.salesOrderLineId` is also a one-time claim for sales-driven MO creation. Linked `draft`, `released`, and `completed` MOs block another linked MO for that sales line; only `cancelled` reopens it.
+
+```ts
+inArray(manufacturingOrders.status, ["draft", "released", "completed"])
 ```
 
 ### Manufacturing product templates

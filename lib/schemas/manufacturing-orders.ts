@@ -77,6 +77,61 @@ export type InsertManufacturingOrder = z.infer<
   typeof insertManufacturingOrderSchema
 >;
 
+export const manufacturingOrderCreateFormSchema = z
+  .object({
+    salesOrderId: nullableString,
+    salesOrderLineId: nullableString,
+    productId: nullableString,
+    plannedQuantity: nullableString,
+    plannedDate: nullableString.refine(
+      (value) => value == null || isValidIsoDate(value),
+      "Planned date must be a real date in YYYY-MM-DD format"
+    ),
+    notes: nullableString,
+    ingredients: z.array(ingredientRowSchema),
+    confirmShortage: z.boolean().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.salesOrderId != null) {
+      return;
+    }
+
+    if (!values.productId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Product is required",
+        path: ["productId"],
+      });
+    }
+
+    const quantityCheck = positiveDecimalString("Planned quantity").safeParse(
+      values.plannedQuantity ?? ""
+    );
+
+    if (!quantityCheck.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: quantityCheck.error.issues[0]?.message ?? "Planned quantity is required",
+        path: ["plannedQuantity"],
+      });
+    }
+
+    const ingredientsCheck = ingredientsSchema.safeParse(values.ingredients);
+
+    if (!ingredientsCheck.success) {
+      ingredientsCheck.error.issues.forEach((issue) => {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: issue.message,
+          path: ["ingredients", ...issue.path],
+        });
+      });
+    }
+  });
+export type ManufacturingOrderCreateFormValues = z.infer<
+  typeof manufacturingOrderCreateFormSchema
+>;
+
 export const updateManufacturingOrderSchema = baseManufacturingOrderSchema.omit({
   productId: true,
   confirmShortage: true,
@@ -103,6 +158,16 @@ export const deleteManufacturingOrdersSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
 });
 
+export const createManufacturingOrdersFromSalesOrderSchema = z.object({
+  plannedDate: nullableString.refine(
+    (value) => value == null || isValidIsoDate(value),
+    "Planned date must be a real date in YYYY-MM-DD format"
+  ),
+  notes: nullableString,
+});
+export type CreateManufacturingOrdersFromSalesOrder = z.infer<
+  typeof createManufacturingOrdersFromSalesOrderSchema
+>;
 export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
   productId: "",
   salesOrderId: null,

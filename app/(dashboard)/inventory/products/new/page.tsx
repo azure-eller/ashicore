@@ -1,3 +1,4 @@
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import {
   getCategories,
   getUnitDefinitions,
@@ -6,6 +7,7 @@ import {
 import { ItemForm } from "@/app/(dashboard)/inventory/item-form";
 
 export default async function NewProductPage() {
+  await requireModuleWriteAccess("inventory");
   const [units, categories, components] = await Promise.all([
     getUnitDefinitions(),
     getCategories(),

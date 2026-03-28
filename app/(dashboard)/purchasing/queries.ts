@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeNumeric } from "@/lib/format";
+import { normalizeNumeric, summarizeItems } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   items,
@@ -75,10 +75,17 @@ export class PurchasingError extends Error {
   }
 }
 
-function summarizeItems(lines: Array<{ itemName: string }>) {
-  if (lines.length === 0) return "\u2014";
-  if (lines.length === 1) return lines[0].itemName;
-  return `${lines[0].itemName} + ${lines.length - 1} more`;
+async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
+  const [order] = await tx
+    .select({
+      id: purchaseOrders.id,
+      status: purchaseOrders.status,
+    })
+    .from(purchaseOrders)
+    .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)))
+    .for("update");
+
+  return order ?? null;
 }
 
 async function generateOrderNumber(tx: Tx) {
@@ -550,13 +557,7 @@ export async function createPurchaseOrder(data: InsertPurchaseOrder) {
 
 export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: purchaseOrders.id,
-        status: purchaseOrders.status,
-      })
-      .from(purchaseOrders)
-      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+    const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
       return null;
@@ -597,13 +598,7 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
 
 export async function submitPurchaseOrder(id: string) {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: purchaseOrders.id,
-        status: purchaseOrders.status,
-      })
-      .from(purchaseOrders)
-      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+    const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
       return null;
@@ -780,13 +775,7 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
 
 export async function cancelPurchaseOrder(id: string) {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: purchaseOrders.id,
-        status: purchaseOrders.status,
-      })
-      .from(purchaseOrders)
-      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+    const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
       return null;
@@ -823,13 +812,7 @@ export async function deletePurchaseOrder(
   id: string
 ): Promise<{ deleted: boolean; error?: string }> {
   return withAuthedOrgContext(async (tx) => {
-    const [order] = await tx
-      .select({
-        id: purchaseOrders.id,
-        status: purchaseOrders.status,
-      })
-      .from(purchaseOrders)
-      .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+    const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
       return { deleted: false };
@@ -861,17 +844,21 @@ export async function deletePurchaseOrders(
   return withAuthedOrgContext(async (tx) => {
     const uniqueIds = [...new Set(ids)];
 
-    const [activeOrder] = await tx
-      .select({ id: purchaseOrders.id })
+    // Lock all candidate rows so status can't change between check and delete
+    const orders = await tx
+      .select({ id: purchaseOrders.id, status: purchaseOrders.status })
       .from(purchaseOrders)
       .where(
         and(
           inArray(purchaseOrders.id, uniqueIds),
-          isNull(purchaseOrders.deletedAt),
-          inArray(purchaseOrders.status, ["ordered", "partial"])
+          isNull(purchaseOrders.deletedAt)
         )
       )
-      .limit(1);
+      .for("update");
+
+    const activeOrder = orders.find((o) =>
+      ["ordered", "partial"].includes(o.status)
+    );
 
     if (activeOrder) {
       return {
@@ -881,13 +868,17 @@ export async function deletePurchaseOrders(
       };
     }
 
+    if (orders.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    const orderIds = orders.map((o) => o.id);
+    const deletedAt = new Date();
+
     const deleted = await tx
       .update(purchaseOrders)
-      .set({
-        deletedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(inArray(purchaseOrders.id, uniqueIds), isNull(purchaseOrders.deletedAt)))
+      .set({ deletedAt, updatedAt: deletedAt })
+      .where(inArray(purchaseOrders.id, orderIds))
       .returning({ id: purchaseOrders.id });
 
     return { deletedCount: deleted.length };

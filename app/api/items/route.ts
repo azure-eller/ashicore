@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getItems, createItemWithLot, deleteItems } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { MissingStockCostError } from "@/lib/inventory/stock";
 import { insertItemSchema } from "@/lib/schemas/items";
+import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { apiHandler } from "@/lib/api/handler";
+import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 
-const deleteItemsSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1),
-});
-
-export async function GET(request: Request) {
+export const GET = apiHandler(async (request) => {
+  await assertModuleReadAccess("inventory", request.headers);
   const { searchParams } = new URL(request.url);
   const raw = searchParams.get("itemType");
   const itemType: ItemType | undefined =
@@ -19,11 +17,12 @@ export async function GET(request: Request) {
       : undefined;
   const data = await getItems(itemType ? { itemType } : undefined);
   return NextResponse.json(data);
-}
+});
 
 export const DELETE = apiHandler(async (request) => {
+  await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
-  const data = deleteItemsSchema.parse(body);
+  const data = bulkDeleteSchema.parse(body);
   const result = await deleteItems(data.ids);
 
   if (result.error) {
@@ -34,6 +33,7 @@ export const DELETE = apiHandler(async (request) => {
 });
 
 export const POST = apiHandler(async (request) => {
+  await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
   const { stock, bom, ...data } = insertItemSchema.parse(body);
 

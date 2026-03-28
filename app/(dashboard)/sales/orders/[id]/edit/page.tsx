@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { OrderForm } from "@/app/(dashboard)/sales/order-form";
 import {
   getCustomers,
@@ -11,6 +12,7 @@ export default async function EditOrderPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireModuleWriteAccess("sales");
   const { id } = await params;
   const [order, customerRows, products] = await Promise.all([
     getEditableSalesOrder(id),

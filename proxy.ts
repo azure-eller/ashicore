@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 
 export function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  if (
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/api/auth") ||
+    pathname === "/sign-in" ||
+    pathname === "/sign-up" ||
+    pathname === "/accept-invitation"
+  ) {
+    return NextResponse.next();
+  }
+
   const sessionCookie = getSessionCookie(request);
 
   if (!sessionCookie) {
@@ -12,5 +25,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next|sign-in|sign-up|api/auth|favicon.ico).*)"],
+  matcher: ["/:path*"],
 };

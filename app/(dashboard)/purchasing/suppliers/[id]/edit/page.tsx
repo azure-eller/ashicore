@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { SupplierForm } from "@/app/(dashboard)/purchasing/supplier-form";
 import { getSupplier } from "@/app/(dashboard)/purchasing/queries";
 
@@ -7,6 +8,7 @@ export default async function EditSupplierPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireModuleWriteAccess("purchasing");
   const { id } = await params;
   const supplier = await getSupplier(id);
 

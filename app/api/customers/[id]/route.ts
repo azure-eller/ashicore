@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateCustomerSchema } from "@/lib/schemas/customers";
 import {
   deleteCustomer,
@@ -7,9 +8,9 @@ import {
   updateCustomer,
 } from "@/app/(dashboard)/sales/queries";
 
-type RouteContext = { params: Promise<{ id: string }> };
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("sales", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
   const data = updateCustomerSchema.parse(body);
@@ -23,6 +24,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
 });
 
 export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("sales", _request.headers);
   const { id } = await (ctx as RouteContext).params;
 
   try {

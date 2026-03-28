@@ -1,20 +1,29 @@
 import { ManufacturingOrderForm } from "@/app/(dashboard)/manufacturing/manufacturing-order-form";
 import {
   getManufacturingProductTemplates,
-  getManufacturingSalesLineOptions,
+  getManufacturingSalesOrderOptions,
+  getManufacturingSalesOrderPreview,
 } from "@/app/(dashboard)/manufacturing/queries";
 
-export default async function NewManufacturingOrderPage() {
-  const [products, salesLines] = await Promise.all([
+export default async function NewManufacturingOrderPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ salesOrderId?: string }>;
+}) {
+  const { salesOrderId } = await searchParams;
+  const [products, salesOrders, initialPreview] = await Promise.all([
     getManufacturingProductTemplates(),
-    getManufacturingSalesLineOptions(),
+    getManufacturingSalesOrderOptions(),
+    salesOrderId ? getManufacturingSalesOrderPreview(salesOrderId) : Promise.resolve(null),
   ]);
 
   return (
     <div className="mx-auto w-full max-w-5xl py-8">
       <ManufacturingOrderForm
         productTemplates={products}
-        salesLineOptions={salesLines}
+        salesOrderOptions={salesOrders}
+        initialSalesOrderId={salesOrderId ?? null}
+        initialSalesOrderPreview={initialPreview}
       />
     </div>
   );

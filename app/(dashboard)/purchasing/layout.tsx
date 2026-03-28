@@ -1,10 +1,13 @@
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { PurchasingHeader } from "./purchasing-header";
 
-export default function PurchasingLayout({
+export default async function PurchasingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  await requireModuleReadAccess("purchasing");
+
   return (
     <>
       <PurchasingHeader />

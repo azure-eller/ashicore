@@ -273,42 +273,6 @@ export async function createPositiveLotAndMovementInTx(
     params.costPerUnit
   );
 
-  if (costPerUnit == null) {
-    const [item] = await tx
-      .select({
-        name: items.name,
-        itemType: items.itemType,
-        defaultPurchasePrice: items.defaultPurchasePrice,
-      })
-      .from(items)
-      .where(eq(items.id, params.itemId));
-
-    if (!item) {
-      throw new MissingStockCostError({
-        itemId: params.itemId,
-        itemName: null,
-        field: "stock",
-        message: "Cannot add stock because the item no longer exists.",
-      });
-    }
-
-    if (item.itemType === "material" && item.defaultPurchasePrice == null) {
-      throw new MissingStockCostError({
-        itemId: params.itemId,
-        itemName: item.name,
-        field: "defaultPurchasePrice",
-        message: `Cannot add stock for ${item.name} without a default purchase price.`,
-      });
-    }
-
-    throw new MissingStockCostError({
-      itemId: params.itemId,
-      itemName: item.name,
-      field: "stock",
-      message: `Cannot add stock for ${item.name} without a cost basis.`,
-    });
-  }
-
   const lotNumber = await generateLotNumber(tx);
   const [newLot] = await tx
     .insert(lots)

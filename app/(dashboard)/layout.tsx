@@ -1,8 +1,6 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { Providers } from "@/app/providers";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { getAuthedMemberContext } from "@/lib/dal/auth";
 import {
   SidebarInset,
   SidebarProvider,
@@ -13,20 +11,17 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    redirect("/sign-in");
-  }
+  const context = await getAuthedMemberContext();
   const user = {
-    name: session.user.name ?? "",
-    email: session.user.email ?? "",
-    avatar: session.user.image ?? undefined,
+    name: context.name,
+    email: context.email,
+    avatar: context.avatar,
   };
 
   return (
     <Providers>
       <SidebarProvider>
-        <AppSidebar user={user} />
+        <AppSidebar user={user} role={context.role} />
         <SidebarInset>{children}</SidebarInset>
       </SidebarProvider>
     </Providers>

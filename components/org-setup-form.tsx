@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -20,14 +20,76 @@ import {
 import { Input } from "@/components/ui/input"
 import { authClient } from "@/lib/auth-client"
 
+type OrganizationOption = {
+  id: string
+  name: string
+  slug: string
+}
+
 export function OrgSetupForm({
   className,
+  organizations,
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & {
+  organizations: OrganizationOption[]
+}) {
   const router = useRouter()
   const [name, setName] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [activatingOrgId, setActivatingOrgId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (organizations.length !== 1) {
+      return
+    }
+
+    let cancelled = false
+    const [organization] = organizations
+
+    async function activateOnlyOrganization() {
+      setError(null)
+      setActivatingOrgId(organization.id)
+      const { error: setActiveError } = await authClient.organization.setActive({
+        organizationId: organization.id,
+      })
+
+      if (cancelled) {
+        return
+      }
+
+      if (setActiveError) {
+        setError(setActiveError.message ?? "Failed to activate organization")
+        setActivatingOrgId(null)
+        return
+      }
+
+      router.push("/inventory")
+    }
+
+    void activateOnlyOrganization()
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizations, router])
+
+  async function activateOrganization(organizationId: string) {
+    setError(null)
+    setActivatingOrgId(organizationId)
+
+    const { error: setActiveError } = await authClient.organization.setActive({
+      organizationId,
+    })
+
+    if (setActiveError) {
+      setError(setActiveError.message ?? "Failed to activate organization")
+      setActivatingOrgId(null)
+      return
+    }
+
+    router.push("/inventory")
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -72,6 +134,61 @@ export function OrgSetupForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
+      {organizations.length === 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Opening your organization</CardTitle>
+            <CardDescription>
+              Redirecting you into {organizations[0].name}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <FieldDescription className="text-destructive">
+                {error}
+              </FieldDescription>
+            )}
+            {!error && (
+              <FieldDescription>
+                {activatingOrgId ? "Activating your workspace…" : "Preparing your workspace…"}
+              </FieldDescription>
+            )}
+          </CardContent>
+        </Card>
+      ) : organizations.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Choose your organization</CardTitle>
+            <CardDescription>
+              Pick which workspace you want to open.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              {organizations.map((organization) => (
+                <Field key={organization.id}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => activateOrganization(organization.id)}
+                    disabled={loading || activatingOrgId != null}
+                  >
+                    {activatingOrgId === organization.id
+                      ? `Opening ${organization.name}…`
+                      : organization.name}
+                  </Button>
+                </Field>
+              ))}
+              {error && (
+                <FieldDescription className="text-destructive">
+                  {error}
+                </FieldDescription>
+              )}
+            </FieldGroup>
+          </CardContent>
+        </Card>
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle>Create your organization</CardTitle>
@@ -107,6 +224,7 @@ export function OrgSetupForm({
           </form>
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

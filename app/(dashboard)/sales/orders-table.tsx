@@ -20,7 +20,7 @@ import {
   MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
 import { SortableHeader } from "@/components/sortable-header";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
@@ -47,9 +47,71 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
-import type { SalesOrderListRow } from "./types";
+import type {
+  BulkOversellWarningPayload,
+  SalesOrderListRow,
+} from "./types";
+
+type ConfirmError = {
+  status?: number;
+  error?: string;
+  oversell?: BulkOversellWarningPayload;
+};
+
+function TooltipHeader({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function DisabledRowAction({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="button"
+          aria-disabled="true"
+          tabIndex={0}
+          className={buttonVariants({
+            variant: "ghost",
+            size: "sm",
+            className: "cursor-not-allowed opacity-50",
+          })}
+        >
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
@@ -108,6 +170,40 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     header: ({ column }) => <SortableHeader column={column} label="Requested" />,
     cell: ({ row }) => formatDate(row.original.requestedDate),
   },
+  {
+    id: "actions",
+    header: "",
+    cell: ({ row }) => {
+      if (row.original.status !== "confirmed") {
+        return null;
+      }
+
+      if (!row.original.hasManufacturableLines) {
+        return (
+          <div className="flex justify-end">
+            <DisabledRowAction
+              label="Create MOs"
+              tooltip={
+                row.original.manufacturableDisabledReason ??
+                "No manufacturable lines remain on this order."
+              }
+            />
+          </div>
+        );
+      }
+
+      return (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/manufacturing/orders/new?salesOrderId=${row.original.id}`}>
+              Create MOs
+            </Link>
+          </Button>
+        </div>
+      );
+    },
+    enableSorting: false,
+  },
 ];
 
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
@@ -117,7 +213,10 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   const [globalFilter, setGlobalFilter] = useState("");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [pendingConfirmIds, setPendingConfirmIds] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
+  const [bulkOversellWarning, setBulkOversellWarning] =
+    useState<BulkOversellWarningPayload | null>(null);
 
   const { data = initialData } = useQuery<SalesOrderListRow[]>({
     queryKey: ["sales-orders"],
@@ -162,6 +261,51 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     },
   });
 
+  const confirmMutation = useMutation({
+    mutationFn: async ({
+      ids,
+      confirmOversell,
+    }: {
+      ids: string[];
+      confirmOversell: boolean;
+    }) => {
+      const response = await fetch("/api/sales-orders/bulk-confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, confirmOversell }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw {
+          status: response.status,
+          error: body?.error ?? "Failed to confirm orders.",
+          oversell: body?.oversell,
+        } satisfies ConfirmError;
+      }
+    },
+    onMutate: () => {
+      setFormError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setPendingConfirmIds([]);
+      setBulkOversellWarning(null);
+      setRowSelection({});
+    },
+    onError: (error: ConfirmError) => {
+      if (error.status === 409 && error.oversell) {
+        setBulkOversellWarning(error.oversell);
+        return;
+      }
+
+      setFormError(error.error ?? "Failed to confirm orders.");
+    },
+  });
+
   const table = useReactTable({
     data,
     columns,
@@ -180,7 +324,22 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     },
   });
 
-  const selectedCount = table.getFilteredSelectedRowModel().rows.length;
+  const selectedRows = table.getFilteredSelectedRowModel().rows;
+  const selectedOrderIds = Object.entries(rowSelection)
+    .filter(([, isSelected]) => isSelected)
+    .map(([rowId]) => {
+      try {
+        return table.getRow(rowId).original.id;
+      } catch {
+        return null;
+      }
+    })
+    .filter((id): id is string => id != null);
+  const selectedOrders = data.filter((order) => selectedOrderIds.includes(order.id));
+  const selectedCount = selectedRows.length;
+  const canBulkConfirm =
+    selectedOrders.length > 0 &&
+    selectedOrders.every((order) => order.status === "draft");
 
   return (
     <>
@@ -199,7 +358,11 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                 <Button
                   variant="outline"
                   size="icon"
-                  disabled={selectedCount === 0 || deleteMutation.isPending}
+                  disabled={
+                    selectedCount === 0 ||
+                    deleteMutation.isPending ||
+                    confirmMutation.isPending
+                  }
                   className="relative"
                   aria-label={
                     selectedCount > 0
@@ -217,13 +380,19 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
+                  disabled={!canBulkConfirm}
+                  onClick={() => {
+                    const ids = selectedRows.map((row) => row.original.id);
+                    setPendingConfirmIds(ids);
+                    confirmMutation.mutate({ ids, confirmOversell: false });
+                  }}
+                >
+                  Confirm Selected
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   variant="destructive"
                   onClick={() => {
-                    setPendingDeleteIds(
-                      table
-                        .getFilteredSelectedRowModel()
-                        .rows.map((row) => row.original.id)
-                    );
+                    setPendingDeleteIds(selectedRows.map((row) => row.original.id));
                     setConfirmDeleteOpen(true);
                   }}
                 >
@@ -239,9 +408,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
           </div>
         </div>
 
-        {formError && (
-          <p className="pb-4 text-sm text-destructive">{formError}</p>
-        )}
+        {formError && <p className="pb-4 text-sm text-destructive">{formError}</p>}
 
         <div className="rounded-md border">
           <Table>
@@ -336,6 +503,135 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
               onClick={() => deleteMutation.mutate(pendingDeleteIds)}
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={bulkOversellWarning != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkOversellWarning(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-5xl bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirming the selected orders would oversell one or more products.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4 overflow-y-auto pr-1">
+            {bulkOversellWarning?.orders.map((warningOrder) => (
+              <div key={warningOrder.salesOrderId} className="space-y-2">
+                <div>
+                  <h3 className="text-sm font-semibold">{warningOrder.salesOrderNumber}</h3>
+                </div>
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead>Current Stock</TableHead>
+                        <TableHead>
+                          <TooltipHeader
+                            label="Current Committed"
+                            tooltip={OVERSELL_TOOLTIP_COPY.currentCommitted}
+                          />
+                        </TableHead>
+                        <TableHead>
+                          <TooltipHeader
+                            label="Expected"
+                            tooltip={OVERSELL_TOOLTIP_COPY.expected}
+                          />
+                        </TableHead>
+                        <TableHead>
+                          <TooltipHeader
+                            label="Safety"
+                            tooltip={OVERSELL_TOOLTIP_COPY.safety}
+                          />
+                        </TableHead>
+                        <TableHead>
+                          <TooltipHeader
+                            label="Current Calculated"
+                            tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
+                          />
+                        </TableHead>
+                        <TableHead>Added Qty</TableHead>
+                        <TableHead>
+                          <TooltipHeader
+                            label="Projected Committed"
+                            tooltip={OVERSELL_TOOLTIP_COPY.projectedCommitted}
+                          />
+                        </TableHead>
+                        <TableHead>
+                          <TooltipHeader
+                            label="Projected Calculated"
+                            tooltip={OVERSELL_TOOLTIP_COPY.projectedCalculated}
+                          />
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {warningOrder.products.map((product) => (
+                        <TableRow key={`${warningOrder.salesOrderId}-${product.itemId}`}>
+                          <TableCell>
+                            <div className="font-medium">{product.itemName}</div>
+                            {product.itemSku && (
+                              <div className="text-xs text-muted-foreground">
+                                {product.itemSku}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {product.inStock} {product.unitName}
+                          </TableCell>
+                          <TableCell>
+                            {product.committedQty} {product.unitName}
+                          </TableCell>
+                          <TableCell>
+                            {product.expectedQty} {product.unitName}
+                          </TableCell>
+                          <TableCell>
+                            {product.safetyStock} {product.unitName}
+                          </TableCell>
+                          <TableCell>
+                            {product.calculatedStock} {product.unitName}
+                          </TableCell>
+                          <TableCell>
+                            {product.addedQty} {product.unitName}
+                          </TableCell>
+                          <TableCell>
+                            {product.projectedCommittedQty} {product.unitName}
+                          </TableCell>
+                          <TableCell className="text-destructive">
+                            {product.projectedCalculatedStock} {product.unitName}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmMutation.isPending}
+              onClick={() => {
+                if (pendingConfirmIds.length === 0) return;
+                confirmMutation.mutate({
+                  ids: pendingConfirmIds,
+                  confirmOversell: true,
+                });
+              }}
+            >
+              {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

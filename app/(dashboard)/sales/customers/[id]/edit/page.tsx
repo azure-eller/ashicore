@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { CustomerForm } from "@/app/(dashboard)/sales/customer-form";
 import { getCustomer } from "@/app/(dashboard)/sales/queries";
 
@@ -7,6 +8,7 @@ export default async function EditCustomerPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireModuleWriteAccess("sales");
   const { id } = await params;
   const customer = await getCustomer(id);
 

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -216,14 +217,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
     ? (mutation.isPending ? "Saving..." : "Save Changes")
     : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`);
 
-  const handleCancel = () => {
-    if (document.referrer.startsWith(window.location.origin)) {
-      router.back();
-      return;
-    }
-
-    router.push(fallbackPath);
-  };
+  const handleCancel = useSmartBack(fallbackPath);
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-8">
