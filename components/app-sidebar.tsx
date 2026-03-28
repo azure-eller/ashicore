@@ -9,7 +9,6 @@ import {
 } from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { LocationSwitcher } from "@/components/location-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   Sidebar,
@@ -23,12 +22,10 @@ import {
   Layers01Icon,
   PackageIcon,
   LayoutBottomIcon,
-  Notification03Icon,
   Store04Icon,
   Settings02Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
-import { Button } from "@/components/ui/button"
 
 type NavMainItem = {
   title: string
@@ -47,20 +44,16 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
     email: string
     avatar?: string
   }
+  organizationName: string
   role: AppRole
 }
 
-export function AppSidebar({ user, role, ...props }: AppSidebarProps) {
-  const locations = [
-    {
-      name: "Paonia Soil Co",
-      logo: (
-        <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />
-      ),
-      plan: "Production",
-    },
-  ]
-
+export function AppSidebar({
+  user,
+  organizationName,
+  role,
+  ...props
+}: AppSidebarProps) {
   const navMain = ([
     canReadModule(role, "inventory") ? {
       title: "Inventory",
@@ -153,16 +146,18 @@ export function AppSidebar({ user, role, ...props }: AppSidebarProps) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <div className="flex items-center gap-1">
-          <div className="flex-1 min-w-0">
-            <LocationSwitcher locations={locations} />
+        <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-2 py-2">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
+              <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-sm font-medium">{organizationName}</p>
+              <p className="truncate text-xs text-muted-foreground">Single site</p>
+            </div>
           </div>
           <div className="flex items-center group-data-[collapsible=icon]:hidden">
             <ThemeToggle />
-            <Button variant="ghost" size="icon" className="h-7 w-7">
-              <HugeiconsIcon icon={Notification03Icon} strokeWidth={2} className="h-4 w-4" />
-              <span className="sr-only">Notifications</span>
-            </Button>
           </div>
         </div>
       </SidebarHeader>
