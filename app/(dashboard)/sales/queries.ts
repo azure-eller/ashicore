@@ -929,7 +929,8 @@ export async function deleteSalesOrders(ids: string[]) {
           inArray(salesOrders.id, uniqueIds),
           isNull(salesOrders.deletedAt)
         )
-      );
+      )
+      .for("update");
 
     if (orders.length === 0) {
       return { deletedCount: 0 };
