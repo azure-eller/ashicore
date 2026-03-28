@@ -72,10 +72,11 @@ Playwright requires the dev server to be running first.
 Required for normal app runtime:
 
 - `DATABASE_URL_APP`: app runtime connection string for the restricted app role
-- `DATABASE_URL`: owner connection string for migrations and fallback local runtime
+- `DATABASE_URL`: owner connection string for migrations only
 
 Required for auth / absolute URLs:
 
+- `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL` or `NEXT_PUBLIC_APP_URL`
 
 Optional:
@@ -87,8 +88,8 @@ Optional:
 
 ## Database Notes
 
-- `DATABASE_URL` is the owner connection. Use it for `drizzle-kit generate` and `drizzle-kit migrate`.
-- `DATABASE_URL_APP` is the app role. The app should use this in normal runtime so RLS is actually exercised.
+- `DATABASE_URL` is the owner connection. Use it for `drizzle-kit generate` and `drizzle-kit migrate` only.
+- `DATABASE_URL_APP` is the app role. Use it for normal app runtime so RLS is actually exercised.
 - Do not use `drizzle push`.
 - New schemas and tables must follow the RLS and grant rules in `docs/database.md`.
 

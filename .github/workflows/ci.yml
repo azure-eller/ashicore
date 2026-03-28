@@ -19,6 +19,7 @@ jobs:
       DATABASE_URL_APP: postgresql://postgres:postgres@localhost:5432/postgres
       BETTER_AUTH_URL: http://localhost:3000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ci-test-secret-not-for-production
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
