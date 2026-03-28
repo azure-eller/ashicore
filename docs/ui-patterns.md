@@ -146,6 +146,35 @@ For detail routes, add a local `[id]/loading.tsx` per item type and point it at 
 
 No optimistic updates. No complex loading state machines.
 
+## Dashboard List Tables
+
+For standard dashboard list pages, use the shared `DashboardDataTable` shell instead of rebuilding query state, search, add actions, bulk delete, table markup, pagination, and delete dialogs in each route file.
+
+- Keep column definitions local to the domain file
+- Pass `queryKey`, `queryFn`, `addHref`, empty-state copy, and optional `deleteAction` config into the shared shell
+- Use `deleteAction.trackDeletingRows` only when rows should dim during delete, like inventory items
+
+```tsx
+<DashboardDataTable
+  columns={columns}
+  initialData={initialData}
+  queryKey={["customers"]}
+  queryFn={fetchCustomers}
+  searchAriaLabel="Search customers"
+  addHref="/sales/customers/new"
+  addAriaLabel="Add customer"
+  emptyMessage="No customers yet."
+  deleteAction={{
+    endpoint: "/api/customers",
+    invalidateQueryKeys: [["customers"]],
+    defaultErrorMessage: "Failed to delete customer.",
+    confirmTitle: (count) => `Delete ${count} customer${count !== 1 ? "s" : ""}?`,
+    confirmDescription: (count) =>
+      `The selected customer${count !== 1 ? "s" : ""} will be soft-deleted.`,
+  }}
+/>
+```
+
 ## Portal Components (Dialogs, Dropdowns, Popovers, Tooltips)
 
 Use semantic surface and text tokens on portal content. Do not hardcode `dark` on individual dialogs, menus, or popovers.

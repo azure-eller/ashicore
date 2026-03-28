@@ -301,6 +301,22 @@ Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` mu
 
 Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell` — never raw `<table>` / `<tr>` / `<td>`. Raw HTML tables bypass theme tokens and won't pick up future Table component changes.
 
+### Shared dashboard tables
+
+List pages with search + add + optional bulk delete should use `DashboardDataTable` from `components/dashboard-data-table.tsx`. Keep route table files to columns + config only.
+
+```tsx
+<DashboardDataTable columns={columns} queryKey={["customers"]} addHref="/sales/customers/new" />
+```
+
+### Domain errors
+
+API-facing business errors should extend `DomainError` from `lib/errors/domain-error.ts`. Use `errors` for field errors and `extra` for domain payloads.
+
+```ts
+export class SalesError extends DomainError<{ oversell: OversellWarningPayload }> {}
+```
+
 ### Bulk delete mutations
 
 Bulk delete actions that can fail on business rules must go through one API mutation that validates all selected ids in a single transaction. Do not fire one `DELETE` per row from the client.
