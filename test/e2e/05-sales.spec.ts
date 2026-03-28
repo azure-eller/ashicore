@@ -9,9 +9,16 @@ import {
 import {
   customers as salesCustomers,
   items,
+  lots,
   salesOrderLines,
   salesOrders,
+  stockMovements,
 } from "../../lib/db/schema";
+import {
+  createCustomer,
+  createSalesOrder,
+  testFetch,
+} from "../helpers/api";
 
 test.describe("Chapter 5 — Sales: Paonia Soil Co.", () => {
   test.describe.configure({ mode: "serial" });
@@ -537,7 +544,107 @@ test.describe("Chapter 5 — Sales: Paonia Soil Co.", () => {
   });
 
   /* ══════════════════════════════════════════════════════════════════
-     11. Referential integrity — customer/product delete blocks,
+     11. Fulfillment — confirm + fulfill a small order via API,
+         verify stock consumed and committed released
+     ══════════════════════════════════════════════════════════════════ */
+
+  test("fulfills a confirmed order — consumes stock FIFO and releases committed", async ({
+    db,
+  }) => {
+    // Create a small order (1× The Bomb) via API — The Bomb has stock from manufacturing
+    const customerResult = await createCustomer({
+      name: `Fulfill Test Customer ${run}`,
+    });
+    expect(customerResult.status).toBe(201);
+    const fulfillCustomerId = customerResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId: fulfillCustomerId,
+      status: "confirmed",
+      requestedDate: null,
+      notes: "Fulfillment test order",
+      lines: [
+        { itemId: theBombId, quantity: "1", unitPrice: "89.99" },
+      ],
+      confirmOversell: true,
+    });
+    expect(orderResult.status).toBe(201);
+    const fulfillOrderId = orderResult.body.id as string;
+
+    // Verify order is confirmed and committed qty increased
+    const [confirmedOrder] = await db
+      .select()
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fulfillOrderId));
+    expect(confirmedOrder.status).toBe("confirmed");
+
+    const [beforeFulfill] = await db
+      .select({ committedQty: items.committedQty })
+      .from(items)
+      .where(eq(items.id, theBombId));
+    const committedBefore = parseFloat(beforeFulfill.committedQty!);
+    expect(committedBefore).toBeGreaterThanOrEqual(1);
+
+    // Snapshot stock before fulfillment
+    const bombLotsBefore = await db
+      .select()
+      .from(lots)
+      .where(eq(lots.itemId, theBombId));
+    const stockBefore = bombLotsBefore.reduce(
+      (sum, lot) => sum + parseFloat(lot.quantity),
+      0
+    );
+
+    // ── Fulfill via API ──
+    const fulfillRes = await testFetch(
+      `/api/sales-orders/${fulfillOrderId}/fulfill`,
+      { method: "POST" }
+    );
+    expect(fulfillRes.status).toBe(200);
+
+    // ── DB: order status is now "fulfilled" ──
+    const [fulfilledOrder] = await db
+      .select()
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fulfillOrderId));
+    expect(fulfilledOrder.status).toBe("fulfilled");
+    expect(fulfilledOrder.fulfilledAt).not.toBeNull();
+
+    // ── DB: stock decreased by 1 (FIFO consumption) ──
+    const bombLotsAfter = await db
+      .select()
+      .from(lots)
+      .where(eq(lots.itemId, theBombId));
+    const stockAfter = bombLotsAfter.reduce(
+      (sum, lot) => sum + parseFloat(lot.quantity),
+      0
+    );
+    expect(stockAfter).toBeCloseTo(stockBefore - 1, 2);
+
+    // ── DB: committed qty decreased (fulfilled orders don't reserve stock) ──
+    const [afterFulfill] = await db
+      .select({ committedQty: items.committedQty })
+      .from(items)
+      .where(eq(items.id, theBombId));
+    const committedAfter = parseFloat(afterFulfill.committedQty!);
+    expect(committedAfter).toBeLessThan(committedBefore);
+
+    // ── DB: stock movements created with type "sales_fulfilled" ──
+    const fulfillMovements = await db
+      .select()
+      .from(stockMovements)
+      .where(
+        and(
+          eq(stockMovements.referenceId, fulfillOrderId),
+          eq(stockMovements.movementType, "sales_fulfilled")
+        )
+      );
+    expect(fulfillMovements.length).toBeGreaterThanOrEqual(1);
+    expect(fulfillMovements[0].referenceType).toBe("sales_order");
+  });
+
+  /* ══════════════════════════════════════════════════════════════════
+     12. Referential integrity — customer/product delete blocks,
          then cleanup succeeds after guard order is removed
      ══════════════════════════════════════════════════════════════════ */
 
