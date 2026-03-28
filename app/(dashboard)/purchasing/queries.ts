@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { normalizeNumeric, summarizeItems } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -15,6 +14,10 @@ import {
   createPositiveLotAndMovementInTx,
   lockItemsInTx,
 } from "@/lib/inventory/stock";
+import {
+  DomainError,
+  type DomainFieldErrors,
+} from "@/lib/errors/domain-error";
 import type {
   InsertPurchaseOrder,
   PurchaseOrderStatus,
@@ -51,8 +54,7 @@ type MaterialValidationRow = {
   defaultPurchasePrice: string | null;
 };
 
-export class PurchasingError extends Error {
-  status: number;
+export class PurchasingError extends DomainError {
   errors?: Record<string, string[]>;
 
   constructor(
@@ -60,18 +62,14 @@ export class PurchasingError extends Error {
     status = 400,
     options?: { errors?: Record<string, string[]> }
   ) {
-    super(message);
-    this.name = "PurchasingError";
-    this.status = status;
+    const errors: DomainFieldErrors | undefined = options?.errors;
+
+    super(message, status, {
+      name: "PurchasingError",
+      errors,
+    });
+
     this.errors = options?.errors;
-  }
-
-  toResponse() {
-    const body = this.errors
-      ? { errors: this.errors }
-      : { error: this.message };
-
-    return NextResponse.json(body, { status: this.status });
   }
 }
 
