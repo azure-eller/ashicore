@@ -54,6 +54,7 @@ New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on
 
 ## Critical Rules
 
+- For code-changing work, NEVER edit files in the repo root checkout or on `main` unless the user explicitly asks for that. Use a dedicated git worktree.
 - No hardcoded Tailwind colors — shadcn semantic tokens only
 - API routes for all mutations — no server actions
 - NEVER import db directly in pages, components, or API routes — use DAL
@@ -527,45 +528,22 @@ When multiple agents may be working in the repo:
 - Do not modify files outside the scope of your task
 - Assume other agents may be working in parallel — keep unrelated files untouched
 
-## Workflow
+## Worktree Rule
 
-Use git worktrees for all code-changing feature work. Keep the repo root checkout on `main` as a stable control plane for pulls, branch discovery, and creating/removing worktrees.
+For code-changing work:
 
-**Default rule:** if a task will modify code and the current directory is the repo root checkout, create or enter a dedicated worktree before editing files.
-
-**Do not:**
-- Develop directly in the repo root checkout
-- Switch the repo root checkout onto a feature branch
-- Reuse another active worktree unless the user explicitly points to it
-
-**Allowed exceptions:**
-- Read-only review or investigation
-- User explicitly asks to work in the current checkout
-- Worktree cleanup after merge
+- Do not edit files in `/home/aeller/Projects/erp` or on `main` unless the user explicitly asks for that
+- Create or enter a dedicated worktree before making changes
+- Do not reuse another active worktree unless the user explicitly points to it
 
 ```bash
-# 1. Create worktree (`.worktrees/` is gitignored)
 git worktree add .worktrees/<branch-name> -b <branch-name>
-
-# 2. Install deps in the new worktree
-cd .worktrees/<branch-name> && pnpm install
-
-# 3. Work, commit, push
-git push -u origin <branch-name>
-
-# 4. Open PR via `gh pr create`
-
-# 5. After merge, clean up both worktree and branch
-git worktree remove .worktrees/<branch-name>
-git branch -d <branch-name>
+cd .worktrees/<branch-name>
+pnpm install
 ```
 
-**Rules:**
-- The repo root checkout is for coordination, not feature implementation
-- Always `pnpm install` in new worktrees — lockfile resolution differs per working tree
-- Run build/test commands inside the worktree that contains the change
-- Run `pnpm build` and `pnpm test` inside the worktree before pushing
-- Clean up merged worktrees promptly: `git worktree list` to audit
+- Run `pnpm build`, `pnpm test`, and `pnpm lint` in the worktree that contains the change
+- After merge, remove the worktree with `git worktree remove .worktrees/<branch-name>`
 
 ## Canonical References
 
