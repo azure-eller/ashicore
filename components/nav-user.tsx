@@ -23,9 +23,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   UnfoldMoreIcon,
-  CheckmarkBadgeIcon,
   LogoutIcon,
-  UserGroupIcon,
+  Settings02Icon,
 } from "@hugeicons/core-free-icons"
 import { authClient } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
@@ -42,14 +41,12 @@ function getInitials(name: string) {
 
 export function NavUser({
   user,
-  canManageTeam,
 }: {
   user: {
     name: string
     email: string
     avatar?: string
   }
-  canManageTeam: boolean
 }) {
   const { isMobile } = useSidebar()
   const router = useRouter()
@@ -100,16 +97,10 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <HugeiconsIcon icon={CheckmarkBadgeIcon} strokeWidth={2} />
-                Account
+              <DropdownMenuItem onClick={() => router.push("/settings")}>
+                <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+                Settings
               </DropdownMenuItem>
-              {canManageTeam && (
-                <DropdownMenuItem onClick={() => router.push("/settings/team")}>
-                  <HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
-                  Team
-                </DropdownMenuItem>
-              )}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>

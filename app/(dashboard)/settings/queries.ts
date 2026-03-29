@@ -1,21 +1,24 @@
 import "server-only";
 
 import { and, asc, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import {
   assertTeamManagementAccess,
-  requireTeamManagementAccess,
+  getAuthedMemberContext,
 } from "@/lib/dal/auth";
 import { db } from "@/lib/db";
 import { invitation, member, organization, user } from "@/lib/db/schema";
 import {
   AuthorizationError,
   canAssignRole,
+  canManageTeam,
   canManageTargetRole,
   normalizeAppRole,
   normalizeAssignableRole,
 } from "@/lib/authz";
 import type {
+  AccountPageData,
   PendingInviteRow,
   PublicInvitationDetails,
   TeamMemberRow,
@@ -129,13 +132,29 @@ async function loadTeamPageData(
 }
 
 export async function getTeamPageData() {
-  const context = await requireTeamManagementAccess();
+  const context = await getAuthedMemberContext();
+
+  if (!canManageTeam(context.role)) {
+    redirect("/settings/account");
+  }
+
   return loadTeamPageData(context.orgId, context.userId, context.role);
 }
 
 export async function getTeamPageDataForRequest(requestHeaders: HeadersInit) {
   const context = await assertTeamManagementAccess(requestHeaders);
   return loadTeamPageData(context.orgId, context.userId, context.role);
+}
+
+export async function getAccountPageData(): Promise<AccountPageData> {
+  const context = await getAuthedMemberContext();
+
+  return {
+    name: context.name,
+    email: context.email,
+    avatar: context.avatar,
+    role: context.role,
+  };
 }
 
 export async function getPublicInvitationDetails(
@@ -275,6 +294,30 @@ export async function getManageableInvitation(
 
 export async function callAuthApi(
   requestHeaders: HeadersInit,
+  endpoint: "updateUser",
+  payload: {
+    name: string;
+  }
+): Promise<Response>;
+export async function callAuthApi(
+  requestHeaders: HeadersInit,
+  endpoint: "changeEmail",
+  payload: {
+    newEmail: string;
+    callbackURL?: string;
+  }
+): Promise<Response>;
+export async function callAuthApi(
+  requestHeaders: HeadersInit,
+  endpoint: "changePassword",
+  payload: {
+    currentPassword: string;
+    newPassword: string;
+    revokeOtherSessions?: boolean;
+  }
+): Promise<Response>;
+export async function callAuthApi(
+  requestHeaders: HeadersInit,
   endpoint: "createInvitation",
   payload: {
     email: string;
@@ -307,6 +350,9 @@ export async function callAuthApi(
 export async function callAuthApi(
   requestHeaders: HeadersInit,
   endpoint:
+    | "updateUser"
+    | "changeEmail"
+    | "changePassword"
     | "createInvitation"
     | "cancelInvitation"
     | "updateMemberRole"
@@ -317,6 +363,33 @@ export async function callAuthApi(
     requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
 
   switch (endpoint) {
+    case "updateUser":
+      return (await auth.api.updateUser({
+        headers: normalizedHeaders,
+        body: payload as {
+          name: string;
+        },
+        asResponse: true,
+      })) as Response;
+    case "changeEmail":
+      return (await auth.api.changeEmail({
+        headers: normalizedHeaders,
+        body: payload as {
+          newEmail: string;
+          callbackURL?: string;
+        },
+        asResponse: true,
+      })) as Response;
+    case "changePassword":
+      return (await auth.api.changePassword({
+        headers: normalizedHeaders,
+        body: payload as {
+          currentPassword: string;
+          newPassword: string;
+          revokeOtherSessions?: boolean;
+        },
+        asResponse: true,
+      })) as Response;
     case "createInvitation":
       return (await auth.api.createInvitation({
         headers: normalizedHeaders,

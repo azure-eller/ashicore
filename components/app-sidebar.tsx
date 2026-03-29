@@ -3,7 +3,6 @@
 import * as React from "react"
 
 import {
-  canManageTeam,
   canReadModule,
   type AppRole,
 } from "@/lib/authz"
@@ -23,7 +22,6 @@ import {
   PackageIcon,
   LayoutBottomIcon,
   Store04Icon,
-  Settings02Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
 
@@ -127,20 +125,6 @@ export function AppSidebar({
         },
       ],
     } : null,
-    canManageTeam(role) ? {
-      title: "Settings",
-      url: "/settings",
-      icon: (
-        <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-      ),
-      isActive: true,
-      items: [
-        {
-          title: "Team",
-          url: "/settings/team",
-        },
-      ],
-    } : null,
   ] as Array<NavMainItem | null>).filter((item): item is NavMainItem => item !== null)
 
   return (
@@ -165,7 +149,7 @@ export function AppSidebar({
         <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={user} canManageTeam={canManageTeam(role)} />
+        <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
