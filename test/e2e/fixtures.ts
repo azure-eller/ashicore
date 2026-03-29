@@ -1,13 +1,13 @@
 import type { Page } from "@playwright/test";
-import dotenv from "dotenv";
 import { Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { sql } from "drizzle-orm";
 import { test as base, expect } from "@playwright/test";
 import * as schema from "../../lib/db/schema";
+import { loadWorktreeEnv } from "../../scripts/load-worktree-env";
 import { parseCookie, readTestEnv } from "../helpers/test-env";
 
-dotenv.config({ path: ".env.local" });
+loadWorktreeEnv();
 
 // App role — same connection the app uses, RLS enforced.
 const connectionString =

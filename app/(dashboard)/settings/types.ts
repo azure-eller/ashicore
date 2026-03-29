@@ -20,10 +20,6 @@ export type PendingInviteRow = {
 };
 
 export type TeamPageData = {
-  organization: {
-    id: string;
-    name: string;
-  };
   currentRole: AppRole;
   members: TeamMemberRow[];
   pendingInvites: PendingInviteRow[];
@@ -32,7 +28,6 @@ export type TeamPageData = {
 export type AccountPageData = {
   name: string;
   email: string;
-  avatar?: string;
   role: AppRole;
 };
 

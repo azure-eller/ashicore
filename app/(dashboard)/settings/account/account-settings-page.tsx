@@ -1,23 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Field,
   FieldDescription,
@@ -26,15 +14,10 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { formatRoleLabel } from "@/lib/authz";
-import { getInitials } from "@/lib/format";
+import { Separator } from "@/components/ui/separator";
 import {
-  changeEmailSchema,
-  changePasswordSchema,
-  updateProfileSchema,
-  type ChangeEmailInput,
-  type ChangePasswordInput,
-  type UpdateProfileInput,
+  accountSettingsSchema,
+  type AccountSettingsInput,
 } from "@/lib/schemas/account";
 import type { AccountPageData } from "../types";
 
@@ -68,14 +51,62 @@ async function readError(response: Response, fallback: string) {
   }
 }
 
-function SuccessMessage({ children }: { children: string | null }) {
-  if (!children) {
+async function sendAccountRequest(
+  path: string,
+  method: "PATCH" | "POST",
+  body: Record<string, string>,
+  fallback: string
+) {
+  const response = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  await readError(response, fallback);
+}
+
+type AccountUpdateKey = "profile" | "email" | "password";
+type SavedAccountState = Pick<AccountSettingsInput, "name" | "email">;
+type AccountFieldName = "name" | "email" | "currentPassword";
+
+class AccountSaveError extends Error {
+  constructor(
+    message: string,
+    readonly field: AccountFieldName,
+    readonly updates: AccountUpdateKey[],
+    readonly savedState: SavedAccountState
+  ) {
+    super(message);
+    this.name = "AccountSaveError";
+  }
+}
+
+function buildSuccessMessage(updates: AccountUpdateKey[]) {
+  if (updates.length === 0) {
     return null;
   }
 
-  return (
-    <p className="text-sm text-foreground">{children}</p>
-  );
+  if (updates.length > 1) {
+    return "Account updated.";
+  }
+
+  if (updates[0] === "profile") {
+    return "Profile updated.";
+  }
+
+  if (updates[0] === "email") {
+    return "Email updated.";
+  }
+
+  return "Password changed.";
+}
+
+function normalizeSavedState(data: Pick<AccountPageData, "name" | "email">) {
+  return {
+    name: data.name,
+    email: data.email.toLowerCase(),
+  };
 }
 
 export function AccountSettingsPage({
@@ -84,339 +115,295 @@ export function AccountSettingsPage({
   initialData: AccountPageData;
 }) {
   const router = useRouter();
-  const initials = useMemo(() => getInitials(initialData.name), [initialData.name]);
-  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [savedState, setSavedState] = useState(() => normalizeSavedState(initialData));
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const profileForm = useForm<UpdateProfileInput>({
-    resolver: zodResolver(updateProfileSchema),
+  const form = useForm<AccountSettingsInput>({
+    resolver: zodResolver(accountSettingsSchema),
     defaultValues: {
       name: initialData.name,
-    },
-  });
-
-  const emailForm = useForm<ChangeEmailInput>({
-    resolver: zodResolver(changeEmailSchema),
-    defaultValues: {
-      newEmail: "",
-    },
-  });
-
-  const passwordForm = useForm<ChangePasswordInput>({
-    resolver: zodResolver(changePasswordSchema),
-    defaultValues: {
+      email: initialData.email,
       currentPassword: "",
       newPassword: "",
       confirmPassword: "",
     },
   });
 
-  const resetProfileForm = profileForm.reset;
-  const resetEmailForm = emailForm.reset;
+  const resetForm = form.reset;
+  const clearErrors = form.clearErrors;
+  const setError = form.setError;
 
   useEffect(() => {
-    resetProfileForm({ name: initialData.name });
-  }, [initialData.name, resetProfileForm]);
+    resetForm({
+      name: initialData.name,
+      email: initialData.email,
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+  }, [initialData.email, initialData.name, resetForm]);
 
-  useEffect(() => {
-    resetEmailForm({ newEmail: "" });
-  }, [initialData.email, resetEmailForm]);
-
-  const profileMutation = useMutation({
-    mutationFn: async (values: UpdateProfileInput) => {
-      const response = await fetch("/api/account/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-
-      await readError(response, "Failed to update profile.");
-    },
-    onMutate: () => {
-      setProfileError(null);
-      setProfileSuccess(null);
-    },
-    onSuccess: () => {
-      setProfileSuccess("Profile updated.");
-      router.refresh();
-    },
-    onError: (error) => {
-      setProfileError(error.message);
-    },
+  const values = useWatch({
+    control: form.control,
   });
 
-  const emailMutation = useMutation({
-    mutationFn: async (values: ChangeEmailInput) => {
-      const response = await fetch("/api/account/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
+  const currentName = values.name ?? "";
+  const currentEmail = values.email ?? "";
+  const wantsPasswordChange =
+    (values.currentPassword?.length ?? 0) > 0 ||
+    (values.newPassword?.length ?? 0) > 0 ||
+    (values.confirmPassword?.length ?? 0) > 0;
+  const hasChanges =
+    currentName.trim() !== savedState.name ||
+    currentEmail.trim().toLowerCase() !== savedState.email ||
+    wantsPasswordChange;
 
-      await readError(response, "Failed to update email.");
+  const mutation = useMutation({
+    mutationFn: async (input: AccountSettingsInput) => {
+      const updates: AccountUpdateKey[] = [];
+      const passwordChangeRequested =
+        input.currentPassword.length > 0 ||
+        input.newPassword.length > 0 ||
+        input.confirmPassword.length > 0;
+      let nextSavedState: SavedAccountState = {
+        name: input.name,
+        email: savedState.email,
+      };
+
+      if (input.name !== savedState.name) {
+        try {
+          await sendAccountRequest(
+            "/api/account/profile",
+            "PATCH",
+            { name: input.name },
+            "Failed to update profile."
+          );
+          updates.push("profile");
+          nextSavedState = {
+            ...nextSavedState,
+            name: input.name,
+          };
+        } catch (error) {
+          throw new AccountSaveError(
+            error instanceof Error ? error.message : "Failed to update profile.",
+            "name",
+            updates,
+            nextSavedState
+          );
+        }
+      }
+
+      if (input.email !== savedState.email) {
+        try {
+          await sendAccountRequest(
+            "/api/account/email",
+            "POST",
+            { newEmail: input.email },
+            "Failed to update email."
+          );
+          updates.push("email");
+          nextSavedState = {
+            ...nextSavedState,
+            email: input.email,
+          };
+        } catch (error) {
+          throw new AccountSaveError(
+            error instanceof Error ? error.message : "Failed to update email.",
+            "email",
+            updates,
+            nextSavedState
+          );
+        }
+      }
+
+      if (passwordChangeRequested) {
+        try {
+          await sendAccountRequest(
+            "/api/account/password",
+            "POST",
+            {
+              currentPassword: input.currentPassword,
+              newPassword: input.newPassword,
+              confirmPassword: input.confirmPassword,
+            },
+            "Failed to change password."
+          );
+          updates.push("password");
+        } catch (error) {
+          throw new AccountSaveError(
+            error instanceof Error ? error.message : "Failed to change password.",
+            "currentPassword",
+            updates,
+            nextSavedState
+          );
+        }
+      }
+
+      return {
+        updates,
+        savedState: nextSavedState,
+      };
     },
     onMutate: () => {
-      setEmailError(null);
-      setEmailSuccess(null);
+      clearErrors();
+      setSubmitError(null);
+      setSubmitSuccess(null);
     },
-    onSuccess: () => {
-      setEmailSuccess("Email updated.");
-      router.refresh();
-    },
-    onError: (error) => {
-      setEmailError(error.message);
-    },
-  });
-
-  const passwordMutation = useMutation({
-    mutationFn: async (values: ChangePasswordInput) => {
-      const response = await fetch("/api/account/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+    onSuccess: ({ updates, savedState: nextSavedState }) => {
+      setSavedState(nextSavedState);
+      resetForm({
+        name: nextSavedState.name,
+        email: nextSavedState.email,
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
       });
+      setSubmitSuccess(buildSuccessMessage(updates));
 
-      await readError(response, "Failed to change password.");
+      if (updates.includes("profile") || updates.includes("email")) {
+        router.refresh();
+      }
     },
-    onMutate: () => {
-      setPasswordError(null);
-      setPasswordSuccess(null);
-    },
-    onSuccess: () => {
-      passwordForm.reset();
-      setPasswordSuccess("Password changed.");
-    },
-    onError: (error) => {
-      setPasswordError(error.message);
+    onError: (error, input) => {
+      if (error instanceof AccountSaveError) {
+        const nextName = error.field === "name" ? input.name : error.savedState.name;
+        const nextEmail =
+          error.field === "email" ? input.email : error.savedState.email;
+
+        setSavedState(error.savedState);
+        setSubmitSuccess(buildSuccessMessage(error.updates));
+        resetForm({
+          name: nextName,
+          email: nextEmail,
+          currentPassword: input.currentPassword,
+          newPassword: input.newPassword,
+          confirmPassword: input.confirmPassword,
+        });
+        setError(error.field, {
+          message: error.message,
+        });
+
+        if (error.updates.includes("profile") || error.updates.includes("email")) {
+          router.refresh();
+        }
+
+        return;
+      }
+
+      setSubmitError(error instanceof Error ? error.message : "Failed to save changes.");
     },
   });
-
-  const currentName = useWatch({
-    control: profileForm.control,
-    name: "name",
-  }) ?? "";
-  const nextEmail = useWatch({
-    control: emailForm.control,
-    name: "newEmail",
-  }) ?? "";
-  const isNameUnchanged = currentName.trim() === initialData.name;
-  const normalizedNextEmail = nextEmail.trim().toLowerCase();
-  const isEmailUnchanged =
-    normalizedNextEmail.length === 0 ||
-    normalizedNextEmail === initialData.email.toLowerCase();
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold tracking-tight">Account</h2>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Manage your profile details and sign-in credentials.
-        </p>
-      </div>
+    <div className="max-w-3xl">
+      <form
+        className="flex flex-col gap-6 rounded-xl border bg-card p-4 md:p-6"
+        onSubmit={form.handleSubmit((input) => mutation.mutate(input))}
+      >
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage your name, email, and password.
+          </p>
+        </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <Avatar className="size-14">
-              {initialData.avatar ? (
-                <AvatarImage src={initialData.avatar} alt={initialData.name} />
-              ) : null}
-              <AvatarFallback>{initials}</AvatarFallback>
-            </Avatar>
-            <div className="space-y-1">
-              <div className="text-base font-medium">{initialData.name}</div>
-              <div className="text-sm text-muted-foreground">{initialData.email}</div>
-              <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                {formatRoleLabel(initialData.role)}
-              </div>
-            </div>
+        <FieldGroup className="gap-4 md:grid md:grid-cols-2 md:gap-4">
+          <Field data-invalid={form.formState.errors.name != null}>
+            <FieldLabel htmlFor="settings-name">Name</FieldLabel>
+            <Input
+              id="settings-name"
+              autoComplete="name"
+              aria-invalid={form.formState.errors.name != null}
+              {...form.register("name")}
+            />
+            <FieldError errors={[form.formState.errors.name]} />
+          </Field>
+
+          <Field data-invalid={form.formState.errors.email != null}>
+            <FieldLabel htmlFor="settings-email">Email</FieldLabel>
+            <Input
+              id="settings-email"
+              type="email"
+              autoComplete="email"
+              aria-invalid={form.formState.errors.email != null}
+              {...form.register("email")}
+            />
+            <FieldError errors={[form.formState.errors.email]} />
+          </Field>
+        </FieldGroup>
+
+        <Separator />
+
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-sm font-medium">Password</h2>
+            <FieldDescription>
+              Leave these blank to keep your current password.
+            </FieldDescription>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-          <CardDescription>
-            Update the name shown across the workspace.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="space-y-4"
-            onSubmit={profileForm.handleSubmit((values) =>
-              profileMutation.mutate(values)
-            )}
-          >
-            <FieldGroup>
-              <Field data-invalid={profileForm.formState.errors.name != null}>
-                <FieldLabel htmlFor="settings-name">Name</FieldLabel>
-                <Input
-                  id="settings-name"
-                  autoComplete="name"
-                  aria-invalid={profileForm.formState.errors.name != null}
-                  {...profileForm.register("name")}
-                />
-                <FieldDescription>
-                  This appears in the sidebar and account menu.
-                </FieldDescription>
-                <FieldError errors={[profileForm.formState.errors.name]} />
-              </Field>
-            </FieldGroup>
+          <FieldGroup className="gap-4 md:grid md:grid-cols-2 md:gap-4">
+            <Field data-invalid={form.formState.errors.currentPassword != null}>
+              <FieldLabel htmlFor="settings-current-password">
+                Current password
+              </FieldLabel>
+              <Input
+                id="settings-current-password"
+                type="password"
+                autoComplete="current-password"
+                aria-invalid={form.formState.errors.currentPassword != null}
+                {...form.register("currentPassword")}
+              />
+              <FieldError errors={[form.formState.errors.currentPassword]} />
+            </Field>
 
-            {profileError ? <FieldError>{profileError}</FieldError> : null}
-            <SuccessMessage>{profileSuccess}</SuccessMessage>
+            <Field data-invalid={form.formState.errors.newPassword != null}>
+              <FieldLabel htmlFor="settings-new-password">New password</FieldLabel>
+              <Input
+                id="settings-new-password"
+                type="password"
+                autoComplete="new-password"
+                aria-invalid={form.formState.errors.newPassword != null}
+                {...form.register("newPassword")}
+              />
+              <FieldError errors={[form.formState.errors.newPassword]} />
+            </Field>
 
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={profileMutation.isPending || isNameUnchanged}
-              >
-                {profileMutation.isPending ? "Saving…" : "Save profile"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+            <Field
+              className="md:col-span-2"
+              data-invalid={form.formState.errors.confirmPassword != null}
+            >
+              <FieldLabel htmlFor="settings-confirm-password">
+                Confirm new password
+              </FieldLabel>
+              <Input
+                id="settings-confirm-password"
+                type="password"
+                autoComplete="new-password"
+                aria-invalid={form.formState.errors.confirmPassword != null}
+                {...form.register("confirmPassword")}
+              />
+              <FieldError errors={[form.formState.errors.confirmPassword]} />
+            </Field>
+          </FieldGroup>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Email</CardTitle>
-          <CardDescription>
-            Change the address you use to sign in to this workspace.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="space-y-4"
-            onSubmit={emailForm.handleSubmit((values) => emailMutation.mutate(values))}
-          >
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="settings-current-email">Current email</FieldLabel>
-                <Input
-                  id="settings-current-email"
-                  value={initialData.email}
-                  readOnly
-                  disabled
-                />
-              </Field>
+        <Separator />
 
-              <Field data-invalid={emailForm.formState.errors.newEmail != null}>
-                <FieldLabel htmlFor="settings-new-email">New email</FieldLabel>
-                <Input
-                  id="settings-new-email"
-                  type="email"
-                  autoComplete="email"
-                  aria-invalid={emailForm.formState.errors.newEmail != null}
-                  {...emailForm.register("newEmail")}
-                />
-                <FieldDescription>
-                  Use an address you can access before saving this change.
-                </FieldDescription>
-                <FieldError errors={[emailForm.formState.errors.newEmail]} />
-              </Field>
-            </FieldGroup>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-h-5 flex-col gap-1">
+            {submitError ? <FieldError>{submitError}</FieldError> : null}
+            {submitSuccess ? (
+              <p className="text-sm text-foreground">{submitSuccess}</p>
+            ) : null}
+          </div>
 
-            {emailError ? <FieldError>{emailError}</FieldError> : null}
-            <SuccessMessage>{emailSuccess}</SuccessMessage>
-
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={emailMutation.isPending || isEmailUnchanged}
-              >
-                {emailMutation.isPending ? "Saving…" : "Update email"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Password</CardTitle>
-          <CardDescription>
-            Set a new password for future sign-ins.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="space-y-4"
-            onSubmit={passwordForm.handleSubmit((values) =>
-              passwordMutation.mutate(values)
-            )}
-          >
-            <FieldGroup>
-              <Field data-invalid={passwordForm.formState.errors.currentPassword != null}>
-                <FieldLabel htmlFor="settings-current-password">
-                  Current password
-                </FieldLabel>
-                <Input
-                  id="settings-current-password"
-                  type="password"
-                  autoComplete="current-password"
-                  aria-invalid={
-                    passwordForm.formState.errors.currentPassword != null
-                  }
-                  {...passwordForm.register("currentPassword")}
-                />
-                <FieldError
-                  errors={[passwordForm.formState.errors.currentPassword]}
-                />
-              </Field>
-
-              <Field data-invalid={passwordForm.formState.errors.newPassword != null}>
-                <FieldLabel htmlFor="settings-new-password">New password</FieldLabel>
-                <Input
-                  id="settings-new-password"
-                  type="password"
-                  autoComplete="new-password"
-                  aria-invalid={passwordForm.formState.errors.newPassword != null}
-                  {...passwordForm.register("newPassword")}
-                />
-                <FieldDescription>
-                  Use at least 8 characters and avoid reusing the current password.
-                </FieldDescription>
-                <FieldError errors={[passwordForm.formState.errors.newPassword]} />
-              </Field>
-
-              <Field
-                data-invalid={passwordForm.formState.errors.confirmPassword != null}
-              >
-                <FieldLabel htmlFor="settings-confirm-password">
-                  Confirm new password
-                </FieldLabel>
-                <Input
-                  id="settings-confirm-password"
-                  type="password"
-                  autoComplete="new-password"
-                  aria-invalid={
-                    passwordForm.formState.errors.confirmPassword != null
-                  }
-                  {...passwordForm.register("confirmPassword")}
-                />
-                <FieldError
-                  errors={[passwordForm.formState.errors.confirmPassword]}
-                />
-              </Field>
-            </FieldGroup>
-
-            {passwordError ? <FieldError>{passwordError}</FieldError> : null}
-            <SuccessMessage>{passwordSuccess}</SuccessMessage>
-
-            <div className="flex justify-end">
-              <Button type="submit" disabled={passwordMutation.isPending}>
-                {passwordMutation.isPending ? "Saving…" : "Change password"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+          <Button type="submit" disabled={mutation.isPending || !hasChanges}>
+            {mutation.isPending ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

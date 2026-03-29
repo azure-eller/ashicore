@@ -187,6 +187,10 @@ const handleCancel = () => {
 }
 ```
 
+### Better Auth hosts
+
+Keep `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` as the canonical fallback URL. `lib/auth.ts` already allows `localhost`, `127.0.0.1`, and `[::1]` on any port. For LAN IPs or tunnel hosts, add patterns to `BETTER_AUTH_ALLOWED_HOSTS` instead of rewriting the canonical URL for a worktree port.
+
 ### Portal theming
 
 Portal components should use semantic background/text tokens on the portal content itself. Do not hardcode `dark` on individual dialogs or menus.
@@ -535,6 +539,7 @@ For code-changing work:
 - Do not edit files in `/home/aeller/Projects/erp` or on `main` unless the user explicitly asks for that
 - Create or enter a dedicated worktree before making changes
 - Do not reuse another active worktree unless the user explicitly points to it
+- `pnpm dev`, `pnpm build`, and `pnpm test` load the repo root `.env.local` automatically in worktrees; only create a per-worktree `.env.local` when you need overrides
 
 ```bash
 git worktree add .worktrees/<branch-name> -b <branch-name>

@@ -9,6 +9,7 @@
  */
 
 import fs from "node:fs";
+import { loadWorktreeEnv } from "../scripts/load-worktree-env";
 import {
   TEST_STORAGE_STATE_PATH,
   type TestEnv,
@@ -16,6 +17,8 @@ import {
   ensureAuthDir,
   writeTestEnv,
 } from "./helpers/test-env";
+
+loadWorktreeEnv();
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
 const TEST_EMAIL = "test-agent@erp-test.local";

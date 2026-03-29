@@ -40,6 +40,14 @@ This keeps nav visibility, page access, and API enforcement aligned.
 
 Do not wrap request-auth helpers that read `headers()` in React `cache()`. Member context must stay request-scoped so one user’s role/org never bleeds into another request.
 
+## Auth Hosts
+
+- Keep `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` as the canonical app URL for emails and non-request fallbacks.
+- `lib/auth.ts` resolves Better Auth URLs from the incoming request when the host is allowed.
+- `localhost`, `127.0.0.1`, and `[::1]` are allowed on any port for local worktrees.
+- Add LAN IPs or tunnel hosts through `BETTER_AUTH_ALLOWED_HOSTS` as comma-separated host patterns.
+- Do not rewrite `BETTER_AUTH_URL` just because a worktree is running on `:3001` or another local port.
+
 ## Team Module Pattern
 
 - Team UI lives under `Settings > Team`

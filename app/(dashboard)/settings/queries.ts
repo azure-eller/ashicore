@@ -64,19 +64,6 @@ async function loadTeamPageData(
   currentUserId: string,
   currentRole: TeamPageData["currentRole"]
 ): Promise<TeamPageData> {
-  const [orgRow] = await db
-    .select({
-      id: organization.id,
-      name: organization.name,
-    })
-    .from(organization)
-    .where(eq(organization.id, orgId))
-    .limit(1);
-
-  if (!orgRow) {
-    throw new AuthorizationError("Organization not found.", 404);
-  }
-
   const memberRows = await db
     .select({
       id: member.id,
@@ -105,7 +92,6 @@ async function loadTeamPageData(
     .orderBy(asc(invitation.email));
 
   return {
-    organization: orgRow,
     currentRole,
     members: sortMembers(
       memberRows.map((row) => ({
@@ -152,7 +138,6 @@ export async function getAccountPageData(): Promise<AccountPageData> {
   return {
     name: context.name,
     email: context.email,
-    avatar: context.avatar,
     role: context.role,
   };
 }
