@@ -72,9 +72,6 @@ export function parsePositive(value: string | null | undefined): number | null {
 }
 
 /**
- * Extract root-level error message from a react-hook-form field array error.
- */
-/**
  * Round a quantity to 4 decimal places to avoid JS float imprecision.
  */
 export function roundQuantity(value: number): number {
@@ -105,6 +102,9 @@ export function formatMovementType(type: string | null): string {
   return MOVEMENT_TYPE_LABELS[type] ?? type;
 }
 
+/**
+ * Extract root-level error message from a react-hook-form field array error.
+ */
 export function getFieldArrayError(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
   if ("message" in error && typeof error.message === "string") {

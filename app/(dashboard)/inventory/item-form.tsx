@@ -9,8 +9,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   insertItemSchema,
   updateItemSchema,
-  type InsertItem,
-  type UpdateItem,
+  type InsertItemFormValues,
+  type UpdateItemFormValues,
 } from "@/lib/schemas/items";
 import { ITEM_TYPE_SEGMENTS } from "@/app/(dashboard)/inventory/types";
 import type { getItem } from "@/app/(dashboard)/inventory/queries";
@@ -79,6 +79,8 @@ interface ItemFormProps {
   };
 }
 
+type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
+
 export function ItemForm({ itemType, units, categories, availableComponents, initialData }: ItemFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -112,7 +114,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
     return categories;
   }, [categoryInput, categories, categoriesSet]);
 
-  const form = useForm<InsertItem | UpdateItem>({
+  const form = useForm<ItemFormValues>({
     resolver: zodResolver(initialData ? updateItemSchema : insertItemSchema),
     mode: "onBlur",
     defaultValues: initialData
@@ -150,7 +152,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
   const [unitError, setUnitError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async (data: InsertItem | UpdateItem) => {
+    mutationFn: async (data: ItemFormValues) => {
       const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
       const method = initialData ? "PUT" : "POST";
       const res = await fetch(url, {

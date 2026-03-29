@@ -7,7 +7,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,11 +29,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
@@ -46,52 +43,6 @@ type ActionError = {
   error?: string;
   oversell?: OversellWarningPayload;
 };
-
-function TooltipHeader({
-  label,
-  tooltip,
-}: {
-  label: string;
-  tooltip: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function DisabledTooltipButton({
-  label,
-  tooltip,
-}: {
-  label: string;
-  tooltip: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          role="button"
-          aria-disabled="true"
-          tabIndex={0}
-          className={buttonVariants({
-            size: "sm",
-            className: "cursor-not-allowed opacity-50",
-          })}
-        >
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
   const router = useRouter();
@@ -542,7 +493,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
       </AlertDialog>
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -562,7 +513,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
       </AlertDialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this order?</AlertDialogTitle>
             <AlertDialogDescription>

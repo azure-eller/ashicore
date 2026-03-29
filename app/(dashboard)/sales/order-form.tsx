@@ -12,6 +12,7 @@ import {
   Add01Icon,
   Cancel01Icon,
 } from "@hugeicons/core-free-icons";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   insertSalesOrderSchema,
   salesOrderDefaultValues,
@@ -64,11 +65,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import type {
   CustomerOption,
@@ -82,25 +78,6 @@ function lineTotalLabel(quantity: string | null | undefined, unitPrice: string |
   const price = parsePositive(unitPrice);
   if (qty == null || price == null) return "\u2014";
   return formatPrice((qty * price).toFixed(2)) ?? "\u2014";
-}
-
-function TooltipHeader({
-  label,
-  tooltip,
-}: {
-  label: string;
-  tooltip: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tooltip}</TooltipContent>
-    </Tooltip>
-  );
 }
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
@@ -485,7 +462,7 @@ export function OrderForm({
           }
         }}
       >
-        <AlertDialogContent className="max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto">
+        <AlertDialogContent className="max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>

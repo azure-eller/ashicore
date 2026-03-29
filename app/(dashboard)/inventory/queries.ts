@@ -399,7 +399,7 @@ export async function updateItem(
   id: string,
   itemData: Omit<UpdateItem, "stock" | "bom">,
   stock?: number,
-  bom?: Array<{ componentId: string; quantity: string | null }>,
+  bom?: Array<{ componentId: string; quantity: string }>,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [existingItem] = await tx
@@ -451,7 +451,7 @@ export async function updateItem(
 export async function createItemWithLot(
   data: Omit<InsertItem, "stock" | "bom">,
   stock: string,
-  bom?: Array<{ componentId: string; quantity: string | null }>,
+  bom?: Array<{ componentId: string; quantity: string }>,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -538,4 +538,3 @@ export async function getAvailableComponents(excludeItemId?: string) {
     return rows;
   });
 }
-

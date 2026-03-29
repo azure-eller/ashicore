@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { getFieldArrayError, parsePositive } from "@/lib/format";
 import type {
   ManufacturingOrderEditData,
   ManufacturingProductOption,
@@ -74,20 +75,6 @@ type ApiError = {
   error?: string;
   errors?: Record<string, string[]>;
 };
-
-function parsePositive(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function buildIngredientsErrorMessage(ingredientsError: unknown) {
-  if (!ingredientsError || typeof ingredientsError !== "object") return null;
-  if ("message" in ingredientsError && typeof ingredientsError.message === "string") {
-    return ingredientsError.message;
-  }
-  return null;
-}
 
 function formatSalesOrderLabel(
   value: string,
@@ -423,9 +410,7 @@ export function ManufacturingOrderForm({
     });
   };
 
-  const ingredientsError = buildIngredientsErrorMessage(
-    form.formState.errors.ingredients
-  );
+  const ingredientsError = getFieldArrayError(form.formState.errors.ingredients);
   const salesOrderModeDisabled =
     isSalesOrderMode &&
     (!salesOrderPreview?.hasManufacturableLines || previewQuery.isLoading);

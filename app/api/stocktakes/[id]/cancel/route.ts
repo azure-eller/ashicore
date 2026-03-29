@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   cancelStocktake,
   StocktakeError,
 } from "@/app/(dashboard)/inventory/stocktakes/queries";
 
-
-export const POST = apiHandler(async (_request: Request, ctx: unknown) => {
+export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
+  await assertModuleWriteAccess("inventory", request.headers);
 
   try {
     const stocktake = await cancelStocktake(id);

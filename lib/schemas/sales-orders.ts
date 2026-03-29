@@ -128,13 +128,14 @@ export const insertSalesOrderSchema = baseSalesOrderSchema;
 
 export type InsertSalesOrder = z.infer<typeof insertSalesOrderSchema>;
 
-const draftUpdateSchema = baseSalesOrderSchema;
-
 const cancelSalesOrderSchema = z.object({
   status: z.literal("cancelled"),
 });
 
-export const updateSalesOrderSchema = z.union([draftUpdateSchema, cancelSalesOrderSchema]);
+export const updateSalesOrderSchema = z.union([
+  baseSalesOrderSchema,
+  cancelSalesOrderSchema,
+]);
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
 export const confirmSalesOrderSchema = z.object({

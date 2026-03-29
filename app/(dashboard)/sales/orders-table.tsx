@@ -20,8 +20,10 @@ import {
   MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
 import { SortableHeader } from "@/components/sortable-header";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,11 +49,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
@@ -65,53 +62,6 @@ type ConfirmError = {
   error?: string;
   oversell?: BulkOversellWarningPayload;
 };
-
-function TooltipHeader({
-  label,
-  tooltip,
-}: {
-  label: string;
-  tooltip: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function DisabledRowAction({
-  label,
-  tooltip,
-}: {
-  label: string;
-  tooltip: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          role="button"
-          aria-disabled="true"
-          tabIndex={0}
-          className={buttonVariants({
-            variant: "ghost",
-            size: "sm",
-            className: "cursor-not-allowed opacity-50",
-          })}
-        >
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
@@ -181,12 +131,13 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       if (!row.original.hasManufacturableLines) {
         return (
           <div className="flex justify-end">
-            <DisabledRowAction
+            <DisabledTooltipButton
               label="Create MOs"
               tooltip={
                 row.original.manufacturableDisabledReason ??
                 "No manufacturable lines remain on this order."
               }
+              variant="ghost"
             />
           </div>
         );
@@ -381,7 +332,10 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent
+                align="end"
+                className="bg-popover text-popover-foreground"
+              >
                 <DropdownMenuItem
                   disabled={!canBulkConfirm}
                   onClick={() => {
@@ -489,7 +443,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       </div>
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>
               Delete {pendingDeleteIds.length} order{pendingDeleteIds.length !== 1 ? "s" : ""}?

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { normalizeNumeric, normalizeMoney } from "@/lib/format";
+import {
+  normalizeNumeric,
+  normalizeMoney,
+  roundQuantity,
+  summarizeItems,
+} from "@/lib/format";
 import {
   customers,
   items,
@@ -113,10 +118,6 @@ export class SalesError extends DomainError {
   }
 }
 
-function roundQuantity(value: number) {
-  return Math.round(value * 10000) / 10000;
-}
-
 function calcProjectedStock(values: {
   stock: string;
   committedQty: string;
@@ -129,12 +130,6 @@ function calcProjectedStock(values: {
       parseFloat(values.expectedQty) -
       parseFloat(values.safetyStock)
   );
-}
-
-function summarizeItems(lines: Array<{ itemName: string }>) {
-  if (lines.length === 0) return "\u2014";
-  if (lines.length === 1) return lines[0].itemName;
-  return `${lines[0].itemName} + ${lines.length - 1} more`;
 }
 
 function isCancelPayload(

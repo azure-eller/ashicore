@@ -3,9 +3,16 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { nullableStringStrict as nullableString } from "./shared";
 
+const bomQuantitySchema = nullableString
+  .refine((value) => value != null, "Quantity is required")
+  .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, {
+    message: "Quantity must be greater than 0",
+  })
+  .transform((value) => value as string);
+
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
-  quantity: nullableString,
+  quantity: bomQuantitySchema,
 });
 
 // Base schema without superRefine — used as the foundation for both insert and update.
@@ -36,10 +43,7 @@ const baseItemSchema = createInsertSchema(items, {
   bom: z.array(bomRowSchema).optional(),
 });
 
-function bomRefine(
-  data: { bom?: Array<{ componentId: string; quantity: string | null }> },
-  ctx: z.RefinementCtx
-) {
+function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.RefinementCtx) {
   if (!data.bom || data.bom.length === 0) return;
   const seen = new Set<string>();
   for (let i = 0; i < data.bom.length; i++) {
@@ -51,30 +55,13 @@ function bomRefine(
       });
     }
     seen.add(data.bom[i].componentId);
-    const row = data.bom[i];
-    if (!row.quantity) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Quantity is required",
-        path: ["bom", i, "quantity"],
-      });
-      continue;
-    }
-
-    const quantity = Number(row.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Quantity must be greater than 0",
-        path: ["bom", i, "quantity"],
-      });
-    }
   }
 }
 
 export const insertItemSchema = baseItemSchema.superRefine(bomRefine);
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
+export type InsertItemFormValues = z.input<typeof insertItemSchema>;
 
 // Update schema: itemType, unitDefinitionId are immutable after creation.
 // stock is optional — if provided, triggers a stock adjustment.
@@ -91,3 +78,4 @@ export const updateItemSchema = baseItemSchema.omit({
 }).superRefine(bomRefine);
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;
+export type UpdateItemFormValues = z.input<typeof updateItemSchema>;

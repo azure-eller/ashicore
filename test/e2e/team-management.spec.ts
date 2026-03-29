@@ -13,6 +13,7 @@ const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
 const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
 const TEST_ORG_ID = env.TEST_ORG_ID;
 const BASE_URL = env.TEST_BASE_URL ?? "http://localhost:3000";
+const BLOCKED_ROUTE_ID = "11111111-1111-1111-1111-111111111111";
 
 function parseCookie(raw: string) {
   const [name, ...rest] = raw.split("=");
@@ -404,6 +405,33 @@ test.describe("Team management and invite flow", () => {
     );
     expect(blockedMutation.status).toBe(403);
 
+    const blockedConfirm = await apiCall<{ error?: string }>(
+      page,
+      `/api/sales-orders/${BLOCKED_ROUTE_ID}/confirm`,
+      {
+        method: "POST",
+        body: { confirmOversell: false },
+      }
+    );
+    expect(blockedConfirm.status).toBe(403);
+
+    const blockedFulfill = await apiCall<{ error?: string }>(
+      page,
+      `/api/sales-orders/${BLOCKED_ROUTE_ID}/fulfill`,
+      { method: "POST" }
+    );
+    expect(blockedFulfill.status).toBe(403);
+
+    const blockedBulkConfirm = await apiCall<{ error?: string }>(
+      page,
+      "/api/sales-orders/bulk-confirm",
+      {
+        method: "POST",
+        body: { ids: [BLOCKED_ROUTE_ID], confirmOversell: false },
+      }
+    );
+    expect(blockedBulkConfirm.status).toBe(403);
+
     await context.close();
   });
 
@@ -436,6 +464,35 @@ test.describe("Team management and invite flow", () => {
       { method: "POST", body: {} }
     );
     expect(blockedManufacturingMutation.status).toBe(403);
+
+    const blockedStocktakeSave = await apiCall<{ error?: string }>(
+      page,
+      `/api/stocktakes/${BLOCKED_ROUTE_ID}`,
+      {
+        method: "PUT",
+        body: {
+          lines: [{ lineId: BLOCKED_ROUTE_ID, countedQty: "1" }],
+        },
+      }
+    );
+    expect(blockedStocktakeSave.status).toBe(403);
+
+    const blockedStocktakeComplete = await apiCall<{ error?: string }>(
+      page,
+      `/api/stocktakes/${BLOCKED_ROUTE_ID}/complete`,
+      {
+        method: "POST",
+        body: { confirmStale: false },
+      }
+    );
+    expect(blockedStocktakeComplete.status).toBe(403);
+
+    const blockedStocktakeCancel = await apiCall<{ error?: string }>(
+      page,
+      `/api/stocktakes/${BLOCKED_ROUTE_ID}/cancel`,
+      { method: "POST" }
+    );
+    expect(blockedStocktakeCancel.status).toBe(403);
 
     await expect(page.locator('a[href="/settings/team"]')).toHaveCount(0);
 

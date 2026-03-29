@@ -27,7 +27,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
+import type {
+  InsertItemFormValues,
+  UpdateItemFormValues,
+} from "@/lib/schemas/items";
 
 type AvailableComponent = {
   id: string;
@@ -36,8 +39,10 @@ type AvailableComponent = {
   unit: string;
 };
 
+type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
+
 interface BomEditorProps {
-  control: Control<InsertItem | UpdateItem>;
+  control: Control<ItemFormValues>;
   availableComponents: AvailableComponent[];
 }
 
@@ -115,7 +120,7 @@ function BomRow({
   onRemove,
 }: {
   index: number;
-  control: Control<InsertItem | UpdateItem>;
+  control: Control<ItemFormValues>;
   componentIds: string[];
   componentMap: Map<string, AvailableComponent>;
   onRemove: () => void;

@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { confirmSalesOrderSchema } from "@/lib/schemas/sales-orders";
 import {
   confirmSalesOrder,
   SalesError,
 } from "@/app/(dashboard)/sales/queries";
 
-type RouteContext = { params: Promise<{ id: string }> };
-
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
+  await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json().catch(() => ({}));
   const data = confirmSalesOrderSchema.parse(body);
 

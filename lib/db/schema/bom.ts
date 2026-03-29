@@ -21,7 +21,7 @@ export const bomComponents = inventorySchema
       componentId: uuid("component_id")
         .notNull()
         .references(() => items.id, { onDelete: "restrict" }),
-      quantity: numeric("quantity", { precision: 12, scale: 4 }),
+      quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -31,8 +31,30 @@ export const bomComponents = inventorySchema
       pgPolicy("bom_components_org_isolation", {
         for: "all",
         to: "public",
-        using: sql`item_id IN (SELECT id FROM inventory.items WHERE organization_id = current_setting('app.current_org_id', true))`,
-        withCheck: sql`item_id IN (SELECT id FROM inventory.items WHERE organization_id = current_setting('app.current_org_id', true))`,
+        using: sql`
+          item_id IN (
+            SELECT id
+            FROM inventory.items
+            WHERE organization_id = current_setting('app.current_org_id', true)
+          )
+          AND component_id IN (
+            SELECT id
+            FROM inventory.items
+            WHERE organization_id = current_setting('app.current_org_id', true)
+          )
+        `,
+        withCheck: sql`
+          item_id IN (
+            SELECT id
+            FROM inventory.items
+            WHERE organization_id = current_setting('app.current_org_id', true)
+          )
+          AND component_id IN (
+            SELECT id
+            FROM inventory.items
+            WHERE organization_id = current_setting('app.current_org_id', true)
+          )
+        `,
       }),
     ]
   )
