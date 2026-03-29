@@ -51,6 +51,8 @@ cp .env.example .env.local
 
 3. Fill the required values in `.env.local`.
 
+Worktrees reuse the repo root `.env.local` automatically for `pnpm dev`, `pnpm build`, and `pnpm test`. Only create a worktree-local `.env.local` if you need overrides.
+
 4. Start the app:
 
 ```bash
@@ -81,6 +83,7 @@ Required for auth / absolute URLs:
 
 Optional:
 
+- `BETTER_AUTH_ALLOWED_HOSTS`: comma-separated extra host patterns for LAN IPs or tunnel hosts. `localhost`, `127.0.0.1`, and `[::1]` on any port already work.
 - `RESEND_API_KEY`: email delivery for team invites
 - `EMAIL_FROM`: sender address for invite emails
 - `TEST_BASE_URL`: overrides Playwright base URL

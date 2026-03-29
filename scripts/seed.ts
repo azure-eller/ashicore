@@ -1,6 +1,7 @@
-import { config } from "dotenv";
-config({ path: ".env.local" });
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { loadWorktreeEnv } from "./load-worktree-env";
+
+loadWorktreeEnv();
 
 async function main() {
   const { db } = await import("@/lib/db");

@@ -22,21 +22,12 @@ export default async function SettingsLayout({
         />
         <span className="text-sm font-medium">Settings</span>
       </div>
-      <div className="flex flex-1 flex-col p-4 md:p-6">
-        <div className="mx-auto w-full max-w-6xl space-y-8">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-            <p className="max-w-2xl text-sm text-muted-foreground">
-              Manage your account, interface preferences, and workspace controls.
-            </p>
-          </div>
-
-          <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
-            <aside className="lg:sticky lg:top-6 lg:self-start">
-              <SettingsNav sections={sections} />
-            </aside>
-            <div className="min-w-0">{children}</div>
-          </div>
+      <div className="flex flex-1 flex-col p-4 md:px-6 md:py-5">
+        <div className="grid gap-6 lg:grid-cols-[160px_minmax(0,1fr)] lg:items-start">
+          <aside>
+            <SettingsNav sections={sections} />
+          </aside>
+          <div className="min-w-0">{children}</div>
         </div>
       </div>
     </>

@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import { defineConfig } from "@playwright/test";
+import { loadWorktreeEnv } from "./scripts/load-worktree-env";
 import {
   TEST_STORAGE_STATE_PATH,
 } from "./test/helpers/test-env";
+
+loadWorktreeEnv();
 
 let baseURL = "http://localhost:3000";
 try {

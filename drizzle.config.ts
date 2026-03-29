@@ -1,7 +1,7 @@
-import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
+import { loadWorktreeEnv } from "./scripts/load-worktree-env";
 
-config({ path: ".env.local" });
+loadWorktreeEnv();
 
 export default defineConfig({
   out: "./drizzle",

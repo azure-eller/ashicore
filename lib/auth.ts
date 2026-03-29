@@ -6,6 +6,44 @@ import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { sendTeamInvitationEmail } from "@/lib/email/team-invites";
 
+const authFallbackUrl =
+  process.env.BETTER_AUTH_URL ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  (process.env.PORT ? `http://localhost:${process.env.PORT}` : "http://localhost:3000");
+
+const authAllowedHosts = (() => {
+  const hosts = new Set([
+    "localhost",
+    "localhost:*",
+    "127.0.0.1",
+    "127.0.0.1:*",
+    "[::1]",
+    "[::1]:*",
+  ]);
+
+  for (const url of [process.env.BETTER_AUTH_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+    if (!url) {
+      continue;
+    }
+
+    try {
+      hosts.add(new URL(url).host);
+    } catch {
+      // Better Auth will raise on an invalid fallback URL later.
+    }
+  }
+
+  for (const host of process.env.BETTER_AUTH_ALLOWED_HOSTS?.split(",") ?? []) {
+    const trimmedHost = host.trim();
+
+    if (trimmedHost) {
+      hosts.add(trimmedHost);
+    }
+  }
+
+  return Array.from(hosts);
+})();
+
 const organizationAc = createAccessControl({
   organization: ["update", "delete"],
   member: ["create", "update", "delete"],
@@ -39,10 +77,10 @@ const passiveOrgRole = organizationAc.newRole({
 });
 
 export const auth = betterAuth({
-  baseURL:
-    process.env.BETTER_AUTH_URL ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    (process.env.PORT ? `http://localhost:${process.env.PORT}` : "http://localhost:3000"),
+  baseURL: {
+    allowedHosts: authAllowedHosts,
+    fallback: authFallbackUrl,
+  },
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
