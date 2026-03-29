@@ -64,7 +64,7 @@ export function OrgSetupForm({
         return
       }
 
-      router.push("/inventory")
+      router.push("/")
     }
 
     void activateOnlyOrganization()
@@ -88,7 +88,7 @@ export function OrgSetupForm({
       return
     }
 
-    router.push("/inventory")
+    router.push("/")
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -129,7 +129,7 @@ export function OrgSetupForm({
       return
     }
 
-    router.push("/inventory")
+    router.push("/")
   }
 
   return (

@@ -40,7 +40,7 @@ export function LoginForm({
       setLoading(false)
       return
     }
-    router.push("/inventory")
+    router.push("/")
   }
 
   return (

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  Activity02Icon,
   Layers01Icon,
   PackageIcon,
   LayoutBottomIcon,
@@ -53,6 +54,13 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const navMain = ([
+    {
+      title: "Operations",
+      url: "/",
+      icon: (
+        <HugeiconsIcon icon={Activity02Icon} strokeWidth={2} />
+      ),
+    },
     canReadModule(role, "inventory") ? {
       title: "Inventory",
       url: "/inventory",

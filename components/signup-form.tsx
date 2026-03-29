@@ -42,7 +42,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
       setLoading(false)
       return
     }
-    router.push("/inventory")
+    router.push("/")
   }
 
   return (

@@ -43,7 +43,9 @@ async function signInAsExistingUser(
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Login" }).click();
-  await page.waitForURL("**/inventory/products");
+  await expect(
+    page.getByRole("heading", { name: "See what could derail the next 14 days." })
+  ).toBeVisible({ timeout: 15_000 });
   return { context, page };
 }
 
@@ -61,7 +63,9 @@ async function acceptInviteAsNewUser(
   await page.getByLabel(/^Password$/).fill(password);
   await page.getByLabel(/^Confirm Password$/).fill(password);
   await page.getByRole("button", { name: "Create Account and Join" }).click();
-  await page.waitForURL("**/inventory/products");
+  await expect(
+    page.getByRole("heading", { name: "See what could derail the next 14 days." })
+  ).toBeVisible({ timeout: 15_000 });
   return { context, page };
 }
 
@@ -130,7 +134,7 @@ test.describe("Team management and invite flow", () => {
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
     await page.getByRole("button", { name: "Create Organization" }).click();
-    await page.waitForURL("**/inventory/products");
+    await expect(page.getByRole("heading", { name: "See what could derail the next 14 days." })).toBeVisible();
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));
     expect(ownerUser).toBeTruthy();
@@ -388,15 +392,24 @@ test.describe("Team management and invite flow", () => {
 
     await page.goto("/inventory/products");
     await expect(page.getByText("Inventory")).toBeVisible();
+    await page.goto("/");
+    await expect(page.getByText("Shortage Risk")).toBeVisible();
+    await expect(page.getByText("MOs Due Soon / Overdue")).toBeVisible();
+    await expect(page.getByText("Orders At Risk")).toHaveCount(0);
+    await expect(page.getByText("Late Purchase Orders")).toHaveCount(0);
+    await expect(page.getByText("Make", { exact: true })).toBeVisible();
+    await expect(page.getByText("Count", { exact: true })).toBeVisible();
+    await expect(page.getByText("Buy")).toHaveCount(0);
+    await expect(page.getByText("Fulfill")).toHaveCount(0);
     await expect(page.locator('a[href="/sales/orders"]')).toHaveCount(0);
     await expect(page.locator('a[href="/purchasing/orders"]')).toHaveCount(0);
     await expect(page.locator('a[href="/settings/team"]')).toHaveCount(0);
 
     await page.goto("/sales/orders");
-    await page.waitForURL("**/inventory/products");
+    await expect(page.getByRole("heading", { name: "See what could derail the next 14 days." })).toBeVisible();
 
     await page.goto("/purchasing/orders");
-    await page.waitForURL("**/inventory/products");
+    await expect(page.getByRole("heading", { name: "See what could derail the next 14 days." })).toBeVisible();
 
     const blockedMutation = await apiCall<{ error?: string }>(
       page,

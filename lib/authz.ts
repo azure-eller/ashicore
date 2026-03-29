@@ -158,8 +158,8 @@ export function getAssignableRoles(actorRole: string | null | undefined) {
 }
 
 export function getDefaultDashboardPath(role: string | null | undefined) {
-  if (canReadModule(role, "inventory")) {
-    return "/inventory/products";
+  if (MODULE_KEYS.some((module) => canReadModule(role, module))) {
+    return "/";
   }
 
   return "/sign-in";

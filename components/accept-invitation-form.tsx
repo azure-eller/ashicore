@@ -77,7 +77,7 @@ export function AcceptInvitationForm({
       return false;
     }
 
-    router.push("/inventory/products");
+    window.location.assign("/");
     return true;
   }
 

@@ -29,13 +29,17 @@ test.describe("Inventory creation flow", () => {
   test("shows the active organization in the sidebar and hides placeholder actions", async ({
     page,
   }) => {
-    await page.goto("/inventory/products");
+    await page.goto("/");
 
+    await expect(page.getByRole("heading", { name: "See what could derail the next 14 days." })).toBeVisible();
+    await expect(page.getByText("Orders At Risk")).toBeVisible();
+    await expect(page.getByText("Operational risk trend", { exact: true })).toBeVisible();
     await expect(page.getByText("Test Org")).toBeVisible();
     await expect(page.getByText("Single site")).toBeVisible();
     await expect(page.getByRole("button", { name: "Toggle theme" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Notifications" })).toHaveCount(0);
     await expect(page.getByText("Add Location")).toHaveCount(0);
+    await expect(page.getByText("Assign reviewer")).toHaveCount(0);
   });
 
   /* ── 1. Material with every field ────────────────────────────── */
