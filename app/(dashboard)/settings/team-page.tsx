@@ -12,13 +12,23 @@ import {
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import {
+  formatRoleLabel,
   getAssignableRoles,
   type AssignableAppRole,
   type AppRole,
 } from "@/lib/authz";
-import { createTeamInvitationSchema } from "@/lib/schemas/team";
 import { formatDateTime } from "@/lib/format";
+import { createTeamInvitationSchema } from "@/lib/schemas/team";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -39,9 +49,6 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldSet,
-  FieldSeparator,
-  FieldLegend,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -66,6 +73,32 @@ type InviteFormValues = {
   email: string;
   role: AssignableAppRole;
 };
+
+function TeamSummaryCard({
+  label,
+  value,
+  description,
+}: {
+  label: string;
+  value: string;
+  description: string;
+}) {
+  return (
+    <Card size="sm">
+      <CardHeader className="gap-2">
+        <CardDescription className="text-xs uppercase tracking-[0.16em]">
+          {label}
+        </CardDescription>
+        <CardTitle className="text-2xl font-semibold tracking-tight">
+          {value}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 text-sm text-muted-foreground">
+        {description}
+      </CardContent>
+    </Card>
+  );
+}
 
 async function parseJson<T>(response: Response): Promise<T | null> {
   return response.json().catch(() => null);
@@ -102,7 +135,9 @@ function InviteMemberDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
-      const body = await parseJson<{ error?: string; errors?: Record<string, string[]> }>(response);
+      const body = await parseJson<{ error?: string; errors?: Record<string, string[]> }>(
+        response
+      );
 
       if (!response.ok) {
         if (body?.errors) {
@@ -144,19 +179,19 @@ function InviteMemberDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button disabled={roleOptions.length === 0}>
-          <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" />
-          Invite Member
+          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+          Invite member
         </Button>
       </DialogTrigger>
       <DialogContent className="bg-background text-foreground sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Invite a teammate</DialogTitle>
           <DialogDescription>
-            Send an email invite and assign a fixed app role.
+            Send an email invite and assign a role for this workspace.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-6"
+          className="flex flex-col gap-6"
           onSubmit={form.handleSubmit((values) => inviteMutation.mutate(values))}
         >
           <FieldGroup>
@@ -177,7 +212,7 @@ function InviteMemberDialog({
                   <FieldDescription>
                     The invite link will be sent to this email address.
                   </FieldDescription>
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                  {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
                 </Field>
               )}
             />
@@ -201,15 +236,16 @@ function InviteMemberDialog({
                     </SelectContent>
                   </Select>
                   <FieldDescription>
-                    Operators can work in inventory and manufacturing. Viewers are read-only.
+                    Operators can work in inventory and manufacturing. Viewers are
+                    read-only.
                   </FieldDescription>
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                  {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
                 </Field>
               )}
             />
           </FieldGroup>
 
-          {formError && <FieldError>{formError}</FieldError>}
+          {formError ? <FieldError>{formError}</FieldError> : null}
 
           <div className="flex justify-end gap-3">
             <Button
@@ -221,7 +257,7 @@ function InviteMemberDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={inviteMutation.isPending}>
-              {inviteMutation.isPending ? "Sending Invite..." : "Send Invite"}
+              {inviteMutation.isPending ? "Sending invite..." : "Send invite"}
             </Button>
           </div>
         </form>
@@ -324,190 +360,231 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
   });
 
   const roleOptions = getAssignableRoles(data.currentRole);
+  const memberCount = data.members.length;
+  const pendingInviteCount = data.pendingInvites.length;
 
   return (
-    <div className="mx-auto w-full max-w-6xl py-8">
-      <div className="space-y-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-1.5">
-            <h1 className="text-3xl font-semibold tracking-tight">Team</h1>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-3">
+          <Badge variant="outline" className="w-fit">
+            {data.organization.name}
+          </Badge>
+          <div className="flex flex-col gap-1.5">
+            <h2 className="text-2xl font-semibold tracking-tight">Team</h2>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Manage who can access {data.organization.name}, invite teammates, and keep roles aligned with the simplified ERP permission model.
+              Manage who can access the workspace, invite teammates, and keep roles
+              aligned with the current operating model.
             </p>
           </div>
-          <InviteMemberDialog currentRole={data.currentRole} onSuccess={refreshData} />
         </div>
+        <InviteMemberDialog currentRole={data.currentRole} onSuccess={refreshData} />
+      </div>
 
-        {actionError && <FieldError>{actionError}</FieldError>}
+      {actionError ? <FieldError>{actionError}</FieldError> : null}
 
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-4">
-            <FieldLegend>Active Members</FieldLegend>
-            <FieldDescription>
-              Owners and admins can manage team access directly from here.
-            </FieldDescription>
-            <div className="overflow-hidden rounded-md border">
-              <Table>
-                <TableHeader>
+      <div className="grid gap-3 md:grid-cols-3">
+        <TeamSummaryCard
+          label="Members"
+          value={String(memberCount)}
+          description="Active accounts with access to this workspace."
+        />
+        <TeamSummaryCard
+          label="Pending invites"
+          value={String(pendingInviteCount)}
+          description="Invitations waiting for acceptance or expiration."
+        />
+        <TeamSummaryCard
+          label="Your access"
+          value={formatRoleLabel(data.currentRole)}
+          description="Your role controls which teammates and roles you can manage."
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Members</CardTitle>
+          <CardDescription>
+            Owners and admins can manage access directly from here.
+          </CardDescription>
+          <CardAction>
+            <Badge variant="outline">{memberCount} total</Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Joined</TableHead>
+                  <TableHead className="w-[72px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.members.map((member) => {
+                  const manageable =
+                    member.role !== "owner" &&
+                    (data.currentRole === "owner" ||
+                      member.role === "operator" ||
+                      member.role === "viewer" ||
+                      member.role === "member");
+                  const nextRoles = roleOptions.filter((role) => role !== member.role);
+
+                  return (
+                    <TableRow key={member.id}>
+                      <TableCell className="font-medium">
+                        {member.name}
+                        {member.isCurrentUser ? (
+                          <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>{member.email}</TableCell>
+                      <TableCell>
+                        <TeamRoleBadge role={member.role} />
+                      </TableCell>
+                      <TableCell>{formatDateTime(member.createdAt)}</TableCell>
+                      <TableCell className="text-right">
+                        {manageable ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                disabled={
+                                  updateRoleMutation.isPending ||
+                                  removeMemberMutation.isPending
+                                }
+                                aria-label={`Manage ${member.name}`}
+                              >
+                                <HugeiconsIcon icon={MoreVerticalIcon} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="bg-popover text-popover-foreground"
+                            >
+                              {nextRoles.map((role) => (
+                                <DropdownMenuItem
+                                  key={role}
+                                  onClick={() =>
+                                    updateRoleMutation.mutate({ memberId: member.id, role })
+                                  }
+                                >
+                                  Change to {labelRole(role)}
+                                </DropdownMenuItem>
+                              ))}
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => removeMemberMutation.mutate(member.id)}
+                              >
+                                <HugeiconsIcon
+                                  icon={Delete02Icon}
+                                  data-icon="inline-start"
+                                />
+                                Remove member
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pending invites</CardTitle>
+          <CardDescription>
+            Resend or cancel invitations that have not been accepted yet.
+          </CardDescription>
+          <CardAction>
+            <Badge variant="outline">{pendingInviteCount} pending</Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Sent</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead className="w-[180px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.pendingInvites.length === 0 ? (
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Joined</TableHead>
-                    <TableHead className="w-[72px] text-right">Actions</TableHead>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      No pending invites.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.members.map((member) => {
+                ) : (
+                  data.pendingInvites.map((invite) => {
                     const manageable =
-                      member.role !== "owner" &&
-                      (data.currentRole === "owner" ||
-                        member.role === "operator" ||
-                        member.role === "viewer" ||
-                        member.role === "member");
-                    const nextRoles = roleOptions.filter((role) => role !== member.role);
+                      data.currentRole === "owner" ||
+                      invite.role === "operator" ||
+                      invite.role === "viewer" ||
+                      invite.role === "member";
 
                     return (
-                      <TableRow key={member.id}>
-                        <TableCell className="font-medium">
-                          {member.name}
-                          {member.isCurrentUser ? (
-                            <span className="ml-2 text-xs text-muted-foreground">(You)</span>
-                          ) : null}
-                        </TableCell>
-                        <TableCell>{member.email}</TableCell>
+                      <TableRow key={invite.id}>
+                        <TableCell className="font-medium">{invite.email}</TableCell>
                         <TableCell>
-                          <TeamRoleBadge role={member.role} />
+                          <TeamRoleBadge role={invite.role} />
                         </TableCell>
-                        <TableCell>{formatDateTime(member.createdAt)}</TableCell>
+                        <TableCell>{formatDateTime(invite.createdAt)}</TableCell>
+                        <TableCell>{formatDateTime(invite.expiresAt)}</TableCell>
                         <TableCell className="text-right">
                           {manageable ? (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  disabled={
-                                    updateRoleMutation.isPending || removeMemberMutation.isPending
-                                  }
-                                  aria-label={`Manage ${member.name}`}
-                                >
-                                  <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="end"
-                                className="bg-popover text-popover-foreground"
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={resendMutation.isPending}
+                                onClick={() => resendMutation.mutate(invite.id)}
                               >
-                                {nextRoles.map((role) => (
-                                  <DropdownMenuItem
-                                    key={role}
-                                    onClick={() =>
-                                      updateRoleMutation.mutate({ memberId: member.id, role })
-                                    }
-                                  >
-                                    Change to {labelRole(role)}
-                                  </DropdownMenuItem>
-                                ))}
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onClick={() => removeMemberMutation.mutate(member.id)}
-                                >
-                                  <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" />
-                                  Remove member
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                                <HugeiconsIcon
+                                  icon={RefreshIcon}
+                                  data-icon="inline-start"
+                                />
+                                Resend
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={cancelInviteMutation.isPending}
+                                onClick={() => cancelInviteMutation.mutate(invite.id)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                       </TableRow>
                     );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </FieldSet>
-
-          <FieldSeparator />
-
-          <FieldSet className="gap-4">
-            <FieldLegend>Pending Invites</FieldLegend>
-            <FieldDescription>
-              Resend or cancel invites while they are still pending.
-            </FieldDescription>
-            <div className="overflow-hidden rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Sent</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead className="w-[180px] text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.pendingInvites.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
-                        No pending invites.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    data.pendingInvites.map((invite) => {
-                      const manageable =
-                        data.currentRole === "owner" ||
-                        invite.role === "operator" ||
-                        invite.role === "viewer" ||
-                        invite.role === "member";
-
-                      return (
-                        <TableRow key={invite.id}>
-                          <TableCell className="font-medium">{invite.email}</TableCell>
-                          <TableCell>
-                            <TeamRoleBadge role={invite.role} />
-                          </TableCell>
-                          <TableCell>{formatDateTime(invite.createdAt)}</TableCell>
-                          <TableCell>{formatDateTime(invite.expiresAt)}</TableCell>
-                          <TableCell className="text-right">
-                            {manageable ? (
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={resendMutation.isPending}
-                                  onClick={() => resendMutation.mutate(invite.id)}
-                                >
-                                  <HugeiconsIcon icon={RefreshIcon} className="h-4 w-4" />
-                                  Resend
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={cancelInviteMutation.isPending}
-                                  onClick={() => cancelInviteMutation.mutate(invite.id)}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </FieldSet>
-        </FieldGroup>
-      </div>
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

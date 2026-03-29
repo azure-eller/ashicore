@@ -289,7 +289,7 @@ throw error;
 
 ### Roles and module guards
 
-Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access, guard dashboard reads in layouts/pages, and guard API reads/writes in routes.
+Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access. Personal settings stay readable for all authenticated members; team management stays owner/admin only. Guard dashboard reads in layouts/pages and guard API reads/writes in routes.
 
 ```ts
 await requireModuleReadAccess("sales")
@@ -515,7 +515,7 @@ A change is "done" when:
 1. `pnpm build` passes (no type errors)
 2. `pnpm test` passes (no regressions)
 3. `pnpm lint` passes
-4. Branch pushed and PR opened with description
+4. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
 5. For UI changes: screenshot or description of what changed visually
 
 ## Multi-Agent Safety

@@ -6,7 +6,7 @@ import {
   ensureInvitableRole,
   getManageableMember,
 } from "@/app/(dashboard)/settings/queries";
-import { authApiResponseToNextResponse } from "../../_utils";
+import { authApiResponseToNextResponse } from "@/app/api/_utils/auth-api-response";
 
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {

@@ -29,6 +29,13 @@ export type TeamPageData = {
   pendingInvites: PendingInviteRow[];
 };
 
+export type AccountPageData = {
+  name: string;
+  email: string;
+  avatar?: string;
+  role: AppRole;
+};
+
 export type PublicInvitationDetails = {
   id: string;
   email: string;

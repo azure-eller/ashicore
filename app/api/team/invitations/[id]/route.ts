@@ -4,7 +4,7 @@ import {
   callAuthApi,
   getManageableInvitation,
 } from "@/app/(dashboard)/settings/queries";
-import { authApiResponseToNextResponse } from "../../_utils";
+import { authApiResponseToNextResponse } from "@/app/api/_utils/auth-api-response";
 
 
 export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {

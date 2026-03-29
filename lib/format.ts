@@ -25,6 +25,16 @@ export function formatDateTime(value: Date | null | undefined): string {
   return new Date(value).toLocaleString("en-US");
 }
 
+export function getInitials(value: string | null | undefined): string {
+  return (value ?? "")
+    .split(" ")
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
 /**
  * Format a Postgres numeric string for display.
  * Strips trailing zeros: "1.5000" → "1.5", "10.0000" → "10".
