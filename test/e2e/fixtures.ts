@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import type { Page } from "@playwright/test";
 import dotenv from "dotenv";
 import { Pool } from "@neondatabase/serverless";
@@ -6,6 +5,7 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import { sql } from "drizzle-orm";
 import { test as base, expect } from "@playwright/test";
 import * as schema from "../../lib/db/schema";
+import { parseCookie, readTestEnv } from "../helpers/test-env";
 
 dotenv.config({ path: ".env.local" });
 
@@ -16,20 +16,11 @@ const pool = new Pool({ connectionString });
 const testDb = drizzle({ client: pool, schema });
 
 // Read the test env from the global-setup output.
-const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
+const env = readTestEnv();
 const testOrgId: string = env.TEST_ORG_ID;
 const sessionCookie: string = env.TEST_SESSION_COOKIE;
 
 export type TestDb = typeof testDb;
-
-// ---------------------------------------------------------------------------
-// Cookie helper
-// ---------------------------------------------------------------------------
-
-function parseCookie(raw: string): { name: string; value: string } {
-  const [name, ...rest] = raw.split("=");
-  return { name, value: rest.join("=") };
-}
 
 // ---------------------------------------------------------------------------
 // Custom test fixture

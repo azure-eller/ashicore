@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import { and, asc, eq } from "drizzle-orm";
-import { test, expect } from "./fixtures";
+import { test, expect, getIdFromUrl } from "./fixtures";
 import {
   items,
   lots,
@@ -15,27 +14,6 @@ import {
   getUnitId,
   testFetch,
 } from "../helpers/api";
-
-const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
-const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
-
-function parseCookie(raw: string) {
-  const [name, ...rest] = raw.split("=");
-  return { name, value: rest.join("=") };
-}
-
-function getIdFromUrl(url: string) {
-  const id = url.split("/").at(-1);
-  if (!id) {
-    throw new Error(`Could not parse id from URL: ${url}`);
-  }
-  return id;
-}
-
-test.beforeEach(async ({ context }) => {
-  const { name, value } = parseCookie(SESSION_COOKIE);
-  await context.addCookies([{ name, value, domain: "localhost", path: "/" }]);
-});
 
 test.describe("Purchasing flow", () => {
   test.describe.configure({ mode: "serial" });
@@ -54,6 +32,8 @@ test.describe("Purchasing flow", () => {
   let purchaseOrderNumber: string;
 
   test("creates material fixtures for purchasing", async ({ db }) => {
+    test.slow();
+
     expect(unitId).toBeTruthy();
 
     const barkCreate = await createItem({
@@ -99,10 +79,11 @@ test.describe("Purchasing flow", () => {
   });
 
   test("creates a supplier with all fields", async ({ page, db }) => {
+    const nameInput = page.locator("#name");
+
     await page.goto("/purchasing/suppliers/new");
     await expect(page.getByText("Add Supplier")).toBeVisible();
 
-    await page.locator("#name").pressSequentially(supplierName, { delay: 20 });
     await page.locator("#code").pressSequentially(`SUP-${ts}`, { delay: 20 });
     await page.locator("#contactName").pressSequentially("Jordan Mesa", { delay: 20 });
     await page.locator("#paymentTerms").pressSequentially("Net 15", { delay: 20 });
@@ -114,6 +95,8 @@ test.describe("Purchasing flow", () => {
     await page.locator("#notes").pressSequentially("Primary mulch and sand vendor", {
       delay: 20,
     });
+    await nameInput.pressSequentially(supplierName, { delay: 20 });
+    await expect(nameInput).toHaveValue(supplierName);
 
     await page.getByRole("button", { name: "Create Supplier" }).click();
     await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);

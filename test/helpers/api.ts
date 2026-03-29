@@ -1,24 +1,22 @@
-import fs from "node:fs";
-import path from "node:path";
+import http from "node:http";
+import https from "node:https";
+import { readTestEnv } from "./test-env";
 
-interface TestEnv {
-  TEST_SESSION_COOKIE: string;
-  TEST_ORG_ID: string;
-  TEST_UNIT_ID: string;
-  TEST_BASE_URL: string;
-}
+type TestEnv = ReturnType<typeof readTestEnv>;
 
 let _env: TestEnv | null = null;
 
+export interface TestResponse {
+  headers: Headers;
+  ok: boolean;
+  status: number;
+  json(): Promise<any>;
+  text(): Promise<string>;
+}
+
 function getTestEnv(): TestEnv {
   if (_env) return _env;
-  const envPath = path.resolve(__dirname, "../.test-env.json");
-  if (!fs.existsSync(envPath)) {
-    throw new Error(
-      "test/.test-env.json not found. Did global-setup run? Is the dev server running?"
-    );
-  }
-  _env = JSON.parse(fs.readFileSync(envPath, "utf-8"));
+  _env = readTestEnv();
   return _env!;
 }
 
@@ -38,6 +36,86 @@ export function getUnitId() {
   return getTestEnv().TEST_UNIT_ID;
 }
 
+function buildResponse(
+  status: number,
+  headers: Headers,
+  bodyText: string
+): TestResponse {
+  return {
+    headers,
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return JSON.parse(bodyText);
+    },
+    async text() {
+      return bodyText;
+    },
+  };
+}
+
+async function performRequest(
+  url: string,
+  options: RequestInit
+): Promise<TestResponse> {
+  const target = new URL(url);
+  const transport = target.protocol === "https:" ? https : http;
+  const body =
+    typeof options.body === "string" || options.body == null
+      ? options.body ?? undefined
+      : String(options.body);
+
+  return new Promise((resolve, reject) => {
+    const request = transport.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || (target.protocol === "https:" ? 443 : 80),
+        path: `${target.pathname}${target.search}`,
+        method: options.method ?? "GET",
+        headers: options.headers as http.OutgoingHttpHeaders | undefined,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+
+        response.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        response.on("end", () => {
+          const responseHeaders = new Headers();
+
+          Object.entries(response.headers).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+              value.forEach((entry) => responseHeaders.append(key, entry));
+              return;
+            }
+
+            if (value != null) {
+              responseHeaders.set(key, value);
+            }
+          });
+
+          resolve(
+            buildResponse(
+              response.statusCode ?? 0,
+              responseHeaders,
+              Buffer.concat(chunks).toString("utf8")
+            )
+          );
+        });
+      }
+    );
+
+    request.on("error", reject);
+
+    if (body) {
+      request.write(body);
+    }
+
+    request.end();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Core fetch
 // ---------------------------------------------------------------------------
@@ -48,17 +126,33 @@ export function getUnitId() {
 export async function testFetch(
   path: string,
   options: RequestInit = {}
-): Promise<Response> {
+): Promise<TestResponse> {
   const base = getBaseUrl();
-  return fetch(`${base}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Origin: base,
-      Cookie: getSessionCookie(),
-      ...options.headers,
-    },
-  });
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await performRequest(`${base}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Origin: base,
+          Cookie: getSessionCookie(),
+          ...options.headers,
+        },
+      });
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === 3) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+
+  throw lastError;
 }
 
 // ---------------------------------------------------------------------------

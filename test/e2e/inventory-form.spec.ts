@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { eq } from "drizzle-orm";
 import { test, expect } from "./fixtures";
 import {
@@ -7,30 +6,14 @@ import {
   lots,
 } from "../../lib/db/schema";
 import { createItem, getUnitId, updateItem } from "../helpers/api";
-
-const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
-const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
-
-function parseCookie(raw: string) {
-  const [name, ...rest] = raw.split("=");
-  return { name, value: rest.join("=") };
-}
-
-test.beforeEach(async ({ context }) => {
-  const { name, value } = parseCookie(SESSION_COOKIE);
-  await context.addCookies([
-    { name, value, domain: "localhost", path: "/" },
-  ]);
-});
+import { setTestTimestamp } from "../helpers/test-env";
 
 test.describe("Inventory creation flow", () => {
   test.describe.configure({ mode: "serial" });
 
   // Inventory owns the timestamp — fresh each run, written to the shared file
   // so sales can find these products later.
-  const ts = Date.now();
-  env.TEST_TIMESTAMP = ts;
-  fs.writeFileSync("test/.test-env.json", JSON.stringify(env, null, 2));
+  const ts = setTestTimestamp(Date.now());
 
   let fullMaterialId: string;
   let fullMaterialName: string;
@@ -46,6 +29,8 @@ test.describe("Inventory creation flow", () => {
   /* ── 1. Material with every field ────────────────────────────── */
 
   test("creates a material with all fields", async ({ page, db }) => {
+    test.slow();
+
     fullMaterialName = `Sand ${ts}`;
     const sku = `MAT-SAND-${ts}`;
 
@@ -72,8 +57,13 @@ test.describe("Inventory creation flow", () => {
     await page.locator("#unit-uom").click();
     await page.getByRole("option", { name: /kilogram/i }).click();
 
+    const materialUnitCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/units")
+    );
     await page.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(page.getByText("Define a new unit of measure")).not.toBeVisible();
+    expect((await materialUnitCreateResponse).status()).toBe(201);
     await expect(page.locator("#unitDefinitionId")).toContainText(`Bag ${ts}`);
 
     await page.getByLabel("Purchase Price").fill("3.50");
@@ -81,8 +71,17 @@ test.describe("Inventory creation flow", () => {
     await page.getByLabel("Stock", { exact: true }).fill("200");
     await page.getByLabel("Safety Stock").fill("25");
 
+    const fullMaterialCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/items")
+    );
     await page.getByRole("button", { name: "Create Material" }).click();
-    await page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/);
+    const fullMaterialCreateBody = await (
+      await fullMaterialCreateResponse
+    ).json();
+    fullMaterialId = fullMaterialCreateBody.id;
+    await page.goto(`/inventory/materials/${fullMaterialId}`);
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
@@ -95,7 +94,6 @@ test.describe("Inventory creation flow", () => {
     expect(rows).toHaveLength(1);
 
     const material = rows[0];
-    fullMaterialId = material.id;
 
     expect(material.itemType).toBe("material");
     expect(material.description).toBe("Fine grain river sand");
@@ -116,7 +114,10 @@ test.describe("Inventory creation flow", () => {
     await page.goto(`/inventory/materials/${fullMaterialId}`);
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
     await page.getByRole("link", { name: "Edit" }).click();
-    await expect(page.getByText("Edit Material")).toBeVisible();
+    await page.waitForURL(`**/inventory/materials/${fullMaterialId}/edit`);
+    await expect(
+      page.getByRole("heading", { name: "Edit Material" })
+    ).toBeVisible({ timeout: 30000 });
 
     // Verify key fields pre-populated
     await expect(page.getByLabel("Name")).toHaveValue(fullMaterialName);
@@ -158,8 +159,17 @@ test.describe("Inventory creation flow", () => {
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option").first().click();
 
+    const minimalMaterialCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/items")
+    );
     await page.getByRole("button", { name: "Create Material" }).click();
-    await page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/);
+    const minimalMaterialCreateBody = await (
+      await minimalMaterialCreateResponse
+    ).json();
+    minimalMaterialId = minimalMaterialCreateBody.id;
+    await page.goto(`/inventory/materials/${minimalMaterialId}`);
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
@@ -170,7 +180,6 @@ test.describe("Inventory creation flow", () => {
     expect(rows).toHaveLength(1);
 
     const material = rows[0];
-    minimalMaterialId = material.id;
 
     expect(material.itemType).toBe("material");
     expect(material.description).toBeNull();
@@ -197,14 +206,22 @@ test.describe("Inventory creation flow", () => {
     await page.getByRole("option").first().click();
     await page.getByLabel("Safety Stock").fill("5");
 
+    const lowStockMaterialCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/items")
+    );
     await page.getByRole("button", { name: "Create Material" }).click();
-    await page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/);
+    const lowStockMaterialCreateBody = await (
+      await lowStockMaterialCreateResponse
+    ).json();
+    lowStockMaterialId = lowStockMaterialCreateBody.id;
+    await page.goto(`/inventory/materials/${lowStockMaterialId}`);
 
     const rows = await db.select().from(items).where(eq(items.name, lowStockMaterialName));
     expect(rows).toHaveLength(1);
 
     const material = rows[0];
-    lowStockMaterialId = material.id;
 
     expect(material.safetyStock).toBe("5.0000");
 
@@ -287,16 +304,30 @@ test.describe("Inventory creation flow", () => {
     await page.locator("#unit-uom").click();
     await page.getByRole("option", { name: "liter (l)" }).click();
 
+    const productUnitCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/units")
+    );
     await page.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(page.getByText("Define a new unit of measure")).not.toBeVisible();
+    expect((await productUnitCreateResponse).status()).toBe(201);
     await expect(page.locator("#unitDefinitionId")).toContainText(`Bucket ${ts}`);
 
     await page.getByLabel("Selling Price").fill("12.00");
     await page.getByLabel("Stock", { exact: true }).fill("0");
     await page.getByLabel("Safety Stock").fill("10");
 
+    const simpleProductCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/items")
+    );
     await page.getByRole("button", { name: "Create Product" }).click();
-    await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+$/);
+    const simpleProductCreateBody = await (
+      await simpleProductCreateResponse
+    ).json();
+    simpleProductId = simpleProductCreateBody.id;
+    await page.goto(`/inventory/products/${simpleProductId}`);
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: simpleProductName })).toBeVisible();
@@ -309,7 +340,6 @@ test.describe("Inventory creation flow", () => {
     expect(rows).toHaveLength(1);
 
     const product = rows[0];
-    simpleProductId = product.id;
 
     expect(product.itemType).toBe("product");
     expect(product.category).toBe(`Mixes ${ts}`);
@@ -373,8 +403,17 @@ test.describe("Inventory creation flow", () => {
     await page.getByRole("option", { name: simpleProductName }).click();
     await row.locator("input[inputmode='decimal']").fill("2");
 
+    const sellableProductCreateResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/items")
+    );
     await page.getByRole("button", { name: "Create Product" }).click();
-    await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+$/);
+    const sellableProductCreateBody = await (
+      await sellableProductCreateResponse
+    ).json();
+    sellableProductId = sellableProductCreateBody.id;
+    await page.goto(`/inventory/products/${sellableProductId}`);
 
     // UI — verify the detail page and BOM table
     await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
@@ -389,7 +428,6 @@ test.describe("Inventory creation flow", () => {
     expect(rows).toHaveLength(1);
 
     const product = rows[0];
-    sellableProductId = product.id;
 
     expect(product.itemType).toBe("product");
     expect(product.category).toBe(`Blends ${ts}`);

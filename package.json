@@ -7,9 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "playwright test",
-    "test:inventory": "playwright test test/e2e/inventory-form.spec.ts",
-    "test:sales": "playwright test test/e2e/sales-order.spec.ts"
+    "test": "pnpm test:e2e:sections",
+    "test:e2e:sections": "playwright test test/e2e/inventory-form.spec.ts test/e2e/purchasing-order.spec.ts test/e2e/stocktake.spec.ts test/e2e/manufacturing-order.spec.ts test/e2e/sales-order.spec.ts",
+    "test:e2e:paonia": "playwright test test/e2e/paonia-story.spec.ts",
+    "test:e2e:all": "playwright test test/e2e/inventory-form.spec.ts test/e2e/purchasing-order.spec.ts test/e2e/stocktake.spec.ts test/e2e/manufacturing-order.spec.ts test/e2e/sales-order.spec.ts test/e2e/paonia-story.spec.ts",
+    "test:e2e:inventory": "playwright test test/e2e/inventory-form.spec.ts",
+    "test:e2e:purchasing": "playwright test test/e2e/purchasing-order.spec.ts",
+    "test:e2e:stocktake": "playwright test test/e2e/stocktake.spec.ts",
+    "test:e2e:manufacturing": "playwright test test/e2e/manufacturing-order.spec.ts",
+    "test:e2e:sales": "playwright test test/e2e/sales-order.spec.ts",
+    "test:inventory": "pnpm test:e2e:inventory",
+    "test:sales": "pnpm test:e2e:sales"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
