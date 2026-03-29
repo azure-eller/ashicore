@@ -27,17 +27,8 @@ import {
   Settings02Icon,
 } from "@hugeicons/core-free-icons"
 import { authClient } from "@/lib/auth-client"
+import { getInitials } from "@/lib/format"
 import { useRouter } from "next/navigation"
-
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-}
 
 export function NavUser({
   user,

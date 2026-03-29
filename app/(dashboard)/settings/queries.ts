@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import {
   assertTeamManagementAccess,
-  getAuthedMemberContext,
+  requireModuleReadAccess,
 } from "@/lib/dal/auth";
 import { db } from "@/lib/db";
 import { invitation, member, organization, user } from "@/lib/db/schema";
@@ -132,7 +132,7 @@ async function loadTeamPageData(
 }
 
 export async function getTeamPageData() {
-  const context = await getAuthedMemberContext();
+  const context = await requireModuleReadAccess("settings");
 
   if (!canManageTeam(context.role)) {
     redirect("/settings/account");
@@ -147,7 +147,7 @@ export async function getTeamPageDataForRequest(requestHeaders: HeadersInit) {
 }
 
 export async function getAccountPageData(): Promise<AccountPageData> {
-  const context = await getAuthedMemberContext();
+  const context = await requireModuleReadAccess("settings");
 
   return {
     name: context.name,

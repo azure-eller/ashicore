@@ -1,6 +1,6 @@
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
 
@@ -9,7 +9,7 @@ export default async function SettingsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const context = await getAuthedMemberContext();
+  const context = await requireModuleReadAccess("settings");
   const sections = getSettingsSections(context.role);
 
   return (

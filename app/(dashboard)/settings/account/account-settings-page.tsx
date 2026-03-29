@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { formatRoleLabel } from "@/lib/authz";
+import { getInitials } from "@/lib/format";
 import {
   changeEmailSchema,
   changePasswordSchema,
@@ -37,21 +38,33 @@ import {
 } from "@/lib/schemas/account";
 import type { AccountPageData } from "../types";
 
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+function getFirstFieldError(errors: unknown) {
+  if (!errors || typeof errors !== "object") {
+    return null;
+  }
+
+  for (const value of Object.values(errors as Record<string, unknown>)) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+
+    const firstMessage = value.find(
+      (item): item is string => typeof item === "string" && item.length > 0
+    );
+
+    if (firstMessage) {
+      return firstMessage;
+    }
+  }
+
+  return null;
 }
 
 async function readError(response: Response, fallback: string) {
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(body?.error ?? fallback);
+    throw new Error(body?.error ?? getFirstFieldError(body?.errors) ?? fallback);
   }
 }
 
@@ -61,7 +74,7 @@ function SuccessMessage({ children }: { children: string | null }) {
   }
 
   return (
-    <p className="text-sm text-emerald-600 dark:text-emerald-400">{children}</p>
+    <p className="text-sm text-foreground">{children}</p>
   );
 }
 
@@ -89,7 +102,7 @@ export function AccountSettingsPage({
   const emailForm = useForm<ChangeEmailInput>({
     resolver: zodResolver(changeEmailSchema),
     defaultValues: {
-      newEmail: initialData.email,
+      newEmail: "",
     },
   });
 
@@ -102,10 +115,13 @@ export function AccountSettingsPage({
     },
   });
 
+  const resetProfileForm = profileForm.reset;
+  const resetEmailForm = emailForm.reset;
+
   useEffect(() => {
-    profileForm.reset({ name: initialData.name });
-    emailForm.reset({ newEmail: initialData.email });
-  }, [emailForm, initialData.email, initialData.name, profileForm]);
+    resetProfileForm({ name: initialData.name });
+    resetEmailForm({ newEmail: "" });
+  }, [initialData.email, initialData.name, resetEmailForm, resetProfileForm]);
 
   const profileMutation = useMutation({
     mutationFn: async (values: UpdateProfileInput) => {
@@ -185,7 +201,10 @@ export function AccountSettingsPage({
     name: "newEmail",
   }) ?? "";
   const isNameUnchanged = currentName.trim() === initialData.name;
-  const isEmailUnchanged = nextEmail.trim().toLowerCase() === initialData.email.toLowerCase();
+  const normalizedNextEmail = nextEmail.trim().toLowerCase();
+  const isEmailUnchanged =
+    normalizedNextEmail.length === 0 ||
+    normalizedNextEmail === initialData.email.toLowerCase();
 
   return (
     <div className="space-y-6">

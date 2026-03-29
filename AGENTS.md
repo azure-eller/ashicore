@@ -288,7 +288,7 @@ throw error;
 
 ### Roles and module guards
 
-Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access, guard dashboard reads in layouts/pages, and guard API reads/writes in routes.
+Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access. Personal settings stay readable for all authenticated members; team management stays owner/admin only. Guard dashboard reads in layouts/pages and guard API reads/writes in routes.
 
 ```ts
 await requireModuleReadAccess("sales")

@@ -25,8 +25,8 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
 const READ_ACCESS: Record<Exclude<AppRole, "member">, ModuleKey[]> = {
   owner: [...MODULE_KEYS],
   admin: [...MODULE_KEYS],
-  operator: ["inventory", "manufacturing"],
-  viewer: ["inventory", "sales", "manufacturing", "purchasing"],
+  operator: ["inventory", "manufacturing", "settings"],
+  viewer: ["inventory", "sales", "manufacturing", "purchasing", "settings"],
 };
 
 const WRITE_ACCESS: Record<Exclude<AppRole, "member">, ModuleKey[]> = {
