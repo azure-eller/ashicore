@@ -23,6 +23,7 @@ type MemberContext = {
   userId: string;
   orgId: string;
   memberId: string;
+  organizationName: string;
   role: AppRole;
   name: string;
   email: string;
@@ -45,9 +46,16 @@ async function resolveMemberContext(requestHeaders: HeadersInit) {
       eq(member.organizationId, session.session.activeOrganizationId),
       eq(member.userId, session.user.id)
     ),
+    with: {
+      organization: {
+        columns: {
+          name: true,
+        },
+      },
+    },
   });
 
-  if (!membership) {
+  if (!membership || !membership.organization) {
     return null;
   }
 
@@ -55,6 +63,7 @@ async function resolveMemberContext(requestHeaders: HeadersInit) {
     userId: session.user.id,
     orgId: session.session.activeOrganizationId,
     memberId: membership.id,
+    organizationName: membership.organization.name,
     role: normalizeAppRole(membership.role),
     name: session.user.name ?? "",
     email: session.user.email ?? "",

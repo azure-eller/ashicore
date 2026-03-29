@@ -17,6 +17,10 @@ import {
   InsufficientStockError,
   lockItemsInTx,
 } from "@/lib/inventory/stock";
+import {
+  DomainError,
+  type DomainFieldErrors,
+} from "@/lib/errors/domain-error";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
   BulkConfirmSalesOrders,
@@ -71,8 +75,7 @@ type DraftOrderConfirmationPayload = {
   affectedProductIds: string[];
 };
 
-export class SalesError extends Error {
-  status: number;
+export class SalesError extends DomainError {
   errors?: Record<string, string[]>;
   oversell?: OversellWarningPayload;
   bulkOversell?: BulkOversellWarningPayload;
@@ -86,9 +89,13 @@ export class SalesError extends Error {
       bulkOversell?: BulkOversellWarningPayload;
     }
   ) {
-    super(message);
-    this.name = "SalesError";
-    this.status = status;
+    const errors: DomainFieldErrors | undefined = options?.errors;
+
+    super(message, status, {
+      name: "SalesError",
+      errors,
+    });
+
     this.errors = options?.errors;
     this.oversell = options?.oversell;
     this.bulkOversell = options?.bulkOversell;

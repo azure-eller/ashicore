@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -16,6 +15,10 @@ import {
   lockItemsInTx,
   MissingStockCostError,
 } from "@/lib/inventory/stock";
+import {
+  DomainError,
+  type DomainFieldErrors,
+} from "@/lib/errors/domain-error";
 import type {
   CompleteStocktake,
   InsertStocktake,
@@ -43,8 +46,9 @@ type SnapshotItem = {
   currentQty: string;
 };
 
-export class StocktakeError extends Error {
-  status: number;
+export class StocktakeError extends DomainError<{
+  stale: StocktakeStaleWarningPayload;
+}> {
   errors?: Record<string, string[]>;
   stale?: StocktakeStaleWarningPayload;
 
@@ -56,21 +60,16 @@ export class StocktakeError extends Error {
       stale?: StocktakeStaleWarningPayload;
     }
   ) {
-    super(message);
-    this.name = "StocktakeError";
-    this.status = status;
+    const errors: DomainFieldErrors | undefined = options?.errors;
+
+    super(message, status, {
+      name: "StocktakeError",
+      errors,
+      extra: options?.stale ? { stale: options.stale } : undefined,
+    });
+
     this.errors = options?.errors;
     this.stale = options?.stale;
-  }
-
-  toResponse() {
-    const body = this.stale
-      ? { error: this.message, stale: this.stale }
-      : this.errors
-        ? { errors: this.errors }
-        : { error: this.message };
-
-    return NextResponse.json(body, { status: this.status });
   }
 }
 

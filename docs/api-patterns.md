@@ -52,6 +52,38 @@ return NextResponse.json({ error: "Not found" }, { status: 404 });
 
 Note: **`error`** (singular) for general errors. Never use `errors` for non-field errors.
 
+## Domain Errors
+
+API-facing business errors with shared JSON response behavior should extend `DomainError` from `lib/errors/domain-error.ts` instead of re-implementing `status` and `toResponse()`.
+
+- Put field validation failures in `errors`
+- Put domain-specific warning payloads in `extra`
+- `toResponse()` returns `{ errors }` for field errors, otherwise `{ error, ...extra }`
+
+```ts
+export class StocktakeError extends DomainError<{
+  stale: StocktakeStaleWarningPayload;
+}> {
+  stale?: StocktakeStaleWarningPayload;
+
+  constructor(
+    message: string,
+    status = 400,
+    options?: {
+      errors?: Record<string, string[]>;
+      stale?: StocktakeStaleWarningPayload;
+    }
+  ) {
+    super(message, status, {
+      name: "StocktakeError",
+      errors: options?.errors,
+      extra: options?.stale ? { stale: options.stale } : undefined,
+    });
+    this.stale = options?.stale;
+  }
+}
+```
+
 ## Bulk Delete Mutations
 
 If a bulk delete can be blocked by business rules, send the whole selection to one API route and let the server validate + mutate inside one transaction.

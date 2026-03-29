@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import {
   and,
   asc,
@@ -29,6 +28,10 @@ import {
   lockItemsInTx,
 } from "@/lib/inventory/stock";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
+import {
+  DomainError,
+  type DomainFieldErrors,
+} from "@/lib/errors/domain-error";
 import type {
   CompleteManufacturingOrder,
   CreateManufacturingOrdersFromSalesOrder,
@@ -134,8 +137,9 @@ async function getLockedManufacturingOrderInTx(
   return order ?? null;
 }
 
-export class ManufacturingError extends Error {
-  status: number;
+export class ManufacturingError extends DomainError<{
+  shortage: ManufacturingReleaseWarningPayload;
+}> {
   errors?: Record<string, string[]>;
   shortage?: ManufacturingReleaseWarningPayload;
 
@@ -147,21 +151,16 @@ export class ManufacturingError extends Error {
       shortage?: ManufacturingReleaseWarningPayload;
     }
   ) {
-    super(message);
-    this.name = "ManufacturingError";
-    this.status = status;
+    const errors: DomainFieldErrors | undefined = options?.errors;
+
+    super(message, status, {
+      name: "ManufacturingError",
+      errors,
+      extra: options?.shortage ? { shortage: options.shortage } : undefined,
+    });
+
     this.errors = options?.errors;
     this.shortage = options?.shortage;
-  }
-
-  toResponse() {
-    const body = this.shortage
-      ? { error: this.message, shortage: this.shortage }
-      : this.errors
-        ? { errors: this.errors }
-        : { error: this.message };
-
-    return NextResponse.json(body, { status: this.status });
   }
 }
 

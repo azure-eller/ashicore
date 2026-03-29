@@ -26,6 +26,18 @@ test.describe("Inventory creation flow", () => {
   let sellableProductId: string;
   let sellableProductName: string;
 
+  test("shows the active organization in the sidebar and hides placeholder actions", async ({
+    page,
+  }) => {
+    await page.goto("/inventory/products");
+
+    await expect(page.getByText("Test Org")).toBeVisible();
+    await expect(page.getByText("Single site")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Toggle theme" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Notifications" })).toHaveCount(0);
+    await expect(page.getByText("Add Location")).toHaveCount(0);
+  });
+
   /* ── 1. Material with every field ────────────────────────────── */
 
   test("creates a material with all fields", async ({ page, db }) => {

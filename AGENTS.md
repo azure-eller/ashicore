@@ -301,6 +301,22 @@ Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` mu
 
 Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell` — never raw `<table>` / `<tr>` / `<td>`. Raw HTML tables bypass theme tokens and won't pick up future Table component changes.
 
+### Shared dashboard tables
+
+List pages with search + add + optional bulk delete should use `DashboardDataTable` from `components/dashboard-data-table.tsx`. Keep route table files to columns + config only.
+
+```tsx
+<DashboardDataTable columns={columns} queryKey={["customers"]} addHref="/sales/customers/new" />
+```
+
+### Domain errors
+
+API-facing business errors should extend `DomainError` from `lib/errors/domain-error.ts`. Use `errors` for field errors and `extra` for domain payloads.
+
+```ts
+export class SalesError extends DomainError<{ oversell: OversellWarningPayload }> {}
+```
+
 ### Bulk delete mutations
 
 Bulk delete actions that can fail on business rules must go through one API mutation that validates all selected ids in a single transaction. Do not fire one `DELETE` per row from the client.
@@ -506,7 +522,6 @@ A change is "done" when:
 When multiple agents may be working in the repo:
 
 - Do not create, apply, or drop git stash
-- Do not switch branches unless explicitly requested
 - Scope commits to your own changes only
 - Do not run `git add .` or `git add -A` — stage specific files
 - Do not modify files outside the scope of your task
@@ -514,13 +529,25 @@ When multiple agents may be working in the repo:
 
 ## Workflow
 
-Use git worktrees for all feature work. Main stays clean — never commit feature work directly to main.
+Use git worktrees for all code-changing feature work. Keep the repo root checkout on `main` as a stable control plane for pulls, branch discovery, and creating/removing worktrees.
+
+**Default rule:** if a task will modify code and the current directory is the repo root checkout, create or enter a dedicated worktree before editing files.
+
+**Do not:**
+- Develop directly in the repo root checkout
+- Switch the repo root checkout onto a feature branch
+- Reuse another active worktree unless the user explicitly points to it
+
+**Allowed exceptions:**
+- Read-only review or investigation
+- User explicitly asks to work in the current checkout
+- Worktree cleanup after merge
 
 ```bash
 # 1. Create worktree (`.worktrees/` is gitignored)
 git worktree add .worktrees/<branch-name> -b <branch-name>
 
-# 2. Install deps (pnpm uses a shared store — fast, mostly symlinks)
+# 2. Install deps in the new worktree
 cd .worktrees/<branch-name> && pnpm install
 
 # 3. Work, commit, push
@@ -534,7 +561,9 @@ git branch -d <branch-name>
 ```
 
 **Rules:**
+- The repo root checkout is for coordination, not feature implementation
 - Always `pnpm install` in new worktrees — lockfile resolution differs per working tree
+- Run build/test commands inside the worktree that contains the change
 - Run `pnpm build` and `pnpm test` inside the worktree before pushing
 - Clean up merged worktrees promptly: `git worktree list` to audit
 

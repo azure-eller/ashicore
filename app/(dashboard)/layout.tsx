@@ -21,7 +21,11 @@ export default async function DashboardLayout({
   return (
     <Providers>
       <SidebarProvider>
-        <AppSidebar user={user} role={context.role} />
+        <AppSidebar
+          user={user}
+          role={context.role}
+          organizationName={context.organizationName}
+        />
         <SidebarInset>{children}</SidebarInset>
       </SidebarProvider>
     </Providers>
