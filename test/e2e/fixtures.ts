@@ -29,22 +29,22 @@ export type TestDb = typeof testDb;
 export const test = base.extend<{ db: TestDb }>({
   // Auto-inject the session cookie into every browser context.
   // Specs no longer need their own beforeEach for cookie injection.
-  context: async ({ context }, use) => {
+  context: async ({ context }, runFixture) => {
     const { name, value } = parseCookie(sessionCookie);
     await context.addCookies([
       { name, value, domain: "localhost", path: "/" },
     ]);
-    await use(context);
+    await runFixture(context);
   },
 
-  db: async ({}, use) => {
+  db: async ({}, runFixture) => {
     // Wrap in a transaction that sets the RLS org context,
     // then hands the transaction to the test.
     await testDb.transaction(async (tx) => {
       await tx.execute(
         sql`SELECT set_config('app.current_org_id', ${testOrgId}, true)`
       );
-      await use(tx as unknown as TestDb);
+      await runFixture(tx as unknown as TestDb);
     });
   },
 });

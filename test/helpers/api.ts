@@ -10,6 +10,8 @@ export interface TestResponse {
   headers: Headers;
   ok: boolean;
   status: number;
+  // Test helpers intentionally keep JSON payloads loose across many endpoints.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   json(): Promise<any>;
   text(): Promise<string>;
 }
