@@ -5,7 +5,17 @@
  * 2. Creates a test org (or reuses if already exists)
  * 3. Creates a default test unit (for item creation tests)
  * 4. Stores session cookie + IDs in test/.test-env.json
+ * 5. Writes authenticated Playwright storage state for browser tests
  */
+
+import fs from "node:fs";
+import {
+  TEST_STORAGE_STATE_PATH,
+  type TestEnv,
+  buildStorageState,
+  ensureAuthDir,
+  writeTestEnv,
+} from "./helpers/test-env";
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
 const TEST_EMAIL = "test-agent@erp-test.local";
@@ -53,6 +63,15 @@ async function fetchWithCookies(
   });
 }
 
+async function listOrganizations(cookies: string) {
+  const orgsRes = await fetchWithCookies(
+    "/api/auth/organization/list",
+    cookies
+  );
+  const orgsData = await orgsRes.json().catch(() => []);
+  return Array.isArray(orgsData) ? orgsData : [];
+}
+
 export default async function setup() {
   // Verify dev server is running
   try {
@@ -86,12 +105,7 @@ export default async function setup() {
     }
   }
 
-  const orgsRes = await fetchWithCookies(
-    "/api/auth/organization/list",
-    cookies
-  );
-  const orgsData = await orgsRes.json().catch(() => []);
-  const orgs = Array.isArray(orgsData) ? orgsData : [];
+  const orgs = await listOrganizations(cookies);
   let testOrg = orgs.find(
     (o: { slug?: string }) => o.slug === TEST_ORG_SLUG
   );
@@ -106,9 +120,22 @@ export default async function setup() {
       }
     );
     const createOrgData = await createOrgRes.json().catch(() => null);
-    testOrg = createOrgData;
+    testOrg = createOrgData?.id ? createOrgData : null;
     const newCookies = extractCookies(createOrgRes);
     if (newCookies) cookies = newCookies;
+
+    if (!testOrg) {
+      const refreshedOrgs = await listOrganizations(cookies);
+      testOrg = refreshedOrgs.find(
+        (o: { slug?: string }) => o.slug === TEST_ORG_SLUG
+      );
+    }
+  }
+
+  if (!testOrg?.id) {
+    throw new Error(
+      `Failed to resolve test organization '${TEST_ORG_SLUG}' during global setup.`
+    );
   }
 
   const setOrgRes = await fetchWithCookies(
@@ -130,8 +157,6 @@ export default async function setup() {
   const unitData = await unitRes.json().catch(() => null);
   const testUnitId = unitData?.id || "";
 
-  const fs = await import("node:fs");
-
   // Preserve TEST_TIMESTAMP if it exists — inventory owns it and overwrites on each run.
   let existingTimestamp: number | undefined;
   try {
@@ -141,22 +166,25 @@ export default async function setup() {
     // First run — no file yet
   }
 
-  const testEnv: Record<string, unknown> = {
+  const testEnv: TestEnv = {
     TEST_SESSION_COOKIE: cookies,
     TEST_ORG_ID: testOrg.id,
     TEST_UNIT_ID: testUnitId || "",
     TEST_BASE_URL: BASE_URL,
+    TEST_STORAGE_STATE: TEST_STORAGE_STATE_PATH,
   };
   if (existingTimestamp != null) {
     testEnv.TEST_TIMESTAMP = existingTimestamp;
   }
+  writeTestEnv(testEnv);
+  ensureAuthDir();
   fs.writeFileSync(
-    "test/.test-env.json",
-    JSON.stringify(testEnv, null, 2)
+    TEST_STORAGE_STATE_PATH,
+    JSON.stringify(buildStorageState(cookies, BASE_URL), null, 2)
   );
 
   console.log(
-    `\n  Test setup complete: user=${TEST_EMAIL}, org=${TEST_ORG_SLUG}, unit=${testUnitId || "reused"}\n`
+    `\n  Test setup complete: user=${TEST_EMAIL}, org=${TEST_ORG_SLUG}, unit=${testUnitId || "reused"}, storageState=${TEST_STORAGE_STATE_PATH}\n`
   );
 }
 

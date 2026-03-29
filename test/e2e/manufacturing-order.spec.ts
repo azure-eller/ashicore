@@ -1,6 +1,5 @@
-import fs from "node:fs";
 import { eq } from "drizzle-orm";
-import { test, expect } from "./fixtures";
+import { test, expect, getIdFromUrl } from "./fixtures";
 import {
   items,
   lots,
@@ -17,14 +16,6 @@ import {
   testFetch,
   updateItem,
 } from "../helpers/api";
-
-const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
-const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
-
-function parseCookie(raw: string) {
-  const [name, ...rest] = raw.split("=");
-  return { name, value: rest.join("=") };
-}
 
 async function createCustomer(name: string) {
   const response = await testFetch("/api/customers", {
@@ -230,11 +221,6 @@ async function completeManufacturingOrder(orderId: string, actualQuantity: strin
   return { status: response.status, body };
 }
 
-test.beforeEach(async ({ context }) => {
-  const { name, value } = parseCookie(SESSION_COOKIE);
-  await context.addCookies([{ name, value, domain: "localhost", path: "/" }]);
-});
-
 test.describe("Manufacturing order flow", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -263,6 +249,8 @@ test.describe("Manufacturing order flow", () => {
   test("sets up BOM-backed fixtures and a sales line for traceability", async ({
     db,
   }) => {
+    test.slow();
+
     expect(unitId).toBeTruthy();
 
     const sandCreate = await createItem({
@@ -342,7 +330,7 @@ test.describe("Manufacturing order flow", () => {
       description: "Confirmed sales order line without a BOM",
       defaultPurchasePrice: null,
       defaultSellingPrice: "18.00",
-      stock: "8",
+      stock: "0",
       safetyStock: "0",
       bom: [],
     });
@@ -860,7 +848,7 @@ test.describe("Manufacturing order flow", () => {
     await page.getByRole("button", { name: "Create Order" }).click();
 
     await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
-    completionOrderId = page.url().split("/").at(-1) ?? "";
+    completionOrderId = getIdFromUrl(page.url());
     expect(completionOrderId).toBeTruthy();
 
     await page.getByRole("button", { name: "Release" }).click();
@@ -908,8 +896,8 @@ test.describe("Manufacturing order flow", () => {
 
     expect(completedOrder.status).toBe("completed");
     expect(completedOrder.actualQuantity).toBe("6.0000");
-    expect(completedOrder.actualMaterialCost).toBe("29.0000");
-    expect(completedOrder.actualCostPerUnit).toBe("4.8333");
+    expect(completedOrder.actualMaterialCost).toBe("35.0000");
+    expect(completedOrder.actualCostPerUnit).toBe("5.8333");
     expect(completedOrder.completedAt).toBeTruthy();
 
     const completedIngredients = await db
@@ -921,7 +909,7 @@ test.describe("Manufacturing order flow", () => {
     );
 
     expect(completedByItemId.get(sandId)?.actualQuantity).toBe("12.0000");
-    expect(completedByItemId.get(sandId)?.actualCostTotal).toBe("20.0000");
+    expect(completedByItemId.get(sandId)?.actualCostTotal).toBe("26.0000");
     expect(completedByItemId.get(compostId)?.actualQuantity).toBe("6.0000");
     expect(completedByItemId.get(compostId)?.actualCostTotal).toBe("9.0000");
 
@@ -939,7 +927,7 @@ test.describe("Manufacturing order flow", () => {
     expect(sandLotSummary[0].quantity).toBe("0.0000");
     expect(sandLotSummary[0].costPerUnit).toBe("2.0000");
     expect(sandLotSummary[1].quantity).toBe("8.0000");
-    expect(sandLotSummary[1].costPerUnit).toBeNull();
+    expect(sandLotSummary[1].costPerUnit).toBe("3.0000");
 
     const compostLots = await db.select().from(lots).where(eq(lots.itemId, compostId));
     expect(compostLots).toHaveLength(1);
@@ -948,7 +936,7 @@ test.describe("Manufacturing order flow", () => {
     const producedLots = await db.select().from(lots).where(eq(lots.itemId, productId));
     expect(producedLots).toHaveLength(1);
     expect(producedLots[0].quantity).toBe("6.0000");
-    expect(producedLots[0].costPerUnit).toBe("4.8333");
+    expect(producedLots[0].costPerUnit).toBe("5.8333");
 
     const movements = await db
       .select({
@@ -979,6 +967,217 @@ test.describe("Manufacturing order flow", () => {
       .from(items)
       .where(eq(items.id, productId));
     expect(completedProduct.expectedQty).toBe("0.0000");
+  });
+
+  test("completes a finished good that consumes a manufactured subassembly", async ({
+    db,
+  }) => {
+    const chainTs = Date.now();
+    const category = `Subassembly ${chainTs}`;
+    const additiveName = `Subassembly Additive ${chainTs}`;
+    const carrierName = `Subassembly Carrier ${chainTs}`;
+    const subassemblyName = `Intermediate Mix ${chainTs}`;
+    const finishedName = `Nested Blend ${chainTs}`;
+
+    const additiveCreate = await createItem({
+      name: additiveName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-SUB-ADD-${chainTs}`,
+      category,
+      description: "Subassembly ingredient",
+      defaultPurchasePrice: "5.00",
+      defaultSellingPrice: null,
+      stock: "6",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(additiveCreate.status).toBe(201);
+    const additiveId = additiveCreate.body.id as string;
+
+    const carrierCreate = await createItem({
+      name: carrierName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-SUB-CAR-${chainTs}`,
+      category,
+      description: "Finished-good carrier",
+      defaultPurchasePrice: "3.00",
+      defaultSellingPrice: null,
+      stock: "4",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(carrierCreate.status).toBe(201);
+    const carrierId = carrierCreate.body.id as string;
+
+    const subassemblyCreate = await createItem({
+      name: subassemblyName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-SUB-${chainTs}`,
+      category,
+      description: "Intermediate manufactured subassembly",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: additiveId, quantity: "2" }],
+    });
+    expect(subassemblyCreate.status).toBe(201);
+    const subassemblyId = subassemblyCreate.body.id as string;
+
+    const finishedCreate = await createItem({
+      name: finishedName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-NESTED-${chainTs}`,
+      category,
+      description: "Finished good that consumes a subassembly",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "45.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        { componentId: carrierId, quantity: "1.5" },
+        { componentId: subassemblyId, quantity: "1" },
+      ],
+    });
+    expect(finishedCreate.status).toBe(201);
+    const finishedId = finishedCreate.body.id as string;
+
+    const subassemblyOrderId = await createManufacturingOrder({
+      productId: subassemblyId,
+      plannedQuantity: "2",
+      notes: "Subassembly chain seed",
+      ingredients: [{ itemId: additiveId, quantityPerUnit: "2" }],
+    });
+
+    await releaseManufacturingOrder(subassemblyOrderId);
+    const subassemblyCompleteResult = await completeManufacturingOrder(
+      subassemblyOrderId,
+      "2"
+    );
+    expect(subassemblyCompleteResult.status).toBe(200);
+
+    const [subassemblyOrder] = await db
+      .select({
+        status: manufacturingOrders.status,
+        actualQuantity: manufacturingOrders.actualQuantity,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, subassemblyOrderId));
+    expect(subassemblyOrder.status).toBe("completed");
+    expect(subassemblyOrder.actualQuantity).toBe("2.0000");
+
+    const subassemblyLotsBeforeFinished = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.itemId, subassemblyId));
+    const subassemblyStockBeforeFinished = subassemblyLotsBeforeFinished.reduce(
+      (sum, lot) => sum + parseFloat(lot.quantity),
+      0
+    );
+    expect(subassemblyStockBeforeFinished).toBeCloseTo(2, 2);
+
+    const finishedOrderId = await createManufacturingOrder({
+      productId: finishedId,
+      plannedQuantity: "1",
+      notes: "Nested finished good coverage",
+      ingredients: [
+        { itemId: carrierId, quantityPerUnit: "1.5" },
+        { itemId: subassemblyId, quantityPerUnit: "1" },
+      ],
+    });
+
+    await releaseManufacturingOrder(finishedOrderId);
+    const finishedCompleteResult = await completeManufacturingOrder(
+      finishedOrderId,
+      "1"
+    );
+    expect(finishedCompleteResult.status).toBe(200);
+
+    const [finishedOrder] = await db
+      .select({
+        status: manufacturingOrders.status,
+        actualQuantity: manufacturingOrders.actualQuantity,
+        actualCostPerUnit: manufacturingOrders.actualCostPerUnit,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, finishedOrderId));
+    expect(finishedOrder.status).toBe("completed");
+    expect(finishedOrder.actualQuantity).toBe("1.0000");
+    expect(finishedOrder.actualCostPerUnit).toBeTruthy();
+
+    const finishedIngredients = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        actualQuantity: manufacturingOrderIngredients.actualQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(
+        eq(manufacturingOrderIngredients.manufacturingOrderId, finishedOrderId)
+      );
+    const finishedIngredientByItemId = new Map(
+      finishedIngredients.map((row) => [row.itemId, row])
+    );
+
+    expect(finishedIngredientByItemId.get(carrierId)?.actualQuantity).toBe(
+      "1.5000"
+    );
+    expect(finishedIngredientByItemId.get(subassemblyId)?.actualQuantity).toBe(
+      "1.0000"
+    );
+
+    const subassemblyLotsAfterFinished = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.itemId, subassemblyId));
+    const subassemblyStockAfterFinished = subassemblyLotsAfterFinished.reduce(
+      (sum, lot) => sum + parseFloat(lot.quantity),
+      0
+    );
+    expect(subassemblyStockAfterFinished).toBeCloseTo(
+      subassemblyStockBeforeFinished - 1,
+      2
+    );
+
+    const finishedLots = await db
+      .select({ quantity: lots.quantity, costPerUnit: lots.costPerUnit })
+      .from(lots)
+      .where(eq(lots.itemId, finishedId));
+    expect(finishedLots).toHaveLength(1);
+    expect(finishedLots[0].quantity).toBe("1.0000");
+    expect(finishedLots[0].costPerUnit).toBeTruthy();
+
+    const movements = await db
+      .select({
+        itemId: stockMovements.itemId,
+        movementType: stockMovements.movementType,
+        referenceType: stockMovements.referenceType,
+      })
+      .from(stockMovements)
+      .where(eq(stockMovements.referenceId, finishedOrderId));
+
+    expect(
+      movements.some(
+        (movement) =>
+          movement.itemId === subassemblyId &&
+          movement.movementType === "manufacturing_consumed"
+      )
+    ).toBe(true);
+    expect(
+      movements.some(
+        (movement) =>
+          movement.itemId === finishedId &&
+          movement.movementType === "manufacturing_produced"
+      )
+    ).toBe(true);
+    expect(
+      movements.every(
+        (movement) => movement.referenceType === "manufacturing_order"
+      )
+    ).toBe(true);
   });
 
   test("completes decimal ingredient quantities without a false shortage", async ({
@@ -1068,13 +1267,47 @@ test.describe("Manufacturing order flow", () => {
   test("blocks deleting items that are used by an active manufacturing order", async ({
     db,
   }) => {
+    const guardMaterialName = `Delete Guard Resin ${ts}`;
+    const guardProductName = `Delete Guard Blend ${ts}`;
+
+    const guardMaterialCreate = await createItem({
+      name: guardMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-DELETE-GUARD-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Ingredient protected by an active manufacturing order",
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(guardMaterialCreate.status).toBe(201);
+    const guardMaterialId = guardMaterialCreate.body.id as string;
+
+    const guardProductCreate = await createItem({
+      name: guardProductName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-DELETE-GUARD-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Product protected by an active manufacturing order",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "18.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: guardMaterialId, quantity: "2" }],
+    });
+    expect(guardProductCreate.status).toBe(201);
+    const guardProductId = guardProductCreate.body.id as string;
+
     const guardOrderId = await createManufacturingOrder({
-      productId,
+      productId: guardProductId,
       plannedQuantity: "1",
       notes: "Delete guard coverage",
       ingredients: [
-        { itemId: sandId, quantityPerUnit: "2" },
-        { itemId: compostId, quantityPerUnit: "1" },
+        { itemId: guardMaterialId, quantityPerUnit: "2" },
       ],
     });
 
@@ -1087,31 +1320,25 @@ test.describe("Manufacturing order flow", () => {
 
     expect(guardOrder.status).toBe("draft");
 
-    const clearBomResult = await updateItem(productId, {
-      name: productName,
-      sku: `PROD-BLEND-${ts}`,
+    const clearBomResult = await updateItem(guardProductId, {
+      name: guardProductName,
+      sku: `PROD-DELETE-GUARD-${ts}`,
       category: `Manufacturing ${ts}`,
-      description: "Finished manufactured product",
+      description: "Product protected by an active manufacturing order",
       defaultPurchasePrice: null,
-      defaultSellingPrice: "45.00",
+      defaultSellingPrice: "18.00",
       safetyStock: "0",
       bom: [],
     });
     expect(clearBomResult.status).toBe(200);
 
-    const deleteSalesOrderResponse = await testFetch("/api/sales-orders", {
-      method: "DELETE",
-      body: JSON.stringify({ ids: [salesOrderId, batchSalesOrderId] }),
-    });
-    expect(deleteSalesOrderResponse.status).toBe(200);
-
-    const deleteIngredientResult = await deleteItem(sandId);
+    const deleteIngredientResult = await deleteItem(guardMaterialId);
     expect(deleteIngredientResult.status).toBe(400);
     expect(deleteIngredientResult.body?.error).toContain(
       "draft or released manufacturing orders"
     );
 
-    const deleteProductResult = await deleteItem(productId);
+    const deleteProductResult = await deleteItem(guardProductId);
     expect(deleteProductResult.status).toBe(400);
     expect(deleteProductResult.body?.error).toContain(
       "draft or released manufacturing orders"

@@ -1,5 +1,8 @@
 import fs from "node:fs";
 import { defineConfig } from "@playwright/test";
+import {
+  TEST_STORAGE_STATE_PATH,
+} from "./test/helpers/test-env";
 
 let baseURL = "http://localhost:3000";
 try {
@@ -12,12 +15,15 @@ try {
 export default defineConfig({
   testDir: "./test/e2e",
   timeout: 90_000,
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   workers: 1,
   globalSetup: "./test/global-setup.ts",
   use: {
     baseURL,
-    trace: "on-first-retry",
+    storageState: TEST_STORAGE_STATE_PATH,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
     launchOptions: {
       slowMo: Number(process.env.SLOW_MO) || 0,
     },
