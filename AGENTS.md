@@ -255,6 +255,17 @@ If a DAL uses `nextval()` for order/lot numbers, the migration must `CREATE SEQU
 
 Saving stocktake counts updates snapshot rows only. Completion applies counted truth from current live stock; if live stock changed since snapshot, return `409` with a stale payload and require confirmation.
 
+### Stocktake draft saves
+
+Draft stocktake saves should submit dirty lines only. Completing a dirty stocktake should save dirty counts first, then complete.
+
+```ts
+if (form.formState.isDirty) {
+  await saveMutation.mutateAsync({ lines: dirtyLines })
+}
+await completeMutation.mutateAsync(false)
+```
+
 ### Stocktake snapshot locking
 
 Draft stocktake creation and item soft deletes must both lock affected `items` rows before checking draft references, so snapshot creation cannot race with delete.

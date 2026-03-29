@@ -50,6 +50,12 @@ Saving counts updates only the stocktake snapshot rows:
 
 Saving counts must not mutate live stock.
 
+Draft saves may submit only changed lines. Clearing a saved count should submit that line with `countedQty = null`.
+
+If a user explicitly enters the snapshot quantity, keep it as a saved count with zero variance. That still counts as progress, but it should not create a stock movement unless completion later sees a live-stock delta.
+
+The draft detail UI should let `Complete` save pending count edits first, then run completion. This keeps the workflow one-click without adding a separate combined API contract.
+
 ### Snapshot locking
 
 Draft stocktake creation must lock the candidate `inventory.items` rows before inserting snapshot rows. Item soft-delete flows must lock those same rows before checking for draft stocktake references.

@@ -306,7 +306,9 @@ test.describe("Stocktake flow", () => {
     expect(productLines.every((line) => line.itemType === "product")).toBe(true);
   });
 
-  test("saves draft counts and leaves blank lines unchanged", async ({ db }) => {
+  test("saves draft counts sparsely, supports clearing counts, and leaves blank lines unchanged", async ({
+    db,
+  }) => {
     const lines = await db
       .select({
         id: stocktakeItems.id,
@@ -363,6 +365,205 @@ test.describe("Stocktake flow", () => {
         productCountedQty: null,
         productVarianceQty: null,
       });
+
+    const clearResponse = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [
+          {
+            lineId: materialLine!.id,
+            countedQty: null,
+          },
+        ],
+      }),
+    });
+
+    expect(clearResponse.status).toBe(200);
+
+    await expect
+      .poll(
+        async () => {
+          const lines = await db
+            .select()
+            .from(stocktakeItems)
+            .where(eq(stocktakeItems.stocktakeId, stocktakeId))
+            .orderBy(asc(stocktakeItems.sortOrder));
+
+          const materialLine = lines.find((line) => line.itemId === materialId);
+          const productLine = lines.find((line) => line.itemId === productId);
+
+          return {
+            materialCountedQty: materialLine?.countedQty ?? null,
+            materialVarianceQty: materialLine?.varianceQty ?? null,
+            productCountedQty: productLine?.countedQty ?? null,
+            productVarianceQty: productLine?.varianceQty ?? null,
+          };
+        },
+        { timeout: 30_000 }
+      )
+      .toEqual({
+        materialCountedQty: null,
+        materialVarianceQty: null,
+        productCountedQty: null,
+        productVarianceQty: null,
+      });
+
+    const restoreResponse = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [
+          {
+            lineId: materialLine!.id,
+            countedQty: "4",
+          },
+        ],
+      }),
+    });
+
+    expect(restoreResponse.status).toBe(200);
+
+    await expect
+      .poll(
+        async () => {
+          const lines = await db
+            .select()
+            .from(stocktakeItems)
+            .where(eq(stocktakeItems.stocktakeId, stocktakeId))
+            .orderBy(asc(stocktakeItems.sortOrder));
+
+          const materialLine = lines.find((line) => line.itemId === materialId);
+          const productLine = lines.find((line) => line.itemId === productId);
+
+          return {
+            materialCountedQty: materialLine?.countedQty ?? null,
+            materialVarianceQty: materialLine?.varianceQty ?? null,
+            productCountedQty: productLine?.countedQty ?? null,
+            productVarianceQty: productLine?.varianceQty ?? null,
+          };
+        },
+        { timeout: 30_000 }
+      )
+      .toEqual({
+        materialCountedQty: "4.0000",
+        materialVarianceQty: "-1.0000",
+        productCountedQty: null,
+        productVarianceQty: null,
+      });
+  });
+
+  test("completes dirty counts with a sparse save and no movement when live stock already matches", async ({
+    page,
+    db,
+  }) => {
+    const response = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `One Click Count ${ts}`,
+        scope: "all",
+        notes: null,
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    const oneClickStocktakeId = body.id as string;
+
+    const lines = await db
+      .select({
+        id: stocktakeItems.id,
+        itemId: stocktakeItems.itemId,
+      })
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.stocktakeId, oneClickStocktakeId))
+      .orderBy(asc(stocktakeItems.sortOrder));
+
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    const materialLine = lines.find((line) => line.itemId === materialId);
+    const productLine = lines.find((line) => line.itemId === productId);
+
+    expect(materialLine).toBeTruthy();
+    expect(productLine).toBeTruthy();
+
+    await page.goto(`/inventory/stocktakes/${oneClickStocktakeId}`);
+
+    const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
+    await materialRow.getByRole("textbox").fill("5");
+    await expect(page.getByRole("button", { name: "Complete" })).toBeEnabled();
+
+    const saveRequestPromise = page.waitForRequest(
+      (request) =>
+        request.method() === "PUT" &&
+        request.url().endsWith(`/api/stocktakes/${oneClickStocktakeId}`)
+    );
+    const completeRequestPromise = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        request.url().endsWith(`/api/stocktakes/${oneClickStocktakeId}/complete`)
+    );
+
+    await page.getByRole("button", { name: "Complete" }).click();
+
+    const saveRequest = await saveRequestPromise;
+    const completeRequest = await completeRequestPromise;
+
+    expect(JSON.parse(saveRequest.postData() ?? "{}")).toEqual({
+      lines: [
+        {
+          lineId: materialLine!.id,
+          countedQty: "5",
+        },
+      ],
+    });
+    expect(JSON.parse(completeRequest.postData() ?? "{}")).toEqual({
+      confirmStale: false,
+    });
+
+    await expect
+      .poll(
+        async () => {
+          const [stocktake] = await db
+            .select({ status: stocktakes.status })
+            .from(stocktakes)
+            .where(eq(stocktakes.id, oneClickStocktakeId));
+
+          return stocktake?.status ?? null;
+        },
+        { timeout: 30_000 }
+      )
+      .toBe("completed");
+
+    const savedLines = await db
+      .select()
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.stocktakeId, oneClickStocktakeId))
+      .orderBy(asc(stocktakeItems.sortOrder));
+
+    const savedMaterialLine = savedLines.find((line) => line.itemId === materialId);
+    const savedProductLine = savedLines.find((line) => line.itemId === productId);
+
+    expect(savedMaterialLine?.countedQty).toBe("5.0000");
+    expect(savedMaterialLine?.varianceQty).toBe("0.0000");
+    expect(savedMaterialLine?.appliedDeltaQty).toBe("0.0000");
+    expect(savedProductLine?.countedQty).toBeNull();
+    expect(savedProductLine?.varianceQty).toBeNull();
+    expect(savedProductLine?.appliedDeltaQty).toBeNull();
+
+    const [materialStock] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${lots.quantity}), 0)`,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, materialId));
+
+    expect(parseFloat(materialStock.total)).toBe(5);
+
+    const stocktakeMovements = await db
+      .select({ id: stockMovements.id })
+      .from(stockMovements)
+      .where(eq(stockMovements.referenceId, oneClickStocktakeId));
+
+    expect(stocktakeMovements).toHaveLength(0);
   });
 
   test("warns on stale completion, applies deltas, and preserves snapshots", async ({

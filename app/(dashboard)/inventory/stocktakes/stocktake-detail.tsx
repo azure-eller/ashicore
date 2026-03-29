@@ -42,7 +42,10 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDateTime, formatQuantity, getFieldArrayError, normalizeNumeric } from "@/lib/format";
-import { updateStocktakeCountsSchema } from "@/lib/schemas/stocktakes";
+import {
+  type UpdateStocktakeCounts,
+  updateStocktakeCountsSchema,
+} from "@/lib/schemas/stocktakes";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
   formatScope,
@@ -59,8 +62,26 @@ type ApiError = {
 
 type CountFilter = "all" | "counted" | "uncounted" | "variance";
 
-
 type CountFormValues = z.input<typeof updateStocktakeCountsSchema>;
+
+function normalizeCountedQtyInput(value: string | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function formatSavedCountedQtyInput(value: string | null | undefined) {
+  const normalized = normalizeCountedQtyInput(value);
+
+  if (normalized == null) {
+    return null;
+  }
+
+  return Number(normalized).toFixed(4);
+}
 
 export function StocktakeDetail({
   stocktake,
@@ -104,12 +125,58 @@ export function StocktakeDetail({
     await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
   };
 
-  const saveMutation = useMutation<void, ApiError, CountFormValues>({
-    mutationFn: async (values) => {
+  const buildDirtyCountPayload = (
+    values: CountFormValues
+  ): UpdateStocktakeCounts | null => {
+    const dirtyLines = form.formState.dirtyFields.lines ?? [];
+    const lines = values.lines.flatMap((line, index) => {
+      if (!dirtyLines[index]?.countedQty) {
+        return [];
+      }
+
+      return [
+        {
+          lineId: line.lineId,
+          countedQty: normalizeCountedQtyInput(line.countedQty),
+        },
+      ];
+    });
+
+    if (lines.length === 0) {
+      return null;
+    }
+
+    return updateStocktakeCountsSchema.parse({ lines });
+  };
+
+  const resetFormWithCurrentValues = (values: CountFormValues) => {
+    form.reset({
+      lines: values.lines.map((line) => ({
+        lineId: line.lineId,
+        countedQty: formatSavedCountedQtyInput(line.countedQty),
+      })),
+    });
+  };
+
+  const saveDirtyCounts = async (values: CountFormValues) => {
+    const payload = buildDirtyCountPayload(values);
+
+    if (!payload) {
+      return false;
+    }
+
+    await saveMutation.mutateAsync(payload);
+    resetFormWithCurrentValues(values);
+    await refreshStocktakeQueries();
+    return true;
+  };
+
+  const saveMutation = useMutation<void, ApiError, UpdateStocktakeCounts>({
+    mutationFn: async (payload) => {
       const response = await fetch(`/api/stocktakes/${stocktake.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify(payload),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -122,10 +189,6 @@ export function StocktakeDetail({
     onMutate: () => {
       setActionError(null);
       form.clearErrors();
-    },
-    onSuccess: async () => {
-      await refreshStocktakeQueries();
-      router.refresh();
     },
     onError: (error: ApiError) => {
       if (error.errors) {
@@ -180,6 +243,32 @@ export function StocktakeDetail({
     },
   });
 
+  const handleSave = form.handleSubmit(async (values) => {
+    try {
+      const didSave = await saveDirtyCounts(values);
+
+      if (!didSave) {
+        return;
+      }
+
+      router.refresh();
+    } catch {
+      return;
+    }
+  });
+
+  const handleComplete = form.handleSubmit(async (values) => {
+    try {
+      if (form.formState.isDirty) {
+        await saveDirtyCounts(values);
+      }
+
+      await completeMutation.mutateAsync(false);
+    } catch {
+      return;
+    }
+  });
+
   const cancelMutation = useMutation<void, Error, void>({
     mutationFn: async () => {
       const response = await fetch(`/api/stocktakes/${stocktake.id}/cancel`, {
@@ -206,10 +295,7 @@ export function StocktakeDetail({
   const displayLines = useMemo(() => {
     return stocktake.lines.map((line, index) => {
       const watchedLine = watchedLines?.[index];
-      const currentCountedQty =
-        watchedLine?.countedQty == null || watchedLine.countedQty === ""
-          ? null
-          : watchedLine.countedQty;
+      const currentCountedQty = normalizeCountedQtyInput(watchedLine?.countedQty);
       const currentVarianceQty =
         currentCountedQty == null
           ? null
@@ -254,8 +340,7 @@ export function StocktakeDetail({
   const canEditCounts = stocktake.status === "draft";
   const canComplete =
     canEditCounts &&
-    !form.formState.isDirty &&
-    savedCountedCount > 0 &&
+    liveCountedCount > 0 &&
     !completeMutation.isPending &&
     !saveMutation.isPending;
 
@@ -284,7 +369,7 @@ export function StocktakeDetail({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={form.handleSubmit((values) => saveMutation.mutate(values))}
+                onClick={handleSave}
                 disabled={!form.formState.isDirty || saveMutation.isPending}
               >
                 {saveMutation.isPending ? "Saving..." : "Save Counts"}
@@ -292,7 +377,7 @@ export function StocktakeDetail({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => completeMutation.mutate(false)}
+                onClick={handleComplete}
                 disabled={!canComplete}
               >
                 {completeMutation.isPending ? "Completing..." : "Complete"}
@@ -318,15 +403,15 @@ export function StocktakeDetail({
         {actionError && <FieldError>{actionError}</FieldError>}
         {linesError && <FieldError>{linesError}</FieldError>}
 
-        {canEditCounts && form.formState.isDirty && (
+        {canEditCounts && liveCountedCount === 0 && (
           <p className="text-sm text-muted-foreground">
-            Save counts before completing this stocktake.
+            Enter at least one counted quantity before completing this stocktake.
           </p>
         )}
 
-        {canEditCounts && !form.formState.isDirty && savedCountedCount === 0 && (
+        {canEditCounts && liveCountedCount > 0 && form.formState.isDirty && (
           <p className="text-sm text-muted-foreground">
-            Save at least one counted quantity before completing this stocktake.
+            Completing will save your pending count changes first.
           </p>
         )}
 
