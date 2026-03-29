@@ -120,8 +120,11 @@ export function AccountSettingsPage({
 
   useEffect(() => {
     resetProfileForm({ name: initialData.name });
+  }, [initialData.name, resetProfileForm]);
+
+  useEffect(() => {
     resetEmailForm({ newEmail: "" });
-  }, [initialData.email, initialData.name, resetEmailForm, resetProfileForm]);
+  }, [initialData.email, resetEmailForm]);
 
   const profileMutation = useMutation({
     mutationFn: async (values: UpdateProfileInput) => {
