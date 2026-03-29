@@ -166,10 +166,7 @@ export function AccountSettingsPage({
         input.currentPassword.length > 0 ||
         input.newPassword.length > 0 ||
         input.confirmPassword.length > 0;
-      let nextSavedState: SavedAccountState = {
-        name: input.name,
-        email: savedState.email,
-      };
+      let nextSavedState: SavedAccountState = savedState;
 
       if (input.name !== savedState.name) {
         try {
