@@ -514,7 +514,7 @@ A change is "done" when:
 1. `pnpm build` passes (no type errors)
 2. `pnpm test` passes (no regressions)
 3. `pnpm lint` passes
-4. Branch pushed and PR opened with description
+4. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
 5. For UI changes: screenshot or description of what changed visually
 
 ## Multi-Agent Safety
