@@ -39,6 +39,7 @@ When you discover a new pattern or gotcha:
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
+| Production launch, auth protection, observability | `docs/production-ops.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |
@@ -360,6 +361,23 @@ const requestedDate = nullableString.refine(
   (value) => value == null || isValidIsoDate(value),
   "Requested date must be a real date in YYYY-MM-DD format"
 )
+```
+
+### Auth email URLs
+
+Invite, verification, and password-reset emails must use the configured canonical app URL. Never build auth links from `request.url`.
+
+```ts
+const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL
+```
+
+### Observability hygiene
+
+Sentry and API error logging must redact secrets and user-entered notes. Never capture passwords, tokens, cookies, raw request bodies, or customer notes/comments by default.
+
+```ts
+delete event.request?.data
+scope.setContext("request", { method, path })
 ```
 
 ### Product deletes with active sales orders

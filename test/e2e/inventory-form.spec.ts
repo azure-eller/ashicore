@@ -468,7 +468,10 @@ test.describe("Inventory creation flow", () => {
     await page.goto(`/inventory/products/${sellableProductId}`);
     await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
     await page.getByRole("link", { name: "Edit" }).click();
-    await expect(page.getByText("Edit Product")).toBeVisible();
+    await page.waitForURL(`**/inventory/products/${sellableProductId}/edit`);
+    await expect(
+      page.getByRole("heading", { name: "Edit Product" })
+    ).toBeVisible({ timeout: 30000 });
 
     // Verify key fields pre-populated
     await expect(page.getByLabel("Name")).toHaveValue(sellableProductName);

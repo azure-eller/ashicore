@@ -14,6 +14,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
@@ -22,13 +23,23 @@ import { authClient } from "@/lib/auth-client"
 
 export function LoginForm({
   className,
+  notice,
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & {
+  notice?: string
+}) {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  const successMessage =
+    notice === "password-reset"
+      ? "Password updated. Sign in with your new password."
+      : notice === "email-updated"
+        ? "Email updated. Sign in with your new address."
+        : null
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -70,7 +81,7 @@ export function LoginForm({
                 <div className="flex items-center">
                   <FieldLabel htmlFor="password">Password</FieldLabel>
                   <a
-                    href="#"
+                    href="/forgot-password"
                     className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
                   >
                     Forgot your password?
@@ -84,10 +95,13 @@ export function LoginForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </Field>
-              {error && (
-                <FieldDescription className="text-destructive">
-                  {error}
+              {successMessage && (
+                <FieldDescription className="text-foreground">
+                  {successMessage}
                 </FieldDescription>
+              )}
+              {error && (
+                <FieldError>{error}</FieldError>
               )}
               <Field>
                 <Button type="submit" disabled={loading}>

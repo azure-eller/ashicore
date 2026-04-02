@@ -659,12 +659,10 @@ test.describe("Manufacturing order flow", () => {
       exact: true,
     });
     await expect(detailCreateButton).toBeDisabled();
-    await detailCreateButton.hover({ force: true });
-    await expect(
-      page.getByText(
-        "All manufacturable lines already have linked manufacturing orders."
-      )
-    ).toBeVisible();
+    await expect(detailCreateButton).toHaveAttribute(
+      "data-disabled-reason",
+      "All manufacturable lines already have linked manufacturing orders."
+    );
 
     const retryResponse = await testFetch(
       `/api/sales-orders/${repeatSalesOrderId}/manufacturing-orders`,

@@ -4,6 +4,7 @@ import { createAccessControl, organization } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { sendAccountEmailVerificationEmail, sendPasswordResetEmail } from "@/lib/email/auth-emails";
 import { sendTeamInvitationEmail } from "@/lib/email/team-invites";
 
 const authFallbackUrl =
@@ -87,11 +88,25 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail({
+        email: user.email,
+        url,
+      });
+    },
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendAccountEmailVerificationEmail({
+        email: user.email,
+        url,
+      });
+    },
   },
   user: {
     changeEmail: {
       enabled: true,
-      updateEmailWithoutVerification: true,
+      updateEmailWithoutVerification: false,
     },
   },
   plugins: [
@@ -104,14 +119,13 @@ export const auth = betterAuth({
         operator: passiveOrgRole,
         viewer: passiveOrgRole,
       },
-      sendInvitationEmail: async (data, request) => {
+      sendInvitationEmail: async (data) => {
         await sendTeamInvitationEmail({
           invitationId: data.id,
           email: data.email,
           role: data.role,
           organizationName: data.organization.name,
           inviterName: data.inviter.user.name ?? null,
-          request,
         });
       },
     }),

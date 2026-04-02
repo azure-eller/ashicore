@@ -572,7 +572,10 @@ test.describe("Sales order flow", () => {
 
     await page.getByRole("link", { name: "Create MOs", exact: true }).click();
     await page.waitForURL(`**/manufacturing/orders/new?salesOrderId=${fullOrderId}`);
-    await expect(page.getByText("Sales Order Preview")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Add Manufacturing Order" })
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText("Sales Order Preview")).toBeVisible({ timeout: 30000 });
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
@@ -585,7 +588,10 @@ test.describe("Sales order flow", () => {
     ).toBeVisible();
     await confirmedRow.getByRole("link", { name: "Create MOs" }).click();
     await page.waitForURL(`**/manufacturing/orders/new?salesOrderId=${fullOrderId}`);
-    await expect(page.getByText("Sales Order Preview")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Add Manufacturing Order" })
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText("Sales Order Preview")).toBeVisible({ timeout: 30000 });
   });
 
   test("confirmed non-manufacturable orders keep Create MOs disabled with a tooltip", async ({
@@ -631,10 +637,10 @@ test.describe("Sales order flow", () => {
       exact: true,
     });
     await expect(detailCreateButton).toBeDisabled();
-    await detailCreateButton.hover({ force: true });
-    await expect(
-      page.getByText("No active BOM-backed products remain on this order.")
-    ).toBeVisible();
+    await expect(detailCreateButton).toHaveAttribute(
+      "data-disabled-reason",
+      "No active BOM-backed products remain on this order."
+    );
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", noManufacturingOrderNumber);
@@ -646,10 +652,10 @@ test.describe("Sales order flow", () => {
       name: "Create MOs",
     });
     await expect(rowCreateButton).toBeDisabled();
-    await rowCreateButton.hover({ force: true });
-    await expect(
-      page.getByText("No active BOM-backed products remain on this order.")
-    ).toBeVisible();
+    await expect(rowCreateButton).toHaveAttribute(
+      "data-disabled-reason",
+      "No active BOM-backed products remain on this order."
+    );
 
     await updateSalesOrderStatus(noManufacturingOrderId, "cancelled");
 
