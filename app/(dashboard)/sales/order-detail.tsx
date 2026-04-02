@@ -144,9 +144,35 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     },
   });
 
+  const fulfillMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/sales-orders/${order.id}/fulfill`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to fulfill order.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
   const canConfirm = !isDeleted && order.status === "draft";
+  const canFulfill = !isDeleted && order.status === "confirmed";
   const canCancel = !isDeleted && order.status === "confirmed";
   const canDelete = !isDeleted;
   const canCreateMOs = !isDeleted && order.status === "confirmed";
@@ -183,6 +209,15 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                 disabled={confirmMutation.isPending}
               >
                 {confirmMutation.isPending ? "Confirming..." : "Confirm"}
+              </Button>
+            )}
+            {canFulfill && (
+              <Button
+                size="sm"
+                onClick={() => fulfillMutation.mutate()}
+                disabled={fulfillMutation.isPending}
+              >
+                {fulfillMutation.isPending ? "Fulfilling..." : "Fulfill"}
               </Button>
             )}
             {canCreateMOs &&
