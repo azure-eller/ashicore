@@ -1,7 +1,5 @@
 import dotenv from "dotenv";
 import { and, eq } from "drizzle-orm";
-import { Pool } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
 import { test, expect } from "./fixtures";
 import {
   createCustomer,
@@ -18,8 +16,25 @@ dotenv.config({ path: ".env.local" });
 
 const authConnectionString =
   process.env.DATABASE_URL_APP || process.env.DATABASE_URL;
-const authPool = new Pool({ connectionString: authConnectionString });
-const authDb = drizzle(authPool);
+const isNeon = authConnectionString?.includes(".neon.tech") ?? false;
+
+function createAuthDb() {
+  if (isNeon) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Pool } = require("@neondatabase/serverless") as typeof import("@neondatabase/serverless");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { drizzle } = require("drizzle-orm/neon-serverless") as typeof import("drizzle-orm/neon-serverless");
+    return drizzle(new Pool({ connectionString: authConnectionString }));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Pool } = require("pg") as typeof import("pg");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { drizzle } = require("drizzle-orm/node-postgres") as typeof import("drizzle-orm/node-postgres");
+  return drizzle(new Pool({ connectionString: authConnectionString }));
+}
+
+const authDb = createAuthDb();
 
 const TEST_USER_EMAIL = "test-agent@erp-test.local";
 
