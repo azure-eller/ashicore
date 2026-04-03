@@ -128,7 +128,7 @@ test.describe("Purchasing flow", () => {
 
     await page.locator("#expectedDate").click();
     await page.getByRole("button", { name: "Go to the Next Month" }).click();
-    await page.getByRole("gridcell", { name: "1", exact: true }).first().click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^1$/ }).first().click();
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
@@ -184,7 +184,7 @@ test.describe("Purchasing flow", () => {
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
 
     await page.locator("#expectedDate").click();
-    await page.getByRole("gridcell", { name: "3", exact: true }).first().click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^3$/ }).first().click();
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);

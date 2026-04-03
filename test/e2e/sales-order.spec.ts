@@ -366,7 +366,7 @@ test.describe("Sales order flow", () => {
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
     await page.getByLabel("Requested Date").click();
-    await page.getByRole("gridcell", { name: "15" }).first().click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^15$/ }).first().click();
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();

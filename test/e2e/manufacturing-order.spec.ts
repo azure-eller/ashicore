@@ -539,7 +539,7 @@ test.describe("Manufacturing order flow", () => {
 
     await page.getByLabel("Batch Planned Date").click();
     await page.getByRole("button", { name: "Go to the Next Month" }).click();
-    await page.getByRole("gridcell", { name: "1", exact: true }).first().click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^1$/ }).first().click();
     await page.getByLabel("Notes").fill("Batch manufacturing coverage");
     await page.getByRole("button", { name: "Create 1 Order" }).click();
 
