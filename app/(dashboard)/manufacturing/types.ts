@@ -38,7 +38,12 @@ export type ManufacturingSalesOrderPreviewLine = {
   quantity: string;
   unitName: string;
   status: "will_create" | "skipped";
-  skipReason: "inactive_product" | "no_active_bom" | "existing_active_mo" | null;
+  skipReason:
+    | "non_product"
+    | "inactive_product"
+    | "no_active_bom"
+    | "existing_active_mo"
+    | null;
   skipMessage: string | null;
 };
 
@@ -61,7 +66,7 @@ export type ManufacturingOrdersFromSalesOrderResult = {
   }>;
   skipped: Array<{
     salesOrderLineId: string;
-    reason: "inactive_product" | "no_active_bom" | "existing_active_mo";
+    reason: "non_product" | "inactive_product" | "no_active_bom" | "existing_active_mo";
   }>;
 };
 

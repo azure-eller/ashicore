@@ -2,14 +2,14 @@ import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { OrderForm } from "@/app/(dashboard)/sales/order-form";
 import {
   getCustomers,
-  getSalesOrderProductOptions,
+  getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
 
 export default async function NewOrderPage() {
   await requireModuleWriteAccess("sales");
-  const [customerRows, products] = await Promise.all([
+  const [customerRows, items] = await Promise.all([
     getCustomers(),
-    getSalesOrderProductOptions(),
+    getSalesOrderItemOptions(),
   ]);
 
   return (
@@ -19,7 +19,7 @@ export default async function NewOrderPage() {
           id: customer.id,
           name: customer.name,
         }))}
-        products={products}
+        items={items}
       />
     </div>
   );

@@ -159,7 +159,9 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
 
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
   const queryClient = useQueryClient();
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "requestedDate", desc: false },
+  ]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -477,7 +479,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirming the selected orders would oversell one or more products.
+              Confirming the selected orders would oversell one or more items.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -491,7 +493,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Product</TableHead>
+                        <TableHead>Item</TableHead>
                         <TableHead>Current Stock</TableHead>
                         <TableHead>
                           <TooltipHeader

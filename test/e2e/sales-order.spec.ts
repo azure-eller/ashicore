@@ -367,20 +367,28 @@ test.describe("Sales order flow", () => {
 
     await page.getByLabel("Requested Date").fill("2026-04-15");
 
-    const productInput = page.getByPlaceholder("Search products...");
-    await productInput.click();
-    await productInput.fill(primaryProductName);
+    const itemInput = page.getByPlaceholder("Search items...");
+    await itemInput.click();
+    await itemInput.fill(primaryProductName);
     await page.getByRole("option", { name: new RegExp(primaryProductName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
 
     await page.getByRole("button", { name: "Add Item" }).click();
     const row2 = page.locator("tbody tr").last();
-    await row2.getByPlaceholder("Search products...").click();
-    await row2.getByPlaceholder("Search products...").fill(secondaryProductName);
+    await row2.getByPlaceholder("Search items...").click();
+    await row2.getByPlaceholder("Search items...").fill(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
     await row2.locator('input[placeholder="0"]').first().fill("5");
     await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.80");
     await expect(row2.getByText("Suggested $10.80")).toBeVisible();
+
+    await page.getByRole("button", { name: "Add Item" }).click();
+    const row3 = page.locator("tbody tr").last();
+    await row3.getByPlaceholder("Search items...").click();
+    await row3.getByPlaceholder("Search items...").fill(primaryMaterialName);
+    await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
+    await row3.locator('input[placeholder="0"]').first().fill("5");
+    await row3.locator('input[placeholder="0.00"]').fill("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
@@ -394,6 +402,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText(customerName)).toBeVisible();
     await expect(page.getByText(primaryProductName)).toBeVisible();
     await expect(page.getByText(secondaryProductName)).toBeVisible();
+    await expect(page.getByText(primaryMaterialName)).toBeVisible();
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
@@ -418,7 +427,7 @@ test.describe("Sales order flow", () => {
       .select()
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, order.id));
-    expect(lineRows).toHaveLength(2);
+    expect(lineRows).toHaveLength(3);
 
     const lineByItem = new Map(lineRows.map((line) => [line.itemId, line]));
     expect(lineByItem.get(primaryProductId)?.quantity).toBe("3.0000");
@@ -430,6 +439,8 @@ test.describe("Sales order flow", () => {
     );
     expect(lineByItem.get(secondaryProductId)?.pricingBreakLabel).toBe("5+");
     expect(lineByItem.get(secondaryProductId)?.isPriceOverridden).toBe(false);
+    expect(lineByItem.get(primaryMaterialId)?.quantity).toBe("5.0000");
+    expect(lineByItem.get(primaryMaterialId)?.unitPrice).toBe("6.25");
 
     const computedTotal = lineRows.reduce(
       (sum, line) => sum + parseFloat(line.lineTotal),
@@ -439,8 +450,13 @@ test.describe("Sales order flow", () => {
 
     const [primaryItem] = await db.select().from(items).where(eq(items.id, primaryProductId));
     const [secondaryItem] = await db.select().from(items).where(eq(items.id, secondaryProductId));
+    const [primaryMaterial] = await db
+      .select()
+      .from(items)
+      .where(eq(items.id, primaryMaterialId));
     expect(primaryItem.committedQty).toBe("0.0000");
     expect(secondaryItem.committedQty).toBe("0.0000");
+    expect(primaryMaterial.committedQty).toBe("0.0000");
   });
 
   test("edits the draft order — verifies pre-population and changes quantity", async ({ page, db }) => {
@@ -621,10 +637,15 @@ test.describe("Sales order flow", () => {
             .select({ committedQty: items.committedQty })
             .from(items)
             .where(eq(items.id, secondaryProductId));
+          const [materialItem] = await db
+            .select({ committedQty: items.committedQty })
+            .from(items)
+            .where(eq(items.id, primaryMaterialId));
 
           return {
             primary: primaryItem?.committedQty ?? null,
             secondary: secondaryItem?.committedQty ?? null,
+            material: materialItem?.committedQty ?? null,
           };
         },
         { timeout: 15_000 }
@@ -632,6 +653,7 @@ test.describe("Sales order flow", () => {
       .toEqual({
         primary: "5.0000",
         secondary: "5.0000",
+        material: "5.0000",
       });
   });
 
@@ -769,8 +791,13 @@ test.describe("Sales order flow", () => {
 
     const [primaryItem] = await db.select().from(items).where(eq(items.id, primaryProductId));
     const [secondaryItem] = await db.select().from(items).where(eq(items.id, secondaryProductId));
+    const [primaryMaterial] = await db
+      .select()
+      .from(items)
+      .where(eq(items.id, primaryMaterialId));
     expect(primaryItem.committedQty).toBe("0.0000");
     expect(secondaryItem.committedQty).toBe("0.0000");
+    expect(primaryMaterial.committedQty).toBe("0.0000");
   });
 
   test("deletes the cancelled order", async ({ page, db }) => {
@@ -908,11 +935,19 @@ test.describe("Sales order flow", () => {
     await customerInput.fill(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    const productInput = page.getByPlaceholder("Search products...");
-    await productInput.click();
-    await productInput.fill(secondaryProductName);
+    const itemInput = page.getByPlaceholder("Search items...");
+    await itemInput.click();
+    await itemInput.fill(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("1");
+
+    await page.getByRole("button", { name: "Add Item" }).click();
+    const materialRow = page.locator("tbody tr").last();
+    await materialRow.getByPlaceholder("Search items...").click();
+    await materialRow.getByPlaceholder("Search items...").fill(primaryMaterialName);
+    await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
+    await materialRow.locator('input[placeholder="0"]').first().fill("4");
+    await materialRow.locator('input[placeholder="0.00"]').fill("6.25");
 
     await page.getByRole("button", { name: "Create Order" }).click();
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
@@ -961,6 +996,30 @@ test.describe("Sales order flow", () => {
     expect(deleteResponse.status()).toBe(400);
 
     const rows = await db.select().from(items).where(eq(items.id, secondaryProductId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].deletedAt).toBeNull();
+  });
+
+  test("blocks deleting a material used by an active order", async ({ page, db }) => {
+    await page.goto("/inventory/materials");
+    await filterList(page, "Search items", primaryMaterialName);
+
+    await page.getByLabel(`Select ${primaryMaterialName}`).click();
+    await page.getByRole("button", { name: "Actions (1 selected)" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+
+    const deleteResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        response.url().endsWith("/api/items") &&
+        response.request().postData()?.includes(primaryMaterialId) === true
+    );
+
+    await page.getByRole("button", { name: "Delete" }).click();
+    const deleteResponse = await deleteResponsePromise;
+    expect(deleteResponse.status()).toBe(400);
+
+    const rows = await db.select().from(items).where(eq(items.id, primaryMaterialId));
     expect(rows).toHaveLength(1);
     expect(rows[0].deletedAt).toBeNull();
   });

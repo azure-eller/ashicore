@@ -79,7 +79,7 @@ import type {
   OversellWarningPayload,
   SalesOrderEditData,
   SalesLinePricingResult,
-  SalesOrderProductOption,
+  SalesOrderItemOption,
 } from "./types";
 
 function lineTotalLabel(quantity: string | null | undefined, unitPrice: string | null | undefined) {
@@ -114,11 +114,11 @@ const DEFAULT_LINE_PRICING_STATE: LinePricingState = {
 
 export function OrderForm({
   customers,
-  products,
+  items,
   initialData,
 }: {
   customers: CustomerOption[];
-  products: SalesOrderProductOption[];
+  items: SalesOrderItemOption[];
   initialData?: SalesOrderEditData;
 }) {
   const router = useRouter();
@@ -142,13 +142,13 @@ export function OrderForm({
     () => new Map(customers.map((customer) => [customer.id, customer])),
     [customers]
   );
-  const productIds = useMemo(
-    () => products.map((product) => product.id),
-    [products]
+  const itemIds = useMemo(
+    () => items.map((item) => item.id),
+    [items]
   );
-  const productMap = useMemo(
-    () => new Map(products.map((product) => [product.id, product])),
-    [products]
+  const itemMap = useMemo(
+    () => new Map(items.map((item) => [item.id, item])),
+    [items]
   );
 
   const form = useForm<OrderFormValues>({
@@ -222,7 +222,7 @@ export function OrderForm({
     const line = initialData?.lines[index];
     const itemId = form.getValues(`lines.${index}.itemId`);
     const baseUnitPrice = itemId
-      ? productMap.get(itemId)?.defaultSellingPrice ?? null
+      ? itemMap.get(itemId)?.defaultSellingPrice ?? null
       : null;
 
     return {
@@ -466,7 +466,7 @@ export function OrderForm({
             <FieldSet className="gap-5">
               <FieldLegend>Items</FieldLegend>
               <FieldDescription>
-                Add each product once, then set quantities and prices.
+                Add each item once, then set quantities and prices.
               </FieldDescription>
               <FieldGroup className="gap-4">
                 {fields.length > 0 ? (
@@ -474,7 +474,7 @@ export function OrderForm({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Product</TableHead>
+                          <TableHead>Item</TableHead>
                           <TableHead className="w-32">Qty</TableHead>
                           <TableHead className="w-28">Unit</TableHead>
                           <TableHead className="w-40">Unit Price</TableHead>
@@ -486,26 +486,26 @@ export function OrderForm({
                         {fields.map((field, index) => (
                           <OrderLineRow
                             key={field.id}
-                        lineKey={field.id}
-                        index={index}
-                        control={form.control}
-                        customerId={customerId}
-                        initialCustomerId={initialData?.customerId}
-                        initialLine={initialData?.lines[index]}
-                        setValue={form.setValue}
-                        productIds={productIds}
-                        productMap={productMap}
+                            lineKey={field.id}
+                            index={index}
+                            control={form.control}
+                            customerId={customerId}
+                            initialCustomerId={initialData?.customerId}
+                            initialLine={initialData?.lines[index]}
+                            setValue={form.setValue}
+                            itemIds={itemIds}
+                            itemMap={itemMap}
                             pricingState={getLinePricingState(field.id, index)}
                             onPricingStateChange={updateLinePricingState}
-                            onProductChange={(productId) => {
-                              const product = productMap.get(productId);
-                              form.setValue(`lines.${index}.itemId`, productId, {
+                            onItemChange={(itemId) => {
+                              const item = itemMap.get(itemId);
+                              form.setValue(`lines.${index}.itemId`, itemId, {
                                 shouldDirty: true,
                                 shouldValidate: true,
                               });
                               form.setValue(
                                 `lines.${index}.unitPrice`,
-                                product?.defaultSellingPrice ?? null,
+                                item?.defaultSellingPrice ?? null,
                                 {
                                   shouldDirty: true,
                                   shouldValidate: true,
@@ -513,9 +513,9 @@ export function OrderForm({
                               );
                               updateLinePricingState(field.id, {
                                 ...DEFAULT_LINE_PRICING_STATE,
-                                baseUnitPrice: product?.defaultSellingPrice ?? null,
+                                baseUnitPrice: item?.defaultSellingPrice ?? null,
                                 suggestedUnitPrice:
-                                  product?.defaultSellingPrice ?? null,
+                                  item?.defaultSellingPrice ?? null,
                                 isPriceOverridden: false,
                               });
                             }}
@@ -539,7 +539,7 @@ export function OrderForm({
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
-                      Add products to build this sales order.
+                      Add items to build this sales order.
                     </p>
                   </div>
                 )}
@@ -621,7 +621,7 @@ export function OrderForm({
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirming this order would push one or more products below calculated stock. You can still proceed.
+              Confirming this order would push one or more items below calculated stock. You can still proceed.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -629,7 +629,7 @@ export function OrderForm({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
+                  <TableHead>Item</TableHead>
                   <TableHead>Current Stock</TableHead>
                   <TableHead>
                     <TooltipHeader
@@ -728,11 +728,11 @@ function OrderLineRow({
   initialCustomerId,
   initialLine,
   setValue,
-  productIds,
-  productMap,
+  itemIds,
+  itemMap,
   pricingState,
   onPricingStateChange,
-  onProductChange,
+  onItemChange,
   onRemove,
 }: {
   lineKey: string;
@@ -742,14 +742,14 @@ function OrderLineRow({
   initialCustomerId?: string | null;
   initialLine?: SalesOrderEditData["lines"][number];
   setValue: UseFormSetValue<OrderFormValues>;
-  productIds: string[];
-  productMap: Map<string, SalesOrderProductOption>;
+  itemIds: string[];
+  itemMap: Map<string, SalesOrderItemOption>;
   pricingState: LinePricingState | undefined;
   onPricingStateChange: (
     lineKey: string,
     nextState: Partial<LinePricingState>
   ) => void;
-  onProductChange: (productId: string) => void;
+  onItemChange: (itemId: string) => void;
   onRemove: () => void;
 }) {
   const line = useWatch({
@@ -757,7 +757,7 @@ function OrderLineRow({
     name: `lines.${index}`,
   });
 
-  const product = line?.itemId ? productMap.get(line.itemId) : undefined;
+  const item = line?.itemId ? itemMap.get(line.itemId) : undefined;
   const shouldResolveLivePricing =
     (customerId ?? "") !== "" &&
     (line?.itemId ?? "") !== "" &&
@@ -797,7 +797,7 @@ function OrderLineRow({
   const isPriceOverridden = pricingState?.isPriceOverridden ?? false;
 
   useEffect(() => {
-    if (!product) {
+    if (!item) {
       onPricingStateChange(lineKey, {
         ...DEFAULT_LINE_PRICING_STATE,
         isPriceOverridden,
@@ -807,9 +807,9 @@ function OrderLineRow({
 
     if (!shouldResolveLivePricing) {
       onPricingStateChange(lineKey, {
-        baseUnitPrice: product.defaultSellingPrice ?? null,
+        baseUnitPrice: item.defaultSellingPrice ?? null,
         suggestedUnitPrice:
-          initialLine?.suggestedUnitPrice ?? product.defaultSellingPrice ?? null,
+          initialLine?.suggestedUnitPrice ?? item.defaultSellingPrice ?? null,
         pricingSourceType:
           initialLine?.pricingSourceType ??
           DEFAULT_LINE_PRICING_STATE.pricingSourceType,
@@ -848,7 +848,7 @@ function OrderLineRow({
       return;
     }
 
-    const baseUnitPrice = product.defaultSellingPrice ?? null;
+    const baseUnitPrice = item.defaultSellingPrice ?? null;
     onPricingStateChange(lineKey, {
       baseUnitPrice,
       suggestedUnitPrice: baseUnitPrice,
@@ -871,7 +871,7 @@ function OrderLineRow({
     line?.unitPrice,
     lineKey,
     onPricingStateChange,
-    product,
+    item,
     pricingQuery.isFetching,
     pricingQuery.isPending,
     setValue,
@@ -888,23 +888,30 @@ function OrderLineRow({
           render={({ field, fieldState }) => (
             <div>
               <Combobox
-                items={productIds}
+                items={itemIds}
                 value={field.value ?? ""}
-                onValueChange={(value) => onProductChange(value ?? "")}
-                itemToStringLabel={(value) => productMap.get(value)?.name ?? ""}
+                onValueChange={(value) => onItemChange(value ?? "")}
+                itemToStringLabel={(value) => itemMap.get(value)?.name ?? ""}
               >
-                <ComboboxInput placeholder="Search products..." />
+                <ComboboxInput placeholder="Search items..." />
                 <ComboboxContent>
-                  <ComboboxEmpty>No products found</ComboboxEmpty>
+                  <ComboboxEmpty>No items found</ComboboxEmpty>
                   <ComboboxList>
                     {(value: string) => {
-                      const current = productMap.get(value);
+                      const current = itemMap.get(value);
+                      const metadata = [
+                        current?.sku,
+                        current ? (current.itemType === "material" ? "Material" : "Product") : null,
+                      ]
+                        .filter((part): part is string => part != null)
+                        .join(" · ");
+
                       return (
                         <ComboboxItem key={value} value={value}>
                           <span>{current?.name ?? value}</span>
-                          {current?.sku && (
+                          {metadata && (
                             <span className="ml-auto text-xs text-muted-foreground">
-                              {current.sku}
+                              {metadata}
                             </span>
                           )}
                         </ComboboxItem>
@@ -941,7 +948,7 @@ function OrderLineRow({
       </TableCell>
 
       <TableCell className="text-sm text-muted-foreground">
-        {product?.unitName ?? "\u2014"}
+        {item?.unitName ?? "\u2014"}
       </TableCell>
 
       <TableCell>
@@ -1004,7 +1011,7 @@ function OrderLineRow({
                         </p>
                       )}
                     </>
-                  ) : product?.defaultSellingPrice == null && product ? (
+                  ) : item?.defaultSellingPrice == null && item ? (
                     <p className="pt-1 text-xs text-muted-foreground">
                       No default selling price. Enter one manually.
                     </p>

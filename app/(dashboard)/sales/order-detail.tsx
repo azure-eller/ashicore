@@ -312,7 +312,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
+                  <TableHead>Item</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead>Unit</TableHead>
@@ -443,7 +443,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirming this order would oversell one or more products.
+              Confirming this order would oversell one or more items.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -451,7 +451,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
+                  <TableHead>Item</TableHead>
                   <TableHead>Current Stock</TableHead>
                   <TableHead>
                     <TooltipHeader

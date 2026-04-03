@@ -88,8 +88,9 @@ export type SalesLinePricingResult = {
   customerCategoryName: string | null;
 };
 
-export type SalesOrderProductOption = {
+export type SalesOrderItemOption = {
   id: string;
+  itemType: "material" | "product";
   name: string;
   sku: string | null;
   unitName: string;

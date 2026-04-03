@@ -229,6 +229,24 @@ if (qty != null && !isNaN(qty)) { ... }
 if (row.quantity) { ... }
 ```
 
+## Count-Based Units
+
+The shared unit picker is built from `lib/units-of-measure.ts`. Packaging and internal assemblies sometimes need count semantics even when no convert-library mass/volume unit fits.
+
+Use the shared `Each` unit for:
+
+- blank bags
+- stickers
+- generic totes
+- internal packaged assemblies
+- internal packs that are staged and consumed as discrete units
+
+```ts
+{ name: "Each", size: "1", uom: "ea" }
+```
+
+Do not fake these as pounds or cubic feet just to satisfy the unit picker. If a new onboarding or workflow needs count-based inventory, add `ea` to the shared unit options instead of inventing a one-off workaround in a script.
+
 ## Zod Schemas
 
 One Zod schema per entity in `lib/schemas/`, derived from the Drizzle table:

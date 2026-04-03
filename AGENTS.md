@@ -83,6 +83,14 @@ Before defining a helper in a module, check `lib/format.ts` and `lib/schemas/sha
 
 For `createInsertSchema` overrides (items.ts), use `nullableStringStrict` (without `.optional()`) to match Drizzle's type handling.
 
+### Count-based units
+
+Packaging and internal assemblies should use the shared `Each` unit with `uom: "ea"` instead of faking counts as weight or volume.
+
+```ts
+{ name: "Each", size: "1", uom: "ea" }
+```
+
 ### Don't re-validate after Zod
 
 DAL functions receive Zod-parsed types. Don't add manual null/positive/required checks in the DAL — the schema already enforces these. Redundant validation adds dead code that can never trigger through the API.

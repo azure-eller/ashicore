@@ -4,7 +4,7 @@ import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import {
   getCustomers,
   getEditableSalesOrder,
-  getSalesOrderProductOptions,
+  getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
 
 export default async function EditOrderPage({
@@ -14,10 +14,10 @@ export default async function EditOrderPage({
 }) {
   await requireModuleWriteAccess("sales");
   const { id } = await params;
-  const [order, customerRows, products] = await Promise.all([
+  const [order, customerRows, items] = await Promise.all([
     getEditableSalesOrder(id),
     getCustomers(),
-    getSalesOrderProductOptions(),
+    getSalesOrderItemOptions(),
   ]);
 
   if (!order) {
@@ -32,7 +32,7 @@ export default async function EditOrderPage({
           id: customer.id,
           name: customer.name,
         }))}
-        products={products}
+        items={items}
       />
     </div>
   );
