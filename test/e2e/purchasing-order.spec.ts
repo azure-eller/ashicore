@@ -127,7 +127,7 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
     await page.locator("#expectedDate").click();
-    await page.getByRole("button", { name: "Go to next month" }).click();
+    await page.getByRole("button", { name: "Go to the Next Month" }).click();
     await page.getByRole("gridcell", { name: "1", exact: true }).first().click();
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
