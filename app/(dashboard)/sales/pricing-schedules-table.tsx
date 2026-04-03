@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { SortableHeader } from "@/components/sortable-header";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { SortableHeader } from "@/components/sortable-header";
 import { formatDate } from "@/lib/format";
-import type { CustomerRow } from "./types";
+import type { PricingScheduleRow } from "./types";
 
-const columns: ColumnDef<CustomerRow>[] = [
+const columns: ColumnDef<PricingScheduleRow>[] = [
   {
     id: "select",
     header: ({ table }) => (
@@ -18,7 +18,7 @@ const columns: ColumnDef<CustomerRow>[] = [
           (table.getIsSomePageRowsSelected() && "indeterminate")
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all customers"
+        aria-label="Select all pricing schedules"
       />
     ),
     cell: ({ row }) => (
@@ -33,10 +33,10 @@ const columns: ColumnDef<CustomerRow>[] = [
   },
   {
     accessorKey: "name",
-    header: ({ column }) => <SortableHeader column={column} label="Name" />,
+    header: ({ column }) => <SortableHeader column={column} label="Schedule" />,
     cell: ({ row }) => (
       <Link
-        href={`/sales/customers/${row.original.id}`}
+        href={`/sales/pricing/schedules/${row.original.id}/edit`}
         className="hover:underline"
       >
         {row.original.name}
@@ -44,19 +44,16 @@ const columns: ColumnDef<CustomerRow>[] = [
     ),
   },
   {
-    accessorKey: "customerCategoryName",
-    header: "Pricing",
-    cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
+    accessorKey: "customerScopeLabel",
+    header: ({ column }) => <SortableHeader column={column} label="Scope" />,
   },
   {
-    accessorKey: "email",
-    header: "Email",
-    cell: ({ row }) => row.original.email ?? "\u2014",
+    accessorKey: "unitLabel",
+    header: ({ column }) => <SortableHeader column={column} label="Unit" />,
   },
   {
-    accessorKey: "phone",
-    header: "Phone",
-    cell: ({ row }) => row.original.phone ?? "\u2014",
+    accessorKey: "breakSummary",
+    header: "Breaks",
   },
   {
     accessorKey: "updatedAt",
@@ -68,32 +65,36 @@ const columns: ColumnDef<CustomerRow>[] = [
   },
 ];
 
-export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) {
+export function PricingSchedulesTable({
+  initialData,
+}: {
+  initialData: PricingScheduleRow[];
+}) {
   return (
     <DashboardDataTable
       columns={columns}
       initialData={initialData}
-      queryKey={["customers"]}
+      queryKey={["pricing-schedules"]}
       queryFn={async () => {
-        const response = await fetch("/api/customers");
+        const response = await fetch("/api/pricing-schedules");
         if (!response.ok) {
-          throw new Error("Failed to fetch customers");
+          throw new Error("Failed to fetch pricing schedules");
         }
 
         return response.json();
       }}
-      searchAriaLabel="Search customers"
-      addHref="/sales/customers/new"
-      addAriaLabel="Add customer"
-      emptyMessage="No customers yet."
+      searchAriaLabel="Search pricing schedules"
+      addHref="/sales/pricing/schedules/new"
+      addAriaLabel="Add pricing schedule"
+      emptyMessage="No pricing schedules yet."
       deleteAction={{
-        endpoint: "/api/customers",
-        invalidateQueryKeys: [["customers"]],
-        defaultErrorMessage: "Failed to delete customer.",
+        endpoint: "/api/pricing-schedules",
+        invalidateQueryKeys: [["pricing-schedules"]],
+        defaultErrorMessage: "Failed to delete pricing schedules.",
         confirmTitle: (count) =>
-          `Delete ${count} customer${count !== 1 ? "s" : ""}?`,
-        confirmDescription: (count) =>
-          `The selected customer${count !== 1 ? "s" : ""} will be soft-deleted.`,
+          `Delete ${count} pricing schedule${count !== 1 ? "s" : ""}?`,
+        confirmDescription: () =>
+          "The selected pricing schedules will be soft-deleted.",
       }}
     />
   );

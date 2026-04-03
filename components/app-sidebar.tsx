@@ -99,6 +99,10 @@ export function AppSidebar({
           title: "Customers",
           url: "/sales/customers",
         },
+        {
+          title: "Pricing",
+          url: "/sales/pricing",
+        },
       ],
     } : null,
     canReadModule(role, "manufacturing") ? {

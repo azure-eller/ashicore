@@ -510,6 +510,7 @@ function SidebarMenuButton({
       data-sidebar="menu-button"
       data-size={size}
       data-active={isActive}
+      suppressHydrationWarning
       className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
       {...props}
     />

@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { SortableHeader } from "@/components/sortable-header";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { SortableHeader } from "@/components/sortable-header";
 import { formatDate } from "@/lib/format";
-import type { CustomerRow } from "./types";
+import type { CustomerCategoryRow } from "./types";
 
-const columns: ColumnDef<CustomerRow>[] = [
+const columns: ColumnDef<CustomerCategoryRow>[] = [
   {
     id: "select",
     header: ({ table }) => (
@@ -18,7 +18,7 @@ const columns: ColumnDef<CustomerRow>[] = [
           (table.getIsSomePageRowsSelected() && "indeterminate")
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all customers"
+        aria-label="Select all customer categories"
       />
     ),
     cell: ({ row }) => (
@@ -33,10 +33,10 @@ const columns: ColumnDef<CustomerRow>[] = [
   },
   {
     accessorKey: "name",
-    header: ({ column }) => <SortableHeader column={column} label="Name" />,
+    header: ({ column }) => <SortableHeader column={column} label="Category" />,
     cell: ({ row }) => (
       <Link
-        href={`/sales/customers/${row.original.id}`}
+        href={`/sales/pricing/categories/${row.original.id}/edit`}
         className="hover:underline"
       >
         {row.original.name}
@@ -44,19 +44,17 @@ const columns: ColumnDef<CustomerRow>[] = [
     ),
   },
   {
-    accessorKey: "customerCategoryName",
-    header: "Pricing",
-    cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
+    accessorKey: "description",
+    header: "Description",
+    cell: ({ row }) => row.original.description ?? "\u2014",
   },
   {
-    accessorKey: "email",
-    header: "Email",
-    cell: ({ row }) => row.original.email ?? "\u2014",
+    accessorKey: "customerCount",
+    header: "Customers",
   },
   {
-    accessorKey: "phone",
-    header: "Phone",
-    cell: ({ row }) => row.original.phone ?? "\u2014",
+    accessorKey: "scheduleCount",
+    header: "Schedules",
   },
   {
     accessorKey: "updatedAt",
@@ -68,32 +66,36 @@ const columns: ColumnDef<CustomerRow>[] = [
   },
 ];
 
-export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) {
+export function CustomerCategoriesTable({
+  initialData,
+}: {
+  initialData: CustomerCategoryRow[];
+}) {
   return (
     <DashboardDataTable
       columns={columns}
       initialData={initialData}
-      queryKey={["customers"]}
+      queryKey={["customer-categories"]}
       queryFn={async () => {
-        const response = await fetch("/api/customers");
+        const response = await fetch("/api/customer-categories");
         if (!response.ok) {
-          throw new Error("Failed to fetch customers");
+          throw new Error("Failed to fetch customer categories");
         }
 
         return response.json();
       }}
-      searchAriaLabel="Search customers"
-      addHref="/sales/customers/new"
-      addAriaLabel="Add customer"
-      emptyMessage="No customers yet."
+      searchAriaLabel="Search customer categories"
+      addHref="/sales/pricing/categories/new"
+      addAriaLabel="Add customer category"
+      emptyMessage="No customer categories yet."
       deleteAction={{
-        endpoint: "/api/customers",
-        invalidateQueryKeys: [["customers"]],
-        defaultErrorMessage: "Failed to delete customer.",
+        endpoint: "/api/customer-categories",
+        invalidateQueryKeys: [["customer-categories"]],
+        defaultErrorMessage: "Failed to delete customer categories.",
         confirmTitle: (count) =>
-          `Delete ${count} customer${count !== 1 ? "s" : ""}?`,
-        confirmDescription: (count) =>
-          `The selected customer${count !== 1 ? "s" : ""} will be soft-deleted.`,
+          `Delete ${count} customer categor${count === 1 ? "y" : "ies"}?`,
+        confirmDescription: () =>
+          "The selected customer categories will be soft-deleted.",
       }}
     />
   );

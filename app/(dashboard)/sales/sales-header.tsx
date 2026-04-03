@@ -8,6 +8,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 const tabs = [
   { label: "Orders", href: "/sales/orders" },
   { label: "Customers", href: "/sales/customers" },
+  { label: "Pricing", href: "/sales/pricing" },
 ];
 
 export function SalesHeader() {

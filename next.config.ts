@@ -4,7 +4,9 @@ import { loadWorktreeEnv } from "./scripts/load-worktree-env";
 loadWorktreeEnv();
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    root: process.cwd(),
+  },
 };
 
 export default nextConfig;

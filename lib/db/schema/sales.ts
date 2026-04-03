@@ -1,4 +1,5 @@
 import {
+  boolean,
   date,
   index,
   integer,
@@ -13,8 +14,41 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { items } from "./items";
+import { unitDefinitions } from "./units";
 
 export const salesSchema = pgSchema("sales");
+
+export const customerCategories = salesSchema
+  .table(
+    "customer_categories",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      name: varchar("name", { length: 100 }).notNull(),
+      description: text("description"),
+      sortOrder: integer("sort_order").notNull().default(0),
+      deletedAt: timestamp("deleted_at"),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_customer_categories_org_id_idx").on(table.organizationId),
+      index("sales_customer_categories_active_idx")
+        .on(table.organizationId)
+        .where(sql`deleted_at IS NULL`),
+      index("sales_customer_categories_name_idx").on(table.name),
+      uniqueIndex("sales_customer_categories_org_name_uidx")
+        .on(table.organizationId, table.name)
+        .where(sql`deleted_at IS NULL`),
+      pgPolicy("sales_customer_categories_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
 
 export const customers = salesSchema
   .table(
@@ -23,6 +57,9 @@ export const customers = salesSchema
       id: uuid("id").primaryKey().defaultRandom(),
       organizationId: text("organization_id").notNull(),
       name: varchar("name", { length: 255 }).notNull(),
+      customerCategoryId: uuid("customer_category_id").references(
+        () => customerCategories.id
+      ),
       email: varchar("email", { length: 255 }),
       phone: varchar("phone", { length: 50 }),
       address: text("address"),
@@ -37,11 +74,101 @@ export const customers = salesSchema
         .on(table.organizationId)
         .where(sql`deleted_at IS NULL`),
       index("sales_customers_name_idx").on(table.name),
+      index("sales_customers_customer_category_id_idx").on(table.customerCategoryId),
       pgPolicy("sales_customers_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,
         withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const pricingSchedules = salesSchema
+  .table(
+    "pricing_schedules",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      name: varchar("name", { length: 255 }).notNull(),
+      customerCategoryId: uuid("customer_category_id").references(
+        () => customerCategories.id
+      ),
+      unitDefinitionId: uuid("unit_definition_id")
+        .notNull()
+        .references(() => unitDefinitions.id),
+      notes: text("notes"),
+      deletedAt: timestamp("deleted_at"),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_pricing_schedules_org_id_idx").on(table.organizationId),
+      index("sales_pricing_schedules_active_idx")
+        .on(table.organizationId)
+        .where(sql`deleted_at IS NULL`),
+      index("sales_pricing_schedules_customer_category_id_idx").on(
+        table.customerCategoryId
+      ),
+      index("sales_pricing_schedules_unit_definition_id_idx").on(
+        table.unitDefinitionId
+      ),
+      uniqueIndex("sales_pricing_schedules_scope_uidx")
+        .on(table.organizationId, table.customerCategoryId, table.unitDefinitionId)
+        .where(sql`customer_category_id IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_everyone_uidx")
+        .on(table.organizationId, table.unitDefinitionId)
+        .where(sql`customer_category_id IS NULL AND deleted_at IS NULL`),
+      pgPolicy("sales_pricing_schedules_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const pricingScheduleBreaks = salesSchema
+  .table(
+    "pricing_schedule_breaks",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      pricingScheduleId: uuid("pricing_schedule_id")
+        .notNull()
+        .references(() => pricingSchedules.id, { onDelete: "cascade" }),
+      minQuantity: numeric("min_quantity", { precision: 12, scale: 4 }).notNull(),
+      maxQuantity: numeric("max_quantity", { precision: 12, scale: 4 }),
+      discountPercent: numeric("discount_percent", {
+        precision: 5,
+        scale: 2,
+      }).notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_pricing_schedule_breaks_schedule_id_idx").on(
+        table.pricingScheduleId
+      ),
+      uniqueIndex("sales_pricing_schedule_breaks_schedule_sort_uidx").on(
+        table.pricingScheduleId,
+        table.sortOrder
+      ),
+      pgPolicy("sales_pricing_schedule_breaks_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`pricing_schedule_id IN (
+          SELECT id
+          FROM sales.pricing_schedules
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`pricing_schedule_id IN (
+          SELECT id
+          FROM sales.pricing_schedules
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
       }),
     ]
   )
@@ -106,6 +233,14 @@ export const salesOrderLines = salesSchema
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
       unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+      suggestedUnitPrice: numeric("suggested_unit_price", {
+        precision: 10,
+        scale: 2,
+      }),
+      pricingSourceType: varchar("pricing_source_type", { length: 30 }),
+      pricingScheduleName: varchar("pricing_schedule_name", { length: 255 }),
+      pricingBreakLabel: varchar("pricing_break_label", { length: 50 }),
+      isPriceOverridden: boolean("is_price_overridden").notNull().default(false),
       lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at").notNull().defaultNow(),

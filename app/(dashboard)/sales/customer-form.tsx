@@ -12,7 +12,7 @@ import {
   insertCustomerSchema,
   updateCustomerSchema,
 } from "@/lib/schemas/customers";
-import type { CustomerRow } from "./types";
+import type { CustomerCategoryOption, CustomerRow } from "./types";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -25,12 +25,20 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
 type CustomerFormValues = z.input<typeof insertCustomerSchema>;
+const EVERYONE_CATEGORY_VALUE = "__everyone__";
 
-export function CustomerForm({ initialData }: { initialData?: CustomerRow }) {
+export function CustomerForm({
+  customerCategories,
+  initialData,
+}: {
+  customerCategories: CustomerCategoryOption[];
+  initialData?: CustomerRow;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEditing = Boolean(initialData);
@@ -45,6 +53,7 @@ export function CustomerForm({ initialData }: { initialData?: CustomerRow }) {
     defaultValues: initialData
       ? {
           name: initialData.name,
+          customerCategoryId: initialData.customerCategoryId,
           email: initialData.email,
           phone: initialData.phone,
           address: initialData.address,
@@ -169,6 +178,43 @@ export function CustomerForm({ initialData }: { initialData?: CustomerRow }) {
               <div className="grid gap-4 md:grid-cols-2">
                 <Controller
                   control={form.control}
+                  name="customerCategoryId"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Pricing Category</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={field.value ?? EVERYONE_CATEGORY_VALUE}
+                        onValueChange={(value) =>
+                          field.onChange(
+                            value === EVERYONE_CATEGORY_VALUE ? null : value
+                          )
+                        }
+                      >
+                        <SelectTrigger aria-invalid={fieldState.invalid}>
+                          <SelectValue placeholder="Select a pricing category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={EVERYONE_CATEGORY_VALUE}>
+                            Everyone default pricing
+                          </SelectItem>
+                          {customerCategories.map((customerCategory) => (
+                            <SelectItem
+                              key={customerCategory.id}
+                              value={customerCategory.id}
+                            >
+                              {customerCategory.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+
+                <Controller
+                  control={form.control}
                   name="email"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
@@ -186,7 +232,9 @@ export function CustomerForm({ initialData }: { initialData?: CustomerRow }) {
                     </Field>
                   )}
                 />
+              </div>
 
+              <div className="grid gap-4 md:grid-cols-2">
                 <Controller
                   control={form.control}
                   name="phone"

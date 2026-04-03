@@ -1,11 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useFieldArray, useForm, useWatch, type Control } from "react-hook-form";
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+  type Control,
+  type UseFormSetValue,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -70,6 +77,7 @@ import type {
   CustomerOption,
   OversellWarningPayload,
   SalesOrderEditData,
+  SalesLinePricingResult,
   SalesOrderProductOption,
 } from "./types";
 
@@ -89,6 +97,20 @@ type ApiError = {
   oversell?: OversellWarningPayload;
 };
 
+type LinePricingState = SalesLinePricingResult & {
+  isPriceOverridden: boolean;
+};
+
+const DEFAULT_LINE_PRICING_STATE: LinePricingState = {
+  baseUnitPrice: null,
+  suggestedUnitPrice: null,
+  pricingSourceType: "base_price",
+  pricingScheduleName: null,
+  pricingBreakLabel: null,
+  customerCategoryName: null,
+  isPriceOverridden: false,
+};
+
 export function OrderForm({
   customers,
   products,
@@ -105,11 +127,28 @@ export function OrderForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [oversellWarning, setOversellWarning] = useState<OversellWarningPayload | null>(null);
   const [pendingValues, setPendingValues] = useState<OrderFormValues | null>(null);
+  const isHydrated = useSyncExternalStore(
+    () => () => undefined,
+    () => true,
+    () => false
+  );
 
-  const customerIds = customers.map((customer) => customer.id);
-  const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
-  const productIds = products.map((product) => product.id);
-  const productMap = new Map(products.map((product) => [product.id, product]));
+  const customerIds = useMemo(
+    () => customers.map((customer) => customer.id),
+    [customers]
+  );
+  const customerMap = useMemo(
+    () => new Map(customers.map((customer) => [customer.id, customer])),
+    [customers]
+  );
+  const productIds = useMemo(
+    () => products.map((product) => product.id),
+    [products]
+  );
+  const productMap = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products]
+  );
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(insertSalesOrderSchema),
@@ -134,11 +173,84 @@ export function OrderForm({
     control: form.control,
     name: "lines",
   });
+  const customerId = useWatch({
+    control: form.control,
+    name: "customerId",
+  });
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "lines",
   });
+  const [linePricingState, setLinePricingState] = useState<
+    Record<string, LinePricingState>
+  >({});
+
+  function updateLinePricingState(
+    lineKey: string,
+    nextState: Partial<LinePricingState>
+  ) {
+    setLinePricingState((currentState) => {
+      const previousState = currentState[lineKey] ?? DEFAULT_LINE_PRICING_STATE;
+      const mergedState = {
+        ...previousState,
+        ...nextState,
+      };
+
+      if (
+        previousState.baseUnitPrice === mergedState.baseUnitPrice &&
+        previousState.suggestedUnitPrice === mergedState.suggestedUnitPrice &&
+        previousState.pricingSourceType === mergedState.pricingSourceType &&
+        previousState.pricingScheduleName === mergedState.pricingScheduleName &&
+        previousState.pricingBreakLabel === mergedState.pricingBreakLabel &&
+        previousState.customerCategoryName === mergedState.customerCategoryName &&
+        previousState.isPriceOverridden === mergedState.isPriceOverridden
+      ) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        [lineKey]: mergedState,
+      };
+    });
+  }
+
+  function getLinePricingState(lineKey: string, index: number) {
+    const currentState = linePricingState[lineKey];
+    const line = initialData?.lines[index];
+    const itemId = form.getValues(`lines.${index}.itemId`);
+    const baseUnitPrice = itemId
+      ? productMap.get(itemId)?.defaultSellingPrice ?? null
+      : null;
+
+    return {
+      baseUnitPrice: currentState?.baseUnitPrice ?? baseUnitPrice,
+      suggestedUnitPrice:
+        currentState?.suggestedUnitPrice ??
+        line?.suggestedUnitPrice ??
+        baseUnitPrice,
+      pricingSourceType:
+        currentState?.pricingSourceType ??
+        line?.pricingSourceType ??
+        DEFAULT_LINE_PRICING_STATE.pricingSourceType,
+      pricingScheduleName:
+        currentState?.pricingScheduleName ??
+        line?.pricingScheduleName ??
+        DEFAULT_LINE_PRICING_STATE.pricingScheduleName,
+      pricingBreakLabel:
+        currentState?.pricingBreakLabel ??
+        line?.pricingBreakLabel ??
+        DEFAULT_LINE_PRICING_STATE.pricingBreakLabel,
+      customerCategoryName:
+        currentState?.customerCategoryName ??
+        DEFAULT_LINE_PRICING_STATE.customerCategoryName,
+      isPriceOverridden:
+        currentState?.isPriceOverridden ??
+        line?.isPriceOverridden ??
+        DEFAULT_LINE_PRICING_STATE.isPriceOverridden,
+    };
+  }
 
   const orderTotal = useMemo(() => {
     return (watchedLines ?? []).reduce((sum, line) => {
@@ -208,6 +320,23 @@ export function OrderForm({
   const handleCancel = useSmartBack(fallbackPath);
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
+
+  if (!isHydrated) {
+    return (
+      <div className="mx-auto w-full max-w-5xl space-y-8">
+        <div className="space-y-1.5">
+          <div className="h-9 w-56 rounded-md bg-muted" />
+          <div className="h-4 w-80 rounded-md bg-muted" />
+        </div>
+        <Separator />
+        <div className="space-y-8">
+          <div className="h-48 rounded-lg border bg-card" />
+          <div className="h-64 rounded-lg border bg-card" />
+          <div className="h-40 rounded-lg border bg-card" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -356,10 +485,17 @@ export function OrderForm({
                         {fields.map((field, index) => (
                           <OrderLineRow
                             key={field.id}
-                            index={index}
-                            control={form.control}
-                            productIds={productIds}
-                            productMap={productMap}
+                        lineKey={field.id}
+                        index={index}
+                        control={form.control}
+                        customerId={customerId}
+                        initialCustomerId={initialData?.customerId}
+                        initialLine={initialData?.lines[index]}
+                        setValue={form.setValue}
+                        productIds={productIds}
+                        productMap={productMap}
+                            pricingState={getLinePricingState(field.id, index)}
+                            onPricingStateChange={updateLinePricingState}
                             onProductChange={(productId) => {
                               const product = productMap.get(productId);
                               form.setValue(`lines.${index}.itemId`, productId, {
@@ -374,8 +510,26 @@ export function OrderForm({
                                   shouldValidate: true,
                                 }
                               );
+                              updateLinePricingState(field.id, {
+                                ...DEFAULT_LINE_PRICING_STATE,
+                                baseUnitPrice: product?.defaultSellingPrice ?? null,
+                                suggestedUnitPrice:
+                                  product?.defaultSellingPrice ?? null,
+                                isPriceOverridden: false,
+                              });
                             }}
-                            onRemove={() => remove(index)}
+                            onRemove={() => {
+                              setLinePricingState((currentState) => {
+                                if (!(field.id in currentState)) {
+                                  return currentState;
+                                }
+
+                                const nextState = { ...currentState };
+                                delete nextState[field.id];
+                                return nextState;
+                              });
+                              remove(index);
+                            }}
                           />
                         ))}
                       </TableBody>
@@ -566,17 +720,34 @@ export function OrderForm({
 }
 
 function OrderLineRow({
+  lineKey,
   index,
   control,
+  customerId,
+  initialCustomerId,
+  initialLine,
+  setValue,
   productIds,
   productMap,
+  pricingState,
+  onPricingStateChange,
   onProductChange,
   onRemove,
 }: {
+  lineKey: string;
   index: number;
   control: Control<OrderFormValues>;
+  customerId: string | null | undefined;
+  initialCustomerId?: string | null;
+  initialLine?: SalesOrderEditData["lines"][number];
+  setValue: UseFormSetValue<OrderFormValues>;
   productIds: string[];
   productMap: Map<string, SalesOrderProductOption>;
+  pricingState: LinePricingState | undefined;
+  onPricingStateChange: (
+    lineKey: string,
+    nextState: Partial<LinePricingState>
+  ) => void;
   onProductChange: (productId: string) => void;
   onRemove: () => void;
 }) {
@@ -586,6 +757,126 @@ function OrderLineRow({
   });
 
   const product = line?.itemId ? productMap.get(line.itemId) : undefined;
+  const shouldResolveLivePricing =
+    (customerId ?? "") !== "" &&
+    (line?.itemId ?? "") !== "" &&
+    (!initialLine ||
+      (initialCustomerId ?? "") !== (customerId ?? "") ||
+      initialLine.itemId !== (line?.itemId ?? "") ||
+      initialLine.quantity !== (line?.quantity ?? ""));
+  const pricingQuery = useQuery<SalesLinePricingResult>({
+    queryKey: [
+      "sales-order-line-price",
+      customerId ?? "",
+      line?.itemId ?? "",
+      line?.quantity ?? null,
+    ],
+    enabled: shouldResolveLivePricing,
+    queryFn: async () => {
+      const response = await fetch("/api/sales-orders/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId,
+          itemId: line?.itemId ?? "",
+          quantity: line?.quantity ?? null,
+        }),
+      });
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to calculate suggested pricing.");
+      }
+
+      return body as SalesLinePricingResult;
+    },
+  });
+  const suggestedPricing = pricingQuery.data;
+  const isPriceOverridden = pricingState?.isPriceOverridden ?? false;
+
+  useEffect(() => {
+    if (!product) {
+      onPricingStateChange(lineKey, {
+        ...DEFAULT_LINE_PRICING_STATE,
+        isPriceOverridden,
+      });
+      return;
+    }
+
+    if (!shouldResolveLivePricing) {
+      onPricingStateChange(lineKey, {
+        baseUnitPrice: product.defaultSellingPrice ?? null,
+        suggestedUnitPrice:
+          initialLine?.suggestedUnitPrice ?? product.defaultSellingPrice ?? null,
+        pricingSourceType:
+          initialLine?.pricingSourceType ??
+          DEFAULT_LINE_PRICING_STATE.pricingSourceType,
+        pricingScheduleName: initialLine?.pricingScheduleName ?? null,
+        pricingBreakLabel: initialLine?.pricingBreakLabel ?? null,
+        customerCategoryName: null,
+        isPriceOverridden: initialLine?.isPriceOverridden ?? isPriceOverridden,
+      });
+      return;
+    }
+
+    if (pricingQuery.isPending || pricingQuery.isFetching) {
+      return;
+    }
+
+    if (suggestedPricing) {
+      onPricingStateChange(lineKey, {
+        baseUnitPrice: suggestedPricing.baseUnitPrice,
+        suggestedUnitPrice: suggestedPricing.suggestedUnitPrice,
+        pricingSourceType: suggestedPricing.pricingSourceType,
+        pricingScheduleName: suggestedPricing.pricingScheduleName,
+        pricingBreakLabel: suggestedPricing.pricingBreakLabel,
+        customerCategoryName: suggestedPricing.customerCategoryName,
+      });
+
+      if (
+        !isPriceOverridden &&
+        suggestedPricing.suggestedUnitPrice !== (line?.unitPrice ?? null)
+      ) {
+        setValue(`lines.${index}.unitPrice`, suggestedPricing.suggestedUnitPrice, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+
+      return;
+    }
+
+    const baseUnitPrice = product.defaultSellingPrice ?? null;
+    onPricingStateChange(lineKey, {
+      baseUnitPrice,
+      suggestedUnitPrice: baseUnitPrice,
+      pricingSourceType: "base_price",
+      pricingScheduleName: null,
+      pricingBreakLabel: null,
+      customerCategoryName: null,
+    });
+
+    if (!isPriceOverridden && baseUnitPrice !== (line?.unitPrice ?? null)) {
+      setValue(`lines.${index}.unitPrice`, baseUnitPrice, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [
+    index,
+    initialLine,
+    isPriceOverridden,
+    line?.unitPrice,
+    lineKey,
+    onPricingStateChange,
+    product,
+    pricingQuery.isFetching,
+    pricingQuery.isPending,
+    setValue,
+    suggestedPricing,
+    shouldResolveLivePricing,
+  ]);
 
   return (
     <TableRow>
@@ -661,7 +952,25 @@ function OrderLineRow({
               <Input
                 {...field}
                 value={field.value ?? ""}
-                onChange={(event) => field.onChange(event.target.value)}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  const parsedNextValue =
+                    nextValue.trim() === "" ? null : Number(nextValue);
+                  const parsedSuggestedValue =
+                    pricingState?.suggestedUnitPrice == null
+                      ? null
+                      : Number(pricingState.suggestedUnitPrice);
+                  field.onChange(nextValue);
+                  onPricingStateChange(lineKey, {
+                    isPriceOverridden:
+                      parsedNextValue != null &&
+                      parsedSuggestedValue != null &&
+                      Number.isFinite(parsedNextValue) &&
+                      Number.isFinite(parsedSuggestedValue) &&
+                      parsedNextValue.toFixed(2) !==
+                        parsedSuggestedValue.toFixed(2),
+                  });
+                }}
                 aria-invalid={fieldState.invalid}
                 inputMode="decimal"
                 placeholder="0.00"
@@ -669,11 +978,38 @@ function OrderLineRow({
               />
               {fieldState.invalid ? (
                 <FieldError errors={[fieldState.error]} />
-              ) : product?.defaultSellingPrice == null && product ? (
-                <p className="pt-1 text-xs text-muted-foreground">
-                  No default selling price. Enter one manually.
-                </p>
-              ) : null}
+              ) : (
+                <>
+                  {pricingQuery.isError ? (
+                    <p className="pt-1 text-xs text-muted-foreground">
+                      Unable to load suggested pricing. You can still enter a price manually.
+                    </p>
+                  ) : pricingState?.suggestedUnitPrice != null ? (
+                    <>
+                      <p className="pt-1 text-xs text-muted-foreground">
+                        Suggested {formatPrice(pricingState.suggestedUnitPrice) ?? "\u2014"}
+                        {pricingState.pricingSourceType === "schedule_break" &&
+                        pricingState.pricingScheduleName
+                          ? ` from ${pricingState.pricingScheduleName}${
+                              pricingState.pricingBreakLabel
+                                ? `, ${pricingState.pricingBreakLabel}`
+                                : ""
+                            }`
+                          : " from base price"}
+                      </p>
+                      {isPriceOverridden && (
+                        <p className="pt-1 text-xs text-muted-foreground">
+                          Final price is a manual override.
+                        </p>
+                      )}
+                    </>
+                  ) : product?.defaultSellingPrice == null && product ? (
+                    <p className="pt-1 text-xs text-muted-foreground">
+                      No default selling price. Enter one manually.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           )}
         />
