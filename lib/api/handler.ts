@@ -29,6 +29,17 @@ export function apiHandler(
           { status: 400 }
         );
       }
+      // Postgres unique constraint violation — surface as a 409 instead of 500
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as { code: string }).code === "23505"
+      ) {
+        return NextResponse.json(
+          { error: "A record with that value already exists." },
+          { status: 409 }
+        );
+      }
       console.error("API error:", error);
       return NextResponse.json(
         { error: "Internal server error" },

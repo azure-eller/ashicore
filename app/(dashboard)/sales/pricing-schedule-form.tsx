@@ -110,7 +110,10 @@ export function PricingScheduleForm({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.error ?? "Failed to create category.");
+        const fieldMsg = err?.errors
+          ? Object.values(err.errors).flat()[0]
+          : null;
+        throw new Error(fieldMsg ?? err?.error ?? "Failed to create category.");
       }
       return res.json() as Promise<{ id: string; name: string }>;
     },
