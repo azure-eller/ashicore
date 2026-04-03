@@ -328,7 +328,23 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                     <TableCell className="text-right">{parseFloat(line.quantity)}</TableCell>
                     <TableCell>{line.unitName}</TableCell>
                     <TableCell className="text-right">
-                      {formatPrice(line.unitPrice) ?? "\u2014"}
+                      <div>
+                        <div>{formatPrice(line.unitPrice) ?? "\u2014"}</div>
+                        {line.suggestedUnitPrice && (
+                          <div className="text-xs text-muted-foreground">
+                            Suggested {formatPrice(line.suggestedUnitPrice) ?? "\u2014"}
+                            {line.pricingSourceType === "schedule_break" &&
+                            line.pricingScheduleName
+                              ? ` from ${line.pricingScheduleName}${
+                                  line.pricingBreakLabel
+                                    ? `, ${line.pricingBreakLabel}`
+                                    : ""
+                                }`
+                              : " from base price"}
+                            {line.isPriceOverridden ? " · Manual override" : ""}
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       {formatPrice(line.lineTotal) ?? "\u2014"}

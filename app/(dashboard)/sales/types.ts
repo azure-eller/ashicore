@@ -1,8 +1,12 @@
 import type { SalesOrderStatus } from "@/lib/schemas/sales-orders";
 
+export type PricingSourceType = "base_price" | "schedule_break";
+
 export type CustomerRow = {
   id: string;
   name: string;
+  customerCategoryId: string | null;
+  customerCategoryName: string | null;
   email: string | null;
   phone: string | null;
   address: string | null;
@@ -15,6 +19,73 @@ export type CustomerRow = {
 export type CustomerOption = {
   id: string;
   name: string;
+};
+
+export type CustomerCategoryOption = {
+  id: string;
+  name: string;
+};
+
+export type CustomerCategoryRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  customerCount: number;
+  scheduleCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type PricingUnitOption = {
+  id: string;
+  name: string;
+  size: string;
+  uom: string;
+  label: string;
+};
+
+export type PricingScheduleBreakRow = {
+  id: string;
+  minQuantity: string;
+  maxQuantity: string | null;
+  discountPercent: string;
+  sortOrder: number;
+};
+
+export type PricingScheduleRow = {
+  id: string;
+  name: string;
+  customerCategoryId: string | null;
+  customerScopeLabel: string;
+  unitDefinitionId: string;
+  unitName: string;
+  unitLabel: string;
+  notes: string | null;
+  breakCount: number;
+  breakSummary: string;
+  updatedAt: Date;
+};
+
+export type PricingScheduleEditData = {
+  id: string;
+  name: string;
+  customerCategoryId: string | null;
+  unitDefinitionId: string;
+  notes: string | null;
+  breaks: Array<{
+    minQuantity: string;
+    maxQuantity: string | null;
+    discountPercent: string;
+  }>;
+};
+
+export type SalesLinePricingResult = {
+  baseUnitPrice: string | null;
+  suggestedUnitPrice: string | null;
+  pricingSourceType: PricingSourceType;
+  pricingScheduleName: string | null;
+  pricingBreakLabel: string | null;
+  customerCategoryName: string | null;
 };
 
 export type SalesOrderProductOption = {
@@ -54,6 +125,11 @@ export type SalesOrderDetailLine = {
   unitName: string;
   quantity: string;
   unitPrice: string;
+  suggestedUnitPrice: string | null;
+  pricingSourceType: PricingSourceType | null;
+  pricingScheduleName: string | null;
+  pricingBreakLabel: string | null;
+  isPriceOverridden: boolean;
   lineTotal: string;
   sortOrder: number;
   createdAt: Date;
@@ -98,6 +174,11 @@ export type SalesOrderEditData = {
     itemId: string;
     quantity: string;
     unitPrice: string;
+    suggestedUnitPrice: string | null;
+    pricingSourceType: PricingSourceType;
+    pricingScheduleName: string | null;
+    pricingBreakLabel: string | null;
+    isPriceOverridden: boolean;
   }>;
 };
 

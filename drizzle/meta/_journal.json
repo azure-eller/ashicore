@@ -141,6 +141,13 @@
       "when": 1774747686246,
       "tag": "0019_dear_silhouette",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1775166016697,
+      "tag": "0020_chubby_ulik",
+      "breakpoints": true
     }
   ]
 }

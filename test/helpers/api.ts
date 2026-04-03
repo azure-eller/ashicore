@@ -219,6 +219,7 @@ export async function createUnit(data: {
  */
 export async function createCustomer(data: {
   name: string;
+  customerCategoryId?: string | null;
   email?: string | null;
   phone?: string | null;
   address?: string | null;
@@ -228,10 +229,78 @@ export async function createCustomer(data: {
     method: "POST",
     body: JSON.stringify({
       name: data.name,
+      customerCategoryId: data.customerCategoryId ?? null,
       email: data.email ?? null,
       phone: data.phone ?? null,
       address: data.address ?? null,
       notes: data.notes ?? null,
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function updateCustomer(id: string, data: {
+  name: string;
+  customerCategoryId?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+}) {
+  const res = await testFetch(`/api/customers/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      name: data.name,
+      customerCategoryId: data.customerCategoryId ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      address: data.address ?? null,
+      notes: data.notes ?? null,
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function createCustomerCategory(data: {
+  name: string;
+  description?: string | null;
+}) {
+  const res = await testFetch("/api/customer-categories", {
+    method: "POST",
+    body: JSON.stringify({
+      name: data.name,
+      description: data.description ?? null,
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function createPricingSchedule(data: {
+  name: string;
+  customerCategoryId?: string | null;
+  unitDefinitionId: string;
+  notes?: string | null;
+  breaks: Array<{
+    minQuantity: string;
+    maxQuantity?: string | null;
+    discountPercent: string;
+  }>;
+}) {
+  const res = await testFetch("/api/pricing-schedules", {
+    method: "POST",
+    body: JSON.stringify({
+      name: data.name,
+      customerCategoryId: data.customerCategoryId ?? null,
+      unitDefinitionId: data.unitDefinitionId,
+      notes: data.notes ?? null,
+      breaks: data.breaks.map((pricingBreak) => ({
+        minQuantity: pricingBreak.minQuantity,
+        maxQuantity: pricingBreak.maxQuantity ?? null,
+        discountPercent: pricingBreak.discountPercent,
+      })),
     }),
   });
   const body = await res.json().catch(() => null);

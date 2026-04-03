@@ -45,6 +45,19 @@ export function apiHandler(
         response.headers.set("x-request-id", requestId);
         return response;
       }
+      // Postgres unique constraint violation — surface as a 409 instead of 500
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as { code: string }).code === "23505"
+      ) {
+        const response = NextResponse.json(
+          { error: "A record with that value already exists.", requestId },
+          { status: 409 }
+        );
+        response.headers.set("x-request-id", requestId);
+        return response;
+      }
 
       Sentry.withScope((scope) => {
         scope.setTag("request_id", requestId);

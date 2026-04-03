@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { OrderForm } from "@/app/(dashboard)/sales/order-form";
+import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import {
   getCustomers,
   getEditableSalesOrder,

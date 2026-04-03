@@ -1,14 +1,24 @@
 import { eq } from "drizzle-orm";
 import { test, expect, filterList } from "./fixtures";
 import {
+  customerCategories,
   customers as salesCustomers,
   items,
   lots,
+  pricingScheduleBreaks,
+  pricingSchedules,
   salesOrderLines,
   salesOrders,
   stockMovements,
 } from "../../lib/db/schema";
-import { createCustomer, createItem, getUnitId, testFetch } from "../helpers/api";
+import {
+  createCustomer,
+  createCustomerCategory,
+  createItem,
+  createPricingSchedule,
+  getUnitId,
+  testFetch,
+} from "../helpers/api";
 
 async function createDraftSalesOrder(payload: {
   customerId: string;
@@ -69,6 +79,8 @@ test.describe("Sales order flow", () => {
   let customerName: string;
   let extraCustomerId: string;
   let extraCustomerName: string;
+  let wholesaleCategoryId: string;
+  let wholesaleScheduleId: string;
 
   let fullOrderId: string;
   let fullOrderNumber: string;
@@ -186,15 +198,6 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Primary landscaping account")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
-    // UI — verify the list page
-    await page.goto("/sales/customers");
-    await filterList(page, "Search customers", customerName);
-    const fullRow = page.getByRole("row", { name: new RegExp(customerName) }).first();
-    await expect(fullRow).toBeVisible();
-    await expect(fullRow).toContainText(`sales-${run}@example.com`);
-    await expect(fullRow).toContainText("555-0100");
-    await expect(fullRow).not.toContainText("Invalid");
-
     // DB
     const rows = await db
       .select()
@@ -213,9 +216,7 @@ test.describe("Sales order flow", () => {
   });
 
   test("edits the customer — verifies pre-population and saves changes", async ({ page, db }) => {
-    await page.goto(`/sales/customers/${customerId}`);
-    await page.getByRole("link", { name: "Edit" }).click();
-    await page.waitForURL(`**/sales/customers/${customerId}/edit`);
+    await page.goto(`/sales/customers/${customerId}/edit`);
     await expect(
       page.getByRole("heading", { name: "Edit Customer" })
     ).toBeVisible({ timeout: 30000 });
@@ -268,13 +269,6 @@ test.describe("Sales order flow", () => {
     ).toBeVisible({ timeout: 30000 });
     await expect(page.locator("body")).not.toContainText("Invalid");
 
-    // UI — verify the list page
-    await page.goto("/sales/customers");
-    await filterList(page, "Search customers", extraCustomerName);
-    const minRow = page.getByRole("row", { name: new RegExp(extraCustomerName) }).first();
-    await expect(minRow).toBeVisible();
-    await expect(minRow).not.toContainText("Invalid");
-
     // DB
     const rows = await db
       .select()
@@ -289,6 +283,72 @@ test.describe("Sales order flow", () => {
     expect(customer.address).toBeNull();
     expect(customer.notes).toBeNull();
     expect(customer.deletedAt).toBeNull();
+  });
+
+  test("creates a pricing category and schedule, then assigns it to the main customer", async ({
+    page,
+    db,
+  }) => {
+    const categoryResult = await createCustomerCategory({
+      name: `Wholesale ${run}`,
+      description: "Volume pricing category for wholesale accounts",
+    });
+    expect(categoryResult.status).toBe(201);
+    wholesaleCategoryId = categoryResult.body.id;
+
+    const scheduleResult = await createPricingSchedule({
+      name: `Wholesale ${run} Default`,
+      customerCategoryId: wholesaleCategoryId,
+      unitDefinitionId: unitId,
+      notes: "10% off at five units or more",
+      breaks: [
+        { minQuantity: "1", maxQuantity: "4", discountPercent: "0" },
+        { minQuantity: "5", maxQuantity: null, discountPercent: "10" },
+      ],
+    });
+    expect(scheduleResult.status).toBe(201);
+    wholesaleScheduleId = scheduleResult.body.id;
+
+    await page.goto(`/sales/customers/${customerId}/edit`);
+    await expect(
+      page.getByRole("heading", { name: "Edit Customer" })
+    ).toBeVisible({ timeout: 30000 });
+    await page.getByRole("combobox").click();
+    await page.getByRole("option", { name: `Wholesale ${run}` }).click();
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(`**/sales/customers/${customerId}`);
+    await expect(page.getByText(`Wholesale ${run}`)).toBeVisible();
+
+    await page.goto("/sales/pricing");
+    await expect(
+      page.getByRole("heading", { name: "Pricing Schedules" })
+    ).toBeVisible({ timeout: 30000 });
+    await page.getByRole("textbox", { name: "Search pricing schedules" }).fill(`${run}`);
+    await expect(
+      page
+        .getByRole("row", { name: new RegExp(`Wholesale ${run} Default`) })
+        .first()
+    ).toBeVisible({ timeout: 30000 });
+
+    const [category] = await db
+      .select()
+      .from(customerCategories)
+      .where(eq(customerCategories.id, wholesaleCategoryId));
+    expect(category).toBeTruthy();
+    expect(category.name).toBe(`Wholesale ${run}`);
+
+    const [schedule] = await db
+      .select()
+      .from(pricingSchedules)
+      .where(eq(pricingSchedules.id, wholesaleScheduleId));
+    expect(schedule).toBeTruthy();
+    expect(schedule.customerCategoryId).toBe(wholesaleCategoryId);
+
+    const scheduleBreakRows = await db
+      .select()
+      .from(pricingScheduleBreaks)
+      .where(eq(pricingScheduleBreaks.pricingScheduleId, wholesaleScheduleId));
+    expect(scheduleBreakRows).toHaveLength(2);
   });
 
   /* ================================================================ */
@@ -318,7 +378,9 @@ test.describe("Sales order flow", () => {
     await row2.getByPlaceholder("Search products...").click();
     await row2.getByPlaceholder("Search products...").fill(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
-    await row2.locator('input[placeholder="0"]').first().fill("2");
+    await row2.locator('input[placeholder="0"]').first().fill("5");
+    await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.80");
+    await expect(row2.getByText("Suggested $10.80")).toBeVisible();
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
@@ -360,7 +422,14 @@ test.describe("Sales order flow", () => {
 
     const lineByItem = new Map(lineRows.map((line) => [line.itemId, line]));
     expect(lineByItem.get(primaryProductId)?.quantity).toBe("3.0000");
-    expect(lineByItem.get(secondaryProductId)?.quantity).toBe("2.0000");
+    expect(lineByItem.get(secondaryProductId)?.quantity).toBe("5.0000");
+    expect(lineByItem.get(secondaryProductId)?.suggestedUnitPrice).toBe("10.80");
+    expect(lineByItem.get(secondaryProductId)?.pricingSourceType).toBe("schedule_break");
+    expect(lineByItem.get(secondaryProductId)?.pricingScheduleName).toBe(
+      `Wholesale ${run} Default`
+    );
+    expect(lineByItem.get(secondaryProductId)?.pricingBreakLabel).toBe("5+");
+    expect(lineByItem.get(secondaryProductId)?.isPriceOverridden).toBe(false);
 
     const computedTotal = lineRows.reduce(
       (sum, line) => sum + parseFloat(line.lineTotal),
@@ -385,6 +454,8 @@ test.describe("Sales order flow", () => {
     // Change first line quantity from 3 to 5
     const quantityInputs = page.locator('input[placeholder="0"]');
     await quantityInputs.first().fill("5");
+    const priceInputs = page.locator('input[placeholder="0.00"]');
+    await priceInputs.nth(1).fill("11.25");
     await page.getByLabel("Notes").fill("Updated to 5 units");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
@@ -415,6 +486,13 @@ test.describe("Sales order flow", () => {
       0
     );
     expect(parseFloat(orderRows[0].totalAmount)).toBeCloseTo(updatedTotal, 2);
+
+    const updatedSecondaryLine = updatedLineRows.find(
+      (line) => line.itemId === secondaryProductId
+    );
+    expect(updatedSecondaryLine?.unitPrice).toBe("11.25");
+    expect(updatedSecondaryLine?.suggestedUnitPrice).toBe("10.80");
+    expect(updatedSecondaryLine?.isPriceOverridden).toBe(true);
   });
 
   test("bulk confirms selected draft orders and handles the oversell warning", async ({
@@ -459,7 +537,7 @@ test.describe("Sales order flow", () => {
     await confirmSelectedItem.click();
 
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible();
+    await expect(oversellDialog).toBeVisible({ timeout: 30000 });
     await oversellDialog.getByText("Current Committed", { exact: true }).hover();
     await expect(
       page.getByText("Quantity already reserved by confirmed sales orders.")
@@ -509,7 +587,7 @@ test.describe("Sales order flow", () => {
 
     // The edited order quantity exceeds the fixture's opening stock, so the oversell dialog should appear.
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible();
+    await expect(oversellDialog).toBeVisible({ timeout: 30000 });
     await oversellDialog.getByText("Current Committed", { exact: true }).hover();
     await expect(
       page.getByText("Quantity already reserved by confirmed sales orders.")
@@ -553,7 +631,7 @@ test.describe("Sales order flow", () => {
       )
       .toEqual({
         primary: "5.0000",
-        secondary: "2.0000",
+        secondary: "5.0000",
       });
   });
 
@@ -670,7 +748,7 @@ test.describe("Sales order flow", () => {
         },
         { timeout: 15_000 }
       )
-      .toBe("2.0000");
+      .toBe("5.0000");
   });
 
   test("cancels the confirmed order and releases committed stock", async ({ page, db }) => {

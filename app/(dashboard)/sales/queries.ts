@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
+  formatQuantity,
   normalizeNumeric,
   normalizeMoney,
+  parsePositive,
   roundQuantity,
   summarizeItems,
 } from "@/lib/format";
 import {
+  customerCategories,
   customers,
   items,
   lots,
   manufacturingOrders,
+  pricingScheduleBreaks,
+  pricingSchedules,
   salesOrderLines,
   salesOrders,
   unitDefinitions,
@@ -28,17 +33,33 @@ import {
 } from "@/lib/errors/domain-error";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
+  InsertCustomerCategory,
+  UpdateCustomerCategory,
+} from "@/lib/schemas/customer-categories";
+import type {
+  InsertPricingSchedule,
+  ResolveSalesLinePricingInput,
+  UpdatePricingSchedule,
+} from "@/lib/schemas/pricing-schedules";
+import type {
   BulkConfirmSalesOrders,
   InsertSalesOrder,
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
 import type {
+  BulkOversellWarningPayload,
+  CustomerCategoryOption,
+  CustomerCategoryRow,
   CustomerRow,
   OversellWarningPayload,
-  BulkOversellWarningPayload,
+  PricingScheduleEditData,
+  PricingScheduleRow,
+  PricingSourceType,
+  PricingUnitOption,
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderEditData,
+  SalesLinePricingResult,
   SalesOrderListRow,
   SalesOrderProductOption,
 } from "./types";
@@ -50,7 +71,7 @@ const stockSubquery = sql<string>`(
   WHERE ${lots.itemId} = ${items.id}
 )`.as("stock");
 
-type PreparedOrderLine = {
+type PreparedOrderLineBase = {
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -61,10 +82,19 @@ type PreparedOrderLine = {
   sortOrder: number;
 };
 
+type PreparedOrderLine = PreparedOrderLineBase & {
+  suggestedUnitPrice: string | null;
+  pricingSourceType: PricingSourceType;
+  pricingScheduleName: string | null;
+  pricingBreakLabel: string | null;
+  isPriceOverridden: boolean;
+};
+
 type ProductValidationRow = {
   id: string;
   name: string;
   sku: string | null;
+  unitDefinitionId: string;
   unitName: string;
   defaultSellingPrice: string | null;
   stock: string;
@@ -73,12 +103,346 @@ type ProductValidationRow = {
   safetyStock: string;
 };
 
+type ValidatedCustomerRow = {
+  id: string;
+  name: string;
+  customerCategoryId: string | null;
+  customerCategoryName: string | null;
+};
+
+type PricingScheduleRecord = {
+  id: string;
+  name: string;
+  customerCategoryId: string | null;
+  unitDefinitionId: string;
+};
+
+type PricingScheduleBreakRecord = {
+  id: string;
+  pricingScheduleId: string;
+  minQuantity: string;
+  maxQuantity: string | null;
+  discountPercent: string;
+  sortOrder: number;
+};
+
 type DraftOrderConfirmationPayload = {
   id: string;
   orderNumber: string;
-  preparedLines: PreparedOrderLine[];
+  preparedLines: PreparedOrderLineBase[];
   affectedProductIds: string[];
 };
+
+function formatPricingUnitLabel(unit: {
+  name: string;
+  size: string;
+  uom: string;
+}) {
+  return `${unit.name} (${formatQuantity(unit.size)} ${unit.uom})`;
+}
+
+function formatPricingBreakLabel(
+  minQuantity: string,
+  maxQuantity: string | null
+) {
+  const min = formatQuantity(minQuantity);
+  if (maxQuantity == null) {
+    return `${min}+`;
+  }
+
+  return `${min}-${formatQuantity(maxQuantity)}`;
+}
+
+function summarizePricingBreaks(
+  breaks: Array<{
+    minQuantity: string;
+    maxQuantity: string | null;
+    discountPercent: string;
+  }>
+) {
+  return breaks
+    .map((pricingBreak) => {
+      const label = formatPricingBreakLabel(
+        pricingBreak.minQuantity,
+        pricingBreak.maxQuantity
+      );
+      return `${label} (${formatQuantity(pricingBreak.discountPercent)}%)`;
+    })
+    .join(", ");
+}
+
+async function ensureCustomerCategoryExistsInTx(
+  tx: Tx,
+  customerCategoryId: string | null
+) {
+  if (customerCategoryId == null) {
+    return;
+  }
+
+  const [existingCategory] = await tx
+    .select({ id: customerCategories.id })
+    .from(customerCategories)
+    .where(
+      and(
+        eq(customerCategories.id, customerCategoryId),
+        isNull(customerCategories.deletedAt)
+      )
+    );
+
+  if (!existingCategory) {
+    throw new SalesError("Customer category not found.", 404);
+  }
+}
+
+async function ensureCustomerCategoryNameAvailableInTx(
+  tx: Tx,
+  name: string,
+  options?: { excludeId?: string }
+) {
+  const conditions = [
+    eq(customerCategories.name, name),
+    isNull(customerCategories.deletedAt),
+  ];
+
+  if (options?.excludeId) {
+    conditions.push(sql`${customerCategories.id} <> ${options.excludeId}`);
+  }
+
+  const [existingCategory] = await tx
+    .select({ id: customerCategories.id })
+    .from(customerCategories)
+    .where(and(...conditions))
+    .limit(1);
+
+  if (existingCategory) {
+    throw new SalesError("A customer category with this name already exists.", 400, {
+      errors: {
+        name: ["A customer category with this name already exists."],
+      },
+    });
+  }
+}
+
+async function ensureUnitDefinitionExistsInTx(tx: Tx, unitDefinitionId: string) {
+  const [unitDefinition] = await tx
+    .select({ id: unitDefinitions.id })
+    .from(unitDefinitions)
+    .where(
+      and(
+        eq(unitDefinitions.id, unitDefinitionId),
+        isNull(unitDefinitions.deletedAt)
+      )
+    );
+
+  if (!unitDefinition) {
+    throw new SalesError("Unit not found.", 404);
+  }
+}
+
+async function ensurePricingScheduleScopeAvailableInTx(
+  tx: Tx,
+  values: {
+    customerCategoryId: string | null;
+    unitDefinitionId: string;
+  },
+  options?: { excludeId?: string }
+) {
+  const conditions = [
+    eq(pricingSchedules.unitDefinitionId, values.unitDefinitionId),
+    isNull(pricingSchedules.deletedAt),
+  ];
+
+  if (values.customerCategoryId == null) {
+    conditions.push(isNull(pricingSchedules.customerCategoryId));
+  } else {
+    conditions.push(eq(pricingSchedules.customerCategoryId, values.customerCategoryId));
+  }
+
+  if (options?.excludeId) {
+    conditions.push(sql`${pricingSchedules.id} <> ${options.excludeId}`);
+  }
+
+  const [existingSchedule] = await tx
+    .select({ id: pricingSchedules.id })
+    .from(pricingSchedules)
+    .where(and(...conditions))
+    .limit(1);
+
+  if (existingSchedule) {
+    throw new SalesError("A pricing schedule already exists for this scope.", 400, {
+      errors: {
+        unitDefinitionId: [
+          "A pricing schedule already exists for this customer scope and unit.",
+        ],
+      },
+    });
+  }
+}
+
+async function getPricingScheduleByScopeInTx(
+  tx: Tx,
+  unitDefinitionId: string,
+  customerCategoryId: string | null
+): Promise<PricingScheduleRecord | null> {
+  if (customerCategoryId != null) {
+    const [categorySchedule] = await tx
+      .select({
+        id: pricingSchedules.id,
+        name: pricingSchedules.name,
+        customerCategoryId: pricingSchedules.customerCategoryId,
+        unitDefinitionId: pricingSchedules.unitDefinitionId,
+      })
+      .from(pricingSchedules)
+      .where(
+        and(
+          eq(pricingSchedules.unitDefinitionId, unitDefinitionId),
+          eq(pricingSchedules.customerCategoryId, customerCategoryId),
+          isNull(pricingSchedules.deletedAt)
+        )
+      )
+      .limit(1);
+
+    if (categorySchedule) {
+      return categorySchedule;
+    }
+  }
+
+  const [everyoneSchedule] = await tx
+    .select({
+      id: pricingSchedules.id,
+      name: pricingSchedules.name,
+      customerCategoryId: pricingSchedules.customerCategoryId,
+      unitDefinitionId: pricingSchedules.unitDefinitionId,
+    })
+    .from(pricingSchedules)
+    .where(
+      and(
+        eq(pricingSchedules.unitDefinitionId, unitDefinitionId),
+        isNull(pricingSchedules.customerCategoryId),
+        isNull(pricingSchedules.deletedAt)
+      )
+    )
+    .limit(1);
+
+  return everyoneSchedule ?? null;
+}
+
+async function getPricingScheduleBreaksInTx(
+  tx: Tx,
+  pricingScheduleId: string
+): Promise<PricingScheduleBreakRecord[]> {
+  return tx
+    .select({
+      id: pricingScheduleBreaks.id,
+      pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
+      minQuantity: pricingScheduleBreaks.minQuantity,
+      maxQuantity: pricingScheduleBreaks.maxQuantity,
+      discountPercent: pricingScheduleBreaks.discountPercent,
+      sortOrder: pricingScheduleBreaks.sortOrder,
+    })
+    .from(pricingScheduleBreaks)
+    .where(eq(pricingScheduleBreaks.pricingScheduleId, pricingScheduleId))
+    .orderBy(
+      asc(pricingScheduleBreaks.sortOrder),
+      asc(pricingScheduleBreaks.minQuantity)
+    );
+}
+
+function findMatchingPricingBreak(
+  breaks: PricingScheduleBreakRecord[],
+  quantity: string | null
+) {
+  const parsedQuantity = parsePositive(quantity);
+  if (parsedQuantity == null) {
+    return null;
+  }
+
+  return (
+    breaks.find((pricingBreak) => {
+      const minQuantity = parseFloat(pricingBreak.minQuantity);
+      const maxQuantity =
+        pricingBreak.maxQuantity == null
+          ? null
+          : parseFloat(pricingBreak.maxQuantity);
+
+      return (
+        parsedQuantity >= minQuantity &&
+        (maxQuantity == null || parsedQuantity <= maxQuantity)
+      );
+    }) ?? null
+  );
+}
+
+async function resolvePricingForProductInTx(
+  tx: Tx,
+  values: {
+    customerCategoryId: string | null;
+    customerCategoryName: string | null;
+    product: Pick<ProductValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
+    quantity: string | null;
+  }
+): Promise<SalesLinePricingResult> {
+  const baseUnitPrice = values.product.defaultSellingPrice;
+
+  if (baseUnitPrice == null) {
+    return {
+      baseUnitPrice: null,
+      suggestedUnitPrice: null,
+      pricingSourceType: "base_price",
+      pricingScheduleName: null,
+      pricingBreakLabel: null,
+      customerCategoryName: values.customerCategoryName,
+    };
+  }
+
+  const pricingSchedule = await getPricingScheduleByScopeInTx(
+    tx,
+    values.product.unitDefinitionId,
+    values.customerCategoryId
+  );
+
+  if (!pricingSchedule) {
+    return {
+      baseUnitPrice,
+      suggestedUnitPrice: baseUnitPrice,
+      pricingSourceType: "base_price",
+      pricingScheduleName: null,
+      pricingBreakLabel: null,
+      customerCategoryName: values.customerCategoryName,
+    };
+  }
+
+  const pricingBreaks = await getPricingScheduleBreaksInTx(tx, pricingSchedule.id);
+  const matchingBreak = findMatchingPricingBreak(pricingBreaks, values.quantity);
+
+  if (!matchingBreak) {
+    return {
+      baseUnitPrice,
+      suggestedUnitPrice: baseUnitPrice,
+      pricingSourceType: "base_price",
+      pricingScheduleName: null,
+      pricingBreakLabel: null,
+      customerCategoryName: values.customerCategoryName,
+    };
+  }
+
+  const suggestedUnitPrice = normalizeMoney(
+    Number(baseUnitPrice) *
+      (1 - Number(matchingBreak.discountPercent) / 100)
+  );
+
+  return {
+    baseUnitPrice,
+    suggestedUnitPrice,
+    pricingSourceType: "schedule_break",
+    pricingScheduleName: pricingSchedule.name,
+    pricingBreakLabel: formatPricingBreakLabel(
+      matchingBreak.minQuantity,
+      matchingBreak.maxQuantity
+    ),
+    customerCategoryName: values.customerCategoryName,
+  };
+}
 
 export class SalesError extends DomainError {
   errors?: Record<string, string[]>;
@@ -158,6 +522,11 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
       unitName: salesOrderLines.unitName,
       quantity: salesOrderLines.quantity,
       unitPrice: salesOrderLines.unitPrice,
+      suggestedUnitPrice: salesOrderLines.suggestedUnitPrice,
+      pricingSourceType: salesOrderLines.pricingSourceType,
+      pricingScheduleName: salesOrderLines.pricingScheduleName,
+      pricingBreakLabel: salesOrderLines.pricingBreakLabel,
+      isPriceOverridden: salesOrderLines.isPriceOverridden,
       lineTotal: salesOrderLines.lineTotal,
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
@@ -326,15 +695,24 @@ async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
     .select({
       id: customers.id,
       name: customers.name,
+      customerCategoryId: customers.customerCategoryId,
+      customerCategoryName: customerCategories.name,
     })
     .from(customers)
+    .leftJoin(
+      customerCategories,
+      and(
+        eq(customers.customerCategoryId, customerCategories.id),
+        isNull(customerCategories.deletedAt)
+      )
+    )
     .where(and(eq(customers.id, customerId), isNull(customers.deletedAt)));
 
   if (!customer) {
     throw new SalesError("Customer not found", 404);
   }
 
-  return customer;
+  return customer satisfies ValidatedCustomerRow;
 }
 
 async function getValidatedProductsInTx(
@@ -348,6 +726,7 @@ async function getValidatedProductsInTx(
       id: items.id,
       name: items.name,
       sku: items.sku,
+      unitDefinitionId: items.unitDefinitionId,
       unitName: unitDefinitions.name,
       defaultSellingPrice: items.defaultSellingPrice,
       stock: stockSubquery,
@@ -396,29 +775,43 @@ async function prepareOrderPayload(
   }
 
   const products = await getValidatedProductsInTx(tx, productIds);
+  const preparedLines: PreparedOrderLine[] = [];
 
-  const preparedLines = payload.lines.map((line, index) => {
+  for (const [index, line] of payload.lines.entries()) {
     const product = products.get(line.itemId);
 
     if (!product) {
       throw new SalesError("Product not found", 404);
     }
 
+    const pricing = await resolvePricingForProductInTx(tx, {
+      customerCategoryId: customer.customerCategoryId,
+      customerCategoryName: customer.customerCategoryName,
+      product,
+      quantity: line.quantity,
+    });
     const quantity = Number(line.quantity);
     const unitPrice = Number(line.unitPrice);
     const lineTotal = quantity * unitPrice;
 
-    return {
+    preparedLines.push({
       itemId: product.id,
       itemName: product.name,
       itemSku: product.sku,
       unitName: product.unitName,
       quantity: normalizeNumeric(quantity),
       unitPrice: normalizeMoney(unitPrice),
+      suggestedUnitPrice: pricing.suggestedUnitPrice,
+      pricingSourceType: pricing.pricingSourceType,
+      pricingScheduleName: pricing.pricingScheduleName,
+      pricingBreakLabel: pricing.pricingBreakLabel,
+      isPriceOverridden:
+        pricing.suggestedUnitPrice != null &&
+        normalizeMoney(unitPrice) !== pricing.suggestedUnitPrice,
       lineTotal: normalizeMoney(lineTotal),
       sortOrder: index,
-    };
-  });
+    });
+  }
 
   const totalAmount = preparedLines.reduce(
     (sum, line) => sum + parseFloat(line.lineTotal),
@@ -438,7 +831,7 @@ async function prepareOrderPayload(
 }
 
 async function buildOversellWarning(
-  preparedLines: PreparedOrderLine[],
+  preparedLines: PreparedOrderLineBase[],
   products: Map<string, ProductValidationRow>
 ) {
   const quantityByProduct = new Map<string, number>();
@@ -577,12 +970,529 @@ async function buildBulkOversellWarning(
   return { orders: warningOrders };
 }
 
+export async function getCustomerCategoryOptions(): Promise<CustomerCategoryOption[]> {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: customerCategories.id,
+        name: customerCategories.name,
+      })
+      .from(customerCategories)
+      .where(isNull(customerCategories.deletedAt))
+      .orderBy(asc(customerCategories.sortOrder), asc(customerCategories.name));
+  });
+}
+
+export async function getPricingUnitOptions(): Promise<PricingUnitOption[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: unitDefinitions.id,
+        name: unitDefinitions.name,
+        size: unitDefinitions.size,
+        uom: unitDefinitions.uom,
+      })
+      .from(unitDefinitions)
+      .where(isNull(unitDefinitions.deletedAt))
+      .orderBy(asc(unitDefinitions.name), asc(unitDefinitions.size));
+
+    return rows.map((row) => ({
+      ...row,
+      label: formatPricingUnitLabel(row),
+    }));
+  });
+}
+
+export async function getCustomerCategories(): Promise<CustomerCategoryRow[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: customerCategories.id,
+        name: customerCategories.name,
+        description: customerCategories.description,
+        createdAt: customerCategories.createdAt,
+        updatedAt: customerCategories.updatedAt,
+      })
+      .from(customerCategories)
+      .where(isNull(customerCategories.deletedAt))
+      .orderBy(asc(customerCategories.sortOrder), asc(customerCategories.name));
+
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const ids = rows.map((row) => row.id);
+    const [customerCounts, scheduleCounts] = await Promise.all([
+      tx
+        .select({
+          customerCategoryId: customers.customerCategoryId,
+          count: sql<number>`COUNT(*)::int`,
+        })
+        .from(customers)
+        .where(
+          and(
+            inArray(customers.customerCategoryId, ids),
+            isNull(customers.deletedAt)
+          )
+        )
+        .groupBy(customers.customerCategoryId),
+      tx
+        .select({
+          customerCategoryId: pricingSchedules.customerCategoryId,
+          count: sql<number>`COUNT(*)::int`,
+        })
+        .from(pricingSchedules)
+        .where(
+          and(
+            inArray(pricingSchedules.customerCategoryId, ids),
+            isNull(pricingSchedules.deletedAt)
+          )
+        )
+        .groupBy(pricingSchedules.customerCategoryId),
+    ]);
+
+    const customerCountsByCategoryId = new Map(
+      customerCounts
+        .filter(
+          (
+            row
+          ): row is {
+            customerCategoryId: string;
+            count: number;
+          } => row.customerCategoryId != null
+        )
+        .map((row) => [row.customerCategoryId, row.count])
+    );
+    const scheduleCountsByCategoryId = new Map(
+      scheduleCounts
+        .filter(
+          (
+            row
+          ): row is {
+            customerCategoryId: string;
+            count: number;
+          } => row.customerCategoryId != null
+        )
+        .map((row) => [row.customerCategoryId, row.count])
+    );
+
+    return rows.map((row) => ({
+      ...row,
+      customerCount: customerCountsByCategoryId.get(row.id) ?? 0,
+      scheduleCount: scheduleCountsByCategoryId.get(row.id) ?? 0,
+    }));
+  });
+}
+
+export async function getCustomerCategory(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [category] = await tx
+      .select({
+        id: customerCategories.id,
+        name: customerCategories.name,
+        description: customerCategories.description,
+      })
+      .from(customerCategories)
+      .where(
+        and(
+          eq(customerCategories.id, id),
+          isNull(customerCategories.deletedAt)
+        )
+      );
+
+    return category ?? null;
+  });
+}
+
+export async function createCustomerCategory(data: InsertCustomerCategory) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    await ensureCustomerCategoryNameAvailableInTx(tx, data.name);
+
+    const [maxSortOrderRow] = await tx
+      .select({
+        value: sql<number>`COALESCE(MAX(${customerCategories.sortOrder}), -1)`,
+      })
+      .from(customerCategories)
+      .where(isNull(customerCategories.deletedAt));
+
+    const [category] = await tx
+      .insert(customerCategories)
+      .values({
+        organizationId: orgId,
+        name: data.name,
+        description: data.description,
+        sortOrder: Number(maxSortOrderRow?.value ?? -1) + 1,
+      })
+      .returning({ id: customerCategories.id, name: customerCategories.name });
+
+    return category;
+  });
+}
+
+export async function updateCustomerCategory(id: string, data: UpdateCustomerCategory) {
+  return withAuthedOrgContext(async (tx) => {
+    await ensureCustomerCategoryNameAvailableInTx(tx, data.name, {
+      excludeId: id,
+    });
+
+    const [category] = await tx
+      .update(customerCategories)
+      .set({
+        name: data.name,
+        description: data.description,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(customerCategories.id, id),
+          isNull(customerCategories.deletedAt)
+        )
+      )
+      .returning({ id: customerCategories.id });
+
+    return category ?? null;
+  });
+}
+
+async function ensureCustomerCategoriesDeletableInTx(
+  tx: Tx,
+  categoryIds: string[]
+) {
+  const uniqueCategoryIds = [...new Set(categoryIds)];
+
+  const [blockingCustomer, blockingSchedule] = await Promise.all([
+    tx
+      .select({ id: customers.id })
+      .from(customers)
+      .where(
+        and(
+          inArray(customers.customerCategoryId, uniqueCategoryIds),
+          isNull(customers.deletedAt)
+        )
+      )
+      .limit(1),
+    tx
+      .select({ id: pricingSchedules.id })
+      .from(pricingSchedules)
+      .where(
+        and(
+          inArray(pricingSchedules.customerCategoryId, uniqueCategoryIds),
+          isNull(pricingSchedules.deletedAt)
+        )
+      )
+      .limit(1),
+  ]);
+
+  if (blockingCustomer[0]) {
+    throw new SalesError(
+      "Cannot delete a customer category that is still assigned to customers.",
+      400
+    );
+  }
+
+  if (blockingSchedule[0]) {
+    throw new SalesError(
+      "Cannot delete a customer category that is still used by pricing schedules.",
+      400
+    );
+  }
+
+  return uniqueCategoryIds;
+}
+
+async function softDeleteCustomerCategoriesInTx(tx: Tx, categoryIds: string[]) {
+  if (categoryIds.length === 0) {
+    return [];
+  }
+
+  return tx
+    .update(customerCategories)
+    .set({
+      deletedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        inArray(customerCategories.id, categoryIds),
+        isNull(customerCategories.deletedAt)
+      )
+    )
+    .returning({ id: customerCategories.id });
+}
+
+export async function deleteCustomerCategory(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const categoryIds = await ensureCustomerCategoriesDeletableInTx(tx, [id]);
+    const [category] = await softDeleteCustomerCategoriesInTx(tx, categoryIds);
+    return { deleted: category != null };
+  });
+}
+
+export async function deleteCustomerCategories(ids: string[]) {
+  return withAuthedOrgContext(async (tx) => {
+    const categoryIds = await ensureCustomerCategoriesDeletableInTx(tx, ids);
+    const deletedCategories = await softDeleteCustomerCategoriesInTx(tx, categoryIds);
+    return { deletedCount: deletedCategories.length };
+  });
+}
+
+export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: pricingSchedules.id,
+        name: pricingSchedules.name,
+        customerCategoryId: pricingSchedules.customerCategoryId,
+        customerCategoryName: customerCategories.name,
+        unitDefinitionId: unitDefinitions.id,
+        unitName: unitDefinitions.name,
+        unitSize: unitDefinitions.size,
+        unitUom: unitDefinitions.uom,
+        notes: pricingSchedules.notes,
+        updatedAt: pricingSchedules.updatedAt,
+      })
+      .from(pricingSchedules)
+      .leftJoin(
+        customerCategories,
+        eq(pricingSchedules.customerCategoryId, customerCategories.id)
+      )
+      .innerJoin(
+        unitDefinitions,
+        eq(pricingSchedules.unitDefinitionId, unitDefinitions.id)
+      )
+      .where(isNull(pricingSchedules.deletedAt))
+      .orderBy(
+        asc(customerCategories.name),
+        asc(unitDefinitions.name),
+        asc(pricingSchedules.name)
+      );
+
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const scheduleIds = rows.map((row) => row.id);
+    const breaks = await tx
+      .select({
+        pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
+        minQuantity: pricingScheduleBreaks.minQuantity,
+        maxQuantity: pricingScheduleBreaks.maxQuantity,
+        discountPercent: pricingScheduleBreaks.discountPercent,
+        sortOrder: pricingScheduleBreaks.sortOrder,
+      })
+      .from(pricingScheduleBreaks)
+      .where(inArray(pricingScheduleBreaks.pricingScheduleId, scheduleIds))
+      .orderBy(
+        asc(pricingScheduleBreaks.sortOrder),
+        asc(pricingScheduleBreaks.minQuantity)
+      );
+
+    const breaksByScheduleId = new Map<
+      string,
+      Array<{
+        minQuantity: string;
+        maxQuantity: string | null;
+        discountPercent: string;
+      }>
+    >();
+
+    for (const pricingBreak of breaks) {
+      const bucket =
+        breaksByScheduleId.get(pricingBreak.pricingScheduleId) ?? [];
+      bucket.push({
+        minQuantity: pricingBreak.minQuantity,
+        maxQuantity: pricingBreak.maxQuantity,
+        discountPercent: pricingBreak.discountPercent,
+      });
+      breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
+    }
+
+    return rows.map((row) => {
+      const scheduleBreaks = breaksByScheduleId.get(row.id) ?? [];
+      return {
+        id: row.id,
+        name: row.name,
+        customerCategoryId: row.customerCategoryId,
+        customerScopeLabel: row.customerCategoryName ?? "Everyone",
+        unitDefinitionId: row.unitDefinitionId,
+        unitName: row.unitName,
+        unitLabel: formatPricingUnitLabel({
+          name: row.unitName,
+          size: row.unitSize,
+          uom: row.unitUom,
+        }),
+        notes: row.notes,
+        breakCount: scheduleBreaks.length,
+        breakSummary: summarizePricingBreaks(scheduleBreaks),
+        updatedAt: row.updatedAt,
+      };
+    });
+  });
+}
+
+export async function getPricingSchedule(
+  id: string
+): Promise<PricingScheduleEditData | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const [schedule] = await tx
+      .select({
+        id: pricingSchedules.id,
+        name: pricingSchedules.name,
+        customerCategoryId: pricingSchedules.customerCategoryId,
+        unitDefinitionId: pricingSchedules.unitDefinitionId,
+        notes: pricingSchedules.notes,
+      })
+      .from(pricingSchedules)
+      .where(and(eq(pricingSchedules.id, id), isNull(pricingSchedules.deletedAt)));
+
+    if (!schedule) {
+      return null;
+    }
+
+    const breaks = await getPricingScheduleBreaksInTx(tx, id);
+
+    return {
+      ...schedule,
+      breaks: breaks.map((pricingBreak) => ({
+        minQuantity: pricingBreak.minQuantity,
+        maxQuantity: pricingBreak.maxQuantity,
+        discountPercent: pricingBreak.discountPercent,
+      })),
+    };
+  });
+}
+
+export async function createPricingSchedule(data: InsertPricingSchedule) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+    await ensureUnitDefinitionExistsInTx(tx, data.unitDefinitionId);
+    await ensurePricingScheduleScopeAvailableInTx(tx, data);
+
+    const [schedule] = await tx
+      .insert(pricingSchedules)
+      .values({
+        organizationId: orgId,
+        name: data.name,
+        customerCategoryId: data.customerCategoryId,
+        unitDefinitionId: data.unitDefinitionId,
+        notes: data.notes,
+      })
+      .returning({ id: pricingSchedules.id });
+
+    await tx.insert(pricingScheduleBreaks).values(
+      data.breaks.map((pricingBreak, index) => ({
+        pricingScheduleId: schedule.id,
+        minQuantity: normalizeNumeric(Number(pricingBreak.minQuantity)),
+        maxQuantity:
+          pricingBreak.maxQuantity == null
+            ? null
+            : normalizeNumeric(Number(pricingBreak.maxQuantity)),
+        discountPercent: normalizeMoney(Number(pricingBreak.discountPercent)),
+        sortOrder: index,
+      }))
+    );
+
+    return schedule;
+  });
+}
+
+export async function updatePricingSchedule(
+  id: string,
+  data: UpdatePricingSchedule
+) {
+  return withAuthedOrgContext(async (tx) => {
+    const [existingSchedule] = await tx
+      .select({ id: pricingSchedules.id })
+      .from(pricingSchedules)
+      .where(and(eq(pricingSchedules.id, id), isNull(pricingSchedules.deletedAt)));
+
+    if (!existingSchedule) {
+      return null;
+    }
+
+    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+    await ensureUnitDefinitionExistsInTx(tx, data.unitDefinitionId);
+    await ensurePricingScheduleScopeAvailableInTx(tx, data, {
+      excludeId: id,
+    });
+
+    await tx
+      .update(pricingSchedules)
+      .set({
+        name: data.name,
+        customerCategoryId: data.customerCategoryId,
+        unitDefinitionId: data.unitDefinitionId,
+        notes: data.notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(pricingSchedules.id, id));
+
+    await tx
+      .delete(pricingScheduleBreaks)
+      .where(eq(pricingScheduleBreaks.pricingScheduleId, id));
+
+    await tx.insert(pricingScheduleBreaks).values(
+      data.breaks.map((pricingBreak, index) => ({
+        pricingScheduleId: id,
+        minQuantity: normalizeNumeric(Number(pricingBreak.minQuantity)),
+        maxQuantity:
+          pricingBreak.maxQuantity == null
+            ? null
+            : normalizeNumeric(Number(pricingBreak.maxQuantity)),
+        discountPercent: normalizeMoney(Number(pricingBreak.discountPercent)),
+        sortOrder: index,
+      }))
+    );
+
+    return { id };
+  });
+}
+
+async function softDeletePricingSchedulesInTx(tx: Tx, scheduleIds: string[]) {
+  if (scheduleIds.length === 0) {
+    return [];
+  }
+
+  return tx
+    .update(pricingSchedules)
+    .set({
+      deletedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        inArray(pricingSchedules.id, scheduleIds),
+        isNull(pricingSchedules.deletedAt)
+      )
+    )
+    .returning({ id: pricingSchedules.id });
+}
+
+export async function deletePricingSchedule(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [schedule] = await softDeletePricingSchedulesInTx(tx, [id]);
+    return { deleted: schedule != null };
+  });
+}
+
+export async function deletePricingSchedules(ids: string[]) {
+  return withAuthedOrgContext(async (tx) => {
+    const deletedSchedules = await softDeletePricingSchedulesInTx(
+      tx,
+      [...new Set(ids)]
+    );
+    return { deletedCount: deletedSchedules.length };
+  });
+}
+
 export async function getCustomers(): Promise<CustomerRow[]> {
   return withAuthedOrgContext(async (tx) => {
     return tx
       .select({
         id: customers.id,
         name: customers.name,
+        customerCategoryId: customers.customerCategoryId,
+        customerCategoryName: customerCategories.name,
         email: customers.email,
         phone: customers.phone,
         address: customers.address,
@@ -592,6 +1502,10 @@ export async function getCustomers(): Promise<CustomerRow[]> {
         updatedAt: customers.updatedAt,
       })
       .from(customers)
+      .leftJoin(
+        customerCategories,
+        eq(customers.customerCategoryId, customerCategories.id)
+      )
       .where(isNull(customers.deletedAt))
       .orderBy(asc(customers.name));
   });
@@ -611,6 +1525,8 @@ export async function getCustomer(
       .select({
         id: customers.id,
         name: customers.name,
+        customerCategoryId: customers.customerCategoryId,
+        customerCategoryName: customerCategories.name,
         email: customers.email,
         phone: customers.phone,
         address: customers.address,
@@ -620,6 +1536,10 @@ export async function getCustomer(
         updatedAt: customers.updatedAt,
       })
       .from(customers)
+      .leftJoin(
+        customerCategories,
+        eq(customers.customerCategoryId, customerCategories.id)
+      )
       .where(and(...conditions));
 
     return customer ?? null;
@@ -628,6 +1548,8 @@ export async function getCustomer(
 
 export async function createCustomer(data: InsertCustomer) {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+
     const [customer] = await tx
       .insert(customers)
       .values({
@@ -642,6 +1564,8 @@ export async function createCustomer(data: InsertCustomer) {
 
 export async function updateCustomer(id: string, data: UpdateCustomer) {
   return withAuthedOrgContext(async (tx) => {
+    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+
     const [customer] = await tx
       .update(customers)
       .set({
@@ -718,6 +1642,27 @@ export async function deleteCustomers(ids: string[]) {
   });
 }
 
+export async function resolveSalesLinePricing(
+  values: ResolveSalesLinePricingInput
+): Promise<SalesLinePricingResult> {
+  return withAuthedOrgContext(async (tx) => {
+    const customer = await getValidatedCustomerInTx(tx, values.customerId);
+    const products = await getValidatedProductsInTx(tx, [values.itemId]);
+    const product = products.get(values.itemId);
+
+    if (!product) {
+      throw new SalesError("Product not found", 404);
+    }
+
+    return resolvePricingForProductInTx(tx, {
+      customerCategoryId: customer.customerCategoryId,
+      customerCategoryName: customer.customerCategoryName,
+      product,
+      quantity: values.quantity,
+    });
+  });
+}
+
 export async function getSalesOrderProductOptions(): Promise<SalesOrderProductOption[]> {
   return withAuthedOrgContext(async (tx) => {
     return tx
@@ -725,6 +1670,7 @@ export async function getSalesOrderProductOptions(): Promise<SalesOrderProductOp
         id: items.id,
         name: items.name,
         sku: items.sku,
+        unitDefinitionId: items.unitDefinitionId,
         unitName: unitDefinitions.name,
         defaultSellingPrice: items.defaultSellingPrice,
         stock: stockSubquery,
@@ -826,6 +1772,11 @@ export async function getSalesOrder(
         unitName: salesOrderLines.unitName,
         quantity: salesOrderLines.quantity,
         unitPrice: salesOrderLines.unitPrice,
+        suggestedUnitPrice: salesOrderLines.suggestedUnitPrice,
+        pricingSourceType: salesOrderLines.pricingSourceType,
+        pricingScheduleName: salesOrderLines.pricingScheduleName,
+        pricingBreakLabel: salesOrderLines.pricingBreakLabel,
+        isPriceOverridden: salesOrderLines.isPriceOverridden,
         lineTotal: salesOrderLines.lineTotal,
         sortOrder: salesOrderLines.sortOrder,
         createdAt: salesOrderLines.createdAt,
@@ -906,6 +1857,12 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         itemId: line.itemId,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
+        suggestedUnitPrice: line.suggestedUnitPrice,
+        pricingSourceType: (line.pricingSourceType ??
+          "base_price") as PricingSourceType,
+        pricingScheduleName: line.pricingScheduleName,
+        pricingBreakLabel: line.pricingBreakLabel,
+        isPriceOverridden: line.isPriceOverridden,
       })),
     };
   });

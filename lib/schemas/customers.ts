@@ -3,8 +3,14 @@ import { z } from "zod";
 import { customers } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
+const customerCategoryIdSchema = nullableString.refine(
+  (value) => value == null || z.string().uuid().safeParse(value).success,
+  "Invalid customer category"
+);
+
 const baseCustomerSchema = createInsertSchema(customers, {
   name: z.string().trim().min(1, "Name is required"),
+  customerCategoryId: customerCategoryIdSchema,
   email: nullableString,
   phone: nullableString,
   address: nullableString,
@@ -25,6 +31,7 @@ export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
 
 export const customerDefaultValues: InsertCustomer = {
   name: "",
+  customerCategoryId: null,
   email: null,
   phone: null,
   address: null,

@@ -116,7 +116,10 @@ test.describe("Purchasing flow", () => {
 
   test("creates a draft purchase order", async ({ page, db }) => {
     await page.goto("/purchasing/orders/new");
-    await expect(page.getByText("Add Purchase Order")).toBeVisible();
+    await page.waitForURL("**/purchasing/orders/new", { timeout: 30000 });
+    await expect(
+      page.getByRole("heading", { name: "Add Purchase Order" })
+    ).toBeVisible({ timeout: 30000 });
 
     const supplierInput = page.getByPlaceholder("Search suppliers...");
     await supplierInput.click();

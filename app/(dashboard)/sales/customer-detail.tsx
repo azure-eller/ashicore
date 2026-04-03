@@ -98,6 +98,12 @@ export function CustomerDetail({ customer }: { customer: CustomerRow }) {
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
+            <dt className="text-sm font-medium text-muted-foreground">Pricing</dt>
+            <dd className="mt-1 text-sm">
+              {customer.customerCategoryName ?? "Everyone"}
+            </dd>
+          </div>
+          <div>
             <dt className="text-sm font-medium text-muted-foreground">Email</dt>
             <dd className="mt-1 text-sm">{customer.email ?? "\u2014"}</dd>
           </div>

@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { CustomerForm } from "@/app/(dashboard)/sales/customer-form";
-import { getCustomer } from "@/app/(dashboard)/sales/queries";
+import {
+  getCustomer,
+  getCustomerCategoryOptions,
+} from "@/app/(dashboard)/sales/queries";
 
 export default async function EditCustomerPage({
   params,
@@ -10,7 +13,10 @@ export default async function EditCustomerPage({
 }) {
   await requireModuleWriteAccess("sales");
   const { id } = await params;
-  const customer = await getCustomer(id);
+  const [customer, customerCategories] = await Promise.all([
+    getCustomer(id),
+    getCustomerCategoryOptions(),
+  ]);
 
   if (!customer) {
     redirect("/sales/customers");
@@ -18,7 +24,10 @@ export default async function EditCustomerPage({
 
   return (
     <div className="mx-auto w-full max-w-4xl py-8">
-      <CustomerForm initialData={customer} />
+      <CustomerForm
+        initialData={customer}
+        customerCategories={customerCategories}
+      />
     </div>
   );
 }
