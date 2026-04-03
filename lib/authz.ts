@@ -158,8 +158,24 @@ export function getAssignableRoles(actorRole: string | null | undefined) {
 }
 
 export function getDefaultDashboardPath(role: string | null | undefined) {
-  if (MODULE_KEYS.some((module) => canReadModule(role, module))) {
-    return "/";
+  if (canReadModule(role, "inventory")) {
+    return "/inventory/products";
+  }
+
+  if (canReadModule(role, "sales")) {
+    return "/sales/orders";
+  }
+
+  if (canReadModule(role, "manufacturing")) {
+    return "/manufacturing/orders";
+  }
+
+  if (canReadModule(role, "purchasing")) {
+    return "/purchasing/orders";
+  }
+
+  if (canReadModule(role, "settings")) {
+    return "/settings/account";
   }
 
   return "/sign-in";

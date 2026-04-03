@@ -31,9 +31,8 @@ test.describe("Inventory creation flow", () => {
   }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "See what could derail the next 14 days." })).toBeVisible();
-    await expect(page.getByText("Orders At Risk")).toBeVisible();
-    await expect(page.getByText("Operational risk trend", { exact: true })).toBeVisible();
+    await page.waitForURL("**/inventory/products");
+    await expect(page.getByText("Inventory")).toBeVisible();
     await expect(page.getByText("Test Org")).toBeVisible();
     await expect(page.getByText("Single site")).toBeVisible();
     await expect(page.getByRole("button", { name: "Toggle theme" })).toBeVisible();
