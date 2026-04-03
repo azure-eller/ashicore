@@ -54,6 +54,7 @@ import {
   FieldSeparator,
   FieldSet,
 } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -445,11 +446,11 @@ export function OrderForm({
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>Requested Date</FieldLabel>
-                        <Input
+                        <DatePicker
                           id={field.name}
-                          type="date"
                           value={field.value ?? ""}
-                          onChange={(event) => field.onChange(event.target.value)}
+                          onChange={(value) => field.onChange(value || null)}
+                          onBlur={field.onBlur}
                           aria-invalid={fieldState.invalid}
                         />
                         {fieldState.invalid && <FieldError errors={[fieldState.error]} />}

@@ -39,6 +39,7 @@ When you discover a new pattern or gotcha:
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
+| Production launch, auth protection, observability | `docs/production-ops.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |
@@ -67,6 +68,10 @@ New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on
 ## Coding Patterns
 
 These are gotchas that have caused real bugs. Follow them exactly.
+
+### Date and datetime fields
+
+Never use `<input type="date">`. Use `DatePicker` for date columns (`YYYY-MM-DD`) and `DateTimePicker` for timestamp columns (`YYYY-MM-DDTHH:mm:ss`). Both use string values matching Postgres types. See `docs/ui-patterns.md` for Controller examples.
 
 ### No local utility functions
 
@@ -360,6 +365,23 @@ const requestedDate = nullableString.refine(
   (value) => value == null || isValidIsoDate(value),
   "Requested date must be a real date in YYYY-MM-DD format"
 )
+```
+
+### Auth email URLs
+
+Invite, verification, and password-reset emails must use the configured canonical app URL. Never build auth links from `request.url`.
+
+```ts
+const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL
+```
+
+### Observability hygiene
+
+Sentry and API error logging must redact secrets and user-entered notes. Never capture passwords, tokens, cookies, raw request bodies, or customer notes/comments by default.
+
+```ts
+delete event.request?.data
+scope.setContext("request", { method, path })
 ```
 
 ### Product deletes with active sales orders

@@ -37,6 +37,7 @@ import {
   FieldSeparator,
   FieldSet,
 } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -677,12 +678,11 @@ export function ManufacturingOrderForm({
                       <FieldLabel htmlFor={field.name}>
                         {isSalesOrderMode ? "Batch Planned Date" : "Planned Date"}
                       </FieldLabel>
-                      <Input
-                        {...field}
+                      <DatePicker
                         id={field.name}
-                        type="date"
                         value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
+                        onChange={(value) => field.onChange(value || null)}
+                        onBlur={field.onBlur}
                         aria-invalid={fieldState.invalid}
                       />
                       <FieldDescription>

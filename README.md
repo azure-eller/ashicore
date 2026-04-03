@@ -80,14 +80,16 @@ Required for auth / absolute URLs:
 
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL` or `NEXT_PUBLIC_APP_URL`
+- `RESEND_API_KEY` and `EMAIL_FROM` in production for invites, password reset, and email verification
+- `SENTRY_DSN` in production for server and edge Sentry events
+- `NEXT_PUBLIC_SENTRY_DSN` in production for browser errors, tracing, and session replay
 
 Optional:
 
 - `BETTER_AUTH_ALLOWED_HOSTS`: comma-separated extra host patterns for LAN IPs or tunnel hosts. `localhost`, `127.0.0.1`, and `[::1]` on any port already work.
-- `RESEND_API_KEY`: email delivery for team invites
-- `EMAIL_FROM`: sender address for invite emails
 - `TEST_BASE_URL`: overrides Playwright base URL
 - `PORT`: local fallback if you do not set an app URL
+- `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_RELEASE`: enable source-map upload and release tagging for Sentry
 
 ## Database Notes
 
@@ -146,6 +148,7 @@ Start with `AGENTS.md` for repo-wide rules, then load the relevant domain doc:
 - `docs/api-patterns.md`
 - `docs/ui-patterns.md`
 - `docs/auth-team.md`
+- `docs/production-ops.md`
 - `docs/manufacturing.md`
 - `docs/purchasing.md`
 - `docs/stocktakes.md`
