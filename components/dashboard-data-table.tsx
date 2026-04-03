@@ -97,7 +97,6 @@ export function DashboardDataTable<TData extends { id: string }>({
     queryKey,
     queryFn,
     initialData,
-    initialDataUpdatedAt: 0,
   });
 
   const deleteMutation = useMutation<void, Error, string[]>({

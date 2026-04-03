@@ -181,7 +181,6 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       return response.json();
     },
     initialData,
-    initialDataUpdatedAt: 0,
   });
 
   const deleteMutation = useMutation({

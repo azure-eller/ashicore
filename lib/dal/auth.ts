@@ -30,20 +30,30 @@ type MemberContext = {
   avatar: string | undefined;
 };
 
-async function resolveMemberContext(requestHeaders: HeadersInit) {
-  const normalizedHeaders =
-    requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
-  const session = await auth.api.getSession({
-    headers: normalizedHeaders,
-  });
+type AuthSession = Awaited<ReturnType<typeof auth.api.getSession>>;
+
+async function resolveMemberContext(
+  requestHeaders: HeadersInit,
+  existingSession?: AuthSession
+) {
+  const session =
+    existingSession ??
+    (await auth.api.getSession({
+      headers:
+        requestHeaders instanceof Headers
+          ? requestHeaders
+          : new Headers(requestHeaders),
+    }));
 
   if (!session || !session.session.activeOrganizationId) {
     return null;
   }
 
+  const activeOrganizationId = session.session.activeOrganizationId;
+
   const membership = await db.query.member.findFirst({
     where: and(
-      eq(member.organizationId, session.session.activeOrganizationId),
+      eq(member.organizationId, activeOrganizationId),
       eq(member.userId, session.user.id)
     ),
     with: {
@@ -61,7 +71,7 @@ async function resolveMemberContext(requestHeaders: HeadersInit) {
 
   return {
     userId: session.user.id,
-    orgId: session.session.activeOrganizationId,
+    orgId: activeOrganizationId,
     memberId: membership.id,
     organizationName: membership.organization.name,
     role: normalizeAppRole(membership.role),
@@ -88,7 +98,7 @@ const getRequestAuthState = cache(async () => {
 
   return {
     session,
-    context: await resolveMemberContext(normalizedHeaders),
+    context: await resolveMemberContext(normalizedHeaders, session),
   };
 });
 

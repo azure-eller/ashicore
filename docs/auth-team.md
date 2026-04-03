@@ -45,6 +45,8 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 - Keep `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` as the canonical app URL for emails and non-request fallbacks.
 - `lib/auth.ts` resolves Better Auth URLs from the incoming request when the host is allowed.
 - `localhost`, `127.0.0.1`, and `[::1]` are allowed on any port for local worktrees.
+- Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` or `VERCEL_URL` when the canonical URL env vars are missing.
+- Vercel preview deploys auto-allow `*.vercel.app`; add explicit patterns only for non-Vercel preview hosts.
 - Add LAN IPs or tunnel hosts through `BETTER_AUTH_ALLOWED_HOSTS` as comma-separated host patterns.
 - Do not rewrite `BETTER_AUTH_URL` just because a worktree is running on `:3001` or another local port.
 

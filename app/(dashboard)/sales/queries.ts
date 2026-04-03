@@ -1721,10 +1721,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
     }
 
     const orderIds = orderRows.map((order) => order.id);
-    const manufacturingSummaries = await getSalesOrderManufacturingSummariesInTx(
-      tx,
-      orderIds
-    );
+    const manufacturingSummaries = await getSalesOrderManufacturingSummariesInTx(tx, orderIds);
 
     return orderRows.map((order) => {
       const manufacturingSummary = manufacturingSummaries.get(order.id);

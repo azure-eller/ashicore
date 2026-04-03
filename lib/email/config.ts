@@ -1,26 +1,7 @@
 import "server-only";
+import { getCanonicalAppUrl } from "@/lib/app-url";
 
-export function getCanonicalAppUrl() {
-  if (process.env.BETTER_AUTH_URL) {
-    return process.env.BETTER_AUTH_URL;
-  }
-
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL;
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "Missing BETTER_AUTH_URL or NEXT_PUBLIC_APP_URL — cannot generate auth email links in production."
-    );
-  }
-
-  if (process.env.PORT) {
-    return `http://localhost:${process.env.PORT}`;
-  }
-
-  return "http://localhost:3000";
-}
+export { getCanonicalAppUrl };
 
 export function getEmailSenderConfig() {
   const resendApiKey = process.env.RESEND_API_KEY;

@@ -2,15 +2,13 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAccessControl, organization } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
+import { getCanonicalAppUrl } from "@/lib/app-url";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { sendAccountEmailVerificationEmail, sendPasswordResetEmail } from "@/lib/email/auth-emails";
 import { sendTeamInvitationEmail } from "@/lib/email/team-invites";
 
-const authFallbackUrl =
-  process.env.BETTER_AUTH_URL ??
-  process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.PORT ? `http://localhost:${process.env.PORT}` : "http://localhost:3000");
+const authFallbackUrl = getCanonicalAppUrl();
 
 const authAllowedHosts = (() => {
   const hosts = new Set([
@@ -22,16 +20,25 @@ const authAllowedHosts = (() => {
     "[::1]:*",
   ]);
 
-  for (const url of [process.env.BETTER_AUTH_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+  for (const url of [
+    process.env.BETTER_AUTH_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_URL,
+  ]) {
     if (!url) {
       continue;
     }
 
     try {
-      hosts.add(new URL(url).host);
+      hosts.add(new URL(url.startsWith("http") ? url : `https://${url}`).host);
     } catch {
       // Better Auth will raise on an invalid fallback URL later.
     }
+  }
+
+  if (process.env.VERCEL_ENV === "preview") {
+    hosts.add("*.vercel.app");
   }
 
   for (const host of process.env.BETTER_AUTH_ALLOWED_HOSTS?.split(",") ?? []) {

@@ -14,9 +14,19 @@ All auth-facing emails must use one configured canonical app URL.
 
 - Prefer `BETTER_AUTH_URL`
 - Fall back to `NEXT_PUBLIC_APP_URL`
+- On Vercel preview deploys, `VERCEL_BRANCH_URL` then `VERCEL_URL` are acceptable non-request fallbacks when the canonical URL vars are unset
 - Never derive invite or auth email links from `request.url`
 
 This avoids wrong-host links when the inbound host header is not the public app domain.
+
+## Vercel Preview Auth
+
+For preview deployments that should support real sign-in flows:
+
+- set `BETTER_AUTH_SECRET` in the `Preview` environment
+- set `BETTER_AUTH_ALLOWED_HOSTS=*.vercel.app` in the `Preview` environment
+- prefer a stable preview fallback URL in `BETTER_AUTH_URL` or `NEXT_PUBLIC_APP_URL`
+- branch deploys may still use `VERCEL_BRANCH_URL` / `VERCEL_URL` automatically if the canonical URL vars are missing
 
 ## Email Delivery
 
