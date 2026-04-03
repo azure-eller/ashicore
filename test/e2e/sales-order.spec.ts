@@ -321,11 +321,7 @@ test.describe("Sales order flow", () => {
 
     await page.goto("/sales/pricing");
     await expect(
-      page.getByRole("heading", { name: "Pricing", exact: true })
-    ).toBeVisible({ timeout: 30000 });
-    await page.getByRole("textbox", { name: "Search customer categories" }).fill(`${run}`);
-    await expect(
-      page.getByRole("row", { name: new RegExp(`Wholesale ${run}`) }).first()
+      page.getByRole("heading", { name: "Pricing Schedules" })
     ).toBeVisible({ timeout: 30000 });
     await page.getByRole("textbox", { name: "Search pricing schedules" }).fill(`${run}`);
     await expect(

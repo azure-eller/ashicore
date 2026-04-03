@@ -15,6 +15,15 @@ import {
 import type { CustomerCategoryOption, CustomerRow } from "./types";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Field,
   FieldDescription,
   FieldError,
@@ -25,12 +34,20 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
 type CustomerFormValues = z.input<typeof insertCustomerSchema>;
 const EVERYONE_CATEGORY_VALUE = "__everyone__";
+const CREATE_NEW_CATEGORY = "__create_new__";
 
 export function CustomerForm({
   customerCategories,
@@ -46,6 +63,11 @@ export function CustomerForm({
     ? `/sales/customers/${initialData.id}`
     : "/sales/customers";
   const [formError, setFormError] = useState<string | null>(null);
+  const [localCategories, setLocalCategories] = useState(customerCategories);
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryDescription, setCategoryDescription] = useState("");
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(initialData ? updateCustomerSchema : insertCustomerSchema),
@@ -60,6 +82,38 @@ export function CustomerForm({
           notes: initialData.notes,
         }
       : customerDefaultValues,
+  });
+
+  const categoryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/customer-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: categoryName,
+          description: categoryDescription || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error ?? "Failed to create category.");
+      }
+      return res.json() as Promise<{ id: string; name: string }>;
+    },
+    onSuccess: (newCategory) => {
+      setLocalCategories((prev) => [...prev, newCategory]);
+      form.setValue("customerCategoryId", newCategory.id, { shouldDirty: true });
+      setIsCategoryDialogOpen(false);
+      setCategoryName("");
+      setCategoryDescription("");
+      setCategoryError(null);
+    },
+    onError: (error) => {
+      setCategoryError(error.message);
+    },
+    onMutate: () => {
+      setCategoryError(null);
+    },
   });
 
   const mutation = useMutation({
@@ -183,13 +237,18 @@ export function CustomerForm({
                     <Field data-invalid={fieldState.invalid}>
                       <FieldLabel>Pricing Category</FieldLabel>
                       <Select
+                        key={field.value}
                         name={field.name}
                         value={field.value ?? EVERYONE_CATEGORY_VALUE}
-                        onValueChange={(value) =>
-                          field.onChange(
-                            value === EVERYONE_CATEGORY_VALUE ? null : value
-                          )
-                        }
+                        onValueChange={(value) => {
+                          if (value === CREATE_NEW_CATEGORY) {
+                            setIsCategoryDialogOpen(true);
+                          } else {
+                            field.onChange(
+                              value === EVERYONE_CATEGORY_VALUE ? null : value
+                            );
+                          }
+                        }}
                       >
                         <SelectTrigger aria-invalid={fieldState.invalid}>
                           <SelectValue placeholder="Select a pricing category" />
@@ -198,7 +257,7 @@ export function CustomerForm({
                           <SelectItem value={EVERYONE_CATEGORY_VALUE}>
                             Everyone default pricing
                           </SelectItem>
-                          {customerCategories.map((customerCategory) => (
+                          {localCategories.map((customerCategory) => (
                             <SelectItem
                               key={customerCategory.id}
                               value={customerCategory.id}
@@ -206,6 +265,10 @@ export function CustomerForm({
                               {customerCategory.name}
                             </SelectItem>
                           ))}
+                          <SelectSeparator />
+                          <SelectItem value={CREATE_NEW_CATEGORY}>
+                            + Create new category
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
@@ -307,6 +370,61 @@ export function CustomerForm({
         </FieldGroup>
       </form>
 
+      <Dialog
+        open={isCategoryDialogOpen}
+        onOpenChange={(open) => {
+          setIsCategoryDialogOpen(open);
+          if (!open) {
+            setCategoryName("");
+            setCategoryDescription("");
+            setCategoryError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Create Category</DialogTitle>
+            <DialogDescription>
+              Define a new pricing category to group customers.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="category-name">Name</FieldLabel>
+              <Input
+                id="category-name"
+                value={categoryName}
+                onChange={(e) => setCategoryName(e.target.value)}
+                placeholder="e.g. Wholesale"
+                autoComplete="off"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="category-description">Description</FieldLabel>
+              <Input
+                id="category-description"
+                value={categoryDescription}
+                onChange={(e) => setCategoryDescription(e.target.value)}
+                placeholder="Optional"
+                autoComplete="off"
+              />
+            </Field>
+          </FieldGroup>
+          {categoryError && <FieldError>{categoryError}</FieldError>}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={() => categoryMutation.mutate()}
+              disabled={categoryMutation.isPending || !categoryName.trim()}
+            >
+              {categoryMutation.isPending ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

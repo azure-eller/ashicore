@@ -1122,7 +1122,7 @@ export async function createCustomerCategory(data: InsertCustomerCategory) {
         description: data.description,
         sortOrder: Number(maxSortOrderRow?.value ?? -1) + 1,
       })
-      .returning({ id: customerCategories.id });
+      .returning({ id: customerCategories.id, name: customerCategories.name });
 
     return category;
   });
