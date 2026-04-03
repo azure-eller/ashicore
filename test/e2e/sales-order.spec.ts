@@ -388,8 +388,10 @@ test.describe("Sales order flow", () => {
     await row3.getByPlaceholder("Search items...").click();
     await row3.getByPlaceholder("Search items...").pressSequentially(primaryMaterialName);
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
+    await expect(row3.locator('input[placeholder="0"]').first()).toBeVisible();
     await row3.locator('input[placeholder="0"]').first().fill("5");
-    await row3.locator('input[placeholder="0.00"]').fill("6.25");
+    await row3.locator('input[placeholder="0.00"]').first().click();
+    await row3.locator('input[placeholder="0.00"]').first().fill("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
