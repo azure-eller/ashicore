@@ -248,3 +248,59 @@ const handleCancel = () => {
 // ✗ Wrong
 <Link href="/inventory/materials/123">{row.original.name}</Link>
 ```
+
+## Date & DateTime Pickers
+
+Both pickers use string values matching their Postgres column types. Never use `<input type="date">` — use these components instead.
+
+### DatePicker — date-only fields (`YYYY-MM-DD`)
+
+For Postgres `date` columns. Button trigger with calendar popover.
+
+```tsx
+import { DatePicker } from "@/components/ui/date-picker"
+
+<Controller
+  control={form.control}
+  name="requestedDate"
+  render={({ field, fieldState }) => (
+    <Field data-invalid={fieldState.invalid}>
+      <FieldLabel htmlFor={field.name}>Requested Date</FieldLabel>
+      <DatePicker
+        id={field.name}
+        value={field.value ?? ""}
+        onChange={(value) => field.onChange(value || null)}
+        onBlur={field.onBlur}
+        aria-invalid={fieldState.invalid}
+      />
+      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+    </Field>
+  )}
+/>
+```
+
+### DateTimePicker — datetime fields (`YYYY-MM-DDTHH:mm:ss`)
+
+For Postgres `timestamp` columns. Button trigger with two-step popover: calendar then hour/minute wheel picker.
+
+```tsx
+import { DateTimePicker } from "@/components/ui/date-time-picker"
+
+<Controller
+  control={form.control}
+  name="deliveryTime"
+  render={({ field, fieldState }) => (
+    <Field data-invalid={fieldState.invalid}>
+      <FieldLabel htmlFor={field.name}>Delivery Time</FieldLabel>
+      <DateTimePicker
+        id={field.name}
+        value={field.value ?? ""}
+        onChange={(value) => field.onChange(value || null)}
+        onBlur={field.onBlur}
+        aria-invalid={fieldState.invalid}
+      />
+      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+    </Field>
+  )}
+/>
+```

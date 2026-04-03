@@ -69,6 +69,10 @@ New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on
 
 These are gotchas that have caused real bugs. Follow them exactly.
 
+### Date and datetime fields
+
+Never use `<input type="date">`. Use `DatePicker` for date columns (`YYYY-MM-DD`) and `DateTimePicker` for timestamp columns (`YYYY-MM-DDTHH:mm:ss`). Both use string values matching Postgres types. See `docs/ui-patterns.md` for Controller examples.
+
 ### No local utility functions
 
 Before defining a helper in a module, check `lib/format.ts` and `lib/schemas/shared.ts` first. Common helpers that exist there: `normalizeNumeric`, `normalizeMoney`, `parsePositive`, `getFieldArrayError`, `formatQuantity`, `formatDate`, `formatDateTime`, `formatPrice`. Never copy these into module files.
