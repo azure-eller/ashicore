@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import {
@@ -88,7 +88,13 @@ async function loadTeamPageData(
       createdAt: invitation.createdAt,
     })
     .from(invitation)
-    .where(and(eq(invitation.organizationId, orgId), eq(invitation.status, "pending")))
+    .where(
+      and(
+        eq(invitation.organizationId, orgId),
+        eq(invitation.status, "pending"),
+        gt(invitation.expiresAt, new Date())
+      )
+    )
     .orderBy(asc(invitation.email));
 
   return {

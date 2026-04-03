@@ -123,15 +123,17 @@ test.describe("Purchasing flow", () => {
 
     const supplierInput = page.getByPlaceholder("Search suppliers...");
     await supplierInput.click();
-    await supplierInput.fill(supplierName);
+    await supplierInput.pressSequentially(supplierName);
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
-    await page.locator("#expectedDate").fill("2026-05-01");
+    await page.locator("#expectedDate").click();
+    await page.getByRole("button", { name: "Go to next month" }).click();
+    await page.getByRole("gridcell", { name: "1", exact: true }).first().click();
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
     await firstMaterialInput.click();
-    await firstMaterialInput.fill(barkName);
+    await firstMaterialInput.pressSequentially(barkName);
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
     await page.getByPlaceholder("0").first().fill("10");
 
@@ -140,7 +142,7 @@ test.describe("Purchasing flow", () => {
     const secondRow = page.locator("tbody tr").nth(1);
     const secondMaterialInput = secondRow.getByPlaceholder("Search materials...");
     await secondMaterialInput.click();
-    await secondMaterialInput.fill(sandName);
+    await secondMaterialInput.pressSequentially(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
     await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
@@ -181,7 +183,8 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("link", { name: "Edit" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
 
-    await page.locator("#expectedDate").fill("2026-05-03");
+    await page.locator("#expectedDate").click();
+    await page.getByRole("gridcell", { name: "3", exact: true }).first().click();
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);

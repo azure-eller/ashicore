@@ -362,21 +362,22 @@ test.describe("Sales order flow", () => {
 
     const customerInput = page.getByPlaceholder("Search customers...");
     await customerInput.click();
-    await customerInput.fill(customerName);
+    await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    await page.getByLabel("Requested Date").fill("2026-04-15");
+    await page.getByLabel("Requested Date").click();
+    await page.getByRole("gridcell", { name: "15" }).first().click();
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
-    await itemInput.fill(primaryProductName);
+    await itemInput.pressSequentially(primaryProductName);
     await page.getByRole("option", { name: new RegExp(primaryProductName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
 
     await page.getByRole("button", { name: "Add Item" }).click();
     const row2 = page.locator("tbody tr").last();
     await row2.getByPlaceholder("Search items...").click();
-    await row2.getByPlaceholder("Search items...").fill(secondaryProductName);
+    await row2.getByPlaceholder("Search items...").pressSequentially(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
     await row2.locator('input[placeholder="0"]').first().fill("5");
     await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.80");
@@ -385,7 +386,7 @@ test.describe("Sales order flow", () => {
     await page.getByRole("button", { name: "Add Item" }).click();
     const row3 = page.locator("tbody tr").last();
     await row3.getByPlaceholder("Search items...").click();
-    await row3.getByPlaceholder("Search items...").fill(primaryMaterialName);
+    await row3.getByPlaceholder("Search items...").pressSequentially(primaryMaterialName);
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
     await row3.locator('input[placeholder="0"]').first().fill("5");
     await row3.locator('input[placeholder="0.00"]').fill("6.25");
@@ -932,19 +933,19 @@ test.describe("Sales order flow", () => {
 
     const customerInput = page.getByPlaceholder("Search customers...");
     await customerInput.click();
-    await customerInput.fill(customerName);
+    await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
-    await itemInput.fill(secondaryProductName);
+    await itemInput.pressSequentially(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("1");
 
     await page.getByRole("button", { name: "Add Item" }).click();
     const materialRow = page.locator("tbody tr").last();
     await materialRow.getByPlaceholder("Search items...").click();
-    await materialRow.getByPlaceholder("Search items...").fill(primaryMaterialName);
+    await materialRow.getByPlaceholder("Search items...").pressSequentially(primaryMaterialName);
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
     await materialRow.locator('input[placeholder="0"]').first().fill("4");
     await materialRow.locator('input[placeholder="0.00"]').fill("6.25");
