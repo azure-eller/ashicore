@@ -52,6 +52,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Create app_user role
+        run: psql "$DATABASE_URL" -c "CREATE ROLE app_user WITH LOGIN PASSWORD 'postgres';"
+
       - name: Run migrations
         run: pnpm drizzle-kit migrate
 
@@ -119,6 +122,9 @@ jobs:
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Create app_user role
+        run: psql "$DATABASE_URL" -c "CREATE ROLE app_user WITH LOGIN PASSWORD 'postgres';"
 
       - name: Run migrations
         run: pnpm drizzle-kit migrate
