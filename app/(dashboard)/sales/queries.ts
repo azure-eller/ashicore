@@ -71,20 +71,23 @@ const stockSubquery = sql<string>`(
   WHERE ${lots.itemId} = ${items.id}
 )`.as("stock");
 
-type PreparedOrderLine = {
+type PreparedOrderLineBase = {
   itemId: string;
   itemName: string;
   itemSku: string | null;
   unitName: string;
   quantity: string;
   unitPrice: string;
+  lineTotal: string;
+  sortOrder: number;
+};
+
+type PreparedOrderLine = PreparedOrderLineBase & {
   suggestedUnitPrice: string | null;
   pricingSourceType: PricingSourceType;
   pricingScheduleName: string | null;
   pricingBreakLabel: string | null;
   isPriceOverridden: boolean;
-  lineTotal: string;
-  sortOrder: number;
 };
 
 type ProductValidationRow = {
@@ -126,7 +129,7 @@ type PricingScheduleBreakRecord = {
 type DraftOrderConfirmationPayload = {
   id: string;
   orderNumber: string;
-  preparedLines: PreparedOrderLine[];
+  preparedLines: PreparedOrderLineBase[];
   affectedProductIds: string[];
 };
 
@@ -633,11 +636,6 @@ async function prepareDraftOrdersForConfirmationInTx(
         unitName: product.unitName,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
-        suggestedUnitPrice: null,
-        pricingSourceType: "base_price" as const,
-        pricingScheduleName: null,
-        pricingBreakLabel: null,
-        isPriceOverridden: false,
         lineTotal: line.lineTotal,
         sortOrder: line.sortOrder,
       };
@@ -703,7 +701,10 @@ async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
     .from(customers)
     .leftJoin(
       customerCategories,
-      eq(customers.customerCategoryId, customerCategories.id)
+      and(
+        eq(customers.customerCategoryId, customerCategories.id),
+        isNull(customerCategories.deletedAt)
+      )
     )
     .where(and(eq(customers.id, customerId), isNull(customers.deletedAt)));
 
@@ -830,7 +831,7 @@ async function prepareOrderPayload(
 }
 
 async function buildOversellWarning(
-  preparedLines: PreparedOrderLine[],
+  preparedLines: PreparedOrderLineBase[],
   products: Map<string, ProductValidationRow>
 ) {
   const quantityByProduct = new Map<string, number>();
@@ -1182,14 +1183,14 @@ async function ensureCustomerCategoriesDeletableInTx(
       .limit(1),
   ]);
 
-  if (blockingCustomer) {
+  if (blockingCustomer[0]) {
     throw new SalesError(
       "Cannot delete a customer category that is still assigned to customers.",
       400
     );
   }
 
-  if (blockingSchedule) {
+  if (blockingSchedule[0]) {
     throw new SalesError(
       "Cannot delete a customer category that is still used by pricing schedules.",
       400
