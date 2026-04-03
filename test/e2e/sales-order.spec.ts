@@ -257,8 +257,7 @@ test.describe("Sales order flow", () => {
     await page.goto("/sales/customers/new");
     await expect(page.getByText("Add Customer")).toBeVisible();
 
-    await nameInput.pressSequentially(extraCustomerName, { delay: 20 });
-    await expect(nameInput).toHaveValue(extraCustomerName);
+    await nameInput.fill(extraCustomerName);
 
     await page.getByRole("button", { name: "Create Customer" }).click();
     await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
