@@ -14,11 +14,13 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  Activity02Icon,
   Layers01Icon,
   PackageIcon,
   LayoutBottomIcon,
@@ -54,13 +56,6 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const navMain = ([
-    {
-      title: "Operations",
-      url: "/",
-      icon: (
-        <HugeiconsIcon icon={Activity02Icon} strokeWidth={2} />
-      ),
-    },
     canReadModule(role, "inventory") ? {
       title: "Inventory",
       url: "/inventory",
@@ -139,15 +134,22 @@ export function AppSidebar({
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <div className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-2 py-2">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-              <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} />
-            </div>
-            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-medium">{organizationName}</p>
-              <p className="truncate text-xs text-muted-foreground">Single site</p>
-            </div>
-          </div>
+          <SidebarMenu className="flex-1">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                size="lg"
+                className="pointer-events-none hover:bg-sidebar-accent/40 hover:text-sidebar-foreground active:bg-sidebar-accent/40 active:text-sidebar-foreground"
+              >
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                  <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} className="size-4" />
+                </div>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-medium">{organizationName}</span>
+                  <span className="truncate text-xs text-muted-foreground">Single site</span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
           <div className="flex items-center group-data-[collapsible=icon]:hidden">
             <ThemeToggle />
           </div>
