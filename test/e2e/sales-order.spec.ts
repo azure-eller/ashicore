@@ -389,10 +389,8 @@ test.describe("Sales order flow", () => {
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
     await expect(row3.locator('input[placeholder="0"]').first()).toBeVisible();
     await row3.locator('input[placeholder="0"]').first().fill("5");
-    const row3PriceInput = row3.locator('input[placeholder="0.00"]').first();
-    await row3PriceInput.click();
-    await row3PriceInput.clear();
-    await row3PriceInput.pressSequentially("6.25");
+    await row3.locator('input[placeholder="0.00"]').first().focus();
+    await page.keyboard.type("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
