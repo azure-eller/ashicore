@@ -61,7 +61,7 @@ import type {
   SalesOrderEditData,
   SalesLinePricingResult,
   SalesOrderListRow,
-  SalesOrderProductOption,
+  SalesOrderItemOption,
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 
@@ -90,8 +90,9 @@ type PreparedOrderLine = PreparedOrderLineBase & {
   isPriceOverridden: boolean;
 };
 
-type ProductValidationRow = {
+type SalesItemValidationRow = {
   id: string;
+  itemType: string;
   name: string;
   sku: string | null;
   unitDefinitionId: string;
@@ -130,7 +131,7 @@ type DraftOrderConfirmationPayload = {
   id: string;
   orderNumber: string;
   preparedLines: PreparedOrderLineBase[];
-  affectedProductIds: string[];
+  affectedItemIds: string[];
 };
 
 function formatPricingUnitLabel(unit: {
@@ -378,7 +379,7 @@ async function resolvePricingForProductInTx(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<ProductValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
+    product: Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
     quantity: string | null;
   }
 ): Promise<SalesLinePricingResult> {
@@ -553,10 +554,10 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
 async function prepareDraftOrdersForConfirmationInTx(
   tx: Tx,
   orderIds: string[],
-  options?: { lockProducts?: boolean }
+  options?: { lockItems?: boolean }
 ): Promise<{
   orders: DraftOrderConfirmationPayload[];
-  products: Map<string, ProductValidationRow>;
+  itemsById: Map<string, SalesItemValidationRow>;
 }> {
   const uniqueIds = [...new Set(orderIds)];
 
@@ -602,15 +603,15 @@ async function prepareDraftOrdersForConfirmationInTx(
     linesByOrderId.set(line.salesOrderId, bucket);
   });
 
-  const productIds = [...new Set(lines.map((line) => line.itemId))];
+  const itemIds = [...new Set(lines.map((line) => line.itemId))];
 
-  if (options?.lockProducts && productIds.length > 0) {
-    await lockItemsInTx(tx, productIds);
+  if (options?.lockItems && itemIds.length > 0) {
+    await lockItemsInTx(tx, itemIds);
   }
 
-  const products = productIds.length
-    ? await getValidatedProductsInTx(tx, productIds)
-    : new Map<string, ProductValidationRow>();
+  const itemsById = itemIds.length
+    ? await getValidatedSalesItemsInTx(tx, itemIds)
+    : new Map<string, SalesItemValidationRow>();
 
   const preparedOrders: DraftOrderConfirmationPayload[] = [];
 
@@ -623,17 +624,17 @@ async function prepareDraftOrdersForConfirmationInTx(
     }
 
     const preparedLines = orderLines.map((line) => {
-      const product = products.get(line.itemId);
+      const item = itemsById.get(line.itemId);
 
-      if (!product) {
-        throw new SalesError("Product not found", 404);
+      if (!item) {
+        throw new SalesError("Item not found", 404);
       }
 
       return {
-        itemId: product.id,
-        itemName: product.name,
-        itemSku: product.sku,
-        unitName: product.unitName,
+        itemId: item.id,
+        itemName: item.name,
+        itemSku: item.sku,
+        unitName: item.unitName,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
         lineTotal: line.lineTotal,
@@ -645,11 +646,11 @@ async function prepareDraftOrdersForConfirmationInTx(
       id: order.id,
       orderNumber: order.orderNumber,
       preparedLines,
-      affectedProductIds: preparedLines.map((line) => line.itemId),
+      affectedItemIds: preparedLines.map((line) => line.itemId),
     });
   }
 
-  return { orders: preparedOrders, products };
+  return { orders: preparedOrders, itemsById };
 }
 
 async function recomputeCommittedQty(tx: Tx, itemIds: string[]) {
@@ -715,15 +716,16 @@ async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
   return customer satisfies ValidatedCustomerRow;
 }
 
-async function getValidatedProductsInTx(
+async function getValidatedSalesItemsInTx(
   tx: Tx,
-  productIds: string[]
+  itemIds: string[]
 ) {
-  const uniqueIds = [...new Set(productIds)];
+  const uniqueIds = [...new Set(itemIds)];
 
   const rows = await tx
     .select({
       id: items.id,
+      itemType: items.itemType,
       name: items.name,
       sku: items.sku,
       unitDefinitionId: items.unitDefinitionId,
@@ -739,24 +741,24 @@ async function getValidatedProductsInTx(
     .where(
       and(
         inArray(items.id, uniqueIds),
-        eq(items.itemType, "product"),
+        inArray(items.itemType, ["product", "material"]),
         isNull(items.deletedAt)
       )
     );
 
-  const productMap = new Map(rows.map((row) => [row.id, row as ProductValidationRow]));
+  const itemMap = new Map(rows.map((row) => [row.id, row as SalesItemValidationRow]));
 
-  if (productMap.size !== uniqueIds.length) {
-    throw new SalesError("Product not found", 404);
+  if (itemMap.size !== uniqueIds.length) {
+    throw new SalesError("Item not found", 404);
   }
 
-  return productMap;
+  return itemMap;
 }
 
 async function prepareOrderPayload(
   tx: Tx,
   payload: InsertSalesOrder,
-  options?: { lockProducts?: boolean }
+  options?: { lockItems?: boolean }
 ): Promise<{
   customerId: string;
   customerName: string;
@@ -764,54 +766,56 @@ async function prepareOrderPayload(
   notes: string | null;
   totalAmount: string;
   preparedLines: PreparedOrderLine[];
-  affectedProductIds: string[];
-  products: Map<string, ProductValidationRow>;
+  affectedItemIds: string[];
+  itemsById: Map<string, SalesItemValidationRow>;
 }> {
   const customer = await getValidatedCustomerInTx(tx, payload.customerId);
-  const productIds = payload.lines.map((line) => line.itemId);
+  const itemIds = payload.lines.map((line) => line.itemId);
 
-  if (options?.lockProducts) {
-    await lockItemsInTx(tx, productIds);
+  if (options?.lockItems) {
+    await lockItemsInTx(tx, itemIds);
   }
 
-  const products = await getValidatedProductsInTx(tx, productIds);
-  const preparedLines: PreparedOrderLine[] = [];
+  const itemsById = await getValidatedSalesItemsInTx(tx, itemIds);
 
-  for (const [index, line] of payload.lines.entries()) {
-    const product = products.get(line.itemId);
+  const preparedLines = await Promise.all(
+    payload.lines.map(async (line, index) => {
+      const item = itemsById.get(line.itemId);
 
-    if (!product) {
-      throw new SalesError("Product not found", 404);
-    }
+      if (!item) {
+        throw new SalesError("Item not found", 404);
+      }
 
-    const pricing = await resolvePricingForProductInTx(tx, {
-      customerCategoryId: customer.customerCategoryId,
-      customerCategoryName: customer.customerCategoryName,
-      product,
-      quantity: line.quantity,
-    });
-    const quantity = Number(line.quantity);
-    const unitPrice = Number(line.unitPrice);
-    const lineTotal = quantity * unitPrice;
+      const pricing = await resolvePricingForProductInTx(tx, {
+        customerCategoryId: customer.customerCategoryId,
+        customerCategoryName: customer.customerCategoryName,
+        product: item,
+        quantity: line.quantity,
+      });
+      const quantity = Number(line.quantity);
+      const unitPrice = Number(line.unitPrice);
+      const normalizedUnitPrice = normalizeMoney(unitPrice);
+      const lineTotal = quantity * unitPrice;
 
-    preparedLines.push({
-      itemId: product.id,
-      itemName: product.name,
-      itemSku: product.sku,
-      unitName: product.unitName,
-      quantity: normalizeNumeric(quantity),
-      unitPrice: normalizeMoney(unitPrice),
-      suggestedUnitPrice: pricing.suggestedUnitPrice,
-      pricingSourceType: pricing.pricingSourceType,
-      pricingScheduleName: pricing.pricingScheduleName,
-      pricingBreakLabel: pricing.pricingBreakLabel,
-      isPriceOverridden:
-        pricing.suggestedUnitPrice != null &&
-        normalizeMoney(unitPrice) !== pricing.suggestedUnitPrice,
-      lineTotal: normalizeMoney(lineTotal),
-      sortOrder: index,
-    });
-  }
+      return {
+        itemId: item.id,
+        itemName: item.name,
+        itemSku: item.sku,
+        unitName: item.unitName,
+        quantity: normalizeNumeric(quantity),
+        unitPrice: normalizedUnitPrice,
+        suggestedUnitPrice: pricing.suggestedUnitPrice,
+        pricingSourceType: pricing.pricingSourceType,
+        pricingScheduleName: pricing.pricingScheduleName,
+        pricingBreakLabel: pricing.pricingBreakLabel,
+        isPriceOverridden:
+          pricing.suggestedUnitPrice != null &&
+          normalizedUnitPrice !== pricing.suggestedUnitPrice,
+        lineTotal: normalizeMoney(lineTotal),
+        sortOrder: index,
+      } satisfies PreparedOrderLine;
+    })
+  );
 
   const totalAmount = preparedLines.reduce(
     (sum, line) => sum + parseFloat(line.lineTotal),
@@ -825,34 +829,34 @@ async function prepareOrderPayload(
     notes: payload.notes ?? null,
     totalAmount: normalizeMoney(totalAmount),
     preparedLines,
-    affectedProductIds: preparedLines.map((line) => line.itemId),
-    products,
+    affectedItemIds: preparedLines.map((line) => line.itemId),
+    itemsById,
   };
 }
 
 async function buildOversellWarning(
   preparedLines: PreparedOrderLineBase[],
-  products: Map<string, ProductValidationRow>
+  itemsById: Map<string, SalesItemValidationRow>
 ) {
-  const quantityByProduct = new Map<string, number>();
+  const quantityByItem = new Map<string, number>();
 
   for (const line of preparedLines) {
-    quantityByProduct.set(
+    quantityByItem.set(
       line.itemId,
       roundQuantity(
-        (quantityByProduct.get(line.itemId) ?? 0) + parseFloat(line.quantity)
+        (quantityByItem.get(line.itemId) ?? 0) + parseFloat(line.quantity)
       )
     );
   }
 
-  const warningProducts = [...quantityByProduct.entries()]
+  const warningProducts = [...quantityByItem.entries()]
     .map(([itemId, addedQty]) => {
-      const product = products.get(itemId);
-      if (!product) return null;
+      const item = itemsById.get(itemId);
+      if (!item) return null;
 
-      const currentCommittedQty = parseFloat(product.committedQty);
+      const currentCommittedQty = parseFloat(item.committedQty);
       const projectedCommittedQty = roundQuantity(currentCommittedQty + addedQty);
-      const calculatedStock = calcProjectedStock(product);
+      const calculatedStock = calcProjectedStock(item);
       const projectedCalculatedStock = roundQuantity(calculatedStock - addedQty);
 
       if (projectedCalculatedStock >= 0) {
@@ -860,14 +864,14 @@ async function buildOversellWarning(
       }
 
       return {
-        itemId: product.id,
-        itemName: product.name,
-        itemSku: product.sku,
-        unitName: product.unitName,
-        inStock: roundQuantity(parseFloat(product.stock)),
+        itemId: item.id,
+        itemName: item.name,
+        itemSku: item.sku,
+        unitName: item.unitName,
+        inStock: roundQuantity(parseFloat(item.stock)),
         committedQty: roundQuantity(currentCommittedQty),
-        expectedQty: roundQuantity(parseFloat(product.expectedQty)),
-        safetyStock: roundQuantity(parseFloat(product.safetyStock)),
+        expectedQty: roundQuantity(parseFloat(item.expectedQty)),
+        safetyStock: roundQuantity(parseFloat(item.safetyStock)),
         calculatedStock,
         addedQty: roundQuantity(addedQty),
         projectedCommittedQty,
@@ -885,7 +889,7 @@ async function buildOversellWarning(
 
 async function buildBulkOversellWarning(
   orders: DraftOrderConfirmationPayload[],
-  products: Map<string, ProductValidationRow>
+  itemsById: Map<string, SalesItemValidationRow>
 ): Promise<BulkOversellWarningPayload | null> {
   const totalByProduct = new Map<string, number>();
 
@@ -906,12 +910,12 @@ async function buildBulkOversellWarning(
   >();
 
   totalByProduct.forEach((addedQty, itemId) => {
-    const product = products.get(itemId);
-    if (!product) return;
+    const item = itemsById.get(itemId);
+    if (!item) return;
 
-    const currentCommittedQty = parseFloat(product.committedQty);
+    const currentCommittedQty = parseFloat(item.committedQty);
     const projectedCommittedQty = roundQuantity(currentCommittedQty + addedQty);
-    const calculatedStock = calcProjectedStock(product);
+    const calculatedStock = calcProjectedStock(item);
     const projectedCalculatedStock = roundQuantity(calculatedStock - addedQty);
 
     if (projectedCalculatedStock >= 0) {
@@ -919,11 +923,11 @@ async function buildBulkOversellWarning(
     }
 
     oversoldProducts.set(itemId, {
-      itemId: product.id,
-      inStock: roundQuantity(parseFloat(product.stock)),
+      itemId: item.id,
+      inStock: roundQuantity(parseFloat(item.stock)),
       committedQty: roundQuantity(currentCommittedQty),
-      expectedQty: roundQuantity(parseFloat(product.expectedQty)),
-      safetyStock: roundQuantity(parseFloat(product.safetyStock)),
+      expectedQty: roundQuantity(parseFloat(item.expectedQty)),
+      safetyStock: roundQuantity(parseFloat(item.safetyStock)),
       calculatedStock,
       projectedCommittedQty,
       projectedCalculatedStock,
@@ -1647,27 +1651,28 @@ export async function resolveSalesLinePricing(
 ): Promise<SalesLinePricingResult> {
   return withAuthedOrgContext(async (tx) => {
     const customer = await getValidatedCustomerInTx(tx, values.customerId);
-    const products = await getValidatedProductsInTx(tx, [values.itemId]);
-    const product = products.get(values.itemId);
+    const itemsById = await getValidatedSalesItemsInTx(tx, [values.itemId]);
+    const item = itemsById.get(values.itemId);
 
-    if (!product) {
-      throw new SalesError("Product not found", 404);
+    if (!item) {
+      throw new SalesError("Item not found", 404);
     }
 
     return resolvePricingForProductInTx(tx, {
       customerCategoryId: customer.customerCategoryId,
       customerCategoryName: customer.customerCategoryName,
-      product,
+      product: item,
       quantity: values.quantity,
     });
   });
 }
 
-export async function getSalesOrderProductOptions(): Promise<SalesOrderProductOption[]> {
+export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]> {
   return withAuthedOrgContext(async (tx) => {
-    return tx
+    const rows = await tx
       .select({
         id: items.id,
+        itemType: items.itemType,
         name: items.name,
         sku: items.sku,
         unitDefinitionId: items.unitDefinitionId,
@@ -1681,9 +1686,14 @@ export async function getSalesOrderProductOptions(): Promise<SalesOrderProductOp
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(
-        and(eq(items.itemType, "product"), isNull(items.deletedAt))
+        and(
+          inArray(items.itemType, ["product", "material"]),
+          isNull(items.deletedAt)
+        )
       )
       .orderBy(asc(items.name));
+
+    return rows as SalesOrderItemOption[];
   });
 }
 
@@ -1873,18 +1883,18 @@ export async function createSalesOrder(data: InsertSalesOrder) {
     const shouldCheckOversell =
       data.status === "confirmed" && data.confirmOversell !== true;
     const prepared = await prepareOrderPayload(tx, data, {
-      lockProducts: shouldCheckOversell,
+      lockItems: shouldCheckOversell,
     });
 
     if (shouldCheckOversell) {
       const oversell = await buildOversellWarning(
         prepared.preparedLines,
-        prepared.products
+        prepared.itemsById
       );
 
       if (oversell) {
         throw new SalesError(
-          "This confirmation would oversell one or more products.",
+          "This confirmation would oversell one or more items.",
           409,
           { oversell }
         );
@@ -1913,7 +1923,7 @@ export async function createSalesOrder(data: InsertSalesOrder) {
       }))
     );
 
-    await recomputeCommittedQty(tx, prepared.affectedProductIds);
+    await recomputeCommittedQty(tx, prepared.affectedItemIds);
 
     return order;
   });
@@ -1928,7 +1938,7 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
     }
 
     const existingLines = await getOrderLinesInTx(tx, id);
-    const existingProductIds = existingLines.map((line) => line.itemId);
+    const existingItemIds = existingLines.map((line) => line.itemId);
 
     if (existingOrder.status === "confirmed") {
       if (!isCancelPayload(data)) {
@@ -1943,7 +1953,7 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
         })
         .where(eq(salesOrders.id, id));
 
-      await recomputeCommittedQty(tx, existingProductIds);
+      await recomputeCommittedQty(tx, existingItemIds);
       return { id };
     }
 
@@ -1962,18 +1972,18 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
     const shouldCheckOversell =
       data.status === "confirmed" && data.confirmOversell !== true;
     const prepared = await prepareOrderPayload(tx, data, {
-      lockProducts: shouldCheckOversell,
+      lockItems: shouldCheckOversell,
     });
 
     if (shouldCheckOversell) {
       const oversell = await buildOversellWarning(
         prepared.preparedLines,
-        prepared.products
+        prepared.itemsById
       );
 
       if (oversell) {
         throw new SalesError(
-          "This confirmation would oversell one or more products.",
+          "This confirmation would oversell one or more items.",
           409,
           { oversell }
         );
@@ -2003,8 +2013,8 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
       .where(eq(salesOrders.id, id));
 
     await recomputeCommittedQty(tx, [
-      ...existingProductIds,
-      ...prepared.affectedProductIds,
+      ...existingItemIds,
+      ...prepared.affectedItemIds,
     ]);
 
     return { id };
@@ -2081,19 +2091,19 @@ export async function confirmSalesOrder(
   confirmOversell = false
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx) => {
-    const { orders, products } = await prepareDraftOrdersForConfirmationInTx(
+    const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(
       tx,
       [id],
-      { lockProducts: true }
+      { lockItems: true }
     );
     const [order] = orders;
 
     if (!confirmOversell) {
-      const oversell = await buildOversellWarning(order.preparedLines, products);
+      const oversell = await buildOversellWarning(order.preparedLines, itemsById);
 
       if (oversell) {
         throw new SalesError(
-          "This confirmation would oversell one or more products.",
+          "This confirmation would oversell one or more items.",
           409,
           { oversell }
         );
@@ -2108,7 +2118,7 @@ export async function confirmSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
-    await recomputeCommittedQty(tx, order.affectedProductIds);
+    await recomputeCommittedQty(tx, order.affectedItemIds);
 
     return { id };
   });
@@ -2118,10 +2128,10 @@ export async function bulkConfirmSalesOrders(
   payload: BulkConfirmSalesOrders
 ): Promise<{ confirmedCount: number }> {
   return withAuthedOrgContext(async (tx) => {
-    const { orders, products } = await prepareDraftOrdersForConfirmationInTx(
+    const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(
       tx,
       payload.ids,
-      { lockProducts: true }
+      { lockItems: true }
     );
 
     if (orders.length === 0) {
@@ -2129,11 +2139,11 @@ export async function bulkConfirmSalesOrders(
     }
 
     if (!payload.confirmOversell) {
-      const bulkOversell = await buildBulkOversellWarning(orders, products);
+      const bulkOversell = await buildBulkOversellWarning(orders, itemsById);
 
       if (bulkOversell) {
         throw new SalesError(
-          "These confirmations would oversell one or more products.",
+          "These confirmations would oversell one or more items.",
           409,
           { bulkOversell }
         );
@@ -2152,7 +2162,7 @@ export async function bulkConfirmSalesOrders(
 
     await recomputeCommittedQty(
       tx,
-      orders.flatMap((order) => order.affectedProductIds)
+      orders.flatMap((order) => order.affectedItemIds)
     );
 
     return { confirmedCount: orderIds.length };

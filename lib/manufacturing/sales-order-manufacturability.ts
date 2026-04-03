@@ -8,6 +8,7 @@ import {
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
+  "non_product",
   "inactive_product",
   "no_active_bom",
   "existing_active_mo",
@@ -38,6 +39,8 @@ export type SalesOrderManufacturingSummary = {
 
 function getSkipMessage(reason: SalesOrderManufacturingSkipReason) {
   switch (reason) {
+    case "non_product":
+      return "Only product lines can create manufacturing orders.";
     case "inactive_product":
       return "Product is inactive or deleted.";
     case "no_active_bom":
@@ -56,12 +59,19 @@ function getDisabledReason(lines: SalesOrderManufacturingLineSummary[]) {
     .map((line) => line.skipReason)
     .filter((reason): reason is SalesOrderManufacturingSkipReason => reason != null);
 
-    if (
-      skippedReasons.length === lines.length &&
-      skippedReasons.every((reason) => reason === "existing_active_mo")
-    ) {
-      return "All manufacturable lines already have linked manufacturing orders.";
-    }
+  if (
+    skippedReasons.length === lines.length &&
+    skippedReasons.every((reason) => reason === "non_product")
+  ) {
+    return "This order has no product lines to manufacture.";
+  }
+
+  if (
+    skippedReasons.length === lines.length &&
+    skippedReasons.every((reason) => reason === "existing_active_mo")
+  ) {
+    return "All manufacturable lines already have linked manufacturing orders.";
+  }
 
   if (
     skippedReasons.length === lines.length &&
@@ -118,16 +128,18 @@ export async function getSalesOrderManufacturingSummariesInTx(
   const itemIds = [...new Set(lines.map((line) => line.itemId))];
   const salesOrderLineIds = lines.map((line) => line.salesOrderLineId);
 
-  const activeProducts = await tx
-    .select({ id: items.id })
+  const itemRows = await tx
+    .select({
+      id: items.id,
+      itemType: items.itemType,
+      deletedAt: items.deletedAt,
+    })
     .from(items)
-    .where(
-      and(
-        inArray(items.id, itemIds),
-        eq(items.itemType, "product"),
-        isNull(items.deletedAt)
-      )
-    );
+    .where(inArray(items.id, itemIds));
+
+  const itemById = new Map(
+    itemRows.map((row) => [row.id, row])
+  );
 
   const bomRows = await tx
     .select({
@@ -161,7 +173,6 @@ export async function getSalesOrderManufacturingSummariesInTx(
         )
     : [];
 
-  const activeProductIds = new Set(activeProducts.map((row) => row.id));
   const bomBackedProductIds = new Set(bomRows.map((row) => row.productId));
   const existingManufacturingLineIds = new Set(
     existingManufacturingRefs
@@ -171,8 +182,13 @@ export async function getSalesOrderManufacturingSummariesInTx(
 
   lines.forEach((line) => {
     let skipReason: SalesOrderManufacturingSkipReason | null = null;
+    const item = itemById.get(line.itemId);
 
-    if (!activeProductIds.has(line.itemId)) {
+    if (!item) {
+      skipReason = "inactive_product";
+    } else if (item.itemType !== "product") {
+      skipReason = "non_product";
+    } else if (item.deletedAt != null) {
       skipReason = "inactive_product";
     } else if (existingManufacturingLineIds.has(line.salesOrderLineId)) {
       skipReason = "existing_active_mo";

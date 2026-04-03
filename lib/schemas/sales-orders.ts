@@ -49,7 +49,7 @@ const cleanedLinesSchema = z
       if (!itemId) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Product is required",
+          message: "Item is required",
           path: [index, "itemId"],
         });
       }
@@ -92,7 +92,7 @@ const cleanedLinesSchema = z
         if (seen.has(itemId)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "This product is already on the order",
+            message: "This item is already on the order",
             path: [index, "itemId"],
           });
         }

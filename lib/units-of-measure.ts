@@ -56,5 +56,10 @@ export function getUomOptions(): UomGroup[] {
     groups.push({ category, options });
   }
 
+  groups.push({
+    category: "Count",
+    options: [{ value: "ea", label: "each (ea)" }],
+  });
+
   return groups;
 }
