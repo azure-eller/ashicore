@@ -380,11 +380,10 @@ test.describe("Sales order flow", () => {
     await row3.getByPlaceholder("Search items...").click();
     await row3.getByPlaceholder("Search items...").pressSequentially(primaryMaterialName);
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
-    await expect(row3.locator('input[placeholder="0"]').first()).toBeVisible();
-    await row3.locator('input[placeholder="0"]').first().fill("5");
-    await expect(row3.locator('input[placeholder="0.00"]').first()).toBeVisible();
-    await row3.locator('input[placeholder="0.00"]').first().fill("6.25");
-    await expect(row3.locator('input[placeholder="0.00"]').first()).toHaveValue("6.25");
+    await expect(page.locator('input[name="lines.2.quantity"]')).toBeVisible();
+    await page.locator('input[name="lines.2.quantity"]').fill("5");
+    await page.locator('input[name="lines.2.unitPrice"]').fill("6.25");
+    await expect(page.locator('input[name="lines.2.unitPrice"]')).toHaveValue("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
