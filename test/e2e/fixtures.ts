@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import dotenv from "dotenv";
 import { sql } from "drizzle-orm";
 import { test as base, expect } from "@playwright/test";
@@ -150,6 +150,44 @@ export async function filterList(
   await input.press("Backspace");
   await input.pressSequentially(value, { delay: 20 });
   await expect(input).toHaveValue(value);
+}
+
+export async function selectDate(
+  page: Page,
+  trigger: Locator,
+  value: string
+): Promise<void> {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    throw new Error(`Invalid ISO date for Playwright date picker helper: ${value}`);
+  }
+
+  const targetLabel = await page.evaluate(
+    ({ year, month, day }) =>
+      new Date(year, month - 1, day).toLocaleDateString(),
+    { year, month, day }
+  );
+
+  await trigger.click();
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const target = page.locator(`[data-day="${targetLabel}"]`).first();
+
+    if (await target.isVisible().catch(() => false)) {
+      await target.click();
+      return;
+    }
+
+    const nextMonthButton = page.locator(".rdp-button_next").last();
+    if (!(await nextMonthButton.isVisible().catch(() => false))) {
+      break;
+    }
+
+    await nextMonthButton.click();
+  }
+
+  throw new Error(`Could not find calendar day ${value} in the date picker.`);
 }
 
 /**

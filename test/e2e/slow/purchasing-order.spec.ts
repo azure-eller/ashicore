@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, getIdFromUrl } from "./fixtures";
+import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
   items,
   lots,
@@ -8,13 +8,13 @@ import {
   purchaseOrders,
   stockMovements,
   suppliers as purchasingSuppliers,
-} from "../../lib/db/schema";
+} from "../../../lib/db/schema";
 import {
   createItem,
   deleteItem,
   getUnitId,
   testFetch,
-} from "../helpers/api";
+} from "../../helpers/api";
 
 test.describe("Purchasing flow", () => {
   test.describe.configure({ mode: "serial" });
@@ -133,9 +133,7 @@ test.describe("Purchasing flow", () => {
     await supplierInput.pressSequentially(supplierName);
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
-    await page.locator("#expectedDate").click();
-    await page.getByRole("button", { name: "Go to the Next Month" }).click();
-    await page.locator("[data-slot=calendar] button").filter({ hasText: /^1$/ }).first().click();
+    await selectDate(page, page.locator("#expectedDate"), "2026-05-01");
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
@@ -190,8 +188,7 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("link", { name: "Edit" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
 
-    await page.locator("#expectedDate").click();
-    await page.locator("[data-slot=calendar] button").filter({ hasText: /^3$/ }).first().click();
+    await selectDate(page, page.locator("#expectedDate"), "2026-05-03");
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);

@@ -1,0 +1,147 @@
+import { asc, eq } from "drizzle-orm";
+import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
+import {
+  purchaseOrderLines,
+  purchaseOrders,
+  suppliers as purchasingSuppliers,
+} from "../../../lib/db/schema";
+import { createItem, getUnitId } from "../../helpers/api";
+
+test.describe("Purchasing write-path smoke", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const ts = Date.now();
+  const unitId = getUnitId();
+  const barkName = `Fast Bark ${ts}`;
+  const sandName = `Fast Sand ${ts}`;
+  const supplierName = `Fast Supplier ${ts}`;
+  let barkId = "";
+  let sandId = "";
+  let supplierId = "";
+  let purchaseOrderId = "";
+
+  test("creates and edits a supplier through the browser form", async ({ page, db }) => {
+    await page.goto("/purchasing/suppliers/new");
+    await expect(page.getByText("Add Supplier")).toBeVisible();
+
+    await page.locator("#name").fill(supplierName);
+    await page.locator("#code").fill(`FAST-SUP-${ts}`);
+    await page.locator("#contactName").fill("Jordan Mesa");
+    await page.locator("#paymentTerms").fill("Net 15");
+    await page.locator("#email").fill(`fast-purchasing-${ts}@example.com`);
+    await page.locator("#phone").fill("555-0215");
+    await page.locator("#address").fill("88 Supply Road");
+    await page.locator("#notes").fill("Fast supplier smoke test");
+
+    await page.getByRole("button", { name: "Create Supplier" }).click();
+    await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
+    supplierId = getIdFromUrl(page.url());
+    await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
+
+    const [supplier] = await db
+      .select()
+      .from(purchasingSuppliers)
+      .where(eq(purchasingSuppliers.id, supplierId));
+    expect(supplier.code).toBe(`FAST-SUP-${ts}`);
+    expect(supplier.contactName).toBe("Jordan Mesa");
+    expect(supplier.paymentTerms).toBe("Net 15");
+
+    await page.getByRole("link", { name: "Edit" }).click();
+    await page.waitForURL(`**/purchasing/suppliers/${supplierId}/edit`);
+    await page.locator("#phone").fill("555-0216");
+    await page.locator("#notes").fill("Fast supplier updated");
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(`**/purchasing/suppliers/${supplierId}`);
+
+    const [updatedSupplier] = await db
+      .select()
+      .from(purchasingSuppliers)
+      .where(eq(purchasingSuppliers.id, supplierId));
+    expect(updatedSupplier.phone).toBe("555-0216");
+    expect(updatedSupplier.notes).toBe("Fast supplier updated");
+  });
+
+  test("creates a draft purchase order through the browser form", async ({ page, db }) => {
+    const barkCreate = await createItem({
+      name: barkName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-BARK-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: "Primary purchasing test material",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const sandCreate = await createItem({
+      name: sandName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-SAND-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: "Secondary purchasing test material",
+      defaultPurchasePrice: "1.50",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(barkCreate.status).toBe(201);
+    expect(sandCreate.status).toBe(201);
+    barkId = barkCreate.body.id;
+    sandId = sandCreate.body.id;
+
+    await page.goto("/purchasing/orders/new");
+    await expect(page.getByRole("heading", { name: "Add Purchase Order" })).toBeVisible();
+
+    const supplierInput = page.getByPlaceholder("Search suppliers...");
+    await supplierInput.click();
+    await supplierInput.pressSequentially(supplierName);
+    await page.getByRole("option", { name: new RegExp(supplierName) }).click();
+
+    await selectDate(page, page.locator("#expectedDate"), "2026-05-01");
+    await page.locator("#notes").fill("Fast purchase order smoke test");
+
+    const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
+    await firstMaterialInput.click();
+    await firstMaterialInput.pressSequentially(barkName);
+    await page.getByRole("option", { name: new RegExp(barkName) }).click();
+    await page.getByPlaceholder("0").first().fill("10");
+
+    await page.getByRole("button", { name: "Add Material" }).click();
+    const secondRow = page.locator("tbody tr").nth(1);
+    await secondRow.getByPlaceholder("Search materials...").click();
+    await secondRow.getByPlaceholder("Search materials...").pressSequentially(sandName);
+    await page.getByRole("option", { name: new RegExp(sandName) }).click();
+    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
+
+    await page.getByRole("button", { name: "Create Order" }).click();
+    await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
+    purchaseOrderId = getIdFromUrl(page.url());
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+    expect(order.supplierId).toBe(supplierId);
+    expect(order.supplierName).toBe(supplierName);
+    expect(order.status).toBe("draft");
+    expect(order.expectedDate).toBe("2026-05-01");
+    expect(order.notes).toBe("Fast purchase order smoke test");
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].itemId).toBe(barkId);
+    expect(lines[0].quantityOrdered).toBe("10.0000");
+    expect(lines[1].itemId).toBe(sandId);
+    expect(lines[1].quantityOrdered).toBe("5.0000");
+  });
+});

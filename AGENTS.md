@@ -12,9 +12,11 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm dev` — start dev server
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
-- `pnpm test` — run Playwright e2e tests (dev server must be running)
-- `pnpm test:inventory` — run the inventory e2e flow only
-- `pnpm test:sales` — run the sales e2e flow only
+- `pnpm test` — run fast Playwright write-path smoke tests with parallel workers (dev server must be running)
+- `pnpm test:e2e:slow` — run slow serial operational Playwright stories
+- `pnpm test:e2e:auth` — run auth, invite, and team-access regressions
+- `pnpm test:inventory` — run the fast inventory write-path smoke flow
+- `pnpm test:sales` — run the fast sales write-path smoke flow
 - `pnpm drizzle-kit generate` — generate migration from schema changes
 - `pnpm drizzle-kit migrate` — apply migrations
 
@@ -536,10 +538,22 @@ await tx.insert(salesOrderLines).values(
 
 **Playwright e2e only** — no Vitest, no unit tests, no mocks. `pnpm test` runs Playwright.
 
+Fast vs slow:
+- Fast specs live in `test/e2e/fast/` and cover browser write paths only: fill form, submit, minimal success UI, DB assertions.
+- Slow specs live in `test/e2e/slow/` and stay serial, operational stories: create, edit, transition, and verify real user workflows.
+- Auth regressions live in `test/e2e/auth-security.spec.ts` and run separately from the fast/slow domain split.
+- Keep slow specs rooted in normal operations. Only include guards/errors when they arise inside a realistic workflow.
+
 Tests follow **serial domain stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
 
 ### Key rules
 
+- Default local test after normal changes: `pnpm test`
+- If you touch one domain deeply, run that domain's slow spec too: `pnpm test:e2e:<domain>:slow`
+- If you touch auth, invites, or team access, run `pnpm test:e2e:auth`
+  This command includes both `auth-security.spec.ts` and `team-management.spec.ts`.
+- Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification
+- Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`
 - `test.describe.configure({ mode: "serial" })` for tests that depend on each other
 - Share data between tests via variables at the describe level, not helper functions
 - All created items use `Date.now()` timestamps in names to avoid collisions
@@ -550,8 +564,9 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 ### Key files
 
 - `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS)
-- `test/e2e/inventory-form.spec.ts` — serial inventory creation flow
-- `test/e2e/sales-order.spec.ts` — serial sales flow with its own product/customer setup
+- `test/e2e/fast/` — fast write-path smoke specs
+- `test/e2e/slow/` — serial operational stories by domain
+- `test/e2e/auth-security.spec.ts` — auth and permission regressions
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
 - `test/helpers/api.ts` — authenticated fetch helpers
 
