@@ -382,13 +382,12 @@ test.describe("Sales order flow", () => {
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
     await expect(page.locator('input[name="lines.2.quantity"]')).toBeVisible();
     await page.locator('input[name="lines.2.quantity"]').fill("5");
-    // react-hook-form re-renders the row after quantity change — poll until
-    // the price input accepts the value instead of using a fixed delay.
+    // The pricing effect re-runs after quantity change and sets unitPrice to
+    // null (materials have no default price). Wait for that to settle, then
+    // fill the price — the effect won't re-run since its deps are unchanged.
     const priceInput = page.locator('input[name="lines.2.unitPrice"]');
-    await expect(async () => {
-      await priceInput.fill("6.25");
-      await expect(priceInput).toHaveValue("6.25", { timeout: 500 });
-    }).toPass({ timeout: 5000 });
+    await expect(priceInput).toHaveValue("", { timeout: 5000 });
+    await priceInput.fill("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
