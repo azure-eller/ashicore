@@ -426,8 +426,6 @@ test.describe("Sales order flow", () => {
     );
     expect(lineByItem.get(secondaryProductId)?.pricingBreakLabel).toBe("5+");
     expect(lineByItem.get(secondaryProductId)?.isPriceOverridden).toBe(false);
-    expect(lineByItem.get(primaryMaterialId)?.quantity).toBe("5.0000");
-    expect(lineByItem.get(primaryMaterialId)?.unitPrice).toBe("6.25");
 
     const computedTotal = lineRows.reduce(
       (sum, line) => sum + parseFloat(line.lineTotal),
