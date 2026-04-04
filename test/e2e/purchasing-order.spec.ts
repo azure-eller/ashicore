@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { format } from "date-fns";
 import { test, expect, getIdFromUrl } from "./fixtures";
 import {
   items,
@@ -24,6 +25,12 @@ test.describe("Purchasing flow", () => {
   const barkName = `Purchasing Bark ${ts}`;
   const sandName = `Purchasing Sand ${ts}`;
   const supplierName = `Mesa Supply ${ts}`;
+  const nextMonthFirst = new Date();
+  nextMonthFirst.setMonth(nextMonthFirst.getMonth() + 1, 1);
+  const nextMonthThird = new Date();
+  nextMonthThird.setMonth(nextMonthThird.getMonth() + 1, 3);
+  const expectedCreateDate = format(nextMonthFirst, "yyyy-MM-dd");
+  const expectedEditDate = format(nextMonthThird, "yyyy-MM-dd");
 
   let barkId: string;
   let sandId: string;
@@ -159,7 +166,7 @@ test.describe("Purchasing flow", () => {
 
     expect(order.status).toBe("draft");
     expect(order.supplierName).toBe(supplierName);
-    expect(order.expectedDate).toBe("2026-05-01");
+    expect(order.expectedDate).toBe(expectedCreateDate);
     expect(order.totalAmount).toBe("27.5000");
 
     const lines = await db
@@ -198,7 +205,7 @@ test.describe("Purchasing flow", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, purchaseOrderId));
 
-    expect(order.expectedDate).toBe("2026-05-03");
+    expect(order.expectedDate).toBe(expectedEditDate);
     expect(order.totalAmount).toBe("29.0000");
 
     const lines = await db

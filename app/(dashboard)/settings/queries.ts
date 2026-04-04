@@ -256,7 +256,8 @@ export async function getManageableInvitation(
       and(
         eq(invitation.organizationId, actor.orgId),
         eq(invitation.id, invitationId),
-        eq(invitation.status, "pending")
+        eq(invitation.status, "pending"),
+        gt(invitation.expiresAt, new Date())
       )
     )
     .limit(1);

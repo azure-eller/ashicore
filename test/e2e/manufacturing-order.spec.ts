@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { format } from "date-fns";
 import { test, expect, getIdFromUrl } from "./fixtures";
 import {
   items,
@@ -226,6 +227,9 @@ test.describe("Manufacturing order flow", () => {
 
   const ts = Date.now();
   const unitId = getUnitId();
+  const nextMonthFirst = new Date();
+  nextMonthFirst.setMonth(nextMonthFirst.getMonth() + 1, 1);
+  const expectedBatchPlannedDate = format(nextMonthFirst, "yyyy-MM-dd");
 
   const sandName = `Manufacturing Sand ${ts}`;
   const compostName = `Manufacturing Compost ${ts}`;
@@ -566,7 +570,7 @@ test.describe("Manufacturing order flow", () => {
     expect(batchManufacturingOrder.productId).toBe(productId);
     expect(batchManufacturingOrder.salesOrderLineId).toBe(lineByItemId.get(productId));
     expect(batchManufacturingOrder.plannedQuantity).toBe("2.0000");
-    expect(batchManufacturingOrder.plannedDate).toBe("2026-05-01");
+    expect(batchManufacturingOrder.plannedDate).toBe(expectedBatchPlannedDate);
     expect(batchManufacturingOrder.notes).toBe("Batch manufacturing coverage");
 
     const batchIngredients = await db

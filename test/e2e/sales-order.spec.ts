@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { format } from "date-fns";
 import { test, expect, filterList } from "./fixtures";
 import {
   customerCategories,
@@ -67,6 +68,10 @@ test.describe("Sales order flow", () => {
   const run = Date.now();
   const fixtureTs = Date.now();
   const unitId = getUnitId();
+  const currentMonthFifteenth = new Date();
+  currentMonthFifteenth.setDate(15);
+  const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
+  const expectedRequestedDateLabel = format(currentMonthFifteenth, "MMMM d, yyyy");
 
   const primaryMaterialName = `Sales BOM Sand ${fixtureTs}`;
   const primaryProductName = `Premium Topsoil ${fixtureTs}`;
@@ -410,7 +415,7 @@ test.describe("Sales order flow", () => {
 
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("draft");
-    expect(order.requestedDate).toBe("2026-04-15");
+    expect(order.requestedDate).toBe(expectedRequestedDate);
     expect(order.notes).toBe("Full lifecycle test order");
     expect(order.deletedAt).toBeNull();
 
@@ -453,7 +458,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Edit Sales Order")).toBeVisible({ timeout: 30000 });
 
     // Verify pre-populated fields
-    await expect(page.getByLabel("Requested Date")).toContainText("April 15, 2026");
+    await expect(page.getByLabel("Requested Date")).toContainText(expectedRequestedDateLabel);
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
 
     // Change first line quantity from 3 to 5
