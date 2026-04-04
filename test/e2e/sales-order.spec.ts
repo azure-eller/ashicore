@@ -178,8 +178,10 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Address").fill("123 Market Street");
     await page.getByLabel("Notes").fill("Primary landscaping account");
 
-    await page.getByRole("button", { name: "Create Customer" }).click();
-    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+    await Promise.all([
+      page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Customer" }).click(),
+    ]);
 
     // UI — verify the detail page
     await expect(
@@ -252,8 +254,10 @@ test.describe("Sales order flow", () => {
 
     await nameInput.fill(extraCustomerName);
 
-    await page.getByRole("button", { name: "Create Customer" }).click();
-    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+    await Promise.all([
+      page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Customer" }).click(),
+    ]);
 
     // UI — verify the detail page
     await expect(
