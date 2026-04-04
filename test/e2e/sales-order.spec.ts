@@ -449,7 +449,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Edit Sales Order")).toBeVisible({ timeout: 30000 });
 
     // Verify pre-populated fields
-    await expect(page.getByLabel("Requested Date")).toHaveValue("2026-04-15");
+    await expect(page.getByLabel("Requested Date")).toContainText("April 15, 2026");
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
 
     // Change first line quantity from 3 to 5
