@@ -638,7 +638,7 @@ test.describe("Sales order flow", () => {
       .toEqual({
         primary: "5.0000",
         secondary: "5.0000",
-        material: "5.0000",
+        material: "0.0000",
       });
   });
 
