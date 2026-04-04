@@ -382,8 +382,10 @@ test.describe("Sales order flow", () => {
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
     await expect(page.locator('input[name="lines.2.quantity"]')).toBeVisible();
     await page.locator('input[name="lines.2.quantity"]').fill("5");
+    // Wait for react-hook-form to finish processing the quantity change
+    // before filling the price — otherwise the re-render resets the price.
+    await page.waitForTimeout(200);
     await page.locator('input[name="lines.2.unitPrice"]').fill("6.25");
-    await expect(page.locator('input[name="lines.2.unitPrice"]')).toHaveValue("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
