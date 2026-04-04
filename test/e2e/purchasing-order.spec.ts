@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { format } from "date-fns";
 import { test, expect, getIdFromUrl } from "./fixtures";
 import {
   items,
@@ -24,6 +25,12 @@ test.describe("Purchasing flow", () => {
   const barkName = `Purchasing Bark ${ts}`;
   const sandName = `Purchasing Sand ${ts}`;
   const supplierName = `Mesa Supply ${ts}`;
+  const nextMonthFirst = new Date();
+  nextMonthFirst.setMonth(nextMonthFirst.getMonth() + 1, 1);
+  const nextMonthThird = new Date();
+  nextMonthThird.setMonth(nextMonthThird.getMonth() + 1, 3);
+  const expectedCreateDate = format(nextMonthFirst, "yyyy-MM-dd");
+  const expectedEditDate = format(nextMonthThird, "yyyy-MM-dd");
 
   let barkId: string;
   let sandId: string;
@@ -123,15 +130,17 @@ test.describe("Purchasing flow", () => {
 
     const supplierInput = page.getByPlaceholder("Search suppliers...");
     await supplierInput.click();
-    await supplierInput.fill(supplierName);
+    await supplierInput.pressSequentially(supplierName);
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
-    await page.locator("#expectedDate").fill("2026-05-01");
+    await page.locator("#expectedDate").click();
+    await page.getByRole("button", { name: "Go to the Next Month" }).click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^1$/ }).first().click();
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
     await firstMaterialInput.click();
-    await firstMaterialInput.fill(barkName);
+    await firstMaterialInput.pressSequentially(barkName);
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
     await page.getByPlaceholder("0").first().fill("10");
 
@@ -140,7 +149,7 @@ test.describe("Purchasing flow", () => {
     const secondRow = page.locator("tbody tr").nth(1);
     const secondMaterialInput = secondRow.getByPlaceholder("Search materials...");
     await secondMaterialInput.click();
-    await secondMaterialInput.fill(sandName);
+    await secondMaterialInput.pressSequentially(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
     await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
@@ -157,7 +166,7 @@ test.describe("Purchasing flow", () => {
 
     expect(order.status).toBe("draft");
     expect(order.supplierName).toBe(supplierName);
-    expect(order.expectedDate).toBe("2026-05-01");
+    expect(order.expectedDate).toBe(expectedCreateDate);
     expect(order.totalAmount).toBe("27.5000");
 
     const lines = await db
@@ -181,7 +190,8 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("link", { name: "Edit" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
 
-    await page.locator("#expectedDate").fill("2026-05-03");
+    await page.locator("#expectedDate").click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^3$/ }).first().click();
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);
@@ -195,7 +205,7 @@ test.describe("Purchasing flow", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, purchaseOrderId));
 
-    expect(order.expectedDate).toBe("2026-05-03");
+    expect(order.expectedDate).toBe(expectedEditDate);
     expect(order.totalAmount).toBe("29.0000");
 
     const lines = await db

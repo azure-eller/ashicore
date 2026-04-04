@@ -255,7 +255,7 @@ export function AcceptInvitationForm({
             {error && <FieldError>{error}</FieldError>}
 
             <Field>
-              <Button type="submit" disabled={loading || session.isPending}>
+              <Button type="submit" disabled={loading}>
                 {loading
                   ? mode === "sign-up"
                     ? "Creating Account..."

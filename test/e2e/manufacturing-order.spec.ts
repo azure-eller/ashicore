@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { format } from "date-fns";
 import { test, expect, getIdFromUrl } from "./fixtures";
 import {
   items,
@@ -226,6 +227,9 @@ test.describe("Manufacturing order flow", () => {
 
   const ts = Date.now();
   const unitId = getUnitId();
+  const nextMonthFirst = new Date();
+  nextMonthFirst.setMonth(nextMonthFirst.getMonth() + 1, 1);
+  const expectedBatchPlannedDate = format(nextMonthFirst, "yyyy-MM-dd");
 
   const sandName = `Manufacturing Sand ${ts}`;
   const compostName = `Manufacturing Compost ${ts}`;
@@ -537,7 +541,9 @@ test.describe("Manufacturing order flow", () => {
       "Product has no active BOM ingredients."
     );
 
-    await page.getByLabel("Batch Planned Date").fill("2026-05-01");
+    await page.getByLabel("Batch Planned Date").click();
+    await page.getByRole("button", { name: "Go to the Next Month" }).click();
+    await page.locator("[data-slot=calendar] button").filter({ hasText: /^1$/ }).first().click();
     await page.getByLabel("Notes").fill("Batch manufacturing coverage");
     await page.getByRole("button", { name: "Create 1 Order" }).click();
 
@@ -564,7 +570,7 @@ test.describe("Manufacturing order flow", () => {
     expect(batchManufacturingOrder.productId).toBe(productId);
     expect(batchManufacturingOrder.salesOrderLineId).toBe(lineByItemId.get(productId));
     expect(batchManufacturingOrder.plannedQuantity).toBe("2.0000");
-    expect(batchManufacturingOrder.plannedDate).toBe("2026-05-01");
+    expect(batchManufacturingOrder.plannedDate).toBe(expectedBatchPlannedDate);
     expect(batchManufacturingOrder.notes).toBe("Batch manufacturing coverage");
 
     const batchIngredients = await db
