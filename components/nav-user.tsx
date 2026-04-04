@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import {
   Avatar,
   AvatarFallback,
@@ -89,11 +88,9 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem asChild>
-                <Link href="/settings/account">
+              <DropdownMenuItem onClick={() => router.push("/settings/account")}>
                   <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
                   Settings
-                </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
