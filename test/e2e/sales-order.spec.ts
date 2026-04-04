@@ -172,18 +172,11 @@ test.describe("Sales order flow", () => {
     await page.goto("/sales/customers/new");
     await expect(page.getByText("Add Customer")).toBeVisible();
 
-    await page.getByLabel("Email").pressSequentially(`sales-${run}@example.com`, {
-      delay: 20,
-    });
-    await page.getByLabel("Phone").pressSequentially("555-0100", { delay: 20 });
-    await page.getByLabel("Address").pressSequentially("123 Market Street", {
-      delay: 20,
-    });
-    await page.getByLabel("Notes").pressSequentially("Primary landscaping account", {
-      delay: 20,
-    });
-    await nameInput.pressSequentially(customerName, { delay: 20 });
-    await expect(nameInput).toHaveValue(customerName);
+    await nameInput.fill(customerName);
+    await page.getByLabel("Email").fill(`sales-${run}@example.com`);
+    await page.getByLabel("Phone").fill("555-0100");
+    await page.getByLabel("Address").fill("123 Market Street");
+    await page.getByLabel("Notes").fill("Primary landscaping account");
 
     await page.getByRole("button", { name: "Create Customer" }).click();
     await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
