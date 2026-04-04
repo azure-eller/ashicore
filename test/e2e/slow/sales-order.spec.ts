@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, filterList } from "./fixtures";
+import { test, expect, filterList, selectDate } from "../fixtures";
 import {
   customerCategories,
   customers as salesCustomers,
@@ -11,7 +11,7 @@ import {
   salesOrderLines,
   salesOrders,
   stockMovements,
-} from "../../lib/db/schema";
+} from "../../../lib/db/schema";
 import {
   createCustomer,
   createCustomerCategory,
@@ -19,7 +19,7 @@ import {
   createPricingSchedule,
   getUnitId,
   testFetch,
-} from "../helpers/api";
+} from "../../helpers/api";
 
 async function createDraftSalesOrder(payload: {
   customerId: string;
@@ -369,8 +369,7 @@ test.describe("Sales order flow", () => {
     await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    await page.getByLabel("Requested Date").click();
-    await page.locator("[data-slot=calendar] button").filter({ hasText: /^15$/ }).first().click();
+    await selectDate(page, page.getByLabel("Requested Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();

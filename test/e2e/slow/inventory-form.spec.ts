@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
-import { test, expect } from "./fixtures";
+import { test, expect } from "../fixtures";
 import {
   bomComponents,
   items,
   lots,
-} from "../../lib/db/schema";
-import { createItem, getUnitId, updateItem } from "../helpers/api";
-import { setTestTimestamp } from "../helpers/test-env";
+} from "../../../lib/db/schema";
+import { createItem, getUnitId, updateItem } from "../../helpers/api";
+import { setTestTimestamp } from "../../helpers/test-env";
 
 test.describe("Inventory creation flow", () => {
   test.describe.configure({ mode: "serial" });

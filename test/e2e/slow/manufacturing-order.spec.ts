@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, getIdFromUrl } from "./fixtures";
+import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
   items,
   lots,
@@ -9,14 +9,14 @@ import {
   salesOrderLines,
   salesOrders,
   stockMovements,
-} from "../../lib/db/schema";
+} from "../../../lib/db/schema";
 import {
   createItem,
   deleteItem,
   getUnitId,
   testFetch,
   updateItem,
-} from "../helpers/api";
+} from "../../helpers/api";
 
 async function createCustomer(name: string) {
   const response = await testFetch("/api/customers", {
@@ -541,9 +541,7 @@ test.describe("Manufacturing order flow", () => {
       "Product has no active BOM ingredients."
     );
 
-    await page.getByLabel("Batch Planned Date").click();
-    await page.getByRole("button", { name: "Go to the Next Month" }).click();
-    await page.locator("[data-slot=calendar] button").filter({ hasText: /^1$/ }).first().click();
+    await selectDate(page, page.getByLabel("Batch Planned Date"), "2026-05-01");
     await page.getByLabel("Notes").fill("Batch manufacturing coverage");
     await page.getByRole("button", { name: "Create 1 Order" }).click();
 

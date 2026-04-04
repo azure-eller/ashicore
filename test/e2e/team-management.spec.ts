@@ -20,6 +20,12 @@ function parseCookie(raw: string) {
   return { name, value: rest.join("=") };
 }
 
+function pendingInviteCard(page: Page, email: string) {
+  return page
+    .getByText(email, { exact: true })
+    .locator("xpath=ancestor::div[2]");
+}
+
 async function addSessionCookie(context: BrowserContext, rawCookie: string) {
   const { name, value } = parseCookie(rawCookie);
   await context.addCookies([
@@ -211,15 +217,15 @@ test.describe("Team management and invite flow", () => {
     expect(adminInvite.role).toBe("admin");
 
     await page.reload();
-    await expect(page.getByRole("row", { name: new RegExp(operatorEmail) })).toBeVisible();
-    await expect(page.getByRole("row", { name: new RegExp(viewerEmail) })).toBeVisible();
-    await expect(page.getByRole("row", { name: new RegExp(adminEmail) })).toBeVisible();
+    await expect(pendingInviteCard(page, operatorEmail)).toBeVisible();
+    await expect(pendingInviteCard(page, viewerEmail)).toBeVisible();
+    await expect(pendingInviteCard(page, adminEmail)).toBeVisible();
 
     operatorInvitationId = operatorInvite.id;
     viewerInvitationId = viewerInvite.id;
     adminInvitationId = adminInvite.id;
 
-    const operatorRow = page.getByRole("row", { name: new RegExp(operatorEmail) });
+    const operatorRow = pendingInviteCard(page, operatorEmail);
     const resendResponse = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/team/invitations/${operatorInvitationId}/resend`) &&
@@ -228,7 +234,7 @@ test.describe("Team management and invite flow", () => {
     await operatorRow.getByRole("button", { name: "Resend" }).click();
     await resendResponse;
 
-    const viewerRow = page.getByRole("row", { name: new RegExp(viewerEmail) });
+    const viewerRow = pendingInviteCard(page, viewerEmail);
     const cancelResponse = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/team/invitations/${viewerInvitationId}`) &&
@@ -446,13 +452,16 @@ test.describe("Team management and invite flow", () => {
     );
 
     await page.goto("/sales/orders");
-    await expect(page.getByText("Sales")).toBeVisible();
+    await expect(page).toHaveURL(/\/sales\/orders$/);
+    await expect(page.getByLabel("Search orders")).toBeVisible();
 
     await page.goto("/purchasing/orders");
-    await expect(page.getByText("Purchasing")).toBeVisible();
+    await expect(page).toHaveURL(/\/purchasing\/orders$/);
+    await expect(page.getByLabel("Search purchase orders")).toBeVisible();
 
     await page.goto("/manufacturing/orders");
-    await expect(page.getByText("Manufacturing")).toBeVisible();
+    await expect(page).toHaveURL(/\/manufacturing\/orders$/);
+    await expect(page.getByLabel("Search manufacturing orders")).toBeVisible();
 
     const blockedItemMutation = await apiCall<{ error?: string }>(
       page,

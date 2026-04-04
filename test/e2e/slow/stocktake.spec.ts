@@ -1,19 +1,19 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { test, expect, getIdFromUrl } from "./fixtures";
+import { test, expect, getIdFromUrl } from "../fixtures";
 import {
   items,
   lots,
   stockMovements,
   stocktakeItems,
   stocktakes,
-} from "../../lib/db/schema";
+} from "../../../lib/db/schema";
 import {
   createItem,
   deleteItem,
   getUnitId,
   testFetch,
   updateItem,
-} from "../helpers/api";
+} from "../../helpers/api";
 
 test.describe("Stocktake flow", () => {
   test.describe.configure({ mode: "serial" });
