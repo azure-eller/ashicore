@@ -608,6 +608,20 @@ pnpm install
 - Run `pnpm build`, `pnpm test`, and `pnpm lint` in the worktree that contains the change
 - After merge, remove the worktree with `git worktree remove .worktrees/<branch-name>`
 
+### Keeping worktrees current
+
+Other branches merge while you work. Always rebase before key actions to avoid conflicts.
+
+```bash
+git fetch origin main && git rebase origin/main
+```
+
+Run this:
+- Before your first commit in a worktree
+- Before opening or pushing a PR
+
+Never merge main into your branch — always rebase so history stays linear.
+
 ## Canonical References
 
 - Schema pattern (RLS, policies): `lib/db/schema/items.ts`

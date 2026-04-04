@@ -15,6 +15,7 @@
 /test-results/
 /playwright-report/
 /test/.test-env.json
+/test/.auth/
 
 # next.js
 /.next/
