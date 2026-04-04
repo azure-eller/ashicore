@@ -382,15 +382,9 @@ test.describe("Sales order flow", () => {
     await page.getByRole("option", { name: new RegExp(primaryMaterialName) }).click();
     await expect(row3.locator('input[placeholder="0"]').first()).toBeVisible();
     await row3.locator('input[placeholder="0"]').first().fill("5");
-    const row3PriceInput = row3.locator('input[placeholder="0.00"]').first();
-    await row3PriceInput.evaluate((el: HTMLInputElement) => {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype, "value"
-      )!.set!;
-      nativeInputValueSetter.call(el, "6.25");
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await expect(row3.locator('input[placeholder="0.00"]').first()).toBeVisible();
+    await row3.locator('input[placeholder="0.00"]').first().fill("6.25");
+    await expect(row3.locator('input[placeholder="0.00"]').first()).toHaveValue("6.25");
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
