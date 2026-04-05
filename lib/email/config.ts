@@ -19,3 +19,7 @@ export function getEmailSenderConfig() {
 
   return null;
 }
+
+export function getAppName(): string {
+  return process.env.APP_NAME ?? "ERP";
+}
