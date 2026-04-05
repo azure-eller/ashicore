@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { test, expect, getIdFromUrl } from "../fixtures";
+import { test, expect, filterList, getIdFromUrl } from "../fixtures";
 import {
   items,
   lots,
@@ -231,6 +231,11 @@ test.describe("Stocktake flow", () => {
     await page.getByRole("button", { name: "Create Stocktake" }).click();
     await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
     stocktakeId = getIdFromUrl(page.url());
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("All Items")).toBeVisible();
+    await expect(page.getByText("Initial all-items reconciliation.")).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(materialName);
+    await expect(page.locator("table").first()).toContainText(productName);
 
     const [stocktake] = await db
       .select()
@@ -256,13 +261,21 @@ test.describe("Stocktake flow", () => {
 
     expect(materialLine?.expectedQty).toBe("5.0000");
     expect(productLine?.expectedQty).toBe("0.0000");
+    await expect(page.getByText(`0 / ${lines.length}`)).toBeVisible();
 
     const deleteResponse = await deleteItem(materialId);
     expect(deleteResponse.status).toBe(400);
     expect(deleteResponse.body?.error).toContain("draft stocktakes");
+
+    await page.goto("/inventory/stocktakes");
+    await filterList(page, "Search stocktakes", `Full Count ${ts}`);
+    const stocktakeRow = page.getByRole("row", { name: new RegExp(`Full Count ${ts}`) });
+    await expect(stocktakeRow).toContainText("All Items");
+    await expect(stocktakeRow).toContainText("Draft");
+    await expect(stocktakeRow).toContainText(`0 / ${lines.length}`);
   });
 
-  test("creates materials-only and products-only stocktakes via API", async ({ db }) => {
+  test("creates materials-only and products-only stocktakes via API", async ({ page, db }) => {
     const materialsResponse = await testFetch("/api/stocktakes", {
       method: "POST",
       body: JSON.stringify({
@@ -304,6 +317,15 @@ test.describe("Stocktake flow", () => {
     expect(productLines.length).toBeGreaterThanOrEqual(1);
     expect(productLines.map((line) => line.itemId)).toContain(productId);
     expect(productLines.every((line) => line.itemType === "product")).toBe(true);
+
+    await page.goto("/inventory/stocktakes");
+    await filterList(page, "Search stocktakes", String(ts));
+    await expect(
+      page.getByRole("row", { name: new RegExp(`Materials Count ${ts}`) })
+    ).toContainText("Materials");
+    await expect(
+      page.getByRole("row", { name: new RegExp(`Products Count ${ts}`) })
+    ).toContainText("Products");
   });
 
   test("saves draft counts sparsely, supports clearing counts, and leaves blank lines unchanged", async ({
@@ -564,6 +586,12 @@ test.describe("Stocktake flow", () => {
       .where(eq(stockMovements.referenceId, oneClickStocktakeId));
 
     expect(stocktakeMovements).toHaveLength(0);
+
+    await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(`1 / ${savedLines.length}`)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(materialName);
+    await expect(page.locator("table").first()).toContainText("5");
+    await expect(page.locator("table").first()).toContainText("0");
   });
 
   test("warns on stale completion, applies deltas, and preserves snapshots", async ({
@@ -605,12 +633,17 @@ test.describe("Stocktake flow", () => {
       ])
     );
 
-    const completeResponse = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
-      method: "POST",
-      body: JSON.stringify({ confirmStale: true }),
-    });
+    await page.goto(`/inventory/stocktakes/${stocktakeId}`);
+    await expect(page.getByRole("button", { name: "Complete" })).toBeEnabled();
+    await page.getByRole("button", { name: "Complete" }).click();
+    const staleDialog = page.getByRole("dialog", { name: "Complete with changed stock?" });
+    await expect(staleDialog).toBeVisible();
+    await expect(staleDialog).toContainText(materialName);
+    await expect(staleDialog).toContainText("5");
+    await expect(staleDialog).toContainText("7");
+    await expect(staleDialog).toContainText("4");
+    await staleDialog.getByRole("button", { name: "Complete With Live Stock" }).click();
 
-    expect(completeResponse.status).toBe(200);
     await expect
       .poll(async () => {
         const [stocktake] = await db
@@ -625,7 +658,7 @@ test.describe("Stocktake flow", () => {
           status: stocktake?.status ?? null,
           completedAt: stocktake?.completedAt != null,
         };
-      })
+      }, { timeout: 30_000 })
       .toEqual({
         status: "completed",
         completedAt: true,
@@ -698,11 +731,14 @@ test.describe("Stocktake flow", () => {
     expect(productRename.status).toBe(200);
 
     await page.goto(`/inventory/stocktakes/${stocktakeId}`);
+    await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(`1 / ${lines.length}`)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("-1");
     await expect(page.getByText(productName)).toBeVisible();
     await expect(page.getByText(renamedProductName)).not.toBeVisible();
   });
 
-  test("cancels a draft stocktake without mutating inventory", async ({ db }) => {
+  test("cancels a draft stocktake without mutating inventory", async ({ page, db }) => {
     const cancelResponse = await testFetch(
       `/api/stocktakes/${productsOnlyStocktakeId}/cancel`,
       {
@@ -735,6 +771,13 @@ test.describe("Stocktake flow", () => {
       .where(eq(stockMovements.referenceId, productsOnlyStocktakeId));
 
     expect(cancelledMovements).toHaveLength(0);
+
+    await page.goto(`/inventory/stocktakes/${productsOnlyStocktakeId}`);
+    await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
+
+    await page.goto("/inventory/stocktakes");
+    await filterList(page, "Search stocktakes", `Products Count ${ts}`);
+    await expect(page.getByText(`No results for "Products Count ${ts}"`)).toBeVisible();
   });
 
   test("derives product stock-adjustment cost from the updated BOM", async ({ db }) => {

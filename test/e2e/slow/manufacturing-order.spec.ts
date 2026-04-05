@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
+import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   items,
   lots,
@@ -230,6 +230,9 @@ test.describe("Manufacturing order flow", () => {
   const nextMonthFirst = new Date();
   nextMonthFirst.setMonth(nextMonthFirst.getMonth() + 1, 1);
   const expectedBatchPlannedDate = format(nextMonthFirst, "yyyy-MM-dd");
+  const expectedBatchPlannedDateLabel = new Date(
+    `${expectedBatchPlannedDate}T00:00:00`
+  ).toLocaleDateString("en-US");
 
   const sandName = `Manufacturing Sand ${ts}`;
   const compostName = `Manufacturing Compost ${ts}`;
@@ -439,6 +442,14 @@ test.describe("Manufacturing order flow", () => {
 
     await page.goto(`/manufacturing/orders/${releasedOrderId}`);
     await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByText(new Date("2026-04-25T00:00:00").toLocaleDateString("en-US"))
+    ).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(sandName);
+    await expect(page.locator("table").first()).toContainText(compostName);
+    await expect(page.locator("table").first()).toContainText("10");
+    await expect(page.locator("table").first()).toContainText("5");
 
     const [order] = await db
       .select()
@@ -496,6 +507,14 @@ test.describe("Manufacturing order flow", () => {
     expect(linkedOrder.salesOrderLineId).toBe(salesOrderLineId);
     expect(linkedOrder.salesOrderNumber).toBe(salesOrderNumber);
     expect(linkedOrder.salesCustomerName).toBe(customerName);
+
+    await expect(page.getByText(`${salesOrderNumber} - ${customerName}`)).toBeVisible();
+    await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", linkedOrder.orderNumber);
+    const draftRow = page.getByRole("row", { name: new RegExp(linkedOrder.orderNumber) });
+    await expect(draftRow).toContainText(productName);
+    await expect(draftRow).toContainText(salesOrderNumber);
+    await expect(draftRow).toContainText("Draft");
   });
 
   test("creates manufacturing orders from a confirmed sales order and skips non-manufacturable lines", async ({
@@ -583,6 +602,19 @@ test.describe("Manufacturing order flow", () => {
 
     expect(batchIngredients).toHaveLength(2);
     await expect(page.getByText(batchManufacturingOrder.orderNumber)).toBeVisible();
+    await expect(page.locator("table").last()).toContainText("Draft");
+    await expect(page.locator("table").last()).toContainText(productName);
+    await expect(page.locator("table").last()).toContainText("2");
+
+    await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", batchManufacturingOrder.orderNumber);
+    const createdRow = page.getByRole("row", {
+      name: new RegExp(batchManufacturingOrder.orderNumber),
+    });
+    await expect(createdRow).toContainText(productName);
+    await expect(createdRow).toContainText(batchOrder.orderNumber);
+    await expect(createdRow).toContainText("Draft");
+    await expect(createdRow).toContainText(expectedBatchPlannedDateLabel);
   });
 
   test("completed linked manufacturing orders keep Create MOs blocked for that sales line", async ({
@@ -773,6 +805,9 @@ test.describe("Manufacturing order flow", () => {
       page.getByRole("button", { name: "Complete" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+    await expect(page.locator("main").getByText("Released", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("21");
+    await expect(page.locator("table").first()).toContainText("6");
 
     const [releasedOrder] = await db
       .select()
@@ -790,6 +825,11 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(items.id, productId));
 
     expect(productRow.expectedQty).toBe("6.0000");
+
+    await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", releasedOrder.orderNumber);
+    const releasedRow = page.getByRole("row", { name: new RegExp(releasedOrder.orderNumber) });
+    await expect(releasedRow).toContainText("Released");
   });
 
   test("cancels a released order without mutating lots or stock movements", async ({
@@ -807,6 +847,7 @@ test.describe("Manufacturing order flow", () => {
       timeout: 15_000,
     });
     await expect(page.getByRole("button", { name: "Complete" })).toHaveCount(0);
+    await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
 
     const [cancelledOrder] = await db
       .select()
@@ -831,6 +872,13 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(stockMovements.referenceId, releasedOrderId));
 
     expect(referencedMovements).toHaveLength(0);
+
+    await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", cancelledOrder.orderNumber);
+    const cancelledRow = page.getByRole("row", {
+      name: new RegExp(cancelledOrder.orderNumber),
+    });
+    await expect(cancelledRow).toContainText("Cancelled");
   });
 
   test("completes a released order with FIFO consumption, actuals, and a produced lot", async ({
@@ -890,6 +938,13 @@ test.describe("Manufacturing order flow", () => {
         { timeout: 15_000 }
       )
       .toBe("completed");
+
+    await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("dl").getByText("$35.00", { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("$5.83", { exact: true })).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("12");
+    await expect(page.locator("table").first()).toContainText("6");
+    await expect(page.locator("table").nth(1)).toContainText("6");
 
     const [completedOrder] = await db
       .select()
@@ -969,6 +1024,13 @@ test.describe("Manufacturing order flow", () => {
       .from(items)
       .where(eq(items.id, productId));
     expect(completedProduct.expectedQty).toBe("0.0000");
+
+    await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", completedOrder.orderNumber);
+    const completedRow = page.getByRole("row", {
+      name: new RegExp(completedOrder.orderNumber),
+    });
+    await expect(completedRow).toContainText("Completed");
   });
 
   test("completes a finished good that consumes a manufactured subassembly", async ({

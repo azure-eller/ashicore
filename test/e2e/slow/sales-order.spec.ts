@@ -71,7 +71,10 @@ test.describe("Sales order flow", () => {
   const currentMonthFifteenth = new Date();
   currentMonthFifteenth.setDate(15);
   const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
-  const expectedRequestedDateLabel = format(currentMonthFifteenth, "MMMM d, yyyy");
+  const expectedRequestedDatePickerLabel = format(currentMonthFifteenth, "MMMM d, yyyy");
+  const expectedRequestedDateLabel = new Date(
+    `${expectedRequestedDate}T00:00:00`
+  ).toLocaleDateString("en-US");
 
   const primaryMaterialName = `Sales BOM Sand ${fixtureTs}`;
   const primaryProductName = `Premium Topsoil ${fixtureTs}`;
@@ -398,6 +401,13 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText(customerName)).toBeVisible();
     await expect(page.getByText(primaryProductName)).toBeVisible();
     await expect(page.getByText(secondaryProductName)).toBeVisible();
+    await expect(page.getByText(expectedRequestedDateLabel)).toBeVisible();
+    await expect(page.locator("dl").getByText("$158.97", { exact: true })).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("$104.97");
+    await expect(page.locator("table").first()).toContainText("$54.00");
+    await expect(page.locator("table").first()).toContainText(
+      `Suggested $10.80 from Wholesale ${run} Default, 5+`
+    );
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
@@ -450,6 +460,14 @@ test.describe("Sales order flow", () => {
     expect(primaryItem.committedQty).toBe("0.0000");
     expect(secondaryItem.committedQty).toBe("0.0000");
     expect(primaryMaterial.committedQty).toBe("0.0000");
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", fullOrderNumber);
+    const draftRow = page.getByRole("row", { name: new RegExp(fullOrderNumber) });
+    await expect(draftRow).toContainText(customerName);
+    await expect(draftRow).toContainText("$158.97");
+    await expect(draftRow).toContainText("Draft");
+    await expect(draftRow).toContainText(expectedRequestedDateLabel);
   });
 
   test("edits the draft order — verifies pre-population and changes quantity", async ({ page, db }) => {
@@ -457,7 +475,9 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Edit Sales Order")).toBeVisible({ timeout: 30000 });
 
     // Verify pre-populated fields
-    await expect(page.getByLabel("Requested Date")).toContainText(expectedRequestedDateLabel);
+    await expect(page.getByLabel("Requested Date")).toContainText(
+      expectedRequestedDatePickerLabel
+    );
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
 
     // Change first line quantity from 3 to 5
@@ -475,6 +495,10 @@ test.describe("Sales order flow", () => {
 
     // UI
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
+    await expect(page.locator("dl").getByText("$231.20", { exact: true })).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("$174.95");
+    await expect(page.locator("table").first()).toContainText("$11.25");
+    await expect(page.locator("table").first()).toContainText("Manual override");
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     // DB
@@ -586,6 +610,13 @@ test.describe("Sales order flow", () => {
         { timeout: 15_000 }
       )
       .toBe("0.0000");
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", bulkOrder.orderNumber);
+    const confirmedBulkRow = page.getByRole("row", {
+      name: new RegExp(bulkOrder.orderNumber),
+    });
+    await expect(confirmedBulkRow).toContainText("Cancelled");
   });
 
   test("confirms the draft order from detail, handles oversell, and commits stock", async ({ page, db }) => {
@@ -648,6 +679,9 @@ test.describe("Sales order flow", () => {
         secondary: "5.0000",
         material: "0.0000",
       });
+
+    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Create MOs", exact: true })).toBeVisible();
   });
 
   test("confirmed orders are read-only from detail", async ({ page }) => {
@@ -655,6 +689,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Fulfill" })).toBeVisible();
   });
 
   test("confirmed orders show Create MOs from detail and the orders table", async ({
@@ -774,6 +809,7 @@ test.describe("Sales order flow", () => {
     await page.getByRole("button", { name: "Cancel Order" }).click();
     // Page refreshes after cancel — give it extra time (slowmo can eat the default 5s)
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
 
     const orderRows = await db
       .select()
@@ -791,6 +827,11 @@ test.describe("Sales order flow", () => {
     expect(primaryItem.committedQty).toBe("0.0000");
     expect(secondaryItem.committedQty).toBe("0.0000");
     expect(primaryMaterial.committedQty).toBe("0.0000");
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", fullOrderNumber);
+    const cancelledRow = page.getByRole("row", { name: new RegExp(fullOrderNumber) });
+    await expect(cancelledRow).toContainText("Cancelled");
   });
 
   test("deletes the cancelled order", async ({ page, db }) => {
@@ -812,7 +853,7 @@ test.describe("Sales order flow", () => {
     expect(orderRows[0].deletedAt).not.toBeNull();
   });
 
-  test("fulfills a confirmed order and releases committed stock", async ({ db }) => {
+  test("fulfills a confirmed order and releases committed stock", async ({ page, db }) => {
     const fulfillCustomerResult = await createCustomer({
       name: `Fulfillment Customer ${run}`,
     });
@@ -914,6 +955,23 @@ test.describe("Sales order flow", () => {
         (movement) => movement.referenceType === "sales_order"
       )
     ).toBe(true);
+
+    await page.goto(`/sales/orders/${fulfillOrderId}`);
+    await expect(page.locator("main").getByText("Fulfilled", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Fulfillment coverage")).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(primaryProductName);
+    await expect(page.getByRole("button", { name: "Fulfill" })).toHaveCount(0);
+
+    await page.goto("/sales/orders");
+    const [fulfilledOrderRow] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fulfillOrderId));
+    await filterList(page, "Search orders", fulfilledOrderRow.orderNumber);
+    const fulfilledRow = page.getByRole("row", {
+      name: new RegExp(fulfilledOrderRow.orderNumber),
+    });
+    await expect(fulfilledRow).toContainText("Fulfilled");
   });
 
   /* ================================================================ */

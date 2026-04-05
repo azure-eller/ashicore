@@ -102,7 +102,21 @@ test.describe("Inventory creation flow", () => {
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
     await expect(page.getByText("Fine grain river sand")).toBeVisible();
     await expect(page.getByText(sku)).toBeVisible();
+    await expect(page.locator("dl").getByText(`Bag ${ts} (25 kg)`, { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("$3.50", { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("$6.00", { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText(`200 Bag ${ts}`, { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText(`25 Bag ${ts}`, { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.goto("/inventory/materials");
+    await page.getByLabel("Search items").fill(fullMaterialName);
+    const materialRow = page.getByRole("row", { name: new RegExp(fullMaterialName) });
+    await expect(materialRow.getByRole("link", { name: fullMaterialName })).toBeVisible();
+    await expect(materialRow).toContainText(sku);
+    await expect(materialRow).toContainText("200");
+    await expect(materialRow).toContainText("175");
+    await expect(materialRow).toContainText(`Aggregates ${ts}`);
 
     // DB
     const rows = await db.select().from(items).where(eq(items.name, fullMaterialName));
@@ -151,7 +165,14 @@ test.describe("Inventory creation flow", () => {
 
     // UI — verify detail page reflects the edits
     await expect(page.getByText("Coarse river sand — updated")).toBeVisible();
+    await expect(page.locator("dl").getByText(`30 Bag ${ts}`, { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.goto("/inventory/materials");
+    await page.getByLabel("Search items").fill(fullMaterialName);
+    const updatedRow = page.getByRole("row", { name: new RegExp(fullMaterialName) });
+    await expect(updatedRow).toContainText("170");
+    await expect(updatedRow).toContainText(`Aggregates ${ts}`);
 
     // DB
     const [updated] = await db.select().from(items).where(eq(items.id, fullMaterialId));
@@ -188,7 +209,14 @@ test.describe("Inventory creation flow", () => {
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
+    await expect(page.getByText("No lots recorded.")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.goto("/inventory/materials");
+    await page.getByLabel("Search items").fill(minimalMaterialName);
+    const minimalRow = page.getByRole("row", { name: new RegExp(minimalMaterialName) });
+    await expect(minimalRow.getByRole("link", { name: minimalMaterialName })).toBeVisible();
+    await expect(minimalRow).toContainText("0");
 
     // DB
     const rows = await db.select().from(items).where(eq(items.name, minimalMaterialName));
@@ -348,7 +376,20 @@ test.describe("Inventory creation flow", () => {
     await expect(page.getByRole("heading", { name: simpleProductName })).toBeVisible();
     await expect(page.getByText("Simple base product")).toBeVisible();
     await expect(page.getByText(`PROD-BASE-${ts}`)).toBeVisible();
+    await expect(page.locator("dl").getByText(`Bucket ${ts} (10 l)`, { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("$12.00", { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText(`10 Bucket ${ts}`, { exact: true })).toBeVisible();
+    await expect(page.getByText("No lots recorded.")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.goto("/inventory/products");
+    await page.getByLabel("Search items").fill(simpleProductName);
+    const simpleProductRow = page.getByRole("row", { name: new RegExp(simpleProductName) });
+    await expect(simpleProductRow.getByRole("link", { name: simpleProductName })).toBeVisible();
+    await expect(simpleProductRow).toContainText(`PROD-BASE-${ts}`);
+    await expect(simpleProductRow).toContainText("0");
+    await expect(simpleProductRow).toContainText("-10");
+    await expect(simpleProductRow).toContainText(`Mixes ${ts}`);
 
     // DB
     const rows = await db.select().from(items).where(eq(items.name, simpleProductName));
@@ -436,7 +477,18 @@ test.describe("Inventory creation flow", () => {
     await expect(bomTable).toContainText(fullMaterialName);
     await expect(bomTable).toContainText(minimalMaterialName);
     await expect(bomTable).toContainText(simpleProductName);
+    await expect(bomTable).toContainText("4.5");
+    await expect(bomTable).toContainText("3");
+    await expect(bomTable).toContainText("2");
+    await expect(page.locator("dl").getByText("$29.99", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.goto("/inventory/products");
+    await page.getByLabel("Search items").fill(sellableProductName);
+    const sellableRow = page.getByRole("row", { name: new RegExp(sellableProductName) });
+    await expect(sellableRow.getByRole("link", { name: sellableProductName })).toBeVisible();
+    await expect(sellableRow).toContainText("0");
+    await expect(sellableRow).toContainText(`Blends ${ts}`);
 
     // DB
     const rows = await db.select().from(items).where(eq(items.name, sellableProductName));
@@ -492,7 +544,13 @@ test.describe("Inventory creation flow", () => {
 
     // UI — verify detail page reflects the edits
     await expect(page.getByText("Premium blend — updated recipe")).toBeVisible();
+    await expect(page.locator("dl").getByText("$34.99", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    const updatedBomTable = page.locator("table").first();
+    await expect(updatedBomTable).toContainText(fullMaterialName);
+    await expect(updatedBomTable).toContainText(minimalMaterialName);
+    await expect(updatedBomTable).toContainText(simpleProductName);
 
     // DB
     const [updated] = await db.select().from(items).where(eq(items.id, sellableProductId));

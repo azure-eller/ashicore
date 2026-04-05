@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
+import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   items,
   lots,
@@ -31,6 +31,12 @@ test.describe("Purchasing flow", () => {
   nextMonthThird.setMonth(nextMonthThird.getMonth() + 1, 3);
   const expectedCreateDate = format(nextMonthFirst, "yyyy-MM-dd");
   const expectedEditDate = format(nextMonthThird, "yyyy-MM-dd");
+  const expectedCreateDateLabel = new Date(`${expectedCreateDate}T00:00:00`).toLocaleDateString(
+    "en-US"
+  );
+  const expectedEditDateLabel = new Date(`${expectedEditDate}T00:00:00`).toLocaleDateString(
+    "en-US"
+  );
 
   let barkId: string;
   let sandId: string;
@@ -108,6 +114,9 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("button", { name: "Create Supplier" }).click();
     await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
     supplierId = getIdFromUrl(page.url());
+    await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
+    await expect(page.getByText(`purchasing-${ts}@example.com`)).toBeVisible();
+    await expect(page.getByText("Jordan Mesa")).toBeVisible();
 
     const [supplier] = await db
       .select()
@@ -151,9 +160,28 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
     await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
+    const createOrderResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/purchase-orders")
+    );
     await page.getByRole("button", { name: "Create Order" }).click();
-    await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
-    purchaseOrderId = getIdFromUrl(page.url());
+    const createOrderResponse = await createOrderResponsePromise;
+    expect(createOrderResponse.status()).toBe(201);
+    const createOrderBody = await createOrderResponse.json();
+    purchaseOrderId = createOrderBody.id;
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(supplierName)).toBeVisible();
+    await expect(page.locator("dl").getByText("$27.50", { exact: true })).toBeVisible();
+    await expect(page.getByText(expectedCreateDateLabel)).toBeVisible();
+    const detailLinesTable = page.locator("table").first();
+    await expect(detailLinesTable).toContainText(barkName);
+    await expect(detailLinesTable).toContainText(sandName);
+    await expect(detailLinesTable).toContainText("10");
+    await expect(detailLinesTable).toContainText("5");
+    await expect(detailLinesTable).toContainText("$20.00");
+    await expect(detailLinesTable).toContainText("$7.50");
 
     const [order] = await db
       .select()
@@ -161,6 +189,14 @@ test.describe("Purchasing flow", () => {
       .where(eq(purchaseOrders.id, purchaseOrderId));
 
     purchaseOrderNumber = order.orderNumber;
+
+    await page.goto("/purchasing/orders");
+    await filterList(page, "Search purchase orders", purchaseOrderNumber);
+    const draftRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
+    await expect(draftRow).toContainText(supplierName);
+    await expect(draftRow).toContainText("$27.50");
+    await expect(draftRow).toContainText("Draft");
+    await expect(draftRow).toContainText(expectedCreateDateLabel);
 
     expect(order.status).toBe("draft");
     expect(order.supplierName).toBe(supplierName);
@@ -196,6 +232,10 @@ test.describe("Purchasing flow", () => {
 
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);
+    await expect(page.getByText("Updated delivery window after supplier confirmation.")).toBeVisible();
+    await expect(page.locator("dl").getByText("$29.00", { exact: true })).toBeVisible();
+    await expect(page.getByText(expectedEditDateLabel)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("6");
 
     const [order] = await db
       .select()
@@ -232,6 +272,9 @@ test.describe("Purchasing flow", () => {
     await expect(
       page.locator("main").getByText("Ordered", { exact: true }).first()
     ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(expectedEditDateLabel)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("10");
+    await expect(page.locator("table").first()).toContainText("6");
 
     const [order] = await db
       .select()
@@ -258,6 +301,12 @@ test.describe("Purchasing flow", () => {
     const barkDelete = await deleteItem(barkId);
     expect(barkDelete.status).toBe(400);
     expect(barkDelete.body?.error).toContain("purchase orders");
+
+    await page.goto("/purchasing/orders");
+    await filterList(page, "Search purchase orders", purchaseOrderNumber);
+    const orderedRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
+    await expect(orderedRow).toContainText("Ordered");
+    await expect(orderedRow).toContainText("$29.00");
   });
 
   test("partially receives the purchase order", async ({ page, db }) => {
@@ -282,6 +331,11 @@ test.describe("Purchasing flow", () => {
     await expect(
       page.locator("main").getByText("Partially Received", { exact: true }).first()
     ).toBeVisible({ timeout: 15000 });
+    const partialLinesTable = page.locator("table").first();
+    await expect(partialLinesTable).toContainText(barkName);
+    await expect(partialLinesTable).toContainText("4");
+    await expect(partialLinesTable).toContainText("6");
+    await expect(partialLinesTable).toContainText(sandName);
 
     const [order] = await db
       .select()
@@ -322,6 +376,11 @@ test.describe("Purchasing flow", () => {
 
     expect(barkItem.expectedQty).toBe("6.0000");
     expect(sandItem.expectedQty).toBe("6.0000");
+
+    await page.goto("/purchasing/orders");
+    await filterList(page, "Search purchase orders", purchaseOrderNumber);
+    const partialRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
+    await expect(partialRow).toContainText("Partially Received");
   });
 
   test("fully receives the remaining quantities", async ({ page, db }) => {
@@ -347,6 +406,10 @@ test.describe("Purchasing flow", () => {
     await expect(
       page.locator("main").getByText("Received", { exact: true }).first()
     ).toBeVisible({ timeout: 15000 });
+    const receivedLinesTable = page.locator("table").first();
+    await expect(receivedLinesTable).toContainText("10");
+    await expect(receivedLinesTable).toContainText("6");
+    await expect(receivedLinesTable).toContainText("0");
 
     const [order] = await db
       .select()
@@ -388,5 +451,11 @@ test.describe("Purchasing flow", () => {
 
     expect(barkItem.expectedQty).toBe("0.0000");
     expect(sandItem.expectedQty).toBe("0.0000");
+
+    await page.goto("/purchasing/orders");
+    await filterList(page, "Search purchase orders", purchaseOrderNumber);
+    const receivedRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
+    await expect(receivedRow).toContainText("Received");
+    await expect(receivedRow).toContainText("$29.00");
   });
 });
