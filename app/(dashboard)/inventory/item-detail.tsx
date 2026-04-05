@@ -34,6 +34,10 @@ interface ItemDetailProps {
     unitName: string;
     unitSize: string;
     unitUom: string;
+    purchaseUnitName: string | null;
+    purchaseUnitSize: string | null;
+    purchaseUnitUom: string | null;
+    purchaseToStockFactor: string | null;
     defaultPurchasePrice: string | null;
     defaultSellingPrice: string | null;
     stock: string;
@@ -123,9 +127,25 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
           <dd className="mt-1 text-sm">{item.category ?? "\u2014"}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Unit</dt>
+          <dt className="text-sm font-medium text-muted-foreground">Stocking Unit</dt>
           <dd className="mt-1 text-sm">
             {item.unitName} ({parseFloat(item.unitSize)} {item.unitUom})
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Purchase Unit</dt>
+          <dd className="mt-1 text-sm">
+            {item.purchaseUnitName && item.purchaseUnitSize && item.purchaseUnitUom
+              ? `${item.purchaseUnitName} (${parseFloat(item.purchaseUnitSize)} ${item.purchaseUnitUom})`
+              : "\u2014"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Purchase Conversion</dt>
+          <dd className="mt-1 text-sm">
+            {item.purchaseUnitName && item.purchaseToStockFactor
+              ? `1 ${item.purchaseUnitName} = ${parseFloat(item.purchaseToStockFactor)} ${item.unitName}`
+              : "\u2014"}
           </dd>
         </div>
         {itemType === "material" && (
@@ -195,7 +215,7 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
                     <TableHead>Component</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Unit</TableHead>
+                    <TableHead className="text-right">Stocking Unit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

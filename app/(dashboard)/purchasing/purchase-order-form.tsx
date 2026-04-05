@@ -297,7 +297,7 @@ export function PurchaseOrderForm({
                       <TableRow>
                         <TableHead>Material</TableHead>
                         <TableHead className="w-32">Ordered Qty</TableHead>
-                        <TableHead className="w-28">Unit</TableHead>
+                        <TableHead className="w-32">Purchase Unit</TableHead>
                         <TableHead className="w-40">Unit Cost</TableHead>
                         <TableHead className="w-32 text-right">Line Total</TableHead>
                         <TableHead className="w-12" />
@@ -487,7 +487,14 @@ function PurchaseOrderLineRow({
       </TableCell>
 
       <TableCell className="text-sm text-muted-foreground">
-        {material?.unitName ?? "\u2014"}
+        <div className="space-y-1">
+          <div>{material?.purchaseUnitName ?? material?.stockingUnitName ?? "\u2014"}</div>
+          {material?.purchaseUnitName ? (
+            <p className="text-xs text-muted-foreground">
+              Stocked as {material.stockingUnitName}
+            </p>
+          ) : null}
+        </div>
       </TableCell>
 
       <TableCell>

@@ -25,7 +25,9 @@ export type PurchaseOrderMaterialOption = {
   id: string;
   name: string;
   sku: string | null;
-  unitName: string;
+  stockingUnitName: string;
+  purchaseUnitName: string | null;
+  purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
 };
 
@@ -48,11 +50,17 @@ export type PurchaseOrderDetailLine = {
   itemId: string;
   itemName: string;
   itemSku: string | null;
-  unitName: string;
+  purchaseUnitName: string;
+  stockingUnitName: string;
+  purchaseToStockFactor: string;
   quantityOrdered: string;
   quantityReceived: string;
   quantityRemaining: string;
+  stockQuantityOrdered: string;
+  stockQuantityReceived: string;
+  stockQuantityRemaining: string;
   unitCost: string;
+  stockUnitCost: string;
   lineTotal: string;
   sortOrder: number;
   createdAt: Date;

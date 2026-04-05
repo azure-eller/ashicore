@@ -1,181 +1,263 @@
-# Purchase Unit Design
+# Purchase Unit Design Spec
 
 ## Summary
 
-Add an optional purchasing unit to items, separate from the stocking unit. The stocking unit is used for BOMs, manufacturing, and inventory tracking. The purchasing unit is used only on purchase orders, with a conversion factor to auto-convert received quantities to stocking units. Rename all "Unit" labels across the app to "Stocking Unit."
+Add an optional purchase unit to items, separate from the existing canonical unit used for BOMs, manufacturing, stock, and inventory math. In UI, that canonical unit is labeled "Stocking Unit." Purchase orders use the purchase unit when present, while the system stores frozen stock-equivalent quantities and costs on PO lines so receiving, valuation, and `expectedQty` remain simple and historically stable.
 
 ## Context
 
-- Materials are purchased in bulk (e.g., 50 lb bags of Citric Acid) but measured in recipe units on the manufacturing floor (e.g., cups, tablespoons)
-- The current system has one unit per item (`unit_definition_id`) used everywhere
-- BOMs and manufacturing orders already use this unit — no conversion exists
-- The `convert` npm library is installed but only used for unit validation, not conversion
-- Katana MRP uses this two-unit model: stock UoM for everything, purchase UoM just for procurement
+- Materials are often purchased in packs or vendor units (e.g. 50 lb bag, 5 gal pail) but stocked and consumed in a different unit on the floor
+- The current system has one item unit used everywhere
+- BOMs, manufacturing, stock movements, lots, and inventory math already assume one canonical item unit
+- Purchase orders already use snapshot lines and `expectedQty` is recomputed from saved PO line quantities
+- The `convert` npm library is already available for same-measure conversion
 
 ## Design Decisions
 
-**Two-unit model (Katana-style), not three.** No separate selling unit. The stocking unit IS the recipe unit. If selling units are needed later, add a third field — the model extends naturally.
+**Two-unit model, not a generic conversion engine.** Keep one canonical item unit for inventory math and add one optional purchase unit for procurement only.
 
-**Purchase unit references `unit_definitions`.** Not a free-text label. This enables auto-conversion when both units share a measure category (via the `convert` library) and keeps the data model consistent.
+**Keep the existing item column as the canonical stock unit in storage.** Treat the current `unit_definition_id` as the stocking unit. Relabel surfaces to "Stocking Unit" in UI and app types. Do not rename the database column in this pass.
 
-**Conversion factor only for cross-measure.** Same-category conversions (lb → 50 lb bag, gallon → liter) are auto-calculated from unit definition metadata. Cross-category conversions (cup → lb) require a user-entered factor because they depend on material density.
+**Store purchase conversion on the item, but freeze it on PO lines.** Item-level configuration drives new purchase orders. Saved purchase orders snapshot the purchase unit label, conversion factor, purchase quantities, stock-equivalent quantities, and normalized stock-unit cost so old orders do not change meaning if the item is edited later.
+
+**Auto-convert only when the units are compatible.** Same-measure conversions are derived automatically from unit metadata. Cross-measure conversions require a manual factor because they depend on material-specific density or packing assumptions.
 
 ## Schema Changes
 
 ### `items` table
 
-Rename and add columns:
+Add optional purchasing metadata to the existing item unit model:
 
 ```sql
--- Rename existing column
-ALTER TABLE inventory.items RENAME COLUMN unit_definition_id TO stocking_unit_definition_id;
-
--- Add purchasing unit (optional)
 ALTER TABLE inventory.items
   ADD COLUMN purchase_unit_definition_id UUID
     REFERENCES inventory.unit_definitions(id),
-  ADD COLUMN purchase_conversion_factor NUMERIC(12, 4);
+  ADD COLUMN purchase_to_stock_factor NUMERIC(12, 4);
 ```
 
-- `stocking_unit_definition_id` — required, FK to unit_definitions. Used for BOMs, manufacturing, inventory display.
-- `purchase_unit_definition_id` — optional, FK to unit_definitions. Used on purchase orders.
-- `purchase_conversion_factor` — how many stocking units per 1 purchase unit. Required when purchase unit is cross-measure. Auto-calculated and stored when same-measure. Null when no purchase unit.
+- `unit_definition_id` remains the canonical stock unit in storage
+- `purchase_unit_definition_id` is optional and only affects procurement
+- `purchase_to_stock_factor` means "stocking units per 1 purchase unit"
+- If `purchase_unit_definition_id` is null, the item is purchased directly in stocking units
+
+### `purchase_order_lines` table
+
+Extend PO line snapshots so purchasing remains frozen after save:
+
+```sql
+ALTER TABLE purchasing.purchase_order_lines
+  ADD COLUMN purchase_unit_name VARCHAR(50) NOT NULL DEFAULT '',
+  ADD COLUMN stocking_unit_name VARCHAR(50) NOT NULL DEFAULT '',
+  ADD COLUMN purchase_to_stock_factor NUMERIC(12, 4) NOT NULL DEFAULT 1,
+  ADD COLUMN stock_quantity_ordered NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  ADD COLUMN stock_quantity_received NUMERIC(12, 4) NOT NULL DEFAULT 0,
+  ADD COLUMN stock_unit_cost NUMERIC(10, 4) NOT NULL DEFAULT 0;
+```
+
+Meaning:
+
+- `quantityOrdered` / `quantityReceived` stay in the user-entered purchase unit for PO workflow
+- `stockQuantityOrdered` / `stockQuantityReceived` store the converted stocking-unit quantities
+- `purchaseUnitName` is the visible PO unit snapshot
+- `stockingUnitName` is the canonical inventory unit snapshot
+- `purchaseToStockFactor` freezes the factor used by that line
+- `stockUnitCost` stores cost per stocking unit for lot valuation
+
+For items with no separate purchase unit:
+
+- `purchaseUnitName = stockingUnitName`
+- `purchaseToStockFactor = 1`
+- `quantity*` and `stockQuantity*` are equal
+- `unitCost = stockUnitCost`
 
 ### Drizzle schema update
 
 In `lib/db/schema/items.ts`:
 
 ```ts
-// Rename
-stockingUnitDefinitionId: uuid("stocking_unit_definition_id")
-  .notNull()
-  .references(() => unitDefinitions.id),
-
-// New
 purchaseUnitDefinitionId: uuid("purchase_unit_definition_id")
   .references(() => unitDefinitions.id),
-purchaseConversionFactor: numeric("purchase_conversion_factor", { precision: 12, scale: 4 }),
+purchaseToStockFactor: numeric("purchase_to_stock_factor", {
+  precision: 12,
+  scale: 4,
+}),
 ```
+
+In `lib/db/schema/purchasing.ts` add the new PO line snapshot columns listed above.
 
 ### Migration notes
 
-- Column rename from `unit_definition_id` to `stocking_unit_definition_id`
-- No data migration needed — existing rows keep their values
-- All existing code references to `unitDefinitionId` must update to `stockingUnitDefinitionId`
-- Grant `app_user` access to new columns (covered by existing table grants)
+- Do not rename `inventory.items.unit_definition_id`
+- Backfill existing `purchase_order_lines` with:
+  - `purchaseUnitName = unitName`
+  - `stockingUnitName = unitName`
+  - `purchaseToStockFactor = 1`
+  - `stockQuantityOrdered = quantityOrdered`
+  - `stockQuantityReceived = quantityReceived`
+  - `stockUnitCost = unitCost`
+- Existing items keep working without purchase-unit configuration
 
 ## UI Changes
 
 ### Global rename
 
-Every instance of "Unit" referring to an item's unit across the app becomes "Stocking Unit":
-- Item form labels
-- BOM editor column header
-- Manufacturing order ingredients table
-- Inventory list/detail pages
-- Data table columns
-- Any other surface that displays an item's unit
+Every item-facing surface that means the canonical inventory unit should say "Stocking Unit" instead of "Unit":
 
-### Item form — purchasing unit section
+- item form
+- inventory lists and detail pages
+- BOM editor headers
+- manufacturing tables
 
-Located in the "Basics" section, below the stocking unit picker:
+Do not force this terminology onto historical PO snapshots where "Unit" may still read more naturally in context.
 
-1. **Stocking unit** — required picker, always visible (existing, just relabeled)
-2. **Checkbox: "Purchased in a different unit"** — unchecked by default, reveals purchase unit fields when checked
-3. **Purchase unit picker** — same unit definition dropdown, shown when checkbox is checked
-4. **Conversion factor input** — conditionally shown:
-   - Same measure category (both weight, both volume, etc.) → auto-calculated silently, field not shown
-   - Cross-measure category (weight ↔ volume) → input field appears on purchase unit blur, labeled "How many [stocking unit name] per 1 [purchase unit name]?"
+### Item form
 
-When editing an item that already has a purchase unit, the checkbox starts checked and the fields are pre-populated. Unchecking the checkbox clears the purchase unit and conversion factor on save.
+Keep the interaction minimal:
+
+1. **Stocking Unit** — required picker, existing field relabeled
+2. **Purchase Unit** — optional picker directly below it
+3. **Purchase conversion** — only shown when a purchase unit is selected
+
+Behavior:
+
+- Empty purchase unit means "purchased in stocking units"
+- If purchase and stock units are same-measure, compute the factor immediately and show a small read-only helper line such as "1 Bag = 50 Pounds"
+- If they are cross-measure, show a numeric input labeled `Stocking units per 1 purchase unit`
+- Do not use an extra checkbox
+- Do not reveal the factor field only on blur
 
 ### Purchase orders
 
 When an item has a purchase unit:
-- PO line quantities are entered and displayed in the purchase unit
-- On receiving, quantities are multiplied by the conversion factor and added to inventory in stocking units
-- PO line should show both: "10 Pounds (= 19.2 Cups)" or similar
+
+- PO line quantity entry uses the purchase unit
+- Line unit label shows the purchase unit
+- Show a quiet secondary stocking equivalent, for example `10 Bags` with muted text `500 lb stocked`
+- Unit cost entry is per purchase unit because that matches vendor documents
+- On save, line totals use purchase quantity x purchase unit cost
 
 When an item has no purchase unit:
-- PO behavior is unchanged, quantities in stocking units
 
-### BOM editor
+- PO behavior is unchanged
 
-No functional change. The unit column already shows the component's unit — it will now show the stocking unit (which it already does). Column header changes from "Unit" to "Stocking Unit."
+### Receiving
 
-### Manufacturing orders
+- User enters received quantity in the purchase unit
+- The detail view can show the stock equivalent as secondary text
+- The system writes lots in stocking units and values them using stock-unit cost
 
-No functional change. Ingredient quantities and units already come from the BOM in stocking units. Column header changes from "Unit" to "Stocking Unit."
+### Inventory / BOM / Manufacturing
 
-### Inventory list and detail pages
+No workflow change. These stay entirely in stocking units.
 
-No functional change to data. Unit column headers change to "Stocking Unit." Item detail page could optionally show the purchase unit info if set.
+Item detail may optionally show:
+
+- Stocking Unit
+- Purchase Unit
+- Purchase conversion summary
 
 ## Conversion Logic
 
 ### Same-category auto-conversion
 
-When both stocking and purchase units share a `uom` measure category (per the `convert` library):
+When purchase and stock units are compatible, derive the factor from the unit definitions:
 
 ```ts
 import convert from "convert";
 
-// Example: stocking = Pound (size=1, uom=lb), purchase = 50 lb Bag (size=50, uom=lb)
-// factor = purchaseSize / stockingSize (in same base unit)
-const factor = convert(purchaseUnit.size, purchaseUnit.uom)
-  .to(stockingUnit.uom) / stockingUnit.size;
+const purchaseToStockFactor =
+  convert(Number(purchaseUnit.size), purchaseUnit.uom).to(stockingUnit.uom) /
+  Number(stockingUnit.size);
 ```
 
 ### Cross-category manual conversion
 
-When the measure categories differ (e.g., volume vs weight), the user must enter the factor manually. The system validates that:
-- The factor is a positive number
-- It is required when a purchase unit is set and categories differ
+When units are not compatible through `convert`:
+
+- require `purchaseToStockFactor`
+- validate it is a positive decimal
+
+### Purchase-order snapshot derivation
+
+When saving a draft PO line:
+
+```ts
+const purchaseQty = Number(line.quantityOrdered);
+const purchaseUnitCost = Number(line.unitCost);
+const factor = Number(item.purchaseToStockFactor ?? 1);
+
+const stockQuantityOrdered = purchaseQty * factor;
+const stockUnitCost = purchaseUnitCost / factor;
+```
+
+Persist both the purchase-side and stock-side values on the line snapshot.
 
 ### Receiving conversion
 
 When a PO line is received:
 
 ```ts
-const stockingQty = receivedQty * item.purchaseConversionFactor;
-// Add stockingQty to inventory in stocking units
+const receivedPurchaseQty = Number(input.quantityReceived);
+const stockReceivedQty = receivedPurchaseQty * Number(line.purchaseToStockFactor);
+
+await createPositiveLotAndMovementInTx(tx, {
+  quantity: stockReceivedQty,
+  costPerUnit: line.stockUnitCost,
+  movementType: "purchase_received",
+  referenceType: "purchase_order",
+  referenceId: id,
+});
 ```
 
-## Affected Code Paths
+Update both:
 
-### Must update (column rename)
+- `quantityReceived` in purchase units
+- `stockQuantityReceived` in stocking units
 
-Every file that references `unitDefinitionId` on items must change to `stockingUnitDefinitionId`:
-- `lib/db/schema/items.ts` — column definition
-- `app/(dashboard)/inventory/queries.ts` — all DAL queries joining on this column
-- `app/(dashboard)/inventory/item-form.tsx` — form field name
-- `lib/schemas/items.ts` — Zod schema field name
-- `app/api/items/` — API routes
-- `app/(dashboard)/manufacturing/queries.ts` — MO ingredient queries
-- `app/(dashboard)/sales/queries.ts` — any item joins
-- Any other file joining items to unit_definitions
+### Expected quantity
 
-### Must update (label rename)
+`items.expectedQty` must continue to mean stocking-unit inbound supply. Recompute it from:
 
-Every UI component displaying an item's unit label changes "Unit" → "Stocking Unit":
-- BOM editor column header
-- Manufacturing order form ingredients table
-- Inventory data tables (materials, products)
-- Item detail pages
-- Item form field label
-- Any loading skeletons referencing unit labels
+```ts
+SUM(purchase_order_lines.stock_quantity_ordered - purchase_order_lines.stock_quantity_received)
+```
 
-### New code
+Never derive `expectedQty` from purchase-unit quantities after this change.
 
-- Purchase unit picker + checkbox in item form
-- Conversion factor auto-calculation utility
-- Conversion factor input (conditional)
-- Purchase unit display on item detail page
-- PO integration (when POs exist — this can be deferred if POs aren't built yet)
+## Implementation Plan
+
+### Phase 1: item configuration
+
+- add purchase-unit fields to `items`
+- update item Zod schemas
+- update item form and detail queries/UI
+- relabel canonical item unit surfaces to "Stocking Unit"
+
+### Phase 2: purchasing snapshots
+
+- extend PO line schema and backfill old rows
+- update PO material option queries to include purchase-unit config
+- save purchase-unit and stock-unit snapshots on PO lines
+- update PO detail/edit types
+
+### Phase 3: receiving and aggregates
+
+- receive in purchase units
+- create lots in stocking units with stock-unit cost
+- recompute `expectedQty` from stock-unit snapshot columns
+
+### Phase 4: tests
+
+- item create/edit with purchase unit
+- PO create/detail with purchase unit and stock equivalent
+- partial receipt converts quantities correctly
+- lot quantity and `costPerUnit` are written in stocking units
+- `expectedQty` tracks remaining stock-equivalent quantity
 
 ## Out of Scope
 
-- Selling units — not needed now, can add later as a third unit field
-- Unit conversion table (full multi-unit system) — unnecessary complexity
-- Changing existing material stocking units — users do this manually as they adopt the feature
-- Purchase order integration — depends on PO feature status, can be a follow-up
+- selling units
+- customer-facing pricing by alternate item unit
+- generalized conversion tables
+- multi-level packaging hierarchies
+- vendor-specific overrides per supplier

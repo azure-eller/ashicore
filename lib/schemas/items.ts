@@ -1,7 +1,10 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { items } from "@/lib/db/schema";
-import { nullableStringStrict as nullableString } from "./shared";
+import {
+  nullableString as nullableStringOptional,
+  nullableStringStrict as nullableString,
+} from "./shared";
 
 const bomQuantitySchema = nullableString
   .refine((value) => value != null, "Quantity is required")
@@ -17,10 +20,12 @@ const bomRowSchema = z.object({
 
 // Base schema without superRefine — used as the foundation for both insert and update.
 // superRefine can't be applied before .omit(), so we split it out.
-const baseItemSchema = createInsertSchema(items, {
+const rawBaseItemSchema = createInsertSchema(items, {
   name: z.string().min(1, "Name is required"),
   itemType: z.enum(["product", "material"]),
   unitDefinitionId: z.string().min(1, "Unit is required"),
+  purchaseUnitDefinitionId: nullableStringOptional,
+  purchaseToStockFactor: nullableStringOptional,
   sku: nullableString,
   category: nullableString,
   defaultPurchasePrice: nullableString,
@@ -43,6 +48,46 @@ const baseItemSchema = createInsertSchema(items, {
   bom: z.array(bomRowSchema).optional(),
 });
 
+function purchaseUnitRefine(
+  data: {
+    unitDefinitionId?: string;
+    purchaseUnitDefinitionId?: string | null;
+    purchaseToStockFactor?: string | null;
+  },
+  ctx: z.RefinementCtx
+) {
+  if (data.purchaseUnitDefinitionId == null) {
+    return;
+  }
+
+  if (data.purchaseUnitDefinitionId === data.unitDefinitionId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Purchase unit must be different from the stocking unit",
+      path: ["purchaseUnitDefinitionId"],
+    });
+  }
+
+  const factor = data.purchaseToStockFactor?.trim() ?? "";
+  if (factor === "") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Conversion factor is required when a purchase unit is set",
+      path: ["purchaseToStockFactor"],
+    });
+    return;
+  }
+
+  const parsed = Number(factor);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Conversion factor must be greater than 0",
+      path: ["purchaseToStockFactor"],
+    });
+  }
+}
+
 function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.RefinementCtx) {
   if (!data.bom || data.bom.length === 0) return;
   const seen = new Set<string>();
@@ -58,7 +103,10 @@ function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.Refine
   }
 }
 
-export const insertItemSchema = baseItemSchema.superRefine(bomRefine);
+export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
+  purchaseUnitRefine(data, ctx);
+  bomRefine(data, ctx);
+});
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
 export type InsertItemFormValues = z.input<typeof insertItemSchema>;
@@ -66,7 +114,7 @@ export type InsertItemFormValues = z.input<typeof insertItemSchema>;
 // Update schema: itemType, unitDefinitionId are immutable after creation.
 // stock is optional — if provided, triggers a stock adjustment.
 // bom is inherited from baseItemSchema — no need to re-add it.
-export const updateItemSchema = baseItemSchema.omit({
+export const updateItemSchema = rawBaseItemSchema.omit({
   itemType: true,
   unitDefinitionId: true,
   stock: true,
@@ -75,7 +123,10 @@ export const updateItemSchema = baseItemSchema.omit({
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
   ).optional(),
-}).superRefine(bomRefine);
+}).superRefine((data, ctx) => {
+  purchaseUnitRefine(data, ctx);
+  bomRefine(data, ctx);
+});
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;
 export type UpdateItemFormValues = z.input<typeof updateItemSchema>;

@@ -1,4 +1,5 @@
 import { conversions, MeasureKind } from "convert/conversions";
+import { convert, getMeasureKind } from "convert";
 
 // Practical units per category — symbols must match the convert library.
 const ALLOWED_UNITS: Record<number, Set<string>> = {
@@ -32,6 +33,13 @@ export interface UomGroup {
   options: UomOption[];
 }
 
+export type UnitDefinitionOption = {
+  id: string;
+  name: string;
+  size: string;
+  uom: string;
+};
+
 /**
  * Returns practical units of measure from the convert library,
  * grouped by category (Volume, Mass, Length, Area).
@@ -62,4 +70,50 @@ export function getUomOptions(): UomGroup[] {
   });
 
   return groups;
+}
+
+export function areUnitsCompatible(sourceUom: string, targetUom: string) {
+  if (sourceUom === "ea" || targetUom === "ea") {
+    return sourceUom === targetUom;
+  }
+
+  try {
+    return getMeasureKind(sourceUom) === getMeasureKind(targetUom);
+  } catch {
+    return false;
+  }
+}
+
+export function derivePurchaseToStockFactor(
+  purchaseUnit: Pick<UnitDefinitionOption, "size" | "uom">,
+  stockingUnit: Pick<UnitDefinitionOption, "size" | "uom">
+) {
+  if (!areUnitsCompatible(purchaseUnit.uom, stockingUnit.uom)) {
+    return null;
+  }
+
+  if (purchaseUnit.uom === "ea" && stockingUnit.uom === "ea") {
+    const purchaseSize = Number(purchaseUnit.size);
+    const stockingSize = Number(stockingUnit.size);
+
+    if (!Number.isFinite(purchaseSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {
+      return null;
+    }
+
+    return purchaseSize / stockingSize;
+  }
+
+  const convertedPurchaseSize = Number(
+    convert(
+    Number(purchaseUnit.size),
+    purchaseUnit.uom as Parameters<typeof convert>[1]
+  ).to(stockingUnit.uom as Parameters<ReturnType<typeof convert>["to"]>[0])
+  );
+  const stockingSize = Number(stockingUnit.size);
+
+  if (!Number.isFinite(convertedPurchaseSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {
+    return null;
+  }
+
+  return convertedPurchaseSize / stockingSize;
 }

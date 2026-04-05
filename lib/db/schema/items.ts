@@ -29,6 +29,13 @@ export const items = inventorySchema
       unitDefinitionId: uuid("unit_definition_id")
         .notNull()
         .references(() => unitDefinitions.id),
+      purchaseUnitDefinitionId: uuid("purchase_unit_definition_id").references(
+        () => unitDefinitions.id
+      ),
+      purchaseToStockFactor: numeric("purchase_to_stock_factor", {
+        precision: 12,
+        scale: 4,
+      }),
 
       // Stock
       safetyStock: numeric("safety_stock", { precision: 12, scale: 4 }).notNull().default("0"),

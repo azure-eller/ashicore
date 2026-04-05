@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { useForm, Controller } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,6 +15,7 @@ import {
 import { ITEM_TYPE_SEGMENTS } from "@/app/(dashboard)/inventory/types";
 import type { getItem } from "@/app/(dashboard)/inventory/queries";
 import { getUomOptions } from "@/lib/units-of-measure";
+import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -120,6 +121,8 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
     defaultValues: initialData
       ? {
           name: initialData.name,
+          purchaseUnitDefinitionId: initialData.purchaseUnitDefinitionId,
+          purchaseToStockFactor: initialData.purchaseToStockFactor,
           sku: initialData.sku,
           category: initialData.category,
           description: initialData.description,
@@ -137,6 +140,8 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
           name: "",
           itemType: itemType as "material" | "product",
           unitDefinitionId: "",
+          purchaseUnitDefinitionId: null,
+          purchaseToStockFactor: null,
           sku: null,
           category: null,
           description: null,
@@ -150,6 +155,55 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
 
   const [formError, setFormError] = useState<string | null>(null);
   const [unitError, setUnitError] = useState<string | null>(null);
+  const selectedStockingUnitId = useWatch({
+    control: form.control,
+    name: "unitDefinitionId",
+  });
+  const selectedPurchaseUnitId = useWatch({
+    control: form.control,
+    name: "purchaseUnitDefinitionId",
+  });
+
+  const stockingUnit = useMemo(() => {
+    const unitId = isEditing ? initialData?.unitDefinitionId : selectedStockingUnitId;
+    return localUnits.find((unit) => unit.id === unitId) ?? null;
+  }, [initialData?.unitDefinitionId, isEditing, localUnits, selectedStockingUnitId]);
+
+  const purchaseUnit = useMemo(
+    () => localUnits.find((unit) => unit.id === selectedPurchaseUnitId) ?? null,
+    [localUnits, selectedPurchaseUnitId]
+  );
+
+  const derivedPurchaseFactor = useMemo(() => {
+    if (!stockingUnit || !purchaseUnit) {
+      return null;
+    }
+
+    return derivePurchaseToStockFactor(purchaseUnit, stockingUnit);
+  }, [purchaseUnit, stockingUnit]);
+
+  useEffect(() => {
+    if (!selectedPurchaseUnitId) {
+      form.setValue("purchaseToStockFactor", null, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      return;
+    }
+
+    if (derivedPurchaseFactor == null) {
+      form.setValue("purchaseToStockFactor", null, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      return;
+    }
+
+    form.setValue("purchaseToStockFactor", derivedPurchaseFactor.toFixed(4).replace(/\.?0+$/, ""), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  }, [derivedPurchaseFactor, form, selectedPurchaseUnitId]);
 
   const mutation = useMutation({
     mutationFn: async (data: ItemFormValues) => {
@@ -373,7 +427,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
 
               {initialData ? (
                 <Field>
-                  <FieldLabel>Unit</FieldLabel>
+                  <FieldLabel>Stocking Unit</FieldLabel>
                   <p className="py-2 text-sm">
                     {initialData.unitName} ({parseFloat(initialData.unitSize)} {initialData.unitUom})
                   </p>
@@ -384,7 +438,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Unit</FieldLabel>
+                      <FieldLabel htmlFor={field.name}>Stocking Unit</FieldLabel>
                       <Select
                         key={field.value}
                         name={field.name}
@@ -402,7 +456,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
                           aria-invalid={fieldState.invalid}
                           className="w-full"
                         >
-                          <SelectValue placeholder="Select a unit" />
+                          <SelectValue placeholder="Select a stocking unit" />
                         </SelectTrigger>
                         <SelectContent>
                           {localUnits.map((u) => (
@@ -423,6 +477,89 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
                   )}
                 />
               )}
+
+              <Controller
+                name="purchaseUnitDefinitionId"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor={field.name}>Purchase Unit</FieldLabel>
+                    <Select
+                      name={field.name}
+                      value={field.value ?? "__none__"}
+                      onValueChange={(value) => {
+                        field.onChange(value === "__none__" ? null : value);
+                      }}
+                    >
+                      <SelectTrigger
+                        id={field.name}
+                        aria-invalid={fieldState.invalid}
+                        className="w-full"
+                      >
+                        <SelectValue placeholder="Purchased in stocking units" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Purchased in stocking units</SelectItem>
+                        <SelectSeparator />
+                        {localUnits.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.name} ({parseFloat(u.size)} {u.uom})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!fieldState.invalid && (
+                      <FieldDescription>
+                        Leave blank to purchase this {typeLabel.toLowerCase()} in stocking units.
+                      </FieldDescription>
+                    )}
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+
+              {purchaseUnit && stockingUnit && derivedPurchaseFactor != null ? (
+                <Field>
+                  <FieldLabel>Purchase Conversion</FieldLabel>
+                  <p className="py-2 text-sm text-muted-foreground">
+                    1 {purchaseUnit.name} = {derivedPurchaseFactor} {stockingUnit.name}
+                  </p>
+                </Field>
+              ) : null}
+
+              {purchaseUnit && stockingUnit && derivedPurchaseFactor == null ? (
+                <Controller
+                  name="purchaseToStockFactor"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>
+                        Stocking Units per 1 Purchase Unit
+                      </FieldLabel>
+                      <Input
+                        {...field}
+                        id={field.name}
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value || null)}
+                        aria-invalid={fieldState.invalid}
+                        placeholder={`How many ${stockingUnit.name} per 1 ${purchaseUnit.name}?`}
+                        inputMode="decimal"
+                        autoComplete="off"
+                      />
+                      {!fieldState.invalid && (
+                        <FieldDescription>
+                          Enter the stocking-unit equivalent for one purchase unit.
+                        </FieldDescription>
+                      )}
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+              ) : null}
             </FieldGroup>
           </FieldSet>
 

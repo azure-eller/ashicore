@@ -349,7 +349,7 @@ export function PurchaseOrderDetail({
                   <TableHead className="text-right">Ordered</TableHead>
                   <TableHead className="text-right">Received</TableHead>
                   <TableHead className="text-right">Remaining</TableHead>
-                  <TableHead>Unit</TableHead>
+                  <TableHead>Purchase Unit</TableHead>
                   <TableHead className="text-right">Unit Cost</TableHead>
                   <TableHead className="text-right">Line Total</TableHead>
                 </TableRow>
@@ -368,7 +368,16 @@ export function PurchaseOrderDetail({
                     <TableCell className="text-right">
                       {formatQuantity(line.quantityRemaining)}
                     </TableCell>
-                    <TableCell>{line.unitName}</TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <div>{line.purchaseUnitName}</div>
+                        {line.purchaseUnitName !== line.stockingUnitName ? (
+                          <p className="text-xs text-muted-foreground">
+                            {formatQuantity(line.stockQuantityOrdered)} {line.stockingUnitName} stocked
+                          </p>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right">
                       {formatPrice(line.unitCost) ?? "\u2014"}
                     </TableCell>
@@ -449,7 +458,7 @@ export function PurchaseOrderDetail({
                     <TableHead className="text-right">Ordered</TableHead>
                     <TableHead className="text-right">Received</TableHead>
                     <TableHead className="text-right">Remaining</TableHead>
-                    <TableHead>Unit</TableHead>
+                    <TableHead>Purchase Unit</TableHead>
                     <TableHead className="w-44">Receive Now</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -473,7 +482,16 @@ export function PurchaseOrderDetail({
                       <TableCell className="text-right">
                         {formatQuantity(line.quantityRemaining)}
                       </TableCell>
-                      <TableCell>{line.unitName}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div>{line.purchaseUnitName}</div>
+                          {line.purchaseUnitName !== line.stockingUnitName ? (
+                            <p className="text-xs text-muted-foreground">
+                              {formatQuantity(line.stockQuantityRemaining)} {line.stockingUnitName} remaining
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <Controller
                           control={receiveForm.control}

@@ -73,6 +73,8 @@ export async function getItem(id: string) {
         category: items.category,
         description: items.description,
         unitDefinitionId: items.unitDefinitionId,
+        purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
+        purchaseToStockFactor: items.purchaseToStockFactor,
         defaultPurchasePrice: items.defaultPurchasePrice,
         defaultSellingPrice: items.defaultSellingPrice,
         stock: stockSubquery,
@@ -86,7 +88,30 @@ export async function getItem(id: string) {
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(eq(items.id, id), isNull(items.deletedAt)));
-    return row ?? null;
+
+    if (!row) {
+      return null;
+    }
+
+    const purchaseUnit = row.purchaseUnitDefinitionId
+      ? await tx
+          .select({
+            id: unitDefinitions.id,
+            name: unitDefinitions.name,
+            size: unitDefinitions.size,
+            uom: unitDefinitions.uom,
+          })
+          .from(unitDefinitions)
+          .where(eq(unitDefinitions.id, row.purchaseUnitDefinitionId))
+          .then((rows) => rows[0] ?? null)
+      : null;
+
+    return {
+      ...row,
+      purchaseUnitName: purchaseUnit?.name ?? null,
+      purchaseUnitSize: purchaseUnit?.size ?? null,
+      purchaseUnitUom: purchaseUnit?.uom ?? null,
+    };
   });
 }
 

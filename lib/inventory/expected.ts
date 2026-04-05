@@ -38,7 +38,7 @@ export async function recomputeExpectedQty(tx: Tx, itemIds: string[]) {
   const purchasingTotals = await tx
     .select({
       itemId: purchaseOrderLines.itemId,
-      total: sql<string>`COALESCE(SUM(${purchaseOrderLines.quantityOrdered} - ${purchaseOrderLines.quantityReceived}), 0)`,
+      total: sql<string>`COALESCE(SUM(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}), 0)`,
     })
     .from(purchaseOrderLines)
     .innerJoin(

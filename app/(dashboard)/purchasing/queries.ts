@@ -38,10 +38,15 @@ type PreparedPurchaseOrderLine = {
   itemId: string;
   itemName: string;
   itemSku: string | null;
-  unitName: string;
+  purchaseUnitName: string;
+  stockingUnitName: string;
+  purchaseToStockFactor: string;
   quantityOrdered: string;
   quantityReceived: string;
+  stockQuantityOrdered: string;
+  stockQuantityReceived: string;
   unitCost: string;
+  stockUnitCost: string;
   lineTotal: string;
   sortOrder: number;
 };
@@ -50,7 +55,9 @@ type MaterialValidationRow = {
   id: string;
   name: string;
   sku: string | null;
-  unitName: string;
+  stockingUnitName: string;
+  purchaseUnitName: string | null;
+  purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
 };
 
@@ -124,7 +131,13 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
       id: items.id,
       name: items.name,
       sku: items.sku,
-      unitName: unitDefinitions.name,
+      stockingUnitName: unitDefinitions.name,
+      purchaseUnitName: sql<string | null>`(
+        SELECT ${unitDefinitions.name}
+        FROM ${unitDefinitions}
+        WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
+      )`,
+      purchaseToStockFactor: items.purchaseToStockFactor,
       defaultPurchasePrice: items.defaultPurchasePrice,
     })
     .from(items)
@@ -153,10 +166,15 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
-      unitName: purchaseOrderLines.unitName,
+      purchaseUnitName: purchaseOrderLines.purchaseUnitName,
+      stockingUnitName: purchaseOrderLines.stockingUnitName,
+      purchaseToStockFactor: purchaseOrderLines.purchaseToStockFactor,
       quantityOrdered: purchaseOrderLines.quantityOrdered,
       quantityReceived: purchaseOrderLines.quantityReceived,
+      stockQuantityOrdered: purchaseOrderLines.stockQuantityOrdered,
+      stockQuantityReceived: purchaseOrderLines.stockQuantityReceived,
       unitCost: purchaseOrderLines.unitCost,
+      stockUnitCost: purchaseOrderLines.stockUnitCost,
       lineTotal: purchaseOrderLines.lineTotal,
       sortOrder: purchaseOrderLines.sortOrder,
       createdAt: purchaseOrderLines.createdAt,
@@ -195,15 +213,23 @@ async function preparePurchaseOrderPayload(
     const quantityOrdered = Number(line.quantityOrdered);
     const unitCost = Number(line.unitCost);
     const lineTotal = quantityOrdered * unitCost;
+    const purchaseToStockFactor = Number(material.purchaseToStockFactor ?? "1");
+    const stockQuantityOrdered = quantityOrdered * purchaseToStockFactor;
+    const stockUnitCost = unitCost / purchaseToStockFactor;
 
     return {
       itemId: material.id,
       itemName: material.name,
       itemSku: material.sku,
-      unitName: material.unitName,
+      purchaseUnitName: material.purchaseUnitName ?? material.stockingUnitName,
+      stockingUnitName: material.stockingUnitName,
+      purchaseToStockFactor: normalizeNumeric(purchaseToStockFactor),
       quantityOrdered: normalizeNumeric(quantityOrdered),
       quantityReceived: "0",
+      stockQuantityOrdered: normalizeNumeric(stockQuantityOrdered),
+      stockQuantityReceived: "0",
       unitCost: normalizeNumeric(unitCost),
+      stockUnitCost: normalizeNumeric(stockUnitCost),
       lineTotal: normalizeNumeric(lineTotal),
       sortOrder: index,
     };
@@ -375,7 +401,13 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         id: items.id,
         name: items.name,
         sku: items.sku,
-        unitName: unitDefinitions.name,
+        stockingUnitName: unitDefinitions.name,
+        purchaseUnitName: sql<string | null>`(
+          SELECT ${unitDefinitions.name}
+          FROM ${unitDefinitions}
+          WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
+        )`,
+        purchaseToStockFactor: items.purchaseToStockFactor,
         defaultPurchasePrice: items.defaultPurchasePrice,
       })
       .from(items)
@@ -478,6 +510,9 @@ export async function getPurchaseOrder(
         ...line,
         quantityRemaining: normalizeNumeric(
           parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
+        ),
+        stockQuantityRemaining: normalizeNumeric(
+          parseFloat(line.stockQuantityOrdered) - parseFloat(line.stockQuantityReceived)
         ),
       })) as PurchaseOrderDetailLine[],
     };
@@ -691,9 +726,14 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
         });
       }
 
+      const stockQuantityReceived = parseFloat(
+        normalizeNumeric(quantityReceived * parseFloat(existingLine.purchaseToStockFactor))
+      );
+
       return {
         line: existingLine,
         quantityReceived,
+        stockQuantityReceived,
       };
     });
 
@@ -721,9 +761,9 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
       await createPositiveLotAndMovementInTx(tx, {
         orgId,
         itemId: currentLine.itemId,
-        quantity: entry.quantityReceived,
+        quantity: entry.stockQuantityReceived,
         userId,
-        costPerUnit: currentLine.unitCost,
+        costPerUnit: currentLine.stockUnitCost,
         movementType: "purchase_received",
         referenceType: "purchase_order",
         referenceId: id,
@@ -731,13 +771,17 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
 
       const newQuantityReceived =
         parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
+      const newStockQuantityReceived =
+        parseFloat(currentLine.stockQuantityReceived) + entry.stockQuantityReceived;
 
       const normalizedReceived = normalizeNumeric(newQuantityReceived);
+      const normalizedStockReceived = normalizeNumeric(newStockQuantityReceived);
 
       await tx
         .update(purchaseOrderLines)
         .set({
           quantityReceived: normalizedReceived,
+          stockQuantityReceived: normalizedStockReceived,
           updatedAt: new Date(),
         })
         .where(eq(purchaseOrderLines.id, currentLine.id));
@@ -745,6 +789,7 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
       updatedLines.set(currentLine.id, {
         ...currentLine,
         quantityReceived: normalizedReceived,
+        stockQuantityReceived: normalizedStockReceived,
         updatedAt: new Date(),
       });
     }

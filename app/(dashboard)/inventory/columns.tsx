@@ -110,7 +110,7 @@ export const columns: ColumnDef<ItemRow>[] = [
   },
   {
     accessorKey: "unit",
-    header: "Unit",
+    header: "Stocking Unit",
   },
   {
     accessorKey: "category",

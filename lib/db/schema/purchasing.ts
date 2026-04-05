@@ -113,13 +113,28 @@ export const purchaseOrderLines = purchasingSchema
         .references(() => items.id),
       itemName: varchar("item_name", { length: 255 }).notNull(),
       itemSku: varchar("item_sku", { length: 50 }),
-      unitName: varchar("unit_name", { length: 50 }).notNull(),
+      purchaseUnitName: varchar("purchase_unit_name", { length: 50 }).notNull(),
+      stockingUnitName: varchar("stocking_unit_name", { length: 50 }).notNull(),
+      purchaseToStockFactor: numeric("purchase_to_stock_factor", {
+        precision: 12,
+        scale: 4,
+      }).notNull(),
       quantityOrdered: numeric("quantity_ordered", { precision: 12, scale: 4 })
         .notNull(),
       quantityReceived: numeric("quantity_received", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
+      stockQuantityOrdered: numeric("stock_quantity_ordered", {
+        precision: 12,
+        scale: 4,
+      }).notNull(),
+      stockQuantityReceived: numeric("stock_quantity_received", {
+        precision: 12,
+        scale: 4,
+      }).notNull()
+        .default("0"),
       unitCost: numeric("unit_cost", { precision: 10, scale: 4 }).notNull(),
+      stockUnitCost: numeric("stock_unit_cost", { precision: 10, scale: 4 }).notNull(),
       lineTotal: numeric("line_total", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at").notNull().defaultNow(),
