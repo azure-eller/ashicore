@@ -6,6 +6,8 @@ import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { CircleUnlock01Icon, LockIcon } from "@hugeicons/core-free-icons";
 import {
   insertItemSchema,
   updateItemSchema,
@@ -57,6 +59,7 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 
 const CREATE_NEW_UNIT = "__create_new__";
@@ -75,6 +78,7 @@ interface ItemFormProps {
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
   availableComponents?: AvailableComponent[];
+  canManageBomLock?: boolean;
   initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
     bom?: { componentId: string; quantity: string | null }[];
   };
@@ -82,7 +86,14 @@ interface ItemFormProps {
 
 type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
 
-export function ItemForm({ itemType, units, categories, availableComponents, initialData }: ItemFormProps) {
+export function ItemForm({
+  itemType,
+  units,
+  categories,
+  availableComponents,
+  canManageBomLock = false,
+  initialData,
+}: ItemFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const segment = ITEM_TYPE_SEGMENTS[itemType];
@@ -132,6 +143,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
           defaultSellingPrice: initialData.defaultSellingPrice != null
             ? String(parseFloat(initialData.defaultSellingPrice))
             : null,
+          bomLocked: initialData.bomLocked ?? false,
           stock: String(parseFloat(initialData.stock)),
           safetyStock: String(parseFloat(initialData.safetyStock)),
           bom: initialData.bom ?? [],
@@ -147,6 +159,7 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
           description: null,
           defaultPurchasePrice: null,
           defaultSellingPrice: null,
+          bomLocked: false,
           stock: "0",
           safetyStock: "0",
           bom: [],
@@ -155,6 +168,10 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
 
   const [formError, setFormError] = useState<string | null>(null);
   const [unitError, setUnitError] = useState<string | null>(null);
+  const bomLocked = useWatch({
+    control: form.control,
+    name: "bomLocked",
+  });
   const selectedStockingUnitId = useWatch({
     control: form.control,
     name: "unitDefinitionId",
@@ -675,10 +692,46 @@ export function ItemForm({ itemType, units, categories, availableComponents, ini
             <>
               <FieldSeparator />
               <FieldSet className="gap-6">
-                <FieldLegend>Recipe / Bill of Materials</FieldLegend>
-                <FieldDescription>
-                  Ingredients needed to produce one unit of this product.
-                </FieldDescription>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <FieldLegend>Recipe / Bill of Materials</FieldLegend>
+                    <FieldDescription>
+                      Ingredients needed to produce one unit of this product.
+                    </FieldDescription>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="mt-0.5 shrink-0"
+                          aria-label={bomLocked ? "Unlock recipe" : "Lock recipe"}
+                          disabled={!canManageBomLock}
+                          onClick={() =>
+                            form.setValue("bomLocked", !bomLocked, {
+                              shouldDirty: true,
+                              shouldTouch: true,
+                            })
+                          }
+                        >
+                          <HugeiconsIcon
+                            icon={bomLocked ? LockIcon : CircleUnlock01Icon}
+                            strokeWidth={2}
+                          />
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {canManageBomLock
+                        ? bomLocked
+                          ? "Recipe is locked. Click to unlock."
+                          : "Recipe is unlocked. Click to lock."
+                        : "Inventory admin access is required to lock or unlock recipes."}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <BomEditor
                   control={form.control}
                   availableComponents={availableComponents}

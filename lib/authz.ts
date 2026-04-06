@@ -1,14 +1,6 @@
 import { NextResponse } from "next/server";
 
-export const APP_ROLES = [
-  "owner",
-  "admin",
-  "operator",
-  "viewer",
-  "member",
-] as const;
-
-export const ASSIGNABLE_APP_ROLES = ["admin", "operator", "viewer"] as const;
+export const APP_ROLES = ["owner", "admin", "member"] as const;
 
 export const MODULE_KEYS = [
   "inventory",
@@ -18,146 +10,315 @@ export const MODULE_KEYS = [
   "settings",
 ] as const;
 
+export const MODULE_ACCESS_LEVELS = ["none", "read", "operate", "admin"] as const;
+export const MATRIX_SENTINEL_ROLE = "access:matrix" as const;
+
 export type AppRole = (typeof APP_ROLES)[number];
-export type AssignableAppRole = (typeof ASSIGNABLE_APP_ROLES)[number];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
+export type ModuleAccessLevel = (typeof MODULE_ACCESS_LEVELS)[number];
+export type ModuleAccessMap = Record<ModuleKey, ModuleAccessLevel>;
+export type MatrixModuleRole = `${ModuleKey}:${Exclude<ModuleAccessLevel, "none">}`;
 
-const READ_ACCESS: Record<Exclude<AppRole, "member">, ModuleKey[]> = {
-  owner: [...MODULE_KEYS],
-  admin: [...MODULE_KEYS],
-  operator: ["inventory", "manufacturing", "settings"],
-  viewer: ["inventory", "sales", "manufacturing", "purchasing", "settings"],
+const MODULE_ACCESS_RANK: Record<ModuleAccessLevel, number> = {
+  none: 0,
+  read: 1,
+  operate: 2,
+  admin: 3,
 };
 
-const WRITE_ACCESS: Record<Exclude<AppRole, "member">, ModuleKey[]> = {
-  owner: [...MODULE_KEYS],
-  admin: [...MODULE_KEYS],
-  operator: ["inventory", "manufacturing"],
-  viewer: [],
+const GOVERNANCE_ROLE_PRIORITY: readonly string[] = [
+  "owner",
+  "admin",
+  "member",
+] as const;
+
+const EMPTY_MODULE_ACCESS: ModuleAccessMap = {
+  inventory: "none",
+  sales: "none",
+  manufacturing: "none",
+  purchasing: "none",
+  settings: "none",
 };
 
-export class AuthorizationError extends Error {
-  constructor(
-    message = "You do not have permission to perform this action.",
-    public status = 403
-  ) {
-    super(message);
-    this.name = "AuthorizationError";
+const OWNER_MODULE_ACCESS: ModuleAccessMap = {
+  inventory: "admin",
+  sales: "admin",
+  manufacturing: "admin",
+  purchasing: "admin",
+  settings: "admin",
+};
+
+function cloneModuleAccess(source: ModuleAccessMap): ModuleAccessMap {
+  return { ...source };
+}
+
+export function splitAssignedRoles(role: string | string[] | null | undefined) {
+  if (Array.isArray(role)) {
+    return role
+      .flatMap((value) => value.split(","))
+      .map((value) => value.trim())
+      .filter(Boolean);
   }
 
-  toResponse() {
-    return NextResponse.json({ error: this.message }, { status: this.status });
+  if (!role) {
+    return [];
+  }
+
+  return role
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+export function buildMatrixRole(
+  moduleKey: ModuleKey,
+  level: Exclude<ModuleAccessLevel, "none">
+): MatrixModuleRole {
+  return `${moduleKey}:${level}`;
+}
+
+export function isMatrixModuleRole(role: string): role is MatrixModuleRole {
+  const [module, level] = role.split(":");
+
+  return (
+    MODULE_KEYS.includes(module as ModuleKey) &&
+    level !== "none" &&
+    MODULE_ACCESS_LEVELS.includes(level as ModuleAccessLevel)
+  );
+}
+
+export function getModulePermissionActions(level: Exclude<ModuleAccessLevel, "none">) {
+  switch (level) {
+    case "read":
+      return ["read"] as const;
+    case "operate":
+      return ["read", "operate"] as const;
+    case "admin":
+      return ["read", "operate", "admin"] as const;
   }
 }
 
-export function normalizeAppRole(role: string | null | undefined): AppRole {
-  if (role === "owner" || role === "admin" || role === "operator" || role === "viewer") {
-    return role;
+function getStoredGovernanceRole(tokens: string[]): string {
+  for (const candidate of GOVERNANCE_ROLE_PRIORITY) {
+    if (tokens.includes(candidate)) {
+      return candidate;
+    }
   }
 
   return "member";
 }
 
-export function normalizeAssignableRole(
-  role: string | null | undefined
-): AssignableAppRole | null {
-  if (role === "admin" || role === "operator" || role === "viewer") {
-    return role;
-  }
-
-  return null;
+function hasMatrixAssignments(tokens: string[]) {
+  return tokens.includes(MATRIX_SENTINEL_ROLE);
 }
 
-export function formatRoleLabel(role: string | null | undefined) {
-  const normalized = normalizeAppRole(role);
-
-  if (normalized === "member") {
-    return "Viewer";
+function getMatrixDefaults(role: AppRole): ModuleAccessMap {
+  if (role === "owner") {
+    return cloneModuleAccess(OWNER_MODULE_ACCESS);
   }
 
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return cloneModuleAccess(EMPTY_MODULE_ACCESS);
 }
 
-export function canReadModule(role: string | null | undefined, module: ModuleKey) {
-  const normalizedRole = normalizeAppRole(role);
+export function normalizeAppRole(role: string | string[] | null | undefined): AppRole {
+  const storedRole = getStoredGovernanceRole(splitAssignedRoles(role));
 
-  if (normalizedRole === "member") {
-    return READ_ACCESS.viewer.includes(module);
+  if (storedRole === "owner" || storedRole === "admin") {
+    return storedRole;
   }
 
-  return READ_ACCESS[normalizedRole].includes(module);
-}
-
-export function canWriteModule(role: string | null | undefined, module: ModuleKey) {
-  const normalizedRole = normalizeAppRole(role);
-
-  if (normalizedRole === "member") {
-    return false;
-  }
-
-  return WRITE_ACCESS[normalizedRole].includes(module);
-}
-
-export function canManageTeam(role: string | null | undefined) {
-  const normalizedRole = normalizeAppRole(role);
-  return normalizedRole === "owner" || normalizedRole === "admin";
-}
-
-export function canAssignRole(
-  actorRole: string | null | undefined,
-  targetRole: string | null | undefined
-) {
-  const actor = normalizeAppRole(actorRole);
-  const target = normalizeAssignableRole(targetRole);
-
-  if (!target) {
-    return false;
-  }
-
-  if (actor === "owner") {
-    return true;
-  }
-
-  if (actor === "admin") {
-    return target === "operator" || target === "viewer";
-  }
-
-  return false;
+  return "member";
 }
 
 export function canManageTargetRole(
-  actorRole: string | null | undefined,
-  targetRole: string | null | undefined
+  actorRole: string | string[] | null | undefined,
+  targetRole: string | string[] | null | undefined
 ) {
-  const actor = normalizeAppRole(actorRole);
   const target = normalizeAppRole(targetRole);
 
-  if (actor === "owner") {
+  if (normalizeAppRole(actorRole) === "owner") {
     return target !== "owner";
   }
 
-  if (actor === "admin") {
-    return target === "operator" || target === "viewer" || target === "member";
+  if (canManageTeam(actorRole)) {
+    return target !== "owner";
   }
 
   return false;
 }
 
-export function getAssignableRoles(actorRole: string | null | undefined) {
-  const actor = normalizeAppRole(actorRole);
-
-  if (actor === "owner") {
-    return [...ASSIGNABLE_APP_ROLES];
-  }
-
-  if (actor === "admin") {
-    return ASSIGNABLE_APP_ROLES.filter((role) => role !== "admin");
-  }
-
-  return [] as AssignableAppRole[];
+export function formatRoleLabel(role: string | string[] | null | undefined) {
+  const normalized = normalizeAppRole(role);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
-export function getDefaultDashboardPath(role: string | null | undefined) {
+export function formatAccessLevelLabel(level: ModuleAccessLevel) {
+  switch (level) {
+    case "none":
+      return "None";
+    case "read":
+      return "Read";
+    case "operate":
+      return "Operate";
+    case "admin":
+      return "Admin";
+  }
+}
+
+export function formatModuleLabel(module: ModuleKey) {
+  switch (module) {
+    case "inventory":
+      return "Inventory";
+    case "sales":
+      return "Sales";
+    case "manufacturing":
+      return "Manufacturing";
+    case "purchasing":
+      return "Purchasing";
+    case "settings":
+      return "Settings";
+  }
+}
+
+export function getInitialModuleAccess(governanceRole: AppRole): ModuleAccessMap {
+  if (governanceRole === "owner") {
+    return cloneModuleAccess(OWNER_MODULE_ACCESS);
+  }
+
+  if (governanceRole === "admin") {
+    return cloneModuleAccess(EMPTY_MODULE_ACCESS);
+  }
+
+  return cloneModuleAccess(EMPTY_MODULE_ACCESS);
+}
+
+export function normalizeModuleAccess(
+  governanceRole: AppRole,
+  access: Partial<Record<ModuleKey, ModuleAccessLevel>>
+): ModuleAccessMap {
+  const normalized = getInitialModuleAccess(governanceRole);
+
+  for (const moduleKey of MODULE_KEYS) {
+    const level = access[moduleKey];
+
+    if (!level) {
+      continue;
+    }
+
+    normalized[moduleKey] = level;
+  }
+
+  if (governanceRole === "owner") {
+    return cloneModuleAccess(OWNER_MODULE_ACCESS);
+  }
+
+  return normalized;
+}
+
+export function buildAssignedRoles(
+  governanceRole: AppRole,
+  access: Partial<Record<ModuleKey, ModuleAccessLevel>>
+) {
+  const normalizedAccess = normalizeModuleAccess(governanceRole, access);
+
+  if (governanceRole === "owner") {
+    return [MATRIX_SENTINEL_ROLE, "owner"];
+  }
+
+  const assignedRoles: string[] = [MATRIX_SENTINEL_ROLE, governanceRole];
+
+  for (const moduleKey of MODULE_KEYS) {
+    const level = normalizedAccess[moduleKey];
+
+    if (level === "none") {
+      continue;
+    }
+
+    assignedRoles.push(buildMatrixRole(moduleKey, level));
+  }
+
+  return assignedRoles;
+}
+
+export function getModuleAccessMap(role: string | string[] | null | undefined): ModuleAccessMap {
+  const tokens = splitAssignedRoles(role);
+  const governanceRole = normalizeAppRole(tokens);
+  const moduleAccess = hasMatrixAssignments(tokens)
+    ? getMatrixDefaults(governanceRole)
+    : cloneModuleAccess(EMPTY_MODULE_ACCESS);
+
+  for (const token of tokens) {
+    if (!isMatrixModuleRole(token)) {
+      continue;
+    }
+
+    const [tokenModule, tokenLevel] = token.split(":") as [
+      ModuleKey,
+      Exclude<ModuleAccessLevel, "none">,
+    ];
+
+    if (MODULE_ACCESS_RANK[tokenLevel] > MODULE_ACCESS_RANK[moduleAccess[tokenModule]]) {
+      moduleAccess[tokenModule] = tokenLevel;
+    }
+  }
+
+  return moduleAccess;
+}
+
+export function resolveModuleAccessLevel(
+  role: string | string[] | null | undefined,
+  moduleKey: ModuleKey
+): ModuleAccessLevel {
+  return getModuleAccessMap(role)[moduleKey];
+}
+
+export function hasModuleAccess(
+  role: string | string[] | null | undefined,
+  module: ModuleKey,
+  requiredLevel: Exclude<ModuleAccessLevel, "none">
+) {
+  if (normalizeAppRole(role) === "owner") {
+    return true;
+  }
+
+  const currentLevel = resolveModuleAccessLevel(role, module);
+  return MODULE_ACCESS_RANK[currentLevel] >= MODULE_ACCESS_RANK[requiredLevel];
+}
+
+export function canViewUnlockedBom(role: string | string[] | null | undefined) {
+  return (
+    hasModuleAccess(role, "inventory", "operate") ||
+    hasModuleAccess(role, "manufacturing", "operate")
+  );
+}
+
+export function canViewLockedBom(role: string | string[] | null | undefined) {
+  return (
+    hasModuleAccess(role, "inventory", "admin") ||
+    hasModuleAccess(role, "manufacturing", "admin")
+  );
+}
+
+export function canManageLockedBom(role: string | string[] | null | undefined) {
+  return hasModuleAccess(role, "inventory", "admin");
+}
+
+export function canReadModule(role: string | string[] | null | undefined, module: ModuleKey) {
+  return hasModuleAccess(role, module, "read");
+}
+
+export function canWriteModule(role: string | string[] | null | undefined, module: ModuleKey) {
+  return hasModuleAccess(role, module, "operate");
+}
+
+export function canManageTeam(role: string | string[] | null | undefined) {
+  return (
+    normalizeAppRole(role) === "owner" ||
+    hasModuleAccess(role, "settings", "admin")
+  );
+}
+
+export function getDefaultDashboardPath(role: string | string[] | null | undefined) {
   if (canReadModule(role, "inventory")) {
     return "/inventory/products";
   }
@@ -174,9 +335,19 @@ export function getDefaultDashboardPath(role: string | null | undefined) {
     return "/purchasing/orders";
   }
 
-  if (canReadModule(role, "settings")) {
-    return "/settings/account";
+  return "/no-access";
+}
+
+export class AuthorizationError extends Error {
+  constructor(
+    message = "You do not have permission to perform this action.",
+    public status = 403
+  ) {
+    super(message);
+    this.name = "AuthorizationError";
   }
 
-  return "/sign-in";
+  toResponse() {
+    return NextResponse.json({ error: this.message }, { status: this.status });
+  }
 }

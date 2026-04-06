@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { requireModuleAccess } from "@/lib/dal/auth";
 import {
   getItem,
   getUnitDefinitions,
@@ -12,7 +12,7 @@ export default async function EditMaterialPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireModuleWriteAccess("inventory");
+  await requireModuleAccess("inventory", "operate");
   const { id } = await params;
   const [item, units, categories] = await Promise.all([
     getItem(id),

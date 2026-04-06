@@ -59,11 +59,20 @@ test.describe("Stocktake write-path smoke", () => {
 
     await page.locator("#name").fill(`Fast Count ${ts}`);
     await page.locator("#notes").fill("Fast stocktake smoke test");
-    await page.getByRole("button", { name: "Create Stocktake" }).click();
+    const [createStocktakeResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/stocktakes")
+      ),
+      page.getByRole("button", { name: "Create Stocktake" }).click(),
+    ]);
+    expect(createStocktakeResponse.status()).toBe(201);
 
     await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
     stocktakeId = getIdFromUrl(page.url());
-    await expect(page.getByRole("heading", { name: `Fast Count ${ts}` })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save Counts" })).toBeVisible();
+    await expect(page.getByText("Back to Stocktakes")).toBeVisible();
 
     const [stocktake] = await db
       .select()

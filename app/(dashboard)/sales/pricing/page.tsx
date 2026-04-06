@@ -1,9 +1,9 @@
-import { requireModuleReadAccess } from "@/lib/dal/auth";
+import { requireModuleAccess } from "@/lib/dal/auth";
 import { getPricingSchedules } from "@/app/(dashboard)/sales/queries";
 import { PricingSchedulesTable } from "@/app/(dashboard)/sales/pricing-schedules-table";
 
 export default async function PricingPage() {
-  await requireModuleReadAccess("sales");
+  await requireModuleAccess("sales", "admin");
   const pricingSchedules = await getPricingSchedules();
 
   return (

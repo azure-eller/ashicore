@@ -5,7 +5,12 @@ import { MissingStockCostError } from "@/lib/inventory/stock";
 import { insertItemSchema } from "@/lib/schemas/items";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { apiHandler } from "@/lib/api/handler";
-import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import {
+  assertLockedBomManagementAccess,
+  assertModuleAccess,
+  assertModuleReadAccess,
+  assertModuleWriteAccess,
+} from "@/lib/dal/auth";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);
@@ -36,6 +41,10 @@ export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
   const { stock, bom, ...data } = insertItemSchema.parse(body);
+
+  if (data.itemType === "product" && data.bomLocked) {
+    await assertLockedBomManagementAccess(request.headers);
+  }
 
   try {
     const item = await createItemWithLot(data, stock, bom);

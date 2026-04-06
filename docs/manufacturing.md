@@ -57,6 +57,8 @@ Manufacturing orders copy live master data into snapshots at create time:
 
 The product BOM is the source of truth for creating the draft, but the draft order owns its copied ingredient rows after creation. Editing a draft manufacturing order never mutates the product BOM.
 
+Locked BOMs are a product-level flag on `inventory.items`, not a separate BOM header object. Locking a BOM restricts general recipe view/edit surfaces in inventory, but it does not block manufacturing-order creation, release, or completion. Manufacturing continues to snapshot the live BOM rows for execution even when the source BOM is locked.
+
 Manufacturing product pickers should only show products whose filtered BOM still has at least one active ingredient. If deleted items are removed from the BOM snapshot query, drop products whose remaining ingredient list is empty so the form never offers an unbuildable template.
 
 ## Release Behavior

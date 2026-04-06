@@ -35,6 +35,8 @@ const rawBaseItemSchema = createInsertSchema(items, {
 }).omit({
   id: true,
   organizationId: true,
+  bomLockedAt: true,
+  bomLockedByUserId: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,

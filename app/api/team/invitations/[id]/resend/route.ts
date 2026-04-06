@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import {
+  buildInvitationRolePayload,
   callAuthApi,
   getManageableInvitation,
 } from "@/app/(dashboard)/settings/queries";
@@ -15,10 +16,9 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json({ error: "Invitation not found" }, { status: 404 });
   }
 
-  const resendRole = invite.invitation.role === "member" ? "viewer" : invite.invitation.role;
   const response = await callAuthApi(request.headers, "createInvitation", {
     email: invite.invitation.email,
-    role: resendRole,
+    role: buildInvitationRolePayload(),
     resend: true,
   });
 

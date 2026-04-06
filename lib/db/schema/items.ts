@@ -4,6 +4,7 @@ import {
   text,
   numeric,
   timestamp,
+  boolean,
   pgPolicy,
   index,
   uniqueIndex,
@@ -45,6 +46,11 @@ export const items = inventorySchema
       // Pricing
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
       defaultSellingPrice: numeric("default_selling_price", { precision: 10, scale: 2 }),
+
+      // BOM lock
+      bomLocked: boolean("bom_locked").notNull().default(false),
+      bomLockedAt: timestamp("bom_locked_at"),
+      bomLockedByUserId: text("bom_locked_by_user_id"),
 
       // Soft delete
       deletedAt: timestamp("deleted_at"),

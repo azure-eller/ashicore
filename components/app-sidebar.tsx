@@ -4,7 +4,6 @@ import * as React from "react"
 
 import {
   canReadModule,
-  type AppRole,
 } from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
@@ -46,17 +45,17 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
     avatar?: string
   }
   organizationName: string
-  role: AppRole
+  assignedRoles: string[]
 }
 
 export function AppSidebar({
   user,
   organizationName,
-  role,
+  assignedRoles,
   ...props
 }: AppSidebarProps) {
   const navMain = ([
-    canReadModule(role, "inventory") ? {
+    canReadModule(assignedRoles, "inventory") ? {
       title: "Inventory",
       url: "/inventory",
       icon: (
@@ -78,7 +77,7 @@ export function AppSidebar({
         },
       ],
     } : null,
-    canReadModule(role, "sales") ? {
+    canReadModule(assignedRoles, "sales") ? {
       title: "Sales",
       url: "/sales",
       icon: (
@@ -100,7 +99,7 @@ export function AppSidebar({
         },
       ],
     } : null,
-    canReadModule(role, "manufacturing") ? {
+    canReadModule(assignedRoles, "manufacturing") ? {
       title: "Manufacturing",
       url: "/manufacturing",
       icon: (
@@ -114,7 +113,7 @@ export function AppSidebar({
         },
       ],
     } : null,
-    canReadModule(role, "purchasing") ? {
+    canReadModule(assignedRoles, "purchasing") ? {
       title: "Purchasing",
       url: "/purchasing",
       icon: (

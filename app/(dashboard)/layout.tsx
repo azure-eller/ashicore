@@ -23,7 +23,7 @@ export default async function DashboardLayout({
       <SidebarProvider>
         <AppSidebar
           user={user}
-          role={context.role}
+          assignedRoles={context.assignedRoles}
           organizationName={context.organizationName}
         />
         <SidebarInset>{children}</SidebarInset>

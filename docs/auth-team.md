@@ -9,17 +9,28 @@ read_when:
 
 ## Source of Truth
 
-- Better Auth `system.member.role` is the canonical org role.
+- Better Auth `system.member.role` is the canonical member access store.
 - Better Auth `system.invitation` is the canonical pending-invite store.
 - Do not add custom role tables or custom invitation tables for v1.
 
-## Fixed Roles
+## Access Model
 
-- `owner`: full app access, full team management
-- `admin`: full app access, can manage `operator` and `viewer`, cannot invite/change/remove `admin` or `owner`
-- `operator`: read/write `inventory` and `manufacturing`
-- `viewer`: read-only `inventory`, `sales`, `manufacturing`, and `purchasing`
-- Legacy Better Auth `member` must be normalized to viewer-style access in app authz helpers
+- `owner` is the only special top-level role
+- Module access is a matrix stored in Better Auth role arrays:
+  - modules: `inventory`, `sales`, `manufacturing`, `purchasing`, `settings`
+  - levels: `none`, `read`, `operate`, `admin`
+- Assigned roles are atomic strings such as `sales:operate`, `inventory:admin`
+- `access:matrix` marks rows that use the matrix model
+- `owner` bypasses module checks
+- Non-owner users are exposed as `User` in the team UI and get only the module access explicitly assigned in the matrix
+- `settings:admin` can invite users, edit non-owner user permissions, remove non-owner users, and grant `settings:admin` to other non-owner users
+- `inventory:operate` covers normal item master create/edit plus stock workflows
+- `inventory:admin` is reserved for higher-risk inventory controls such as destructive item actions
+- Unlocked product BOMs use `inventory:operate`
+- Locked BOMs are flagged on the product item row and require `inventory:admin` to lock, unlock, or edit
+- Manufacturing admin may view locked BOMs in inventory detail views, but manufacturing execution is not blocked by BOM lock
+- Personal account settings are available to all authenticated members
+- Team management is governed by `owner` or `settings:admin`
 
 ## Guard Pattern
 
@@ -30,10 +41,10 @@ Use one shared authz layer from `lib/authz.ts` and `lib/dal/auth.ts`.
 - API write access: guard before parsing or mutating
 
 ```ts
-await requireModuleReadAccess("purchasing")
-await requireModuleWriteAccess("sales")
-await assertModuleReadAccess("inventory", request.headers)
-await assertModuleWriteAccess("manufacturing", request.headers)
+await requireModuleAccess("purchasing", "read")
+await requireModuleAccess("sales", "operate")
+await assertModuleAccess("inventory", "read", request.headers)
+await assertModuleAccess("manufacturing", "operate", request.headers)
 ```
 
 This keeps nav visibility, page access, and API enforcement aligned.
@@ -53,7 +64,9 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 ## Team Module Pattern
 
 - Team UI lives under `Settings > Team`
-- Owner/admin access only
+- Owner or `settings:admin` access only
+- Invite flow does not ask for a visible role; every invited non-owner starts as a `member` with no module access
+- Post-join permissions are edited in the module matrix UI, including `settings`
 - Team reads come from repo-native DAL in `app/(dashboard)/settings/queries.ts`
 - Team mutations go through `app/api/team/*`
 - Dashboard Team UI does not call Better Auth directly
@@ -63,14 +76,11 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 
 - Invite emails are sent through the Better Auth organization plugin `sendInvitationEmail`
 - Use the app invite page at `/accept-invitation?id=<invitationId>`
-- Invite acceptance must support:
-  - existing matching-email user signs in and accepts
-  - new user creates account from invite and accepts
+- New invited users create an account and join the org in one submit
+- There is no separate visible accept-invitation confirmation step
+- Existing accounts should sign in to their existing workspace; invite-page sign-in does not join another org
 - Public sign-up remains for first-time org owners creating a new org
-- Later sign-ins for invited members may not have an active org on the new session. Treat `/org-setup` as the fallback resolver:
-  - `0` orgs: show create-organization form
-  - `1` org: auto-activate it, then redirect into the app
-  - `>1` orgs: let the user choose which org to activate
+- `/org-setup` remains the fallback resolver for owner onboarding and no-active-org recovery
 
 ## Resend Wrapper
 
@@ -88,9 +98,9 @@ await auth.api.createInvitation({
 
 When adding a new dashboard module:
 
-1. Add its read/write rules in `lib/authz.ts`
-2. Guard the module layout with `requireModuleReadAccess(...)`
-3. Guard create/edit pages with `requireModuleWriteAccess(...)`
-4. Guard API GET routes with `assertModuleReadAccess(...)`
-5. Guard API mutations with `assertModuleWriteAccess(...)`
+1. Add its access rules in `lib/authz.ts`
+2. Guard the module layout with `requireModuleAccess(..., "read")`
+3. Guard create/edit pages with `requireModuleAccess(..., "operate")` or `"admin"`
+4. Guard API GET routes with `assertModuleAccess(..., "read", ...)`
+5. Guard API mutations with `assertModuleAccess(..., "operate" | "admin", ...)`
 6. Update sidebar visibility from the same authz helpers

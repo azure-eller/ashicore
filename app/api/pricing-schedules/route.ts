@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertModuleAccess } from "@/lib/dal/auth";
 import { insertPricingScheduleSchema } from "@/lib/schemas/pricing-schedules";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import {
@@ -11,13 +11,13 @@ import {
 } from "@/app/(dashboard)/sales/queries";
 
 export const GET = apiHandler(async (request) => {
-  await assertModuleReadAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const schedules = await getPricingSchedules();
   return NextResponse.json(schedules);
 });
 
 export const POST = apiHandler(async (request) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const body = await request.json();
   const data = insertPricingScheduleSchema.parse(body);
 
@@ -31,7 +31,7 @@ export const POST = apiHandler(async (request) => {
 });
 
 export const DELETE = apiHandler(async (request) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const body = await request.json();
   const data = bulkDeleteSchema.parse(body);
 

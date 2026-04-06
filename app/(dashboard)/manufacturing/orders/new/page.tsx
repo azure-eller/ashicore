@@ -1,3 +1,4 @@
+import { requireModuleAccess } from "@/lib/dal/auth";
 import { ManufacturingOrderForm } from "@/app/(dashboard)/manufacturing/manufacturing-order-form";
 import {
   getManufacturingProductTemplates,
@@ -10,6 +11,7 @@ export default async function NewManufacturingOrderPage({
 }: {
   searchParams: Promise<{ salesOrderId?: string }>;
 }) {
+  await requireModuleAccess("manufacturing", "operate");
   const { salesOrderId } = await searchParams;
   const [products, salesOrders, initialPreview] = await Promise.all([
     getManufacturingProductTemplates(),

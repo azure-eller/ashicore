@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertModuleAccess } from "@/lib/dal/auth";
 import { updateCustomerCategorySchema } from "@/lib/schemas/customer-categories";
 import {
   deleteCustomerCategory,
@@ -9,7 +9,7 @@ import {
 } from "@/app/(dashboard)/sales/queries";
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
   const data = updateCustomerCategorySchema.parse(body);
@@ -32,7 +32,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
 });
 
 export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const { id } = await (ctx as RouteContext).params;
 
   try {

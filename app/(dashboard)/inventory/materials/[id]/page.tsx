@@ -1,12 +1,15 @@
 import { redirect } from "next/navigation";
 import { getItem, getLots, getStockMovements } from "@/app/(dashboard)/inventory/queries";
 import { ItemDetail } from "@/app/(dashboard)/inventory/item-detail";
+import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 
 export default async function MaterialDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const context = await getAuthedMemberContext();
   const { id } = await params;
   const [item, lots, movements] = await Promise.all([
     getItem(id),
@@ -15,5 +18,13 @@ export default async function MaterialDetailPage({
   ]);
   if (!item) redirect("/inventory/materials");
 
-  return <ItemDetail item={item} itemType="material" lots={lots} movements={movements} />;
+  return (
+    <ItemDetail
+      item={item}
+      itemType="material"
+      lots={lots}
+      movements={movements}
+      canEdit={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
+    />
+  );
 }

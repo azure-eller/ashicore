@@ -7,12 +7,15 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import {
   AuthorizationError,
+  canManageLockedBom,
   canManageTeam,
-  canReadModule,
-  canWriteModule,
+  canViewLockedBom,
+  canViewUnlockedBom,
   getDefaultDashboardPath,
+  hasModuleAccess,
   normalizeAppRole,
   type AppRole,
+  type ModuleAccessLevel,
   type ModuleKey,
 } from "@/lib/authz";
 import { db } from "@/lib/db";
@@ -25,6 +28,7 @@ type MemberContext = {
   memberId: string;
   organizationName: string;
   role: AppRole;
+  assignedRoles: string[];
   name: string;
   email: string;
   avatar: string | undefined;
@@ -75,6 +79,7 @@ async function resolveMemberContext(
     memberId: membership.id,
     organizationName: membership.organization.name,
     role: normalizeAppRole(membership.role),
+    assignedRoles: membership.role.split(",").map((value) => value.trim()).filter(Boolean),
     name: session.user.name ?? "",
     email: session.user.email ?? "",
     avatar: session.user.image ?? undefined,
@@ -142,30 +147,31 @@ export async function getAuthedApiMemberContext(
 }
 
 export async function requireModuleReadAccess(module: ModuleKey) {
-  const context = await getAuthedMemberContext();
-
-  if (!canReadModule(context.role, module)) {
-    redirect(getDefaultDashboardPath(context.role));
-  }
-
-  return context;
+  return requireModuleAccess(module, "read");
 }
 
 export async function requireModuleWriteAccess(module: ModuleKey) {
+  return requireModuleAccess(module, "operate");
+}
+
+export async function requireModuleAccess(
+  module: ModuleKey,
+  level: Exclude<ModuleAccessLevel, "none">
+) {
   const context = await getAuthedMemberContext();
 
-  if (!canWriteModule(context.role, module)) {
-    redirect(getDefaultDashboardPath(context.role));
+  if (!hasModuleAccess(context.assignedRoles, module, level)) {
+    redirect(getDefaultDashboardPath(context.assignedRoles));
   }
 
   return context;
 }
 
 export async function requireTeamManagementAccess() {
-  const context = await requireModuleReadAccess("settings");
+  const context = await getAuthedMemberContext();
 
-  if (!canManageTeam(context.role)) {
-    redirect(getDefaultDashboardPath(context.role));
+  if (!canManageTeam(context.assignedRoles)) {
+    redirect(getDefaultDashboardPath(context.assignedRoles));
   }
 
   return context;
@@ -175,24 +181,28 @@ export async function assertModuleReadAccess(
   module: ModuleKey,
   requestHeaders: HeadersInit
 ) {
-  const context = await getAuthedApiMemberContext(requestHeaders);
-
-  if (!canReadModule(context.role, module)) {
-    throw new AuthorizationError(`You do not have access to ${module}.`, 403);
-  }
-
-  return context;
+  return assertModuleAccess(module, "read", requestHeaders);
 }
 
 export async function assertModuleWriteAccess(
   module: ModuleKey,
   requestHeaders: HeadersInit
 ) {
+  return assertModuleAccess(module, "operate", requestHeaders);
+}
+
+export async function assertModuleAccess(
+  module: ModuleKey,
+  level: Exclude<ModuleAccessLevel, "none">,
+  requestHeaders: HeadersInit
+) {
   const context = await getAuthedApiMemberContext(requestHeaders);
 
-  if (!canWriteModule(context.role, module)) {
+  if (!hasModuleAccess(context.assignedRoles, module, level)) {
     throw new AuthorizationError(
-      `You do not have permission to update ${module}.`,
+      level === "read"
+        ? `You do not have access to ${module}.`
+        : `You do not have permission to ${level === "admin" ? "administer" : "update"} ${module}.`,
       403
     );
   }
@@ -201,10 +211,34 @@ export async function assertModuleWriteAccess(
 }
 
 export async function assertTeamManagementAccess(requestHeaders: HeadersInit) {
-  const context = await assertModuleReadAccess("settings", requestHeaders);
+  const context = await getAuthedApiMemberContext(requestHeaders);
 
-  if (!canManageTeam(context.role)) {
+  if (!canManageTeam(context.assignedRoles)) {
     throw new AuthorizationError("You do not have access to team settings.", 403);
+  }
+
+  return context;
+}
+
+export async function requireBomViewAccess(bomLocked: boolean) {
+  const context = await getAuthedMemberContext();
+
+  const allowed = bomLocked
+    ? canViewLockedBom(context.assignedRoles)
+    : canViewUnlockedBom(context.assignedRoles);
+
+  if (!allowed) {
+    redirect(getDefaultDashboardPath(context.assignedRoles));
+  }
+
+  return context;
+}
+
+export async function assertLockedBomManagementAccess(requestHeaders: HeadersInit) {
+  const context = await getAuthedApiMemberContext(requestHeaders);
+
+  if (!canManageLockedBom(context.assignedRoles)) {
+    throw new AuthorizationError("You do not have permission to manage locked recipes.", 403);
   }
 
   return context;

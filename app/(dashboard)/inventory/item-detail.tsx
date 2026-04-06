@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, LockIcon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { formatPrice, formatMovementType } from "@/lib/format";
 import {
@@ -44,6 +44,7 @@ interface ItemDetailProps {
     committedQty: string;
     expectedQty: string;
     safetyStock: string;
+    bomLocked?: boolean;
   };
   itemType: ItemType;
   bom?: {
@@ -69,9 +70,19 @@ interface ItemDetailProps {
     lotNumber: string | null;
     createdAt: Date;
   }[];
+  canEdit?: boolean;
+  canViewBom?: boolean;
 }
 
-export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailProps) {
+export function ItemDetail({
+  item,
+  itemType,
+  bom,
+  lots,
+  movements,
+  canEdit = false,
+  canViewBom = true,
+}: ItemDetailProps) {
   const calculatedStock = calcStock(item);
   const basePath = `/inventory/${ITEM_TYPE_SEGMENTS[itemType]}`;
   const typeLabel = itemType === "product" ? "Products" : "Materials";
@@ -105,10 +116,30 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
             <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+          {itemType === "product" && item.bomLocked ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="mt-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground"
+                  aria-label="Locked recipe"
+                >
+                  <HugeiconsIcon icon={LockIcon} size={14} strokeWidth={2} />
+                  Locked recipe
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                This recipe is locked and can only be edited by inventory admins.
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link href={`${basePath}/${item.id}/edit`}>Edit</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {canEdit ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`${basePath}/${item.id}/edit`}>Edit</Link>
+            </Button>
+          ) : null}
+        </div>
       </div>
       <Separator />
 
@@ -203,6 +234,19 @@ export function ItemDetail({ item, itemType, bom, lots, movements }: ItemDetailP
       </dl>
 
       {/* BOM Section — renders only when bom prop is provided and non-empty */}
+      {itemType === "product" && item.bomLocked && !canViewBom ? (
+        <>
+          <Separator />
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
+            <p className="text-sm text-muted-foreground">
+              This recipe is locked. Inventory or manufacturing admin access is required to
+              view its ingredients.
+            </p>
+          </div>
+        </>
+      ) : null}
+
       {bom && bom.length > 0 && (
         <>
           <Separator />

@@ -77,6 +77,9 @@ export async function getItem(id: string) {
         purchaseToStockFactor: items.purchaseToStockFactor,
         defaultPurchasePrice: items.defaultPurchasePrice,
         defaultSellingPrice: items.defaultSellingPrice,
+        bomLocked: items.bomLocked,
+        bomLockedAt: items.bomLockedAt,
+        bomLockedByUserId: items.bomLockedByUserId,
         stock: stockSubquery,
         committedQty: items.committedQty,
         expectedQty: items.expectedQty,
@@ -505,6 +508,42 @@ export async function createItemWithLot(
     }
 
     return item;
+  });
+}
+
+export async function setBomLock(
+  id: string,
+  locked: boolean
+): Promise<{ id: string; bomLocked: boolean } | null> {
+  return withAuthedOrgContext(async (tx, _orgId, userId) => {
+    const [existingItem] = await tx
+      .select({
+        id: items.id,
+        itemType: items.itemType,
+      })
+      .from(items)
+      .where(and(eq(items.id, id), isNull(items.deletedAt)))
+      .for("update");
+
+    if (!existingItem || existingItem.itemType !== "product") {
+      return null;
+    }
+
+    const [item] = await tx
+      .update(items)
+      .set({
+        bomLocked: locked,
+        bomLockedAt: locked ? new Date() : null,
+        bomLockedByUserId: locked ? userId : null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(items.id, id), isNull(items.deletedAt)))
+      .returning({
+        id: items.id,
+        bomLocked: items.bomLocked,
+      });
+
+    return item ?? null;
   });
 }
 

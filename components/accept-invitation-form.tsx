@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PublicInvitationDetails } from "@/app/(dashboard)/settings/types";
-import { formatRoleLabel } from "@/lib/authz";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +66,45 @@ export function AcceptInvitationForm({
   const invitedEmail = activeInvitation.email.toLowerCase();
   const hasMatchingSession = sessionEmail === invitedEmail;
 
-  async function acceptInvite() {
+  async function waitForSession(email: string) {
+    const normalizedEmail = email.toLowerCase();
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const { data } = await authClient.getSession();
+
+      if (data?.user.email?.toLowerCase() === normalizedEmail) {
+        return true;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+
+    return false;
+  }
+
+  async function activateInvitationOrganization(reportError = true) {
+    const { error: setActiveError } = await authClient.organization.setActive({
+      organizationId: activeInvitation.organizationId,
+    });
+
+    if (setActiveError) {
+      if (reportError) {
+        setError(setActiveError.message ?? "Joined the organization, but failed to activate it.");
+      }
+      return false;
+    }
+
+    router.replace("/settings/account");
+    router.refresh();
+    return true;
+  }
+
+  async function joinInviteIfNeeded() {
+    const activated = await activateInvitationOrganization(false);
+    if (activated) {
+      return true;
+    }
+
     const { error: acceptError } = await authClient.organization.acceptInvitation({
       invitationId: activeInvitation.id,
     });
@@ -77,8 +114,7 @@ export function AcceptInvitationForm({
       return false;
     }
 
-    window.location.assign("/");
-    return true;
+    return activateInvitationOrganization(true);
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -100,42 +136,74 @@ export function AcceptInvitationForm({
       });
 
       if (signUpError) {
-        setError(signUpError.message ?? "Failed to create account");
+        const message = signUpError.message ?? "Failed to create account";
+        if (message.toLowerCase().includes("already")) {
+          setMode("sign-in");
+          setError("Account already exists. Please sign in.");
+        } else {
+          setError(message);
+        }
         setLoading(false);
         return;
       }
-    } else {
-      const { error: signInError } = await authClient.signIn.email({
-        email: activeInvitation.email,
-        password,
-      });
 
-      if (signInError) {
-        setError(signInError.message ?? "Failed to sign in");
+      const hasSession = await waitForSession(activeInvitation.email);
+
+      if (!hasSession) {
+        setError("Signed in, but your session was not ready to join the invitation. Try again.");
         setLoading(false);
         return;
       }
+
+      const accepted = await joinInviteIfNeeded();
+      if (!accepted) {
+        setLoading(false);
+      }
+      return;
     }
 
-    const accepted = await acceptInvite();
-    if (!accepted) {
+    const { error: signInError } = await authClient.signIn.email({
+      email: activeInvitation.email,
+      password,
+    });
+
+    if (signInError) {
+      setError(signInError.message ?? "Failed to sign in");
       setLoading(false);
       return;
+    }
+
+    router.push("/");
+  }
+
+  async function handleContinue() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      router.push("/");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleLogout() {
     setError(null);
     setLoading(true);
-    await authClient.signOut();
-    router.refresh();
+
+    try {
+      await authClient.signOut();
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (session.data && !hasMatchingSession) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Switch accounts to accept this invite</CardTitle>
+          <CardTitle>Switch accounts to continue</CardTitle>
           <CardDescription>
             You are signed in as {session.data.user.email}, but this invite was sent to {activeInvitation.email}.
           </CardDescription>
@@ -153,25 +221,15 @@ export function AcceptInvitationForm({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Accept invitation</CardTitle>
+          <CardTitle>Account already exists</CardTitle>
           <CardDescription>
-            Join {activeInvitation.organizationName} as a {formatRoleLabel(activeInvitation.role).toLowerCase()}.
+            You are already signed in as {activeInvitation.email}. Continue to your workspace.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {error && <FieldError>{error}</FieldError>}
-          <div className="rounded-md border p-4 text-sm text-muted-foreground">
-            Signed in as {session.data?.user.email}
-          </div>
-          <Button onClick={async () => {
-            setLoading(true);
-            setError(null);
-            const accepted = await acceptInvite();
-            if (!accepted) {
-              setLoading(false);
-            }
-          }} disabled={loading}>
-            {loading ? "Accepting..." : "Accept Invitation"}
+          {error ? <FieldError>{error}</FieldError> : null}
+          <Button onClick={handleContinue} disabled={loading}>
+            {loading ? "Opening workspace..." : "Continue"}
           </Button>
         </CardContent>
       </Card>
@@ -183,7 +241,8 @@ export function AcceptInvitationForm({
       <CardHeader>
         <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
         <CardDescription>
-          This invite is for {activeInvitation.email} and grants {formatRoleLabel(activeInvitation.role).toLowerCase()} access.
+          This invite is for {activeInvitation.email}. Create an account to join this workspace.
+          If you already have an account, sign in instead.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -261,8 +320,8 @@ export function AcceptInvitationForm({
                     ? "Creating Account..."
                     : "Signing In..."
                   : mode === "sign-up"
-                    ? "Create Account and Join"
-                    : "Sign In and Join"}
+                    ? "Create Account"
+                    : "Sign In"}
               </Button>
             </Field>
           </FieldGroup>

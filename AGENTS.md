@@ -321,12 +321,14 @@ throw error;
 
 ### Roles and module guards
 
-Better Auth org member roles are the source of truth. Normalize legacy `"member"` as viewer access. Personal settings stay readable for all authenticated members; team management stays owner/admin only. Guard dashboard reads in layouts/pages and guard API reads/writes in routes.
+Better Auth member role arrays are the source of truth. Use governance roles `owner|admin|member` plus matrix roles like `sales:operate`. Personal settings stay readable for all authenticated members; team management stays owner/admin only. Guard dashboard reads in layouts/pages and guard API reads/writes in routes.
 
 ```ts
 await requireModuleReadAccess("sales")
 await assertModuleWriteAccess("manufacturing", request.headers)
 ```
+
+Unlocked product BOMs use `inventory:operate`. Locked BOM state lives on the product item row; locking/unlocking and editing locked BOMs require `inventory:admin`, but manufacturing can still run from locked BOMs.
 
 Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` must auto-activate a signed-in user’s only org membership before showing org creation.
 

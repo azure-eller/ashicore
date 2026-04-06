@@ -1,16 +1,30 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertLockedBomManagementAccess, assertModuleAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { InsufficientStockError, MissingStockCostError } from "@/lib/inventory/stock";
 import { updateItemSchema } from "@/lib/schemas/items";
-import { deleteItem, updateItem } from "@/app/(dashboard)/inventory/queries";
+import { deleteItem, getItem, updateItem } from "@/app/(dashboard)/inventory/queries";
 
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const { id } = await (ctx as RouteContext).params;
+  const existingItem = await getItem(id);
+
+  if (!existingItem) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+
+  if (existingItem.itemType === "product" && existingItem.bomLocked) {
+    await assertLockedBomManagementAccess(request.headers);
+  }
+
   const body = await request.json();
   const { stock, bom, ...itemData } = updateItemSchema.parse(body);
+
+  if (existingItem.itemType === "product" && itemData.bomLocked && !existingItem.bomLocked) {
+    await assertLockedBomManagementAccess(request.headers);
+  }
 
   if (bom?.some((row) => row.componentId === id)) {
     return NextResponse.json(

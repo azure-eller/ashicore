@@ -1,21 +1,21 @@
 import "server-only";
 
 import { and, asc, eq, gt } from "drizzle-orm";
-import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import {
   assertTeamManagementAccess,
-  requireModuleReadAccess,
+  getAuthedMemberContext,
+  requireTeamManagementAccess,
 } from "@/lib/dal/auth";
 import { db } from "@/lib/db";
 import { invitation, member, organization, user } from "@/lib/db/schema";
 import {
   AuthorizationError,
-  canAssignRole,
-  canManageTeam,
+  buildAssignedRoles,
   canManageTargetRole,
+  canManageTeam,
+  getModuleAccessMap,
   normalizeAppRole,
-  normalizeAssignableRole,
 } from "@/lib/authz";
 import type {
   AccountPageData,
@@ -25,14 +25,10 @@ import type {
   TeamPageData,
 } from "./types";
 
-type OrganizationRole = "owner" | "admin" | "operator" | "viewer";
-
 const roleRank = {
   owner: 0,
   admin: 1,
-  operator: 2,
-  viewer: 3,
-  member: 4,
+  member: 2,
 } as const;
 
 function sortMembers(rows: TeamMemberRow[]) {
@@ -49,12 +45,6 @@ function sortMembers(rows: TeamMemberRow[]) {
 
 function sortInvites(rows: PendingInviteRow[]) {
   return [...rows].sort((a, b) => {
-    const roleDelta = roleRank[a.role] - roleRank[b.role];
-
-    if (roleDelta !== 0) {
-      return roleDelta;
-    }
-
     return a.email.localeCompare(b.email);
   });
 }
@@ -62,7 +52,7 @@ function sortInvites(rows: PendingInviteRow[]) {
 async function loadTeamPageData(
   orgId: string,
   currentUserId: string,
-  currentRole: TeamPageData["currentRole"]
+  currentAssignedRoles: string[]
 ): Promise<TeamPageData> {
   const memberRows = await db
     .select({
@@ -98,7 +88,7 @@ async function loadTeamPageData(
     .orderBy(asc(invitation.email));
 
   return {
-    currentRole,
+    currentRole: normalizeAppRole(currentAssignedRoles),
     members: sortMembers(
       memberRows.map((row) => ({
         id: row.id,
@@ -106,6 +96,8 @@ async function loadTeamPageData(
         name: row.name,
         email: row.email,
         role: normalizeAppRole(row.role),
+        moduleAccess: getModuleAccessMap(row.role),
+        canManage: canManageTargetRole(currentAssignedRoles, row.role),
         createdAt: row.createdAt,
         isCurrentUser: row.userId === currentUserId,
       }))
@@ -114,7 +106,6 @@ async function loadTeamPageData(
       inviteRows.map((row) => ({
         id: row.id,
         email: row.email,
-        role: normalizeAppRole(row.role),
         status: row.status,
         expiresAt: row.expiresAt,
         createdAt: row.createdAt,
@@ -124,22 +115,17 @@ async function loadTeamPageData(
 }
 
 export async function getTeamPageData() {
-  const context = await requireModuleReadAccess("settings");
-
-  if (!canManageTeam(context.role)) {
-    redirect("/settings/account");
-  }
-
-  return loadTeamPageData(context.orgId, context.userId, context.role);
+  const context = await requireTeamManagementAccess();
+  return loadTeamPageData(context.orgId, context.userId, context.assignedRoles);
 }
 
 export async function getTeamPageDataForRequest(requestHeaders: HeadersInit) {
   const context = await assertTeamManagementAccess(requestHeaders);
-  return loadTeamPageData(context.orgId, context.userId, context.role);
+  return loadTeamPageData(context.orgId, context.userId, context.assignedRoles);
 }
 
 export async function getAccountPageData(): Promise<AccountPageData> {
-  const context = await requireModuleReadAccess("settings");
+  const context = await getAuthedMemberContext();
 
   return {
     name: context.name,
@@ -173,7 +159,6 @@ export async function getPublicInvitationDetails(
   return {
     id: row.id,
     email: row.email,
-    role: normalizeAppRole(row.role),
     status: row.status,
     expiresAt: row.expiresAt,
     organizationId: row.organizationId,
@@ -183,21 +168,12 @@ export async function getPublicInvitationDetails(
 }
 
 export async function ensureInvitableRole(
-  requestHeaders: HeadersInit,
-  role: string
+  requestHeaders: HeadersInit
 ) {
   const actor = await assertTeamManagementAccess(requestHeaders);
-  const normalizedRole = normalizeAssignableRole(role);
 
-  if (!normalizedRole) {
-    throw new AuthorizationError("Invalid role.", 400);
-  }
-
-  if (!canAssignRole(actor.role, normalizedRole)) {
-    throw new AuthorizationError(
-      "You do not have permission to assign that role.",
-      403
-    );
+  if (!canManageTeam(actor.assignedRoles)) {
+    throw new AuthorizationError("You do not have access to team settings.", 403);
   }
 
   return actor;
@@ -222,7 +198,7 @@ export async function getManageableMember(
     return null;
   }
 
-  if (!canManageTargetRole(actor.role, memberRow.role)) {
+  if (!canManageTargetRole(actor.assignedRoles, memberRow.role)) {
     throw new AuthorizationError(
       "You do not have permission to manage that member.",
       403
@@ -266,7 +242,7 @@ export async function getManageableInvitation(
     return null;
   }
 
-  if (!canManageTargetRole(actor.role, inviteRow.role)) {
+  if (!canManageTargetRole(actor.assignedRoles, inviteRow.role)) {
     throw new AuthorizationError(
       "You do not have permission to manage that invitation.",
       403
@@ -278,7 +254,6 @@ export async function getManageableInvitation(
     invitation: {
       id: inviteRow.id,
       email: inviteRow.email,
-      role: normalizeAppRole(inviteRow.role),
       status: inviteRow.status,
     },
   };
@@ -313,7 +288,7 @@ export async function callAuthApi(
   endpoint: "createInvitation",
   payload: {
     email: string;
-    role: string;
+    role: string | string[];
     resend?: boolean;
   }
 ): Promise<Response>;
@@ -329,7 +304,7 @@ export async function callAuthApi(
   endpoint: "updateMemberRole",
   payload: {
     memberId: string;
-    role: string;
+    role: string | string[];
   }
 ): Promise<Response>;
 export async function callAuthApi(
@@ -385,11 +360,7 @@ export async function callAuthApi(
     case "createInvitation":
       return (await auth.api.createInvitation({
         headers: normalizedHeaders,
-        body: payload as {
-          email: string;
-          role: OrganizationRole;
-          resend?: boolean;
-        },
+        body: payload as never,
         asResponse: true,
       })) as Response;
     case "cancelInvitation":
@@ -403,10 +374,7 @@ export async function callAuthApi(
     case "updateMemberRole":
       return (await auth.api.updateMemberRole({
         headers: normalizedHeaders,
-        body: payload as {
-          memberId: string;
-          role: OrganizationRole | OrganizationRole[];
-        },
+        body: payload as never,
         asResponse: true,
       })) as Response;
     case "removeMember":
@@ -418,4 +386,8 @@ export async function callAuthApi(
         asResponse: true,
       })) as Response;
   }
+}
+
+export function buildInvitationRolePayload() {
+  return buildAssignedRoles("member", {});
 }

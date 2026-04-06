@@ -155,6 +155,13 @@
       "when": 1775289600000,
       "tag": "0021_purchase_units",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1775413025702,
+      "tag": "0022_hot_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

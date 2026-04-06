@@ -167,7 +167,7 @@ test.describe("Auth and security regressions", () => {
     try {
       await authDb
         .update(member)
-        .set({ role: "viewer" })
+        .set({ role: "access:matrix,member,settings:read" })
         .where(eq(member.id, membership.id));
 
       const response = await testFetch(

@@ -33,7 +33,15 @@ test.describe("Purchasing write-path smoke", () => {
     await page.locator("#address").fill("88 Supply Road");
     await page.locator("#notes").fill("Fast supplier smoke test");
 
-    await page.getByRole("button", { name: "Create Supplier" }).click();
+    const [createSupplierResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/suppliers")
+      ),
+      page.getByRole("button", { name: "Create Supplier" }).click(),
+    ]);
+    expect(createSupplierResponse.status()).toBe(201);
     await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
     supplierId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
@@ -50,7 +58,13 @@ test.describe("Purchasing write-path smoke", () => {
     await page.waitForURL(`**/purchasing/suppliers/${supplierId}/edit`);
     await page.locator("#phone").fill("555-0216");
     await page.locator("#notes").fill("Fast supplier updated");
+    const updateSupplierResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/suppliers/${supplierId}`)
+    );
     await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateSupplierResponsePromise).status()).toBe(200);
     await page.waitForURL(`**/purchasing/suppliers/${supplierId}`);
 
     const [updatedSupplier] = await db
@@ -118,7 +132,15 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
     await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
-    await page.getByRole("button", { name: "Create Order" }).click();
+    const [createOrderResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/purchase-orders")
+      ),
+      page.getByRole("button", { name: "Create Order" }).click(),
+    ]);
+    expect(createOrderResponse.status()).toBe(201);
     await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
     purchaseOrderId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);

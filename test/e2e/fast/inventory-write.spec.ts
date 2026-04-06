@@ -34,27 +34,31 @@ test.describe("Inventory write-path smoke", () => {
     await page.locator("#unit-uom").click();
     await page.getByRole("option", { name: /kilogram/i }).click();
 
-    const unitResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith("/api/units")
-    );
-    await page.getByRole("button", { name: "Create", exact: true }).click();
-    expect((await unitResponse).status()).toBe(201);
+    const [unitResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/units")
+      ),
+      page.getByRole("button", { name: "Create", exact: true }).click(),
+    ]);
+    expect(unitResponse.status()).toBe(201);
 
     await page.getByLabel("Purchase Price").fill("3.50");
     await page.getByLabel("Selling Price").fill("6.00");
     await page.getByLabel("Stock", { exact: true }).fill("200");
     await page.getByLabel("Safety Stock").fill("25");
 
-    const createResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith("/api/items")
-    );
-    await page.getByRole("button", { name: "Create Material" }).click();
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/items")
+      ),
+      page.getByRole("button", { name: "Create Material" }).click(),
+    ]);
 
-    const createBody = await (await createResponse).json();
+    const createBody = await createResponse.json();
     materialId = createBody.id;
 
     await page.waitForURL(`**/inventory/materials/${materialId}`);
@@ -75,11 +79,23 @@ test.describe("Inventory write-path smoke", () => {
 
     await page.getByRole("link", { name: "Edit" }).click();
     await page.waitForURL(`**/inventory/materials/${materialId}/edit`);
-    await expect(page.getByRole("heading", { name: "Edit Material" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Edit Material" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: "Save Changes" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByLabel("Description")).toBeVisible({ timeout: 15_000 });
 
     await page.getByLabel("Description").fill("Fast smoke material updated");
     await page.getByLabel("Safety Stock").fill("30");
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/items/${materialId}`)
+    );
     await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateResponsePromise).status()).toBe(200);
 
     await page.waitForURL(`**/inventory/materials/${materialId}`);
     await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
@@ -115,14 +131,16 @@ test.describe("Inventory write-path smoke", () => {
     await page.getByRole("option", { name: materialName }).click();
     await bomRow.locator("input[inputmode='decimal']").fill("1.25");
 
-    const createResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith("/api/items")
-    );
-    await page.getByRole("button", { name: "Create Product" }).click();
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/items")
+      ),
+      page.getByRole("button", { name: "Create Product" }).click(),
+    ]);
 
-    const createBody = await (await createResponse).json();
+    const createBody = await createResponse.json();
     productId = createBody.id;
 
     await page.waitForURL(`**/inventory/products/${productId}`);

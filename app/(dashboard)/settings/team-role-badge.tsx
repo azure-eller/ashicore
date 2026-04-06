@@ -12,9 +12,5 @@ export function TeamRoleBadge({ role }: { role: string | null | undefined }) {
     return <Badge variant="secondary">{formatRoleLabel(normalized)}</Badge>;
   }
 
-  if (normalized === "operator") {
-    return <Badge variant="outline">{formatRoleLabel(normalized)}</Badge>;
-  }
-
   return <Badge variant="outline">{formatRoleLabel(normalized)}</Badge>;
 }

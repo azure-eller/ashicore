@@ -3,6 +3,13 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAccessControl, organization } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { getCanonicalAppUrl } from "@/lib/app-url";
+import {
+  buildMatrixRole,
+  getModulePermissionActions,
+  MATRIX_SENTINEL_ROLE,
+  MODULE_KEYS,
+  type MatrixModuleRole,
+} from "@/lib/authz";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { sendAccountEmailVerificationEmail, sendPasswordResetEmail } from "@/lib/email/auth-emails";
@@ -52,12 +59,17 @@ const authAllowedHosts = (() => {
   return Array.from(hosts);
 })();
 
-const organizationAc = createAccessControl({
+export const organizationAc = createAccessControl({
   organization: ["update", "delete"],
   member: ["create", "update", "delete"],
   invitation: ["create", "cancel"],
   team: ["create", "update", "delete"],
   ac: ["read"],
+  inventory: ["read", "operate", "admin"],
+  sales: ["read", "operate", "admin"],
+  manufacturing: ["read", "operate", "admin"],
+  purchasing: ["read", "operate", "admin"],
+  settings: ["read", "operate", "admin"],
 });
 
 const ownerOrgRole = organizationAc.newRole({
@@ -76,13 +88,55 @@ const adminOrgRole = organizationAc.newRole({
   ac: ["read"],
 });
 
-const passiveOrgRole = organizationAc.newRole({
+const memberOrgRole = organizationAc.newRole({
   organization: [],
   member: [],
   invitation: [],
   team: [],
   ac: ["read"],
 });
+
+const matrixSentinelRole = organizationAc.newRole({
+  ac: ["read"],
+});
+
+function createModuleAccessRole(role: MatrixModuleRole) {
+  const [module, level] = role.split(":") as [
+    (typeof MODULE_KEYS)[number],
+    "read" | "operate" | "admin",
+  ];
+  const actions = getModulePermissionActions(level);
+
+  switch (module) {
+    case "inventory":
+      return organizationAc.newRole({ inventory: actions });
+    case "sales":
+      return organizationAc.newRole({ sales: actions });
+    case "manufacturing":
+      return organizationAc.newRole({ manufacturing: actions });
+    case "purchasing":
+      return organizationAc.newRole({ purchasing: actions });
+    case "settings":
+      return organizationAc.newRole({ settings: actions });
+  }
+}
+
+export const matrixRoles = Object.fromEntries(
+  MODULE_KEYS.flatMap((module) =>
+    (["read", "operate", "admin"] as const).map((level) => {
+      const role = buildMatrixRole(module, level);
+      return [role, createModuleAccessRole(role)];
+    })
+  )
+);
+
+export const organizationRoles = {
+  owner: ownerOrgRole,
+  admin: adminOrgRole,
+  member: memberOrgRole,
+  [MATRIX_SENTINEL_ROLE]: matrixSentinelRole,
+  ...matrixRoles,
+};
 
 export const auth = betterAuth({
   baseURL: {
@@ -120,12 +174,7 @@ export const auth = betterAuth({
     organization({
       ac: organizationAc,
       creatorRole: "owner",
-      roles: {
-        owner: ownerOrgRole,
-        admin: adminOrgRole,
-        operator: passiveOrgRole,
-        viewer: passiveOrgRole,
-      },
+      roles: organizationRoles,
       sendInvitationEmail: async (data) => {
         await sendTeamInvitationEmail({
           invitationId: data.id,

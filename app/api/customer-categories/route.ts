@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertModuleAccess, assertModuleReadAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertCustomerCategorySchema } from "@/lib/schemas/customer-categories";
 import {
@@ -17,7 +17,7 @@ export const GET = apiHandler(async (request) => {
 });
 
 export const POST = apiHandler(async (request) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const body = await request.json();
   const data = insertCustomerCategorySchema.parse(body);
 
@@ -31,7 +31,7 @@ export const POST = apiHandler(async (request) => {
 });
 
 export const DELETE = apiHandler(async (request) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleAccess("sales", "admin", request.headers);
   const body = await request.json();
   const data = bulkDeleteSchema.parse(body);
 

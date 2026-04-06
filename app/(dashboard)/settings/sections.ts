@@ -1,4 +1,4 @@
-import { canManageTeam, type AppRole } from "@/lib/authz";
+import { canManageTeam } from "@/lib/authz";
 
 export type SettingsSectionKey = "account" | "team";
 
@@ -21,7 +21,7 @@ const ALL_SETTINGS_SECTIONS: SettingsSection[] = [
   },
 ];
 
-export function getSettingsSections(role: AppRole): SettingsSection[] {
+export function getSettingsSections(role: string | string[] | null | undefined): SettingsSection[] {
   return ALL_SETTINGS_SECTIONS.filter((section) => {
     if (section.key === "team") {
       return canManageTeam(role);

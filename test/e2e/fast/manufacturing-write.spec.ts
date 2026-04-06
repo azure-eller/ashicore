@@ -86,7 +86,15 @@ test.describe("Manufacturing write-path smoke", () => {
     await page.getByLabel("Planned Quantity").fill("5");
     await selectDate(page, page.getByLabel("Planned Date"), "2026-04-25");
     await page.getByLabel("Notes").fill("Fast manufacturing smoke test");
-    await page.getByRole("button", { name: "Create Order" }).click();
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/manufacturing-orders")
+      ),
+      page.getByRole("button", { name: "Create Order" }).click(),
+    ]);
+    expect(createResponse.status()).toBe(201);
 
     await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
     orderId = getIdFromUrl(page.url());
@@ -114,7 +122,13 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("heading", { name: "Edit Manufacturing Order" })
     ).toBeVisible();
     await page.getByLabel("Notes").fill("Fast manufacturing updated");
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/manufacturing-orders/${orderId}`)
+    );
     await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateResponsePromise).status()).toBe(200);
     await page.waitForURL(`**/manufacturing/orders/${orderId}`);
 
     const [updatedOrder] = await db

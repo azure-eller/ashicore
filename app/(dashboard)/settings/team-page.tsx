@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
@@ -8,16 +8,19 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   Delete02Icon,
-  MoreVerticalIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import {
-  getAssignableRoles,
-  type AssignableAppRole,
-  type AppRole,
+  formatAccessLevelLabel,
+  formatModuleLabel,
+  MODULE_KEYS,
+  type ModuleAccessLevel,
 } from "@/lib/authz";
-import { formatDateTime } from "@/lib/format";
-import { createTeamInvitationSchema } from "@/lib/schemas/team";
+import { formatDate } from "@/lib/format";
+import {
+  createTeamInvitationSchema,
+  moduleAccessSchema,
+} from "@/lib/schemas/team";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,29 +31,21 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -59,30 +54,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { TeamPageData } from "./types";
-import { TeamRoleBadge } from "./team-role-badge";
+import type { TeamMemberRow, TeamPageData } from "./types";
 
 type InviteFormValues = {
   email: string;
-  role: AssignableAppRole;
 };
+
+type UpdateMemberPayload = {
+  memberId: string;
+  moduleAccess: TeamMemberRow["moduleAccess"];
+};
+
+const FULL_ACCESS_OPTIONS: ModuleAccessLevel[] = ["none", "read", "operate", "admin"];
 
 async function parseJson<T>(response: Response): Promise<T | null> {
   return response.json().catch(() => null);
 }
 
-function labelRole(role: AssignableAppRole) {
-  return role.charAt(0).toUpperCase() + role.slice(1);
-}
-
-function InviteMemberDialog({
-  currentRole,
-  onSuccess,
-}: {
-  currentRole: AppRole;
-  onSuccess: () => Promise<void>;
-}) {
-  const roleOptions = useMemo(() => getAssignableRoles(currentRole), [currentRole]);
+function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -91,7 +80,6 @@ function InviteMemberDialog({
     mode: "onBlur",
     defaultValues: {
       email: "",
-      role: roleOptions[0] ?? "viewer",
     },
   });
 
@@ -129,10 +117,7 @@ function InviteMemberDialog({
     },
     onSuccess: async () => {
       await onSuccess();
-      form.reset({
-        email: "",
-        role: roleOptions[0] ?? "viewer",
-      });
+      form.reset({ email: "" });
       setOpen(false);
     },
     onError: (error) => {
@@ -145,7 +130,7 @@ function InviteMemberDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button disabled={roleOptions.length === 0}>
+        <Button>
           <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
           Invite member
         </Button>
@@ -153,7 +138,10 @@ function InviteMemberDialog({
       <DialogContent className="bg-background text-foreground sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Invite member</DialogTitle>
-          <DialogDescription>Send an invite and choose a role.</DialogDescription>
+          <DialogDescription>
+            Invite a teammate. Access is configured from the permissions matrix after
+            they join.
+          </DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-6"
@@ -174,35 +162,6 @@ function InviteMemberDialog({
                     autoComplete="email"
                     placeholder="teammate@example.com"
                   />
-                  <FieldError errors={[fieldState.error]} />
-                </Field>
-              )}
-            />
-
-            <Controller
-              name="role"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Role</FieldLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
-                      <SelectValue placeholder="Select a role" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover text-popover-foreground">
-                      <SelectGroup>
-                        {roleOptions.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {labelRole(role)}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FieldDescription>
-                    Operators can work in inventory and manufacturing. Viewers are
-                    read-only.
-                  </FieldDescription>
                   <FieldError errors={[fieldState.error]} />
                 </Field>
               )}
@@ -285,23 +244,19 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
     onError: (error) => setActionError(error.message),
   });
 
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({
-      memberId,
-      role,
-    }: {
-      memberId: string;
-      role: AssignableAppRole;
-    }) => {
-      const response = await fetch(`/api/team/members/${memberId}`, {
+  const updateMemberMutation = useMutation({
+    mutationFn: async (values: UpdateMemberPayload) => {
+      const response = await fetch(`/api/team/members/${values.memberId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({
+          moduleAccess: values.moduleAccess,
+        }),
       });
       const body = await parseJson<{ error?: string }>(response);
 
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to update role.");
+        throw new Error(body?.error ?? "Failed to update member access.");
       }
     },
     onSuccess: refreshData,
@@ -323,74 +278,85 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
     onError: (error) => setActionError(error.message),
   });
 
-  const roleOptions = getAssignableRoles(data.currentRole);
+  const mutationPending =
+    resendMutation.isPending ||
+    cancelInviteMutation.isPending ||
+    updateMemberMutation.isPending ||
+    removeMemberMutation.isPending;
+
+  const updateMember = (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => {
+    updateMemberMutation.mutate({
+      memberId: member.id,
+      moduleAccess: moduleAccessSchema.parse(moduleAccess),
+    });
+  };
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
-          <p className="text-sm text-muted-foreground">Manage members and invites.</p>
+          <p className="text-sm text-muted-foreground">
+            Manage access from one permissions matrix. Settings admin users can invite
+            teammates and edit non-owner users.
+          </p>
         </div>
-        <InviteMemberDialog currentRole={data.currentRole} onSuccess={refreshData} />
+        <InviteMemberDialog onSuccess={refreshData} />
       </div>
 
       {actionError ? <FieldError>{actionError}</FieldError> : null}
 
       {data.pendingInvites.length > 0 ? (
-        <section className="overflow-hidden rounded-lg border bg-card px-3 py-2.5 md:px-4">
-          <div className="flex flex-col gap-2">
-            {data.pendingInvites.map((invite, index) => {
-              const manageable =
-                data.currentRole === "owner" ||
-                invite.role === "operator" ||
-                invite.role === "viewer" ||
-                invite.role === "member";
-
-              return (
-                <div key={invite.id} className="flex flex-col gap-2">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">Pending</span>
-                      <span className="font-medium text-foreground">{invite.email}</span>
-                      <TeamRoleBadge role={invite.role} />
-                      <span className="text-muted-foreground">
-                        Expires {formatDateTime(invite.expiresAt)}
-                      </span>
-                    </div>
-
-                    {manageable ? (
-                      <div className="flex flex-wrap gap-2">
+        <section className="overflow-hidden rounded-xl border bg-card">
+          <div className="border-b px-4 py-4 md:px-6">
+            <h2 className="text-base font-medium">Pending invites</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Invitations stay here until the teammate creates their account.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead className="w-[180px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.pendingInvites.map((invite) => (
+                  <TableRow key={invite.id}>
+                    <TableCell className="font-medium">{invite.email}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(invite.expiresAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={resendMutation.isPending}
+                          disabled={mutationPending}
                           onClick={() => resendMutation.mutate(invite.id)}
                         >
-                          <HugeiconsIcon
-                            icon={RefreshIcon}
-                            data-icon="inline-start"
-                          />
+                          <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
                           Resend
                         </Button>
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={cancelInviteMutation.isPending}
+                          disabled={mutationPending}
                           onClick={() => cancelInviteMutation.mutate(invite.id)}
                         >
                           Cancel
                         </Button>
                       </div>
-                    ) : null}
-                  </div>
-
-                  {index < data.pendingInvites.length - 1 ? <Separator /> : null}
-                </div>
-              );
-            })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </section>
       ) : null}
@@ -398,88 +364,103 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="border-b px-4 py-4 md:px-6">
           <h2 className="text-base font-medium">Members</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Use the per-domain controls to set what each user can access.
+          </p>
         </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Joined</TableHead>
-                <TableHead className="w-[72px] text-right">Actions</TableHead>
+                <TableHead className="min-w-[320px]">User</TableHead>
+                {MODULE_KEYS.map((module) => (
+                  <TableHead key={module} className="min-w-[156px]">
+                    {formatModuleLabel(module)}
+                  </TableHead>
+                ))}
+                <TableHead className="w-[80px] text-right"> </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.members.map((member) => {
-                const manageable =
-                  member.role !== "owner" &&
-                  (data.currentRole === "owner" ||
-                    member.role === "operator" ||
-                    member.role === "viewer" ||
-                    member.role === "member");
-                const nextRoles = roleOptions.filter((role) => role !== member.role);
+                const manageable = member.canManage && !member.isCurrentUser;
 
                 return (
                   <TableRow key={member.id}>
-                    <TableCell className="font-medium">
-                      {member.name}
-                      {member.isCurrentUser ? (
-                        <span className="ml-2 text-xs text-muted-foreground">(You)</span>
-                      ) : null}
+                    <TableCell className="align-top">
+                      <div className="min-w-0 space-y-1">
+                        <div className="font-medium text-foreground">
+                          {member.name}
+                          {member.isCurrentUser ? (
+                            <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                          ) : null}
+                        </div>
+                        <div className="truncate text-sm text-muted-foreground">
+                          {member.email}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {member.role === "owner" ? "Owner" : "User"}
+                        </div>
+                      </div>
                     </TableCell>
-                    <TableCell>{member.email}</TableCell>
-                    <TableCell>
-                      <TeamRoleBadge role={member.role} />
-                    </TableCell>
-                    <TableCell>{formatDateTime(member.createdAt)}</TableCell>
-                    <TableCell className="text-right">
-                      {manageable ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              disabled={
-                                updateRoleMutation.isPending ||
-                                removeMemberMutation.isPending
+                    {MODULE_KEYS.map((module) => {
+                      const value = member.moduleAccess[module];
+
+                      return (
+                        <TableCell key={module} className="align-middle">
+                          {manageable ? (
+                            <Select
+                              value={value}
+                              onValueChange={(nextValue) =>
+                                updateMember(member, {
+                                  ...member.moduleAccess,
+                                  [module]: nextValue as ModuleAccessLevel,
+                                })
                               }
-                              aria-label={`Manage ${member.name}`}
+                              disabled={mutationPending}
                             >
-                              <HugeiconsIcon icon={MoreVerticalIcon} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            className="bg-popover text-popover-foreground"
-                          >
-                            <DropdownMenuGroup>
-                              {nextRoles.map((role) => (
-                                <DropdownMenuItem
-                                  key={role}
-                                  onClick={() =>
-                                    updateRoleMutation.mutate({ memberId: member.id, role })
-                                  }
-                                >
-                                  Change to {labelRole(role)}
-                                </DropdownMenuItem>
-                              ))}
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() => removeMemberMutation.mutate(member.id)}
+                              <SelectTrigger
+                                size="sm"
+                                className="w-full min-w-[132px]"
+                                aria-label={`${formatModuleLabel(module)} access`}
                               >
-                                <HugeiconsIcon
-                                  icon={Delete02Icon}
-                                  data-icon="inline-start"
-                                />
-                                Remove member
-                              </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                                <SelectValue placeholder="Select access" />
+                              </SelectTrigger>
+                              <SelectContent align="start">
+                                {FULL_ACCESS_OPTIONS.map((option) => (
+                                  <SelectItem key={option} value={option}>
+                                    {formatAccessLevelLabel(option)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="text-sm text-foreground">
+                              {formatAccessLevelLabel(value)}
+                            </div>
+                          )}
+                        </TableCell>
+                      );
+                    })}
+                    <TableCell className="text-right align-top">
+                      {manageable ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              disabled={mutationPending}
+                              onClick={() => removeMemberMutation.mutate(member.id)}
+                              aria-label={`Remove ${member.email}`}
+                              className="shrink-0 text-muted-foreground"
+                            >
+                              <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Remove member</TooltipContent>
+                        </Tooltip>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 );

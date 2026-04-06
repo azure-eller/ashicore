@@ -24,7 +24,15 @@ test.describe("Sales write-path smoke", () => {
     await page.getByLabel("Address").fill("100 Market Street");
     await page.getByLabel("Notes").fill("Fast customer smoke test");
 
-    await page.getByRole("button", { name: "Create Customer" }).click();
+    const [createCustomerResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/customers")
+      ),
+      page.getByRole("button", { name: "Create Customer" }).click(),
+    ]);
+    expect(createCustomerResponse.status()).toBe(201);
     await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
     customerId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
@@ -42,7 +50,13 @@ test.describe("Sales write-path smoke", () => {
     await page.waitForURL(`**/sales/customers/${customerId}/edit`);
     await page.getByLabel("Phone").fill("555-0310");
     await page.getByLabel("Notes").fill("Fast customer updated");
+    const updateCustomerResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/customers/${customerId}`)
+    );
     await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateCustomerResponsePromise).status()).toBe(200);
     await page.waitForURL(`**/sales/customers/${customerId}`);
 
     const [updatedCustomer] = await db
@@ -89,7 +103,15 @@ test.describe("Sales write-path smoke", () => {
     await page.locator('input[placeholder="0.00"]').first().fill("34.99");
     await page.getByLabel("Notes").fill("Fast order smoke test");
 
-    await page.getByRole("button", { name: "Create Order" }).click();
+    const [createOrderResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/sales-orders")
+      ),
+      page.getByRole("button", { name: "Create Order" }).click(),
+    ]);
+    expect(createOrderResponse.status()).toBe(201);
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
     orderId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/SO-\d{4}-\d{4}/);

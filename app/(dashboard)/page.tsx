@@ -4,5 +4,5 @@ import { getAuthedMemberContext } from "@/lib/dal/auth";
 
 export default async function HomePage() {
   const context = await getAuthedMemberContext();
-  redirect(getDefaultDashboardPath(context.role));
+  redirect(getDefaultDashboardPath(context.assignedRoles));
 }
