@@ -3,7 +3,8 @@
 // Create queries pass orgId explicitly so it's stored on the row.
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
-  bomComponents,
+  bomRevisionComponents,
+  bomRevisions,
   items,
   lots,
   manufacturingOrderIngredients,
@@ -17,7 +18,14 @@ import {
   stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
+import {
+  getBomRevisionComponentsInTx,
+  getBomRevisionHistoryInTx,
+  getCurrentBomComponentsInTx,
+  getCurrentBomRevisionInTx,
+} from "@/lib/bom/revisions";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { Tx } from "@/lib/db/with-org-context";
 import {
   applyStockDeltaInTx,
   createPositiveLotAndMovementInTx,
@@ -33,6 +41,114 @@ const stockSubquery = sql<string>`(
   FROM ${lots}
   WHERE ${lots.itemId} = ${items.id}
 )`.as("stock");
+
+type BomInputRow = { componentId: string; quantity: string };
+
+function normalizeBomRows(bom: BomInputRow[]) {
+  return bom.map((row, index) => ({
+    componentId: row.componentId,
+    quantity: row.quantity,
+    sortOrder: index,
+  }));
+}
+
+function hasBomChanged(currentBom: BomInputRow[], nextBom: BomInputRow[]) {
+  const normalizedCurrent = normalizeBomRows(currentBom);
+  const normalizedNext = normalizeBomRows(nextBom);
+
+  if (normalizedCurrent.length !== normalizedNext.length) {
+    return true;
+  }
+
+  return normalizedCurrent.some((row, index) => {
+    const nextRow = normalizedNext[index];
+    return (
+      row.componentId !== nextRow.componentId ||
+      row.quantity !== nextRow.quantity ||
+      row.sortOrder !== nextRow.sortOrder
+    );
+  });
+}
+
+async function createBomRevisionInTx(
+  tx: Tx,
+  params: {
+    orgId: string;
+    userId: string;
+    productId: string;
+    note?: string | null;
+    bom: BomInputRow[];
+  }
+) {
+  const [currentRevision] = await tx
+    .select({ revisionNumber: bomRevisions.revisionNumber })
+    .from(bomRevisions)
+    .where(and(eq(bomRevisions.productId, params.productId), eq(bomRevisions.isCurrent, true)))
+    .for("update");
+
+  await tx
+    .update(bomRevisions)
+    .set({
+      isCurrent: false,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(bomRevisions.productId, params.productId), eq(bomRevisions.isCurrent, true)));
+
+  const [revision] = await tx
+    .insert(bomRevisions)
+    .values({
+      organizationId: params.orgId,
+      productId: params.productId,
+      revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
+      isCurrent: true,
+      note: params.note ?? null,
+      createdBy: params.userId,
+    })
+    .returning({
+      id: bomRevisions.id,
+      revisionNumber: bomRevisions.revisionNumber,
+    });
+
+  if (params.bom.length > 0) {
+    const componentIds = [...new Set(params.bom.map((row) => row.componentId))];
+    const componentRows = await tx
+      .select({
+        id: items.id,
+        name: items.name,
+        sku: items.sku,
+        itemType: items.itemType,
+        unitName: unitDefinitions.name,
+      })
+      .from(items)
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(inArray(items.id, componentIds), isNull(items.deletedAt)));
+
+    const componentById = new Map(componentRows.map((row) => [row.id, row]));
+
+    await tx.insert(bomRevisionComponents).values(
+      params.bom.map((row, index) => {
+        const component = componentById.get(row.componentId);
+
+        if (!component) {
+          throw new Error("BOM component not found");
+        }
+
+        return {
+          bomRevisionId: revision.id,
+          componentId: row.componentId,
+          componentName: component.name,
+          componentSku: component.sku,
+          componentItemType: component.itemType,
+          unitName: component.unitName,
+          quantity: row.quantity,
+          sortOrder: index,
+        };
+      })
+    );
+  }
+
+  return revision;
+}
 
 export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemRow[]> {
   return withAuthedOrgContext(async (tx) => {
@@ -108,12 +224,14 @@ export async function getItem(id: string) {
           .where(eq(unitDefinitions.id, row.purchaseUnitDefinitionId))
           .then((rows) => rows[0] ?? null)
       : null;
+    const currentBomRevision = await getCurrentBomRevisionInTx(tx, id);
 
     return {
       ...row,
       purchaseUnitName: purchaseUnit?.name ?? null,
       purchaseUnitSize: purchaseUnit?.size ?? null,
       purchaseUnitUom: purchaseUnit?.uom ?? null,
+      currentBomRevision,
     };
   });
 }
@@ -133,10 +251,17 @@ export async function deleteItem(
 
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
-      .select({ id: bomComponents.id })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.itemId, items.id))
-      .where(and(eq(bomComponents.componentId, id), isNull(items.deletedAt)))
+      .select({ id: bomRevisionComponents.id })
+      .from(bomRevisionComponents)
+      .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
+      .innerJoin(items, eq(bomRevisions.productId, items.id))
+      .where(
+        and(
+          eq(bomRevisionComponents.componentId, id),
+          eq(bomRevisions.isCurrent, true),
+          isNull(items.deletedAt)
+        )
+      )
       .limit(1);
 
     if (bomRef) {
@@ -237,12 +362,14 @@ export async function deleteItems(
     await lockItemsInTx(tx, uniqueIds);
 
     const [bomRef] = await tx
-      .select({ componentId: bomComponents.componentId })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.itemId, items.id))
+      .select({ componentId: bomRevisionComponents.componentId })
+      .from(bomRevisionComponents)
+      .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
+      .innerJoin(items, eq(bomRevisions.productId, items.id))
       .where(
         and(
-          inArray(bomComponents.componentId, uniqueIds),
+          inArray(bomRevisionComponents.componentId, uniqueIds),
+          eq(bomRevisions.isCurrent, true),
           isNull(items.deletedAt)
         )
       )
@@ -425,9 +552,10 @@ export async function getStockMovements(itemId: string) {
 // If stock adjustment fails (e.g. insufficient stock), the entire update rolls back.
 export async function updateItem(
   id: string,
-  itemData: Omit<UpdateItem, "stock" | "bom">,
+  itemData: Omit<UpdateItem, "stock" | "bom" | "revisionNote">,
   stock?: number,
   bom?: Array<{ componentId: string; quantity: string }>,
+  revisionNote?: string | null,
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [existingItem] = await tx
@@ -442,6 +570,7 @@ export async function updateItem(
 
     const delta =
       stock != null ? stock - (await getCurrentStockInTx(tx, id)) : null;
+    const currentBom = bom !== undefined ? await getCurrentBomComponentsInTx(tx, id) : [];
 
     const [item] = await tx
       .update(items)
@@ -450,15 +579,22 @@ export async function updateItem(
       .returning({ id: items.id });
 
     if (bom !== undefined) {
-      await tx.delete(bomComponents).where(eq(bomComponents.itemId, id));
-      if (bom.length > 0) {
-        await tx.insert(bomComponents).values(
-          bom.map((row) => ({
-            itemId: id,
+      if (
+        hasBomChanged(
+          currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
-          }))
-        );
+          })),
+          bom
+        )
+      ) {
+        await createBomRevisionInTx(tx, {
+          orgId,
+          userId,
+          productId: id,
+          note: revisionNote,
+          bom,
+        });
       }
     }
 
@@ -477,9 +613,10 @@ export async function updateItem(
 }
 
 export async function createItemWithLot(
-  data: Omit<InsertItem, "stock" | "bom">,
+  data: Omit<InsertItem, "stock" | "bom" | "revisionNote">,
   stock: string,
   bom?: Array<{ componentId: string; quantity: string }>,
+  revisionNote?: string | null,
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const [item] = await tx
@@ -488,13 +625,13 @@ export async function createItemWithLot(
       .returning({ id: items.id });
 
     if (bom && bom.length > 0) {
-      await tx.insert(bomComponents).values(
-        bom.map((row) => ({
-          itemId: item.id,
-          componentId: row.componentId,
-          quantity: row.quantity,
-        }))
-      );
+      await createBomRevisionInTx(tx, {
+        orgId,
+        userId,
+        productId: item.id,
+        note: revisionNote,
+        bom,
+      });
     }
 
     if (parseFloat(stock) > 0) {
@@ -566,20 +703,45 @@ export async function createUnitDefinition(
 
 export async function getBomComponents(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
-    const rows = await tx
-      .select({
-        id: bomComponents.id,
-        componentId: bomComponents.componentId,
-        quantity: bomComponents.quantity,
-        componentName: items.name,
-        componentItemType: items.itemType,
-        componentUnit: unitDefinitions.name,
-      })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.componentId, items.id))
-      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(and(eq(bomComponents.itemId, itemId), isNull(items.deletedAt)));
-    return rows;
+    const rows = await getCurrentBomComponentsInTx(tx, itemId);
+
+    return rows.map((row) => ({
+      id: row.id,
+      componentId: row.componentId,
+      quantity: row.quantity,
+      componentName: row.componentName,
+      componentItemType: row.componentItemType,
+      componentUnit: row.unitName,
+    }));
+  });
+}
+
+export async function getBomRevisionHistory(itemId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const revisions = await getBomRevisionHistoryInTx(tx, itemId);
+
+    return Promise.all(
+      revisions.map(async (revision) => ({
+        ...revision,
+        components: await getBomRevisionComponentsInTx(tx, revision.id),
+      }))
+    );
+  });
+}
+
+export async function getBomRevision(itemId: string, revisionId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const revisions = await getBomRevisionHistoryInTx(tx, itemId);
+    const revision = revisions.find((entry) => entry.id === revisionId);
+
+    if (!revision) {
+      return null;
+    }
+
+    return {
+      ...revision,
+      components: await getBomRevisionComponentsInTx(tx, revision.id),
+    };
   });
 }
 

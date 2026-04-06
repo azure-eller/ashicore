@@ -7,7 +7,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CircleUnlock01Icon, LockIcon } from "@hugeicons/core-free-icons";
+import { CircleLock01Icon, CircleUnlock01Icon } from "@hugeicons/core-free-icons";
 import {
   insertItemSchema,
   updateItemSchema,
@@ -21,6 +21,16 @@ import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -103,6 +113,8 @@ export function ItemForm({
   const [categoryInput, setCategoryInput] = useState("");
   const [localUnits, setLocalUnits] = useState(units);
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
+  const [bomLockConfirmOpen, setBomLockConfirmOpen] = useState(false);
+  const [pendingBomLocked, setPendingBomLocked] = useState<boolean | null>(null);
   const [unitName, setUnitName] = useState("");
   const [unitSize, setUnitSize] = useState("");
   const [unitUom, setUnitUom] = useState("");
@@ -147,6 +159,7 @@ export function ItemForm({
           stock: String(parseFloat(initialData.stock)),
           safetyStock: String(parseFloat(initialData.safetyStock)),
           bom: initialData.bom ?? [],
+          revisionNote: null,
         }
       : {
           name: "",
@@ -163,6 +176,7 @@ export function ItemForm({
           stock: "0",
           safetyStock: "0",
           bom: [],
+          revisionNote: null,
         },
   });
 
@@ -289,6 +303,12 @@ export function ItemForm({
   const submitLabel = isEditing
     ? (mutation.isPending ? "Saving..." : "Save Changes")
     : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`);
+  const isBomDirty = itemType === "product" && Boolean(form.formState.dirtyFields.bom);
+  const lockTarget = pendingBomLocked ?? bomLocked;
+  const lockDialogTitle = lockTarget ? "Lock this BOM?" : "Unlock this BOM?";
+  const lockDialogDescription = lockTarget
+    ? "Only inventory admins will be able to view and edit this BOM once it is locked."
+    : "Members with inventory view or operate access will be able to view and edit this BOM once it is unlocked.";
 
   const handleCancel = useSmartBack(fallbackPath);
 
@@ -709,15 +729,13 @@ export function ItemForm({
                           className="mt-0.5 shrink-0"
                           aria-label={bomLocked ? "Unlock recipe" : "Lock recipe"}
                           disabled={!canManageBomLock}
-                          onClick={() =>
-                            form.setValue("bomLocked", !bomLocked, {
-                              shouldDirty: true,
-                              shouldTouch: true,
-                            })
-                          }
+                          onClick={() => {
+                            setPendingBomLocked(!bomLocked);
+                            setBomLockConfirmOpen(true);
+                          }}
                         >
                           <HugeiconsIcon
-                            icon={bomLocked ? LockIcon : CircleUnlock01Icon}
+                            icon={bomLocked ? CircleLock01Icon : CircleUnlock01Icon}
                             strokeWidth={2}
                           />
                         </Button>
@@ -736,11 +754,80 @@ export function ItemForm({
                   control={form.control}
                   availableComponents={availableComponents}
                 />
+                {isBomDirty ? (
+                  <FieldGroup>
+                    <Field>
+                      <FieldDescription>
+                        Saving recipe changes will create a new BOM revision.
+                      </FieldDescription>
+                    </Field>
+                    <Controller
+                      name="revisionNote"
+                      control={form.control}
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>Revision Note</FieldLabel>
+                          <Textarea
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            onChange={(event) => field.onChange(event.target.value || null)}
+                            aria-invalid={fieldState.invalid}
+                            placeholder="Optional note about what changed in this recipe"
+                            rows={2}
+                            autoComplete="off"
+                          />
+                          {fieldState.invalid ? (
+                            <FieldError errors={[fieldState.error]} />
+                          ) : (
+                            <FieldDescription>
+                              Optional context shown in BOM revision history.
+                            </FieldDescription>
+                          )}
+                        </Field>
+                      )}
+                    />
+                  </FieldGroup>
+                ) : null}
               </FieldSet>
             </>
           )}
         </FieldGroup>
       </form>
+      <AlertDialog
+        open={bomLockConfirmOpen}
+        onOpenChange={(open) => {
+          setBomLockConfirmOpen(open);
+          if (!open) {
+            setPendingBomLocked(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{lockDialogTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {lockDialogDescription}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingBomLocked == null) return;
+
+                form.setValue("bomLocked", pendingBomLocked, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+                setPendingBomLocked(null);
+              }}
+            >
+              {lockTarget ? "Lock BOM" : "Unlock BOM"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog
         open={isUnitDialogOpen}
         onOpenChange={(open) => {

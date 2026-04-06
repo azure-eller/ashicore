@@ -53,6 +53,7 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
     productName: true,
     productSku: true,
     unitName: true,
+    bomRevisionId: true,
     salesOrderNumber: true,
     salesCustomerName: true,
     status: true,

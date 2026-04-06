@@ -8,7 +8,6 @@ import {
   sql,
 } from "drizzle-orm";
 import {
-  bomComponents,
   items,
   lots,
   manufacturingOrderIngredients,
@@ -18,6 +17,10 @@ import {
   stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
+import {
+  getCurrentActiveBomIngredientsInTx,
+  getCurrentBomCoverageInTx,
+} from "@/lib/bom/revisions";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { recomputeExpectedQty } from "@/lib/inventory/expected";
@@ -193,20 +196,7 @@ async function getValidatedProductInTx(
 }
 
 async function getCurrentBomIngredientsInTx(tx: Tx, productId: string) {
-  return tx
-    .select({
-      itemId: bomComponents.componentId,
-      itemName: items.name,
-      itemSku: items.sku,
-      itemType: items.itemType,
-      unitName: unitDefinitions.name,
-      quantityPerUnit: bomComponents.quantity,
-    })
-    .from(bomComponents)
-    .innerJoin(items, eq(bomComponents.componentId, items.id))
-    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .where(and(eq(bomComponents.itemId, productId), isNull(items.deletedAt)))
-    .orderBy(items.name);
+  return getCurrentActiveBomIngredientsInTx(tx, productId);
 }
 
 async function validateSalesLineLinkInTx(
@@ -306,7 +296,7 @@ async function prepareCreateIngredientsInTx(
   productId: string,
   plannedQuantity: number,
   submittedIngredients: InsertManufacturingOrder["ingredients"]
-): Promise<ValidatedIngredient[]> {
+): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
 
   if (bomRows.length === 0) {
@@ -328,7 +318,9 @@ async function prepareCreateIngredientsInTx(
     submittedIngredients.map((row) => [row.itemId, row.quantityPerUnit])
   );
 
-  return bomRows.map((row, index) => {
+  return {
+    bomRevisionId: bomRows[0].bomRevisionId,
+    ingredients: bomRows.map((row, index) => {
     const quantityPerUnit = Number(submittedById.get(row.itemId));
 
     return {
@@ -341,14 +333,15 @@ async function prepareCreateIngredientsInTx(
       plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
       sortOrder: index,
     };
-  });
+    }),
+  };
 }
 
 async function prepareCreateIngredientsFromBomInTx(
   tx: Tx,
   productId: string,
   plannedQuantity: number
-): Promise<ValidatedIngredient[]> {
+): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
 
   if (bomRows.length === 0) {
@@ -358,7 +351,9 @@ async function prepareCreateIngredientsFromBomInTx(
     );
   }
 
-  return bomRows.map((row, index) => {
+  return {
+    bomRevisionId: bomRows[0].bomRevisionId,
+    ingredients: bomRows.map((row, index) => {
     const quantityPerUnit = Number(row.quantityPerUnit);
 
     return {
@@ -371,7 +366,8 @@ async function prepareCreateIngredientsFromBomInTx(
       plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
       sortOrder: index,
     };
-  });
+    }),
+  };
 }
 
 async function insertManufacturingOrderInTx(
@@ -379,6 +375,7 @@ async function insertManufacturingOrderInTx(
   orgId: string,
   values: {
     product: ProductSnapshot;
+    bomRevisionId: string | null;
     salesLink: SalesLineSnapshot | null;
     plannedQuantity: number;
     plannedDate: string | null;
@@ -393,6 +390,7 @@ async function insertManufacturingOrderInTx(
       organizationId: orgId,
       orderNumber,
       productId: values.product.id,
+      bomRevisionId: values.bomRevisionId,
       salesOrderId: values.salesLink?.salesOrderId ?? null,
       salesOrderLineId: values.salesLink?.salesOrderLineId ?? null,
       productName: values.product.name,
@@ -613,64 +611,35 @@ export async function getManufacturingProductTemplates(): Promise<
 > {
   return withAuthedOrgContext(async (tx) => {
     const products = await tx
-      .selectDistinct({
+      .select({
         id: items.id,
         name: items.name,
         sku: items.sku,
         unitName: unitDefinitions.name,
       })
       .from(items)
-      .innerJoin(bomComponents, eq(bomComponents.itemId, items.id))
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(eq(items.itemType, "product"), isNull(items.deletedAt)))
       .orderBy(items.name);
 
     if (products.length === 0) return [];
 
-    const productIds = products.map((p) => p.id);
-
-    // Alias for the component's unit definition (distinct from the product's)
-    const componentUnit = unitDefinitions;
-
-    const allBomRows = await tx
-      .select({
-        productId: bomComponents.itemId,
-        itemId: bomComponents.componentId,
-        itemName: items.name,
-        itemSku: items.sku,
-        itemType: items.itemType,
-        unitName: componentUnit.name,
-        quantityPerUnit: bomComponents.quantity,
-      })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.componentId, items.id))
-      .innerJoin(componentUnit, eq(items.unitDefinitionId, componentUnit.id))
-      .where(
-        and(
-          inArray(bomComponents.itemId, productIds),
-          isNull(items.deletedAt)
-        )
-      )
-      .orderBy(items.name);
-
-    const bomByProduct = new Map<string, typeof allBomRows>();
-    for (const row of allBomRows) {
-      const bucket = bomByProduct.get(row.productId) ?? [];
-      bucket.push(row);
-      bomByProduct.set(row.productId, bucket);
-    }
+    const bomByProduct = await getCurrentBomCoverageInTx(
+      tx,
+      products.map((product) => product.id)
+    );
 
     return products
       .filter((product) => (bomByProduct.get(product.id) ?? []).length > 0)
       .map((product) => ({
         ...product,
         bom: (bomByProduct.get(product.id) ?? []).map((row) => ({
-          itemId: row.itemId,
-          itemName: row.itemName,
-          itemSku: row.itemSku,
-          itemType: row.itemType,
+          itemId: row.componentId,
+          itemName: row.componentName,
+          itemSku: row.componentSku,
+          itemType: row.componentItemType,
           unitName: row.unitName,
-          quantityPerUnit: row.quantityPerUnit ?? "0",
+          quantityPerUnit: row.quantity ?? "0",
         })),
       }));
   });
@@ -953,7 +922,7 @@ export async function createManufacturingOrder(
       salesOrderLineId: payload.salesOrderLineId,
       productId: payload.productId,
     });
-    const ingredients = await prepareCreateIngredientsInTx(
+    const { bomRevisionId, ingredients } = await prepareCreateIngredientsInTx(
       tx,
       payload.productId,
       plannedQuantity,
@@ -961,6 +930,7 @@ export async function createManufacturingOrder(
     );
     const order = await insertManufacturingOrderInTx(tx, orgId, {
       product,
+      bomRevisionId,
       salesLink,
       plannedQuantity,
       plannedDate: payload.plannedDate ?? null,
@@ -1030,13 +1000,14 @@ export async function createManufacturingOrdersFromSalesOrder(
       }
 
       const product = await getValidatedProductInTx(tx, line.itemId);
-      const ingredients = await prepareCreateIngredientsFromBomInTx(
+      const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
         tx,
         line.itemId,
         Number(line.quantity)
       );
       const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
         product,
+        bomRevisionId,
         salesLink: {
           salesOrderId: order.id,
           salesOrderLineId: line.salesOrderLineId,

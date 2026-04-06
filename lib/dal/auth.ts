@@ -234,6 +234,23 @@ export async function requireBomViewAccess(bomLocked: boolean) {
   return context;
 }
 
+export async function assertBomViewAccess(
+  requestHeaders: HeadersInit,
+  bomLocked: boolean
+) {
+  const context = await getAuthedApiMemberContext(requestHeaders);
+
+  const allowed = bomLocked
+    ? canViewLockedBom(context.assignedRoles)
+    : canViewUnlockedBom(context.assignedRoles);
+
+  if (!allowed) {
+    throw new AuthorizationError("You do not have permission to view this BOM.", 403);
+  }
+
+  return context;
+}
+
 export async function assertLockedBomManagementAccess(requestHeaders: HeadersInit) {
   const context = await getAuthedApiMemberContext(requestHeaders);
 

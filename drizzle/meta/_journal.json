@@ -162,6 +162,13 @@
       "when": 1775413025702,
       "tag": "0022_hot_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1775415173334,
+      "tag": "0023_optimal_bucky",
+      "breakpoints": true
     }
   ]
 }

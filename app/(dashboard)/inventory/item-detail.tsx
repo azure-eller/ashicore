@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, LockIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { formatPrice, formatMovementType } from "@/lib/format";
 import {
@@ -45,6 +45,14 @@ interface ItemDetailProps {
     expectedQty: string;
     safetyStock: string;
     bomLocked?: boolean;
+    currentBomRevision?: {
+      id: string;
+      revisionNumber: number;
+      isCurrent: boolean;
+      note: string | null;
+      createdByName: string | null;
+      createdAt: Date;
+    } | null;
   };
   itemType: ItemType;
   bom?: {
@@ -123,7 +131,7 @@ export function ItemDetail({
                   className="mt-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground"
                   aria-label="Locked recipe"
                 >
-                  <HugeiconsIcon icon={LockIcon} size={14} strokeWidth={2} />
+                  <HugeiconsIcon icon={CircleLock01Icon} size={14} strokeWidth={2} />
                   Locked recipe
                 </span>
               </TooltipTrigger>
@@ -247,40 +255,70 @@ export function ItemDetail({
         </>
       ) : null}
 
-      {bom && bom.length > 0 && (
+      {itemType === "product" && canViewBom ? (
         <>
           <Separator />
           <div className="space-y-3">
-            <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Component</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Stocking Unit</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {bom.map((b) => (
-                    <TableRow key={b.id}>
-                      <TableCell>{b.componentName}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{b.componentItemType}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {b.quantity ? parseFloat(b.quantity) : "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-right">{b.componentUnit}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
+                {item.currentBomRevision ? (
+                  <p className="text-sm text-muted-foreground">
+                    Rev {item.currentBomRevision.revisionNumber}
+                    {" • "}
+                    {item.currentBomRevision.createdAt.toLocaleDateString("en-US")}
+                    {item.currentBomRevision.createdByName
+                      ? ` • ${item.currentBomRevision.createdByName}`
+                      : ""}
+                  </p>
+                ) : null}
+                {item.currentBomRevision?.note ? (
+                  <p className="text-sm text-muted-foreground">
+                    {item.currentBomRevision.note}
+                  </p>
+                ) : null}
+              </div>
+              {item.currentBomRevision ? (
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link href={`${basePath}/${item.id}/bom-history`}>View History</Link>
+                </Button>
+              ) : null}
             </div>
+            {bom && bom.length > 0 ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Component</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Stocking Unit</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bom.map((b) => (
+                      <TableRow key={b.id}>
+                        <TableCell>{b.componentName}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{b.componentItemType}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {b.quantity ? parseFloat(b.quantity) : "\u2014"}
+                        </TableCell>
+                        <TableCell className="text-right">{b.componentUnit}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No active BOM ingredients on the current revision.
+              </p>
+            )}
           </div>
         </>
-      )}
+      ) : null}
 
       {/* Lots */}
       <Separator />

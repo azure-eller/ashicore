@@ -40,14 +40,14 @@ export const DELETE = apiHandler(async (request) => {
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
-  const { stock, bom, ...data } = insertItemSchema.parse(body);
+  const { stock, bom, revisionNote, ...data } = insertItemSchema.parse(body);
 
   if (data.itemType === "product" && data.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
   }
 
   try {
-    const item = await createItemWithLot(data, stock, bom);
+    const item = await createItemWithLot(data, stock, bom, revisionNote);
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
     if (error instanceof MissingStockCostError) {

@@ -1,6 +1,11 @@
 import { eq } from "drizzle-orm";
 import { test, expect } from "../fixtures";
-import { bomComponents, items, lots } from "../../../lib/db/schema";
+import {
+  bomRevisionComponents,
+  bomRevisions,
+  items,
+  lots,
+} from "../../../lib/db/schema";
 
 test.describe("Inventory write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -125,11 +130,12 @@ test.describe("Inventory write-path smoke", () => {
     await page.getByLabel("Safety Stock").fill("5");
 
     await page.getByText("+ Add Ingredient").click();
-    const bomRow = page.locator("tbody tr").last();
-    await bomRow.getByPlaceholder("Search items...").click();
-    await bomRow.getByPlaceholder("Search items...").fill(materialName);
+    const componentInput = page.getByPlaceholder("Search items...");
+    await expect(componentInput).toBeVisible();
+    await componentInput.click();
+    await componentInput.fill(materialName);
     await page.getByRole("option", { name: materialName }).click();
-    await bomRow.locator("input[inputmode='decimal']").fill("1.25");
+    await page.locator("input[inputmode='decimal']").last().fill("1.25");
 
     const [createResponse] = await Promise.all([
       page.waitForResponse(
@@ -153,12 +159,57 @@ test.describe("Inventory write-path smoke", () => {
     expect(product.defaultSellingPrice).toBe("19.99");
     expect(product.safetyStock).toBe("5.0000");
 
+    const [currentRevision] = await db
+      .select()
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, productId));
+    expect(currentRevision.revisionNumber).toBe(1);
+    expect(currentRevision.isCurrent).toBe(true);
+
     const productBom = await db
       .select()
-      .from(bomComponents)
-      .where(eq(bomComponents.itemId, productId));
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
     expect(productBom).toHaveLength(1);
     expect(productBom[0].componentId).toBe(materialId);
     expect(productBom[0].quantity).toBe("1.2500");
+  });
+
+  test("editing BOM fields creates a new BOM revision", async ({ page, db }) => {
+    await page.goto(`/inventory/products/${productId}/edit`);
+    await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
+
+    const bomRow = page.getByTestId("bom-row").first();
+    await bomRow.locator("input[inputmode='decimal']").fill("1.5");
+    await page.getByLabel("Revision Note").fill("Increase sand ratio");
+
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/items/${productId}`)
+    );
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateResponsePromise).status()).toBe(200);
+
+    await page.waitForURL(`**/inventory/products/${productId}`);
+    await expect(page.getByText("Rev 2")).toBeVisible();
+    await expect(page.getByText("Increase sand ratio")).toBeVisible();
+
+    const revisions = await db
+      .select()
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, productId));
+    expect(revisions).toHaveLength(2);
+
+    const currentRevision = revisions.find((revision) => revision.isCurrent);
+    expect(currentRevision?.revisionNumber).toBe(2);
+    expect(currentRevision?.note).toBe("Increase sand ratio");
+
+    const currentBom = await db
+      .select()
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision!.id));
+    expect(currentBom).toHaveLength(1);
+    expect(currentBom[0].quantity).toBe("1.5000");
   });
 });

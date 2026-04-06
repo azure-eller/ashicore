@@ -48,6 +48,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
     "Must be a non-negative number"
   ),
   bom: z.array(bomRowSchema).optional(),
+  revisionNote: nullableStringOptional,
 });
 
 function purchaseUnitRefine(

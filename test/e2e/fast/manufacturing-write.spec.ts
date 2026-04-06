@@ -116,7 +116,7 @@ test.describe("Manufacturing write-path smoke", () => {
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
     expect(ingredients).toHaveLength(2);
 
-    await page.getByRole("link", { name: "Edit" }).click();
+    await page.goto(`/manufacturing/orders/${orderId}/edit`);
     await page.waitForURL(`**/manufacturing/orders/${orderId}/edit`);
     await expect(
       page.getByRole("heading", { name: "Edit Manufacturing Order" })

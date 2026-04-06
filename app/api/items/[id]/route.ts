@@ -20,7 +20,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   }
 
   const body = await request.json();
-  const { stock, bom, ...itemData } = updateItemSchema.parse(body);
+  const { stock, bom, revisionNote, ...itemData } = updateItemSchema.parse(body);
 
   if (existingItem.itemType === "product" && itemData.bomLocked && !existingItem.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
@@ -39,6 +39,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
       itemData,
       stock != null ? parseFloat(stock) : undefined,
       bom,
+      revisionNote,
     );
     if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });

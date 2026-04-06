@@ -1,10 +1,10 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, inArray, isNull } from "drizzle-orm";
 import {
-  bomComponents,
   items,
   manufacturingOrders,
   salesOrderLines,
 } from "@/lib/db/schema";
+import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
@@ -141,18 +141,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
     itemRows.map((row) => [row.id, row])
   );
 
-  const bomRows = await tx
-    .select({
-      productId: bomComponents.itemId,
-    })
-    .from(bomComponents)
-    .innerJoin(items, eq(bomComponents.componentId, items.id))
-    .where(
-      and(
-        inArray(bomComponents.itemId, itemIds),
-        isNull(items.deletedAt)
-      )
-    );
+  const bomCoverage = await getCurrentBomCoverageInTx(tx, itemIds);
 
   const existingManufacturingRefs = salesOrderLineIds.length
     ? await tx
@@ -173,7 +162,11 @@ export async function getSalesOrderManufacturingSummariesInTx(
         )
     : [];
 
-  const bomBackedProductIds = new Set(bomRows.map((row) => row.productId));
+  const bomBackedProductIds = new Set(
+    [...bomCoverage.entries()]
+      .filter(([, components]) => components.length > 0)
+      .map(([productId]) => productId)
+  );
   const existingManufacturingLineIds = new Set(
     existingManufacturingRefs
       .map((row) => row.salesOrderLineId)

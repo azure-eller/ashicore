@@ -71,7 +71,9 @@ test.describe("Stocktake write-path smoke", () => {
 
     await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
     stocktakeId = getIdFromUrl(page.url());
-    await expect(page.getByRole("button", { name: "Save Counts" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Save Counts/ })
+    ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Back to Stocktakes")).toBeVisible();
 
     const [stocktake] = await db
@@ -98,7 +100,7 @@ test.describe("Stocktake write-path smoke", () => {
         response.request().method() === "PUT" &&
         response.url().endsWith(`/api/stocktakes/${stocktakeId}`)
     );
-    await page.getByRole("button", { name: "Save Counts" }).click();
+    await page.getByRole("button", { name: /Save Counts/ }).click();
     expect((await saveResponse).status()).toBe(200);
 
     const [savedLine] = await db

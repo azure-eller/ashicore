@@ -12,6 +12,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { bomRevisions } from "./bom";
 import { items } from "./items";
 import { salesOrders } from "./sales";
 
@@ -27,6 +28,7 @@ export const manufacturingOrders = manufacturingSchema
       productId: uuid("product_id")
         .notNull()
         .references(() => items.id),
+      bomRevisionId: uuid("bom_revision_id").references(() => bomRevisions.id),
       salesOrderId: uuid("sales_order_id").references(() => salesOrders.id),
       // Stored as a plain UUID snapshot reference so draft sales-order edits can
       // replace line rows without being blocked by FK constraints.
@@ -64,6 +66,7 @@ export const manufacturingOrders = manufacturingSchema
         .where(sql`deleted_at IS NULL`),
       index("manufacturing_orders_status_idx").on(table.status),
       index("manufacturing_orders_product_id_idx").on(table.productId),
+      index("manufacturing_orders_bom_revision_id_idx").on(table.bomRevisionId),
       index("manufacturing_orders_sales_order_id_idx").on(table.salesOrderId),
       index("manufacturing_orders_planned_date_idx").on(table.plannedDate),
       index("manufacturing_orders_created_at_idx").on(table.createdAt),

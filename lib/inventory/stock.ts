@@ -1,8 +1,9 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { normalizeNumeric } from "@/lib/format";
-import { bomComponents, items, lots, stockMovements } from "@/lib/db/schema";
+import { items, lots, stockMovements } from "@/lib/db/schema";
+import { getCurrentActiveBomIngredientsInTx } from "@/lib/bom/revisions";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const STOCK_MOVEMENT_TYPES = [
@@ -153,14 +154,7 @@ async function resolvePositiveLotCostInTx(
       });
     }
 
-    const bomRows = await tx
-      .select({
-        componentId: bomComponents.componentId,
-        quantity: bomComponents.quantity,
-      })
-      .from(bomComponents)
-      .innerJoin(items, eq(bomComponents.componentId, items.id))
-      .where(and(eq(bomComponents.itemId, currentItemId), isNull(items.deletedAt)));
+    const bomRows = await getCurrentActiveBomIngredientsInTx(tx, currentItemId);
 
     if (bomRows.length === 0) {
       throw new MissingStockCostError({
@@ -176,7 +170,7 @@ async function resolvePositiveLotCostInTx(
     nextVisited.add(currentItemId);
 
     for (const component of bomRows) {
-      if (component.quantity == null) {
+      if (component.quantityPerUnit == null) {
         throw new MissingStockCostError({
           itemId: currentItemId,
           itemName: item.name,
@@ -186,9 +180,9 @@ async function resolvePositiveLotCostInTx(
       }
 
       const componentCost = parseFloat(
-        await resolveDerivedItemCostInTx(component.componentId, nextVisited)
+        await resolveDerivedItemCostInTx(component.itemId, nextVisited)
       );
-      totalCost += parseFloat(component.quantity) * componentCost;
+      totalCost += parseFloat(component.quantityPerUnit) * componentCost;
     }
 
     return normalizeNumeric(totalCost);

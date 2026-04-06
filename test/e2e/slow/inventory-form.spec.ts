@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
-  bomComponents,
+  bomRevisionComponents,
+  bomRevisions,
   items,
   lots,
 } from "../../../lib/db/schema";
@@ -286,7 +287,7 @@ test.describe("Inventory creation flow", () => {
       /sorted ascending/
     );
 
-    const firstRow = page.locator("tbody tr").first();
+    const firstRow = page.getByTestId("bom-row").first();
     const firstRowLink = firstRow.getByRole("link");
     await expect(firstRowLink).toContainText(lowStockMaterialName);
 
@@ -404,8 +405,8 @@ test.describe("Inventory creation flow", () => {
 
     const bomRows = await db
       .select()
-      .from(bomComponents)
-      .where(eq(bomComponents.itemId, product.id));
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, product.id));
     expect(bomRows).toHaveLength(0);
 
     const lotRows = await db.select().from(lots).where(eq(lots.itemId, product.id));
@@ -435,7 +436,7 @@ test.describe("Inventory creation flow", () => {
 
     // BOM row 1 — Sand
     await page.getByText("+ Add Ingredient").click();
-    let row = page.locator("tbody tr").last();
+    let row = page.getByTestId("bom-row").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(fullMaterialName);
     await page.getByRole("option", { name: fullMaterialName }).click();
@@ -444,7 +445,7 @@ test.describe("Inventory creation flow", () => {
 
     // BOM row 2 — Gravel
     await page.getByText("+ Add Ingredient").click();
-    row = page.locator("tbody tr").last();
+    row = page.getByTestId("bom-row").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(minimalMaterialName);
     await page.getByRole("option", { name: minimalMaterialName }).click();
@@ -453,7 +454,7 @@ test.describe("Inventory creation flow", () => {
 
     // BOM row 3 — Base Mix
     await page.getByText("+ Add Ingredient").click();
-    row = page.locator("tbody tr").last();
+    row = page.getByTestId("bom-row").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(simpleProductName);
     await page.getByRole("option", { name: simpleProductName }).click();
@@ -500,10 +501,18 @@ test.describe("Inventory creation flow", () => {
     expect(product.category).toBe(`Blends ${ts}`);
     expect(product.defaultSellingPrice).toBe("29.99");
 
+    const [currentRevision] = await db
+      .select()
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, product.id));
+
+    expect(currentRevision.revisionNumber).toBe(1);
+    expect(currentRevision.isCurrent).toBe(true);
+
     const bomRows = await db
       .select()
-      .from(bomComponents)
-      .where(eq(bomComponents.itemId, product.id));
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
 
     expect(bomRows).toHaveLength(3);
 
@@ -530,7 +539,7 @@ test.describe("Inventory creation flow", () => {
     await expect(page.getByLabel("Selling Price")).toHaveValue("29.99");
 
     // Verify BOM rows are pre-populated (3 rows in the table)
-    const bomRows = page.locator("tbody tr");
+    const bomRows = page.getByTestId("bom-row");
     await expect(bomRows).toHaveCount(3);
 
     // Change the selling price
@@ -557,11 +566,16 @@ test.describe("Inventory creation flow", () => {
     expect(updated.description).toBe("Premium blend — updated recipe");
     expect(updated.defaultSellingPrice).toBe("34.99");
 
-    // BOM should still have 3 ingredients
+    const revisions = await db
+      .select()
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, sellableProductId));
+    expect(revisions).toHaveLength(1);
+
     const bom = await db
       .select()
-      .from(bomComponents)
-      .where(eq(bomComponents.itemId, sellableProductId));
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, revisions[0].id));
     expect(bom).toHaveLength(3);
   });
 
@@ -607,10 +621,16 @@ test.describe("Inventory creation flow", () => {
     expect(invalidUpdate.status).toBe(400);
     expect(invalidUpdate.body?.errors?.bom?.[0]).toContain("greater than 0");
 
+    const revisions = await db
+      .select()
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, sellableProductId));
+    expect(revisions).toHaveLength(1);
+
     const bom = await db
       .select()
-      .from(bomComponents)
-      .where(eq(bomComponents.itemId, sellableProductId));
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, revisions[0].id));
     expect(bom).toHaveLength(3);
   });
 });
