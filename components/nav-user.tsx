@@ -88,7 +88,7 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => router.push("/settings/account")}>
+              <DropdownMenuItem onClick={() => router.push("/settings")}>
                   <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
                   Settings
               </DropdownMenuItem>

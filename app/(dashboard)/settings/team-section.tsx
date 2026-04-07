@@ -37,7 +37,6 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -130,7 +129,7 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
+        <Button variant="outline">
           <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
           Invite member
         </Button>
@@ -189,7 +188,7 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
   );
 }
 
-export function TeamPage({ initialData }: { initialData: TeamPageData }) {
+export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -292,10 +291,10 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <section id="team" className="overflow-hidden rounded-lg border">
+      <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
+          <h2 className="text-lg font-semibold tracking-tight">Team</h2>
           <p className="text-sm text-muted-foreground">
             Manage access from one permissions matrix. Settings admin users can invite
             teammates and edit non-owner users.
@@ -304,17 +303,21 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
         <InviteMemberDialog onSuccess={refreshData} />
       </div>
 
-      {actionError ? <FieldError>{actionError}</FieldError> : null}
+      {actionError ? (
+        <div className="px-6 pb-4">
+          <FieldError>{actionError}</FieldError>
+        </div>
+      ) : null}
 
       {data.pendingInvites.length > 0 ? (
-        <section className="overflow-hidden rounded-xl border bg-card">
-          <div className="border-b px-4 py-4 md:px-6">
-            <h2 className="text-base font-medium">Pending invites</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+        <>
+          <div className="border-t px-3 py-2.5 md:px-4">
+            <h3 className="text-sm font-medium">Pending invites</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Invitations stay here until the teammate creates their account.
             </p>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border-t">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -358,117 +361,109 @@ export function TeamPage({ initialData }: { initialData: TeamPageData }) {
               </TableBody>
             </Table>
           </div>
-        </section>
+        </>
       ) : null}
 
-      <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="border-b px-4 py-4 md:px-6">
-          <h2 className="text-base font-medium">Members</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Use the per-domain controls to set what each user can access.
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="min-w-[320px]">User</TableHead>
-                {MODULE_KEYS.map((module) => (
-                  <TableHead key={module} className="min-w-[156px]">
-                    {formatModuleLabel(module)}
-                  </TableHead>
-                ))}
-                <TableHead className="w-[80px] text-right"> </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.members.map((member) => {
-                const manageable = member.canManage && !member.isCurrentUser;
+      <div className="overflow-x-auto border-t">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[320px]">User</TableHead>
+              {MODULE_KEYS.map((module) => (
+                <TableHead key={module} className="min-w-[156px]">
+                  {formatModuleLabel(module)}
+                </TableHead>
+              ))}
+              <TableHead className="w-[80px] text-right"> </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.members.map((member) => {
+              const manageable = member.canManage && !member.isCurrentUser;
 
-                return (
-                  <TableRow key={member.id}>
-                    <TableCell className="align-top">
-                      <div className="min-w-0 space-y-1">
-                        <div className="font-medium text-foreground">
-                          {member.name}
-                          {member.isCurrentUser ? (
-                            <span className="ml-2 text-xs text-muted-foreground">(You)</span>
-                          ) : null}
-                        </div>
-                        <div className="truncate text-sm text-muted-foreground">
-                          {member.email}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {member.role === "owner" ? "Owner" : "User"}
-                        </div>
+              return (
+                <TableRow key={member.id}>
+                  <TableCell className="align-top">
+                    <div className="min-w-0 space-y-1">
+                      <div className="font-medium text-foreground">
+                        {member.name}
+                        {member.isCurrentUser ? (
+                          <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                        ) : null}
                       </div>
-                    </TableCell>
-                    {MODULE_KEYS.map((module) => {
-                      const value = member.moduleAccess[module];
+                      <div className="truncate text-sm text-muted-foreground">
+                        {member.email}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {member.role === "owner" ? "Owner" : "User"}
+                      </div>
+                    </div>
+                  </TableCell>
+                  {MODULE_KEYS.map((module) => {
+                    const value = member.moduleAccess[module];
 
-                      return (
-                        <TableCell key={module} className="align-middle">
-                          {manageable ? (
-                            <Select
-                              value={value}
-                              onValueChange={(nextValue) =>
-                                updateMember(member, {
-                                  ...member.moduleAccess,
-                                  [module]: nextValue as ModuleAccessLevel,
-                                })
-                              }
-                              disabled={mutationPending}
+                    return (
+                      <TableCell key={module} className="align-middle">
+                        {manageable ? (
+                          <Select
+                            value={value}
+                            onValueChange={(nextValue) =>
+                              updateMember(member, {
+                                ...member.moduleAccess,
+                                [module]: nextValue as ModuleAccessLevel,
+                              })
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger
+                              size="sm"
+                              className="w-full min-w-[132px]"
+                              aria-label={`${formatModuleLabel(module)} access`}
                             >
-                              <SelectTrigger
-                                size="sm"
-                                className="w-full min-w-[132px]"
-                                aria-label={`${formatModuleLabel(module)} access`}
-                              >
-                                <SelectValue placeholder="Select access" />
-                              </SelectTrigger>
-                              <SelectContent align="start">
-                                {FULL_ACCESS_OPTIONS.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {formatAccessLevelLabel(option)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <div className="text-sm text-foreground">
-                              {formatAccessLevelLabel(value)}
-                            </div>
-                          )}
-                        </TableCell>
-                      );
-                    })}
-                    <TableCell className="text-right align-top">
-                      {manageable ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              disabled={mutationPending}
-                              onClick={() => removeMemberMutation.mutate(member.id)}
-                              aria-label={`Remove ${member.email}`}
-                              className="shrink-0 text-muted-foreground"
-                            >
-                              <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Remove member</TooltipContent>
-                        </Tooltip>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
-    </div>
+                              <SelectValue placeholder="Select access" />
+                            </SelectTrigger>
+                            <SelectContent align="start">
+                              {FULL_ACCESS_OPTIONS.map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {formatAccessLevelLabel(option)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="text-sm text-foreground">
+                            {formatAccessLevelLabel(value)}
+                          </div>
+                        )}
+                      </TableCell>
+                    );
+                  })}
+                  <TableCell className="text-right align-top">
+                    {manageable ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={mutationPending}
+                            onClick={() => removeMemberMutation.mutate(member.id)}
+                            aria-label={`Remove ${member.email}`}
+                            className="shrink-0 text-muted-foreground"
+                          >
+                            <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Remove member</TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </section>
   );
 }

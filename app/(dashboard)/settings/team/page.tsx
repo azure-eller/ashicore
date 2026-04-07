@@ -1,13 +1,5 @@
-import type { Metadata } from "next";
-import { getTeamPageData } from "../queries";
-import { TeamPage } from "../team-page";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Team",
-};
-
-export default async function SettingsTeamPage() {
-  const data = await getTeamPageData();
-
-  return <TeamPage initialData={data} />;
+export default function SettingsTeamPage() {
+  redirect("/settings");
 }

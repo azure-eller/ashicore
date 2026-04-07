@@ -1,17 +1,11 @@
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { getSettingsSections } from "./sections";
-import { SettingsNav } from "./settings-nav";
 
-export default async function SettingsLayout({
+export default function SettingsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const context = await getAuthedMemberContext();
-  const sections = getSettingsSections(context.assignedRoles);
-
   return (
     <>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
@@ -22,14 +16,7 @@ export default async function SettingsLayout({
         />
         <span className="text-sm font-medium">Settings</span>
       </div>
-      <div className="flex flex-1 flex-col p-4 md:px-6 md:py-5">
-        <div className="grid gap-6 lg:grid-cols-[160px_minmax(0,1fr)] lg:items-start">
-          <aside>
-            <SettingsNav sections={sections} />
-          </aside>
-          <div className="min-w-0">{children}</div>
-        </div>
-      </div>
+      <div className="flex flex-1 flex-col p-4 md:px-6 md:py-5">{children}</div>
     </>
   );
 }

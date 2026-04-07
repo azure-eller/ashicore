@@ -19,7 +19,7 @@ import {
   accountSettingsSchema,
   type AccountSettingsInput,
 } from "@/lib/schemas/account";
-import type { AccountPageData } from "../types";
+import type { AccountPageData } from "./types";
 
 function getFirstFieldError(errors: unknown) {
   if (!errors || typeof errors !== "object") {
@@ -109,7 +109,7 @@ function normalizeSavedState(data: Pick<AccountPageData, "name" | "email">) {
   };
 }
 
-export function AccountSettingsPage({
+export function ProfileSection({
   initialData,
 }: {
   initialData: AccountPageData;
@@ -293,13 +293,13 @@ export function AccountSettingsPage({
   });
 
   return (
-    <div className="max-w-3xl">
+    <section id="profile" className="rounded-lg border p-6">
       <form
-        className="flex flex-col gap-6 rounded-xl border bg-card p-4 md:p-6"
+        className="flex flex-col gap-6"
         onSubmit={form.handleSubmit((input) => mutation.mutate(input))}
       >
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
+          <h2 className="text-lg font-semibold tracking-tight">Profile</h2>
           <p className="text-sm text-muted-foreground">
             Manage your name, email, and password.
           </p>
@@ -396,11 +396,15 @@ export function AccountSettingsPage({
             ) : null}
           </div>
 
-          <Button type="submit" disabled={mutation.isPending || !hasChanges}>
-            {mutation.isPending ? "Saving…" : "Save changes"}
+          <Button
+            type="submit"
+            variant={hasChanges ? "default" : "outline"}
+            disabled={mutation.isPending || !hasChanges}
+          >
+            {mutation.isPending ? "Saving\u2026" : "Save"}
           </Button>
         </div>
       </form>
-    </div>
+    </section>
   );
 }

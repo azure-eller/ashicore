@@ -83,7 +83,7 @@ async function signInAsExistingUser(
   browser: Browser,
   email: string,
   password: string,
-  expectedPath = "/settings/account"
+  expectedPath = "/settings"
 ) {
   const { context, page } = await createFreshPage(browser);
   await page.goto("/sign-in");
@@ -100,7 +100,7 @@ async function acceptInviteAsNewUser(
   email: string,
   name: string,
   password: string,
-  expectedPath = "/settings/account"
+  expectedPath = "/settings"
 ) {
   const { context, page } = await createFreshPage(browser);
   await page.goto(`/accept-invitation?id=${invitationId}`);
@@ -177,7 +177,7 @@ test.describe("Team management and invite flow", () => {
     }
   ) {
     if (!page.url().startsWith(BASE_URL)) {
-      await page.goto("/settings/team");
+      await page.goto("/settings");
     }
 
     const response = await apiCall<{ error?: string }>(
@@ -229,12 +229,13 @@ test.describe("Team management and invite flow", () => {
   });
 
   test("owner invites users from Settings > Team", async ({ page, db }) => {
-    await page.goto("/settings/team");
+    await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
 
     const inviteMember = async (email: string) => {
       await page.getByRole("button", { name: "Invite member" }).click();
-      await page.getByLabel("Email").fill(email);
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Email").fill(email);
       const inviteResponse = page.waitForResponse(
         (response) =>
           response.url().endsWith("/api/team/invitations") &&
@@ -275,7 +276,7 @@ test.describe("Team management and invite flow", () => {
     let inviteId = memberInvitationId;
 
     if (!inviteId) {
-      await page.goto("/settings/team");
+      await page.goto("/settings");
       const inviteEmail = `switch-${run}@example.com`;
       const response = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
         method: "POST",
@@ -311,7 +312,7 @@ test.describe("Team management and invite flow", () => {
       memberPassword
     );
 
-    await expect(accepted.page).toHaveURL(/\/settings\/account$/);
+    await expect(accepted.page).toHaveURL(/\/settings$/);
     await expect(accepted.page.locator('a[href="/sales/orders"]')).toHaveCount(0);
     await expect(accepted.page.locator('a[href="/inventory/products"]')).toHaveCount(0);
 
@@ -379,11 +380,12 @@ test.describe("Team management and invite flow", () => {
     expect(promoteResponse.status).toBe(200);
 
     const { context, page } = await signInAsExistingUser(browser, adminEmail, adminPassword);
-    await page.goto("/settings/team");
+    await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
 
     await page.getByRole("button", { name: "Invite member" }).click();
-    await expect(page.getByLabel("Email")).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Email")).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
 
     const allowedInvite = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
@@ -414,7 +416,7 @@ test.describe("Team management and invite flow", () => {
   });
 
   test("owner can assign module access from the team matrix", async ({ page, db }) => {
-    await page.goto("/settings/team");
+    await page.goto("/settings");
     const memberRow = memberRowByEmail(page, memberEmail);
     await expect(memberRow).toBeVisible();
 
@@ -461,7 +463,6 @@ test.describe("Team management and invite flow", () => {
 
     await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(1);
     await expect(memberPage.locator('a[href="/sales/orders"]')).toHaveCount(0);
-    await expect(memberPage.locator('a[href="/settings/team"]')).toHaveCount(0);
 
     await memberPage.goto("/inventory/stocktakes/new");
     await expect(memberPage).toHaveURL(/\/inventory\/stocktakes\/new$/);
@@ -575,7 +576,7 @@ test.describe("Team management and invite flow", () => {
     page: ownerPage,
     db,
   }) => {
-    await ownerPage.goto("/settings/team");
+    await ownerPage.goto("/settings");
 
     const [unit] = await db
       .select({ id: unitDefinitions.id })
@@ -743,7 +744,6 @@ test.describe("Team management and invite flow", () => {
 
     await expect(page.locator('a[href="/sales/orders"]')).toHaveCount(1);
     await expect(page.locator('a[href="/inventory/products"]')).toHaveCount(0);
-    await expect(page.locator('a[href="/settings/team"]')).toHaveCount(0);
 
     await page.goto("/sales/orders");
     await expect(page).toHaveURL(/\/sales\/orders$/);
@@ -836,7 +836,7 @@ test.describe("Team management and invite flow", () => {
   });
 
   test("owner can remove a member without deleting the underlying auth account", async ({ page, db }) => {
-    await page.goto("/settings/team");
+    await page.goto("/settings");
     const memberRow = memberRowByEmail(page, memberEmail);
     const removeResponse = page.waitForResponse(
       (response) =>

@@ -94,7 +94,7 @@ export function AcceptInvitationForm({
       return false;
     }
 
-    router.replace("/settings/account");
+    router.replace("/settings");
     router.refresh();
     return true;
   }

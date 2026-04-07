@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Table,
@@ -71,25 +70,24 @@ export default async function ProductBomHistoryPage({
 
         <Separator />
 
-        <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <div className="space-y-2">
-            {revisions.map((revision) => {
-              const isSelected = revision.id === selectedRevision.id;
+        <div className="flex gap-8">
+          <nav className="hidden w-[180px] shrink-0 lg:block" aria-label="BOM revisions">
+            <div className="sticky top-16 flex flex-col">
+              {revisions.map((revision) => {
+                const isSelected = revision.id === selectedRevision.id;
 
-              return (
-                <Button
-                  key={revision.id}
-                  variant="ghost"
-                  asChild
-                  className={cn(
-                    "h-auto w-full justify-start rounded-lg border px-3 py-3 text-left",
-                    isSelected
-                      ? "border-foreground bg-accent hover:bg-accent"
-                      : "border-border hover:bg-accent/60"
-                  )}
-                >
-                  <Link href={`/inventory/products/${id}/bom-history?revision=${revision.id}`}>
-                    <span className="flex w-full flex-col items-start gap-1">
+                return (
+                  <Link
+                    key={revision.id}
+                    href={`/inventory/products/${id}/bom-history?revision=${revision.id}`}
+                    className={cn(
+                      "border-l-2 px-3 py-2 text-left transition-colors",
+                      isSelected
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <span className="flex flex-col gap-0.5">
                       <span className="flex items-center gap-2">
                         <span className="text-sm font-medium">Rev {revision.revisionNumber}</span>
                         {revision.isCurrent ? <Badge variant="secondary">Current</Badge> : null}
@@ -104,12 +102,12 @@ export default async function ProductBomHistoryPage({
                       ) : null}
                     </span>
                   </Link>
-                </Button>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          </nav>
 
-          <div className="space-y-4">
+          <div className="min-w-0 flex-1 space-y-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-semibold tracking-tight">
@@ -128,7 +126,7 @@ export default async function ProductBomHistoryPage({
               ) : null}
             </div>
 
-            <div className="rounded-md border">
+            <div className="overflow-hidden rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow>
