@@ -220,21 +220,6 @@ export function formatAccessPresetLabel(presetKey: DerivedAccessPresetKey) {
   }
 }
 
-export function formatAccessPresetDescription(presetKey: AccessPresetKey) {
-  switch (presetKey) {
-    case "admin":
-      return "Full admin access across every module, including team settings.";
-    case "ops_manager":
-      return "Admin for inventory, manufacturing, and purchasing with read access elsewhere.";
-    case "sales_manager":
-      return "Admin for sales with read access across the operational modules.";
-    case "sales_operator":
-      return "Operational sales access with read-only visibility into inventory and operations.";
-    case "view_only":
-      return "Read-only access across inventory, sales, manufacturing, and purchasing.";
-  }
-}
-
 export function formatAccessLevelLabel(level: ModuleAccessLevel) {
   switch (level) {
     case "none":
@@ -430,6 +415,21 @@ export function canManageTeam(role: string | string[] | null | undefined) {
     normalizeAppRole(role) === "owner" ||
     hasModuleAccess(role, "settings", "admin")
   );
+}
+
+export function canGrantTeamManagement(role: string | string[] | null | undefined) {
+  return normalizeAppRole(role) === "owner";
+}
+
+export function canAssignModuleAccess(
+  actorRole: string | string[] | null | undefined,
+  access: Partial<Record<ModuleKey, ModuleAccessLevel>>
+) {
+  if (canGrantTeamManagement(actorRole)) {
+    return true;
+  }
+
+  return access.settings !== "admin";
 }
 
 export function getDefaultDashboardPath(role: string | string[] | null | undefined) {

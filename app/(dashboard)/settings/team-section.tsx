@@ -70,7 +70,13 @@ function AccessPresetBadge({ presetKey }: { presetKey: DerivedAccessPresetKey })
   return <Badge variant="outline">{formatAccessPresetLabel(presetKey)}</Badge>;
 }
 
-function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
+function InviteMemberDialog({
+  canGrantTeamManagement,
+  onSuccess,
+}: {
+  canGrantTeamManagement: boolean;
+  onSuccess: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -173,7 +179,9 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel>Default role</FieldLabel>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {ACCESS_PRESET_KEYS.map((presetKey) => {
+                    {ACCESS_PRESET_KEYS.filter(
+                      (presetKey) => canGrantTeamManagement || presetKey !== "admin"
+                    ).map((presetKey) => {
                       const selected = field.value === presetKey;
 
                       return (
@@ -226,23 +234,27 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
 }
 
 function CustomizeAccessDialog({
+  canGrantTeamManagement,
   member,
   open,
   onOpenChange,
   onSave,
+  onRemove,
   pending,
 }: {
+  canGrantTeamManagement: boolean;
   member: TeamMemberRow;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => void;
+  onRemove: (member: TeamMemberRow) => void;
   pending: boolean;
 }) {
   const [moduleAccess, setModuleAccess] = useState<TeamMemberRow["moduleAccess"]>(
     member.moduleAccess
   );
   const [presetKey, setPresetKey] = useState<AccessPresetKey | "custom">(
-    member.presetKey === "custom" ? "custom" : member.presetKey
+    member.presetKey && member.presetKey !== "custom" ? member.presetKey : "custom"
   );
 
   return (
@@ -274,7 +286,9 @@ function CustomizeAccessDialog({
                   <SelectValue placeholder="Select preset" />
                 </SelectTrigger>
                 <SelectContent className="bg-popover text-popover-foreground">
-                  {ACCESS_PRESET_KEYS.map((preset) => (
+                  {ACCESS_PRESET_KEYS.filter(
+                    (preset) => canGrantTeamManagement || preset !== "admin"
+                  ).map((preset) => (
                     <SelectItem key={preset} value={preset}>
                       {formatAccessPresetLabel(preset)}
                     </SelectItem>
@@ -290,6 +304,7 @@ function CustomizeAccessDialog({
               {MODULE_KEYS.map((moduleKey) => (
                 <div
                   key={moduleKey}
+                  data-module-key={moduleKey}
                   className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="font-medium">{formatModuleLabel(moduleKey)}</div>
@@ -312,7 +327,9 @@ function CustomizeAccessDialog({
                     disabled={pending}
                     className="flex w-full flex-wrap justify-start sm:w-auto sm:justify-end"
                   >
-                    {FULL_ACCESS_OPTIONS.map((option) => (
+                    {FULL_ACCESS_OPTIONS.filter(
+                      (option) => canGrantTeamManagement || !(moduleKey === "settings" && option === "admin")
+                    ).map((option) => (
                       <ToggleGroupItem key={option} value={option} aria-label={option}>
                         {formatAccessLevelLabel(option)}
                       </ToggleGroupItem>
@@ -324,17 +341,27 @@ function CustomizeAccessDialog({
           </div>
         </div>
 
-        <div className="flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+        <div className="flex items-center justify-between gap-3">
           <Button
             type="button"
+            variant="destructive"
             disabled={pending}
-            onClick={() => onSave(member, moduleAccessSchema.parse(moduleAccess))}
+            onClick={() => onRemove(member)}
           >
-            {pending ? "Saving..." : "Save access"}
+            Remove member
           </Button>
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => onSave(member, moduleAccessSchema.parse(moduleAccess))}
+            >
+              {pending ? "Saving..." : "Save access"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -419,10 +446,29 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
     onError: (error) => setActionError(error.message),
   });
 
+  const removeMemberMutation = useMutation({
+    mutationFn: async (memberId: string) => {
+      const response = await fetch(`/api/team/members/${memberId}`, {
+        method: "DELETE",
+      });
+      const body = await parseJson<{ error?: string }>(response);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to remove member.");
+      }
+    },
+    onSuccess: async () => {
+      await refreshData();
+      setCustomizingMember(null);
+    },
+    onError: (error) => setActionError(error.message),
+  });
+
   const mutationPending =
     resendMutation.isPending ||
     cancelInviteMutation.isPending ||
-    updateMemberMutation.isPending;
+    updateMemberMutation.isPending ||
+    removeMemberMutation.isPending;
 
   const updateMember = (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => {
     updateMemberMutation.mutate({
@@ -436,7 +482,10 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
       <section id="team" className="rounded-xl border bg-background">
         <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
           <h2 className="text-lg font-semibold tracking-tight">Team</h2>
-          <InviteMemberDialog onSuccess={refreshData} />
+          <InviteMemberDialog
+            canGrantTeamManagement={data.canGrantTeamManagement}
+            onSuccess={refreshData}
+          />
         </div>
 
         {actionError ? (
@@ -451,6 +500,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
               {data.pendingInvites.map((invite) => (
                 <div
                   key={invite.id}
+                  data-email={invite.email}
                   className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
                 >
                   <div className="min-w-0">
@@ -499,6 +549,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
                 return (
                   <div
                     key={member.id}
+                    data-email={member.email}
                     className="group flex items-center justify-between gap-4 px-4 py-4"
                   >
                     <div className="min-w-0 flex-1 space-y-1">
@@ -517,7 +568,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
                     <div className="flex shrink-0 items-center gap-2">
                       <div className="flex flex-wrap justify-end gap-2">
-                        <AccessPresetBadge presetKey={member.presetKey} />
+                        {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
                         {member.role === "owner" ? (
                           <TeamRoleBadge role={member.role} />
                         ) : null}
@@ -548,6 +599,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
       {customizingMember ? (
         <CustomizeAccessDialog
           key={customizingMember.id}
+          canGrantTeamManagement={data.canGrantTeamManagement}
           member={customizingMember}
           open
           onOpenChange={(open) => {
@@ -556,7 +608,8 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
             }
           }}
           onSave={updateMember}
-          pending={updateMemberMutation.isPending}
+          onRemove={(member) => removeMemberMutation.mutate(member.id)}
+          pending={mutationPending}
         />
       ) : null}
     </>

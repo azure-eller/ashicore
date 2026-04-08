@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { updateTeamMemberAccessSchema } from "@/lib/schemas/team";
 import {
+  assertAssignableModuleAccess,
   callAuthApi,
   getManageableMember,
 } from "@/app/(dashboard)/settings/queries";
@@ -18,6 +19,8 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   if (!member) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
+
+  assertAssignableModuleAccess(member.actor.assignedRoles, data.moduleAccess);
 
   const response = await callAuthApi(request.headers, "updateMemberRole", {
     memberId: id,

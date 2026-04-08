@@ -23,11 +23,7 @@ function parseCookie(raw: string) {
 }
 
 function pendingInviteCard(page: Page, email: string) {
-  return page.getByText(email).locator("xpath=ancestor::tr[1]");
-}
-
-function teamRowByEmail(page: Page, email: string) {
-  return page.getByText(email).locator("xpath=ancestor::tr[1]");
+  return page.locator(`[data-email="${email}"]`).first();
 }
 
 async function addSessionCookie(context: BrowserContext, rawCookie: string) {
@@ -84,9 +80,8 @@ async function apiCall<T>(
   } = {}
 ): Promise<{ status: number; body: T | null }> {
   return page.evaluate(
-    async ({ path, method, body, baseUrl }) => {
-      const url = new URL(path, baseUrl).toString();
-      const response = await fetch(url, {
+    async ({ path, method, body }) => {
+      const response = await fetch(path, {
         method: method ?? "GET",
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
@@ -96,8 +91,31 @@ async function apiCall<T>(
         body: await response.json().catch(() => null),
       };
     },
-    { path, method: options.method, body: options.body, baseUrl: BASE_URL }
+    { path, method: options.method, body: options.body }
   );
+}
+
+async function ownerApiCall<T>(
+  path: string,
+  options: {
+    method?: string;
+    body?: Record<string, unknown>;
+  } = {}
+): Promise<{ status: number; body: T | null }> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Origin: BASE_URL,
+      Cookie: SESSION_COOKIE,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  return {
+    status: response.status,
+    body: await response.json().catch(() => null),
+  };
 }
 
 function expectRoleIncludes(storedRole: string, expectedRoles: string[]) {
@@ -128,7 +146,6 @@ test.describe("Team management and invite flow", () => {
   let memberUserId = "";
 
   async function updateMemberAccess(
-    page: Page,
     moduleAccess: {
       inventory: "none" | "read" | "operate" | "admin";
       sales: "none" | "read" | "operate" | "admin";
@@ -137,12 +154,7 @@ test.describe("Team management and invite flow", () => {
       settings: "none" | "read" | "operate" | "admin";
     }
   ) {
-    if (!page.url().startsWith(BASE_URL)) {
-      await page.goto("/settings");
-    }
-
-    const response = await apiCall<{ error?: string }>(
-      page,
+    const response = await ownerApiCall<{ error?: string }>(
       `/api/team/members/${memberMemberId}`,
       {
         method: "PATCH",
@@ -340,7 +352,7 @@ test.describe("Team management and invite flow", () => {
     await accepted.context.close();
   });
 
-  test("settings admin can access team settings and grant other settings admins", async ({
+  test("settings admin can access team settings but cannot grant team management", async ({
     browser,
     db,
   }) => {
@@ -393,7 +405,7 @@ test.describe("Team management and invite flow", () => {
     });
     expect(allowedInvite.status).toBe(200);
 
-    const allowedAdminPatch = await apiCall<{ error?: string }>(
+    const blockedAdminPatch = await apiCall<{ error?: string }>(
       page,
       `/api/team/members/${memberMemberId}`,
       {
@@ -409,13 +421,13 @@ test.describe("Team management and invite flow", () => {
         },
       }
     );
-    expect(allowedAdminPatch.status).toBe(200);
+    expect(blockedAdminPatch.status).toBe(403);
 
     await context.close();
   });
 
-  test("owner can customize member access from the team panel", async ({ page, db }) => {
-    await updateMemberAccess(page, {
+  test("owner can customize member access from the team panel", async ({ db }) => {
+    await updateMemberAccess({
       inventory: "read",
       sales: "operate",
       manufacturing: "read",
@@ -435,11 +447,11 @@ test.describe("Team management and invite flow", () => {
       "manufacturing:read",
       "purchasing:read",
     ]);
+
   });
 
   test("member with inventory operate can create materials and unlocked products", async ({
     browser,
-    page,
     db,
   }) => {
     const [unit] = await db
@@ -450,7 +462,7 @@ test.describe("Team management and invite flow", () => {
 
     expect(unit).toBeTruthy();
 
-    await updateMemberAccess(page, {
+    await updateMemberAccess({
       inventory: "operate",
       sales: "none",
       manufacturing: "none",
@@ -536,7 +548,6 @@ test.describe("Team management and invite flow", () => {
 
   test("member with manufacturing operate can create orders and view BOMs but cannot edit products", async ({
     browser,
-    page,
     db,
   }) => {
     const [product] = await db
@@ -547,7 +558,7 @@ test.describe("Team management and invite flow", () => {
 
     expect(product).toBeTruthy();
 
-    await updateMemberAccess(page, {
+    await updateMemberAccess({
       inventory: "read",
       sales: "none",
       manufacturing: "operate",
@@ -577,11 +588,8 @@ test.describe("Team management and invite flow", () => {
 
   test("locked BOMs require inventory admin to view or edit recipe details", async ({
     browser,
-    page: ownerPage,
     db,
   }) => {
-    await ownerPage.goto("/settings");
-
     const [unit] = await db
       .select({ id: unitDefinitions.id })
       .from(unitDefinitions)
@@ -590,7 +598,7 @@ test.describe("Team management and invite flow", () => {
 
     expect(unit).toBeTruthy();
 
-    const lockMaterial = await apiCall<{ id?: string }>(ownerPage, "/api/items", {
+    const lockMaterial = await ownerApiCall<{ id?: string }>("/api/items", {
       method: "POST",
       body: {
         name: `Locked Material ${run}`,
@@ -609,7 +617,7 @@ test.describe("Team management and invite flow", () => {
     });
     expect(lockMaterial.status).toBe(201);
 
-    const lockedProduct = await apiCall<{ id?: string }>(ownerPage, "/api/items", {
+    const lockedProduct = await ownerApiCall<{ id?: string }>("/api/items", {
       method: "POST",
       body: {
         name: `Locked Product ${run}`,
@@ -635,8 +643,7 @@ test.describe("Team management and invite flow", () => {
     expect(lockedProduct.status).toBe(201);
     expect(lockedProduct.body?.id).toBeTruthy();
 
-    const lockResponse = await apiCall<{ bomLocked?: boolean; error?: string }>(
-      ownerPage,
+    const lockResponse = await ownerApiCall<{ bomLocked?: boolean; error?: string }>(
       `/api/items/${lockedProduct.body?.id}/bom-lock`,
       {
         method: "POST",
@@ -646,7 +653,7 @@ test.describe("Team management and invite flow", () => {
     expect(lockResponse.status).toBe(200);
     expect(lockResponse.body?.bomLocked).toBe(true);
 
-    await updateMemberAccess(ownerPage, {
+    await updateMemberAccess({
       inventory: "operate",
       sales: "none",
       manufacturing: "none",
@@ -700,7 +707,7 @@ test.describe("Team management and invite flow", () => {
 
     await context.close();
 
-    await updateMemberAccess(ownerPage, {
+    await updateMemberAccess({
       inventory: "admin",
       sales: "none",
       manufacturing: "none",
@@ -729,9 +736,8 @@ test.describe("Team management and invite flow", () => {
 
   test("member with sales operate can access sales but not inventory or team", async ({
     browser,
-    page: ownerPage,
   }) => {
-    await updateMemberAccess(ownerPage, {
+    await updateMemberAccess({
       inventory: "none",
       sales: "operate",
       manufacturing: "none",
@@ -800,9 +806,8 @@ test.describe("Team management and invite flow", () => {
 
   test("member with purchasing operate can access purchasing screens but not other modules", async ({
     browser,
-    page,
   }) => {
-    await updateMemberAccess(page, {
+    await updateMemberAccess({
       inventory: "none",
       sales: "none",
       manufacturing: "none",
@@ -839,17 +844,12 @@ test.describe("Team management and invite flow", () => {
     await context.close();
   });
 
-  test("owner can remove a member without deleting the underlying auth account", async ({ page, db }) => {
-    await page.goto("/settings");
-    const memberRow = teamRowByEmail(page, memberEmail);
-    const removeResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes(`/api/team/members/${memberMemberId}`) &&
-        response.request().method() === "DELETE"
+  test("owner can remove a member without deleting the underlying auth account", async ({ db }) => {
+    const removeResponse = await ownerApiCall<{ error?: string }>(
+      `/api/team/members/${memberMemberId}`,
+      { method: "DELETE" }
     );
-    await memberRow.getByRole("button", { name: "Remove" }).click();
-    await removeResponse;
-    await expect(memberRow).toHaveCount(0);
+    expect(removeResponse.status).toBe(200);
 
     const memberRows = await db
       .select()

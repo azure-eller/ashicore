@@ -7,7 +7,7 @@ export type TeamMemberRow = {
   email: string;
   role: AppRole;
   moduleAccess: ModuleAccessMap;
-  presetKey: DerivedAccessPresetKey;
+  presetKey: DerivedAccessPresetKey | null;
   canManage: boolean;
   createdAt: Date;
   isCurrentUser: boolean;
@@ -25,6 +25,7 @@ export type PendingInviteRow = {
 
 export type TeamPageData = {
   currentRole: AppRole;
+  canGrantTeamManagement: boolean;
   members: TeamMemberRow[];
   pendingInvites: PendingInviteRow[];
 };

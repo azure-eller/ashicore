@@ -12,6 +12,8 @@ import { invitation, member, organization, user } from "@/lib/db/schema";
 import {
   AuthorizationError,
   buildPresetAssignedRoles,
+  canAssignModuleAccess,
+  canGrantTeamManagement,
   canManageTargetRole,
   canManageTeam,
   getDerivedAccessPresetKey,
@@ -90,18 +92,20 @@ async function loadTeamPageData(
 
   return {
     currentRole: normalizeAppRole(currentAssignedRoles),
+    canGrantTeamManagement: canGrantTeamManagement(currentAssignedRoles),
     members: sortMembers(
       memberRows.map((row) => {
         const moduleAccess = getModuleAccessMap(row.role);
+        const normalizedRole = normalizeAppRole(row.role);
 
         return {
           id: row.id,
           userId: row.userId,
           name: row.name,
           email: row.email,
-          role: normalizeAppRole(row.role),
+          role: normalizedRole,
           moduleAccess,
-          presetKey: getDerivedAccessPresetKey(moduleAccess),
+          presetKey: normalizedRole === "owner" ? null : getDerivedAccessPresetKey(moduleAccess),
           canManage: canManageTargetRole(currentAssignedRoles, row.role),
           createdAt: row.createdAt,
           isCurrentUser: row.userId === currentUserId,
@@ -197,6 +201,15 @@ export async function ensureInvitableRole(
 
 export function buildInvitationRolePayload(presetKey: Parameters<typeof buildPresetAssignedRoles>[0]) {
   return buildPresetAssignedRoles(presetKey);
+}
+
+export function assertAssignableModuleAccess(
+  actorRole: string | string[] | null | undefined,
+  moduleAccess: Parameters<typeof canAssignModuleAccess>[1]
+) {
+  if (!canAssignModuleAccess(actorRole, moduleAccess)) {
+    throw new AuthorizationError("Only owners can grant team management access.", 403);
+  }
 }
 
 export async function getManageableMember(
