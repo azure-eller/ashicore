@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, PencilEdit02Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import {
   formatAccessLevelLabel,
   formatAccessPresetLabel,
@@ -37,14 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TeamRoleBadge } from "./team-role-badge";
 import type { TeamMemberRow, TeamPageData } from "./types";
 
@@ -292,51 +285,42 @@ function CustomizeAccessDialog({
             </Field>
           </FieldGroup>
 
-          <div className="rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Module</TableHead>
-                  <TableHead className="text-right">Access</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {MODULE_KEYS.map((moduleKey) => (
-                  <TableRow key={moduleKey}>
-                    <TableCell className="font-medium">
-                      {formatModuleLabel(moduleKey)}
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={moduleAccess[moduleKey]}
-                        onValueChange={(nextValue) => {
-                          setPresetKey("custom");
-                          setModuleAccess({
-                            ...moduleAccess,
-                            [moduleKey]: nextValue as ModuleAccessLevel,
-                          });
-                        }}
-                        disabled={pending}
-                      >
-                        <SelectTrigger className="w-full min-w-[180px]">
-                          <SelectValue placeholder="Select access" />
-                        </SelectTrigger>
-                        <SelectContent
-                          align="start"
-                          className="bg-popover text-popover-foreground"
-                        >
-                          {FULL_ACCESS_OPTIONS.map((option) => (
-                            <SelectItem key={option} value={option}>
-                              {formatAccessLevelLabel(option)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="overflow-hidden rounded-xl border">
+            <div className="divide-y">
+              {MODULE_KEYS.map((moduleKey) => (
+                <div
+                  key={moduleKey}
+                  className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="font-medium">{formatModuleLabel(moduleKey)}</div>
+                  <ToggleGroup
+                    type="single"
+                    value={moduleAccess[moduleKey]}
+                    onValueChange={(nextValue) => {
+                      if (!nextValue) {
+                        return;
+                      }
+
+                      setPresetKey("custom");
+                      setModuleAccess({
+                        ...moduleAccess,
+                        [moduleKey]: nextValue as ModuleAccessLevel,
+                      });
+                    }}
+                    variant="outline"
+                    size="sm"
+                    disabled={pending}
+                    className="flex w-full flex-wrap justify-start sm:w-auto sm:justify-end"
+                  >
+                    {FULL_ACCESS_OPTIONS.map((option) => (
+                      <ToggleGroupItem key={option} value={option} aria-label={option}>
+                        {formatAccessLevelLabel(option)}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -449,7 +433,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
   return (
     <>
-      <section id="team" className="rounded-xl border bg-card">
+      <section id="team" className="rounded-xl border bg-background">
         <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
           <h2 className="text-lg font-semibold tracking-tight">Team</h2>
           <InviteMemberDialog onSuccess={refreshData} />
@@ -507,61 +491,56 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
         <div className="border-t px-6 py-4">
           <h3 className="mb-3 text-sm font-medium">Members</h3>
-          <div className="rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Access</TableHead>
-                  <TableHead className="w-16 text-right" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.members.map((member) => {
-                  const manageable = member.canManage && !member.isCurrentUser;
+          <div className="overflow-hidden rounded-xl border">
+            <div className="divide-y">
+              {data.members.map((member) => {
+                const manageable = member.canManage && !member.isCurrentUser;
 
-                  return (
-                    <TableRow key={member.id} className="group">
-                      <TableCell className="align-top">
-                        <div className="space-y-1">
-                          <div className="font-medium text-foreground">
-                            {member.name}
-                            {member.isCurrentUser ? (
-                              <span className="ml-2 text-xs text-muted-foreground">(You)</span>
-                            ) : null}
-                          </div>
-                          <div className="truncate text-sm text-muted-foreground">
-                            {member.email}
-                          </div>
-                          {member.role === "owner" ? (
-                            <TeamRoleBadge role={member.role} />
+                return (
+                  <div
+                    key={member.id}
+                    className="group flex items-center justify-between gap-4 px-4 py-4"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          {member.name}
+                          {member.isCurrentUser ? (
+                            <span className="ml-2 text-xs text-muted-foreground">(You)</span>
                           ) : null}
                         </div>
-                      </TableCell>
-                      <TableCell className="align-top">
+                        <div className="truncate text-sm text-muted-foreground">
+                          {member.email}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <AccessPresetBadge presetKey={member.presetKey} />
-                      </TableCell>
-                      <TableCell className="align-top text-right">
-                        {manageable ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={mutationPending}
-                            onClick={() => setCustomizingMember(member)}
-                            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                          >
-                            Edit
-                          </Button>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        {member.role === "owner" ? (
+                          <TeamRoleBadge role={member.role} />
+                        ) : null}
+                      </div>
+
+                      {manageable ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={mutationPending}
+                          onClick={() => setCustomizingMember(member)}
+                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                          aria-label={`Edit ${member.name}`}
+                        >
+                          <HugeiconsIcon icon={PencilEdit02Icon} />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>
