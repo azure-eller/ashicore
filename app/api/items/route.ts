@@ -7,7 +7,6 @@ import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { apiHandler } from "@/lib/api/handler";
 import {
   assertLockedBomManagementAccess,
-  assertModuleAccess,
   assertModuleReadAccess,
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";

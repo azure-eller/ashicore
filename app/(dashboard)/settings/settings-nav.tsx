@@ -38,21 +38,18 @@ export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
   }
 
   return (
-    <nav
-      className="hidden lg:sticky lg:top-16 lg:block lg:self-start"
-      aria-label="Settings sections"
-    >
-      <div className="flex flex-col">
+    <nav className="w-full xl:sticky xl:top-20 xl:w-[220px] xl:self-start" aria-label="Settings sections">
+      <div className="flex gap-2 overflow-x-auto rounded-xl border bg-card p-1 xl:flex-col xl:gap-0 xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0">
         {sections.map((section) => (
           <button
             key={section.id}
             type="button"
             onClick={() => handleClick(section.id)}
             className={cn(
-              "border-l-2 px-3 py-1.5 text-left text-sm transition-colors",
+              "shrink-0 rounded-lg px-3 py-2 text-left text-sm transition-colors xl:rounded-none xl:border-l-2 xl:px-4",
               activeId === section.id
-                ? "border-foreground font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-muted font-medium text-foreground xl:border-foreground xl:bg-transparent"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground xl:border-transparent xl:hover:bg-transparent"
             )}
           >
             {section.title}

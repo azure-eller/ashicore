@@ -22,15 +22,24 @@ export default async function SettingsPage() {
   ]);
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+    <div className="mx-auto w-full max-w-7xl">
+      <div className="space-y-1.5">
+        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Manage your profile, team access, and workspace configuration.
+        </p>
+      </div>
 
-      <div className="mt-6 flex gap-8">
-        <SettingsNav sections={sections} />
+      <div className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1fr)_220px] xl:items-start">
+        <div className="order-2 min-w-0 xl:order-1">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+            <ProfileSection initialData={accountData} />
+            {teamData ? <TeamSection initialData={teamData} /> : null}
+          </div>
+        </div>
 
-        <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
-          <ProfileSection initialData={accountData} />
-          {teamData ? <TeamSection initialData={teamData} /> : null}
+        <div className="order-1 xl:order-2 xl:justify-self-end">
+          <SettingsNav sections={sections} />
         </div>
       </div>
     </div>

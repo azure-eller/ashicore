@@ -1,13 +1,37 @@
 import type {
+  StocktakeScopeItemType,
   StocktakeScope,
   StocktakeStatus,
 } from "@/lib/schemas/stocktakes";
+import { parseStocktakeScope } from "@/lib/schemas/stocktakes";
 import type { ItemType } from "@/app/(dashboard)/inventory/types";
 
+export type StocktakeScopeOption = {
+  value: StocktakeScope;
+  label: string;
+};
+
+export type StocktakeScopeOptionGroup = {
+  label: string;
+  options: StocktakeScopeOption[];
+};
+
 export function formatScope(scope: StocktakeScope) {
-  if (scope === "all") return "All Items";
-  if (scope === "material") return "Materials";
-  return "Products";
+  const parsed = parseStocktakeScope(scope);
+
+  if (parsed.kind === "all") {
+    return "All Items";
+  }
+
+  if (parsed.kind === "type") {
+    return parsed.itemType === "material" ? "Materials" : "Products";
+  }
+
+  return `${formatStocktakeScopeTypeLabel(parsed.itemType)}: ${parsed.category}`;
+}
+
+function formatStocktakeScopeTypeLabel(itemType: StocktakeScopeItemType) {
+  return itemType === "material" ? "Materials" : "Products";
 }
 
 export type StocktakeListRow = {

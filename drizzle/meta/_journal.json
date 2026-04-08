@@ -169,6 +169,13 @@
       "when": 1775415173334,
       "tag": "0023_optimal_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1775586873396,
+      "tag": "0024_mushy_pyro",
+      "breakpoints": true
     }
   ]
 }

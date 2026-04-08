@@ -4,7 +4,6 @@ import {
   Head,
   Html,
   Preview,
-  Text,
 } from "@react-email/components";
 
 type EmailLayoutProps = {

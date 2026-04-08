@@ -22,7 +22,9 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -32,6 +34,7 @@ import {
   insertStocktakeSchema,
   stocktakeDefaultValues,
 } from "@/lib/schemas/stocktakes";
+import type { StocktakeScopeOptionGroup } from "./types";
 
 type ApiError = {
   error?: string;
@@ -40,22 +43,11 @@ type ApiError = {
 
 type StocktakeFormValues = z.input<typeof insertStocktakeSchema>;
 
-const scopeOptions = [
-  {
-    value: "all",
-    label: "All Items",
-  },
-  {
-    value: "material",
-    label: "Materials Only",
-  },
-  {
-    value: "product",
-    label: "Products Only",
-  },
-] as const;
-
-export function StocktakeForm() {
+export function StocktakeForm({
+  scopeGroups,
+}: {
+  scopeGroups: StocktakeScopeOptionGroup[];
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [formError, setFormError] = useState<string | null>(null);
@@ -144,8 +136,8 @@ export function StocktakeForm() {
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Basics</FieldLegend>
             <FieldDescription>
-              Name the stocktake and choose which active inventory it should
-              snapshot.
+              Name the stocktake and choose all items, one item type, or a
+              type-specific category.
             </FieldDescription>
             <FieldGroup>
               <Controller
@@ -176,22 +168,31 @@ export function StocktakeForm() {
                       name={field.name}
                       value={field.value}
                       onValueChange={field.onChange}
-                    >
-                      <SelectTrigger
-                        id={field.name}
-                        className="w-full"
-                        aria-invalid={fieldState.invalid}
+                      >
+                        <SelectTrigger
+                          id={field.name}
+                          className="w-full"
+                          aria-invalid={fieldState.invalid}
                       >
                         <SelectValue placeholder="Select scope" />
                       </SelectTrigger>
                       <SelectContent>
-                        {scopeOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
+                        {scopeGroups.map((group) => (
+                          <SelectGroup key={group.label}>
+                            <SelectLabel>{group.label}</SelectLabel>
+                            {group.options.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         ))}
                       </SelectContent>
                     </Select>
+                    <FieldDescription>
+                      Quick scopes stay at the top, with categories grouped under
+                      materials and products.
+                    </FieldDescription>
                     {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                   </Field>
                 )}

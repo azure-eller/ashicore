@@ -291,7 +291,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   };
 
   return (
-    <section id="team" className="overflow-hidden rounded-lg border">
+    <section id="team" className="rounded-xl border bg-card">
       <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold tracking-tight">Team</h2>
@@ -311,14 +311,14 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
       {data.pendingInvites.length > 0 ? (
         <>
-          <div className="border-t px-3 py-2.5 md:px-4">
+          <div className="border-t px-6 py-4">
             <h3 className="text-sm font-medium">Pending invites</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Invitations stay here until the teammate creates their account.
             </p>
           </div>
-          <div className="overflow-x-auto border-t">
-            <Table>
+          <div className="overflow-x-auto border-t px-6 pb-6 pt-4">
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Email</TableHead>
@@ -364,8 +364,8 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
         </>
       ) : null}
 
-      <div className="overflow-x-auto border-t">
-        <Table>
+      <div className="overflow-x-auto border-t px-6 pb-6 pt-4">
+        <Table className="min-w-[1080px]">
           <TableHeader>
             <TableRow>
               <TableHead className="min-w-[320px]">User</TableHead>

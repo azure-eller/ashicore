@@ -3,11 +3,79 @@ import { z } from "zod";
 import { stocktakes } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
-export const STOCKTAKE_SCOPES = ["all", "material", "product"] as const;
-export type StocktakeScope = (typeof STOCKTAKE_SCOPES)[number];
+export const STOCKTAKE_SCOPE_ITEM_TYPES = ["material", "product"] as const;
+export type StocktakeScopeItemType = (typeof STOCKTAKE_SCOPE_ITEM_TYPES)[number];
+
+export const STOCKTAKE_SCOPES = ["all", ...STOCKTAKE_SCOPE_ITEM_TYPES] as const;
+export type StocktakeBaseScope = (typeof STOCKTAKE_SCOPES)[number];
+export type StocktakeCategoryScope =
+  `${StocktakeScopeItemType}:category:${string}`;
+export type StocktakeScope = StocktakeBaseScope | StocktakeCategoryScope;
 
 export const STOCKTAKE_STATUSES = ["draft", "completed", "cancelled"] as const;
 export type StocktakeStatus = (typeof STOCKTAKE_STATUSES)[number];
+
+export function buildStocktakeCategoryScope(
+  itemType: StocktakeScopeItemType,
+  category: string
+): StocktakeCategoryScope {
+  return `${itemType}:category:${category.trim()}` as StocktakeCategoryScope;
+}
+
+function normalizeStocktakeScope(value: string) {
+  const trimmed = value.trim();
+
+  const categoryMatch = /^(material|product):category:(.+)$/u.exec(trimmed);
+  if (categoryMatch) {
+    return buildStocktakeCategoryScope(
+      categoryMatch[1] as StocktakeScopeItemType,
+      categoryMatch[2]
+    );
+  }
+
+  return trimmed;
+}
+
+export function isStocktakeScope(value: string): value is StocktakeScope {
+  if ((STOCKTAKE_SCOPES as readonly string[]).includes(value)) {
+    return true;
+  }
+
+  const categoryMatch = /^(material|product):category:(.+)$/u.exec(value);
+  return categoryMatch != null && categoryMatch[2].trim().length > 0;
+}
+
+export function parseStocktakeScope(scope: StocktakeScope):
+  | { kind: "all" }
+  | { kind: "type"; itemType: StocktakeScopeItemType }
+  | { kind: "category"; itemType: StocktakeScopeItemType; category: string } {
+  if (scope === "all") {
+    return { kind: "all" };
+  }
+
+  if ((STOCKTAKE_SCOPE_ITEM_TYPES as readonly string[]).includes(scope)) {
+    return {
+      kind: "type",
+      itemType: scope as StocktakeScopeItemType,
+    };
+  }
+
+  const categoryMatch = /^(material|product):category:(.+)$/u.exec(scope);
+  if (!categoryMatch) {
+    return { kind: "all" };
+  }
+
+  return {
+    kind: "category",
+    itemType: categoryMatch[1] as StocktakeScopeItemType,
+    category: categoryMatch[2],
+  };
+}
+
+const stocktakeScopeSchema = z
+  .string()
+  .transform(normalizeStocktakeScope)
+  .refine(isStocktakeScope, "Choose a valid scope");
 
 export const insertStocktakeSchema = createInsertSchema(stocktakes, {
   name: z
@@ -15,7 +83,7 @@ export const insertStocktakeSchema = createInsertSchema(stocktakes, {
     .trim()
     .min(1, "Name is required")
     .max(255, "Name must be 255 characters or fewer"),
-  scope: z.enum(STOCKTAKE_SCOPES),
+  scope: stocktakeScopeSchema,
   notes: nullableString,
 }).omit({
   id: true,

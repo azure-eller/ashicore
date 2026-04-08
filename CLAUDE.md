@@ -287,6 +287,15 @@ await completeMutation.mutateAsync(false)
 
 Draft stocktake creation and item soft deletes must both lock affected `items` rows before checking draft references, so snapshot creation cannot race with delete.
 
+### Stocktake scope picker
+
+Stocktake scope stays in one dropdown: quick scopes first (`all`, `material`, `product`), then category scopes grouped under materials/products. Category scopes must encode both item type and category name.
+
+```ts
+buildStocktakeCategoryScope("material", "Soil")
+// "material:category:Soil"
+```
+
 ### Positive stock additions need cost
 
 Any positive stock write that creates a lot must resolve a non-null `costPerUnit`. Materials use `defaultPurchasePrice`. Products derive cost from active BOM ingredients. If no cost basis exists, fail instead of creating a null-cost lot.

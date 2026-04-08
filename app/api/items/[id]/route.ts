@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { assertLockedBomManagementAccess, assertModuleAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import {
+  assertLockedBomManagementAccess,
+  assertModuleWriteAccess,
+} from "@/lib/dal/auth";
 import { InsufficientStockError, MissingStockCostError } from "@/lib/inventory/stock";
 import { updateItemSchema } from "@/lib/schemas/items";
 import { deleteItem, getItem, updateItem } from "@/app/(dashboard)/inventory/queries";

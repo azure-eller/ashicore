@@ -20,7 +20,7 @@ export const stocktakes = inventorySchema
       id: uuid("id").primaryKey().defaultRandom(),
       organizationId: text("organization_id").notNull(),
       name: varchar("name", { length: 255 }).notNull(),
-      scope: varchar("scope", { length: 20 }).notNull().default("all"),
+      scope: varchar("scope", { length: 255 }).notNull().default("all"),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       notes: text("notes"),
       completedAt: timestamp("completed_at"),

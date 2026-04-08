@@ -2,13 +2,15 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { test, expect, getIdFromUrl } from "../fixtures";
 import { items, stocktakeItems, stocktakes } from "../../../lib/db/schema";
 import { createItem, getUnitId } from "../../helpers/api";
+import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 
 test.describe("Stocktake write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
 
   const ts = Date.now();
   const unitId = getUnitId();
-  const category = `Fast Stocktake ${ts}`;
+  const materialCategory = `Fast Stocktake Material ${ts}`;
+  const productCategory = `Fast Stocktake Product ${ts}`;
   const materialName = `Fast Stocktake Bark ${ts}`;
   const productName = `Fast Stocktake Mix ${ts}`;
   let materialId = "";
@@ -21,7 +23,7 @@ test.describe("Stocktake write-path smoke", () => {
       itemType: "material",
       unitDefinitionId: unitId,
       sku: `FAST-STK-MAT-${ts}`,
-      category,
+      category: materialCategory,
       description: "Fast stocktake material",
       defaultPurchasePrice: "2.50",
       defaultSellingPrice: null,
@@ -34,7 +36,7 @@ test.describe("Stocktake write-path smoke", () => {
       itemType: "product",
       unitDefinitionId: unitId,
       sku: `FAST-STK-PROD-${ts}`,
-      category,
+      category: productCategory,
       description: "Fast stocktake product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "12.00",
@@ -51,7 +53,12 @@ test.describe("Stocktake write-path smoke", () => {
     const createdItems = await db
       .select({ id: items.id })
       .from(items)
-      .where(and(eq(items.category, category), inArray(items.id, [materialId, productId])));
+      .where(
+        and(
+          inArray(items.category, [materialCategory, productCategory]),
+          inArray(items.id, [materialId, productId])
+        )
+      );
     expect(createdItems).toHaveLength(2);
 
     await page.goto("/inventory/stocktakes/new");
@@ -59,6 +66,8 @@ test.describe("Stocktake write-path smoke", () => {
 
     await page.locator("#name").fill(`Fast Count ${ts}`);
     await page.locator("#notes").fill("Fast stocktake smoke test");
+    await page.locator("#scope").click();
+    await page.getByRole("option", { name: materialCategory, exact: true }).click();
     const [createStocktakeResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
@@ -80,7 +89,9 @@ test.describe("Stocktake write-path smoke", () => {
       .select()
       .from(stocktakes)
       .where(eq(stocktakes.id, stocktakeId));
-    expect(stocktake.scope).toBe("all");
+    expect(stocktake.scope).toBe(
+      buildStocktakeCategoryScope("material", materialCategory)
+    );
     expect(stocktake.status).toBe("draft");
 
     const lines = await db
@@ -88,9 +99,7 @@ test.describe("Stocktake write-path smoke", () => {
       .from(stocktakeItems)
       .where(eq(stocktakeItems.stocktakeId, stocktakeId))
       .orderBy(asc(stocktakeItems.sortOrder));
-    expect(lines.map((line) => line.itemId)).toEqual(
-      expect.arrayContaining([materialId, productId])
-    );
+    expect(lines.map((line) => line.itemId)).toEqual([materialId]);
 
     const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
     await materialRow.getByPlaceholder("Leave blank").fill("4");

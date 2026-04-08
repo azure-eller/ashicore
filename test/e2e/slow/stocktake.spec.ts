@@ -14,6 +14,7 @@ import {
   testFetch,
   updateItem,
 } from "../../helpers/api";
+import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 
 test.describe("Stocktake flow", () => {
   test.describe.configure({ mode: "serial" });
@@ -22,6 +23,8 @@ test.describe("Stocktake flow", () => {
   const unitId = getUnitId();
 
   const category = `Stocktake ${ts}`;
+  const materialCategory = `Stocktake Material ${ts}`;
+  const productCategory = `Stocktake Product ${ts}`;
   const materialName = `Stocktake Bark ${ts}`;
   const productName = `Stocktake Mix ${ts}`;
   const renamedProductName = `${productName} Updated`;
@@ -30,8 +33,8 @@ test.describe("Stocktake flow", () => {
   let materialId: string;
   let productId: string;
   let stocktakeId: string;
-  let materialsOnlyStocktakeId: string;
-  let productsOnlyStocktakeId: string;
+  let materialCategoryStocktakeId: string;
+  let productCategoryStocktakeId: string;
 
   test("creates material and product fixtures", async ({ db }) => {
     expect(unitId).toBeTruthy();
@@ -41,7 +44,7 @@ test.describe("Stocktake flow", () => {
       itemType: "material",
       unitDefinitionId: unitId,
       sku: `STK-MAT-${ts}`,
-      category,
+      category: materialCategory,
       description: "Primary stocktake material",
       defaultPurchasePrice: "2.50",
       defaultSellingPrice: null,
@@ -58,7 +61,7 @@ test.describe("Stocktake flow", () => {
       itemType: "product",
       unitDefinitionId: unitId,
       sku: `STK-PROD-${ts}`,
-      category,
+      category: productCategory,
       description: "Primary stocktake product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "12.00",
@@ -75,7 +78,12 @@ test.describe("Stocktake flow", () => {
         id: items.id,
       })
       .from(items)
-      .where(and(eq(items.category, category), inArray(items.id, [materialId, productId])));
+      .where(
+        and(
+          inArray(items.category, [materialCategory, productCategory]),
+          inArray(items.id, [materialId, productId])
+        )
+      );
 
     expect(createdItems).toHaveLength(2);
   });
@@ -275,57 +283,57 @@ test.describe("Stocktake flow", () => {
     await expect(stocktakeRow).toContainText(`0 / ${lines.length}`);
   });
 
-  test("creates materials-only and products-only stocktakes via API", async ({ page, db }) => {
+  test("creates category-scoped stocktakes via API", async ({ page, db }) => {
     const materialsResponse = await testFetch("/api/stocktakes", {
       method: "POST",
       body: JSON.stringify({
-        name: `Materials Count ${ts}`,
-        scope: "material",
+        name: `Material Category Count ${ts}`,
+        scope: buildStocktakeCategoryScope("material", materialCategory),
         notes: null,
       }),
     });
     const materialsBody = await materialsResponse.json();
 
     expect(materialsResponse.status).toBe(201);
-    materialsOnlyStocktakeId = materialsBody.id;
+    materialCategoryStocktakeId = materialsBody.id;
 
     const productsResponse = await testFetch("/api/stocktakes", {
       method: "POST",
       body: JSON.stringify({
-        name: `Products Count ${ts}`,
-        scope: "product",
+        name: `Product Category Count ${ts}`,
+        scope: buildStocktakeCategoryScope("product", productCategory),
         notes: null,
       }),
     });
     const productsBody = await productsResponse.json();
 
     expect(productsResponse.status).toBe(201);
-    productsOnlyStocktakeId = productsBody.id;
+    productCategoryStocktakeId = productsBody.id;
 
     const materialLines = await db
       .select({ itemId: stocktakeItems.itemId, itemType: stocktakeItems.itemType })
       .from(stocktakeItems)
-      .where(eq(stocktakeItems.stocktakeId, materialsOnlyStocktakeId));
-    expect(materialLines.length).toBeGreaterThanOrEqual(1);
-    expect(materialLines.map((line) => line.itemId)).toContain(materialId);
+      .where(eq(stocktakeItems.stocktakeId, materialCategoryStocktakeId));
+    expect(materialLines).toHaveLength(1);
+    expect(materialLines.map((line) => line.itemId)).toEqual([materialId]);
     expect(materialLines.every((line) => line.itemType === "material")).toBe(true);
 
     const productLines = await db
       .select({ itemId: stocktakeItems.itemId, itemType: stocktakeItems.itemType })
       .from(stocktakeItems)
-      .where(eq(stocktakeItems.stocktakeId, productsOnlyStocktakeId));
-    expect(productLines.length).toBeGreaterThanOrEqual(1);
-    expect(productLines.map((line) => line.itemId)).toContain(productId);
+      .where(eq(stocktakeItems.stocktakeId, productCategoryStocktakeId));
+    expect(productLines).toHaveLength(1);
+    expect(productLines.map((line) => line.itemId)).toEqual([productId]);
     expect(productLines.every((line) => line.itemType === "product")).toBe(true);
 
     await page.goto("/inventory/stocktakes");
     await filterList(page, "Search stocktakes", String(ts));
     await expect(
-      page.getByRole("row", { name: new RegExp(`Materials Count ${ts}`) })
-    ).toContainText("Materials");
+      page.getByRole("row", { name: new RegExp(`Material Category Count ${ts}`) })
+    ).toContainText(`Materials: ${materialCategory}`);
     await expect(
-      page.getByRole("row", { name: new RegExp(`Products Count ${ts}`) })
-    ).toContainText("Products");
+      page.getByRole("row", { name: new RegExp(`Product Category Count ${ts}`) })
+    ).toContainText(`Products: ${productCategory}`);
   });
 
   test("saves draft counts sparsely, supports clearing counts, and leaves blank lines unchanged", async ({
@@ -601,7 +609,7 @@ test.describe("Stocktake flow", () => {
     const materialUpdate = await updateItem(materialId, {
       name: materialName,
       sku: `STK-MAT-${ts}`,
-      category,
+      category: materialCategory,
       description: "Primary stocktake material",
       defaultPurchasePrice: "2.50",
       defaultSellingPrice: null,
@@ -719,7 +727,7 @@ test.describe("Stocktake flow", () => {
     const productRename = await updateItem(productId, {
       name: renamedProductName,
       sku: `STK-PROD-${ts}`,
-      category,
+      category: productCategory,
       description: "Primary stocktake product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "12.00",
@@ -740,7 +748,7 @@ test.describe("Stocktake flow", () => {
 
   test("cancels a draft stocktake without mutating inventory", async ({ page, db }) => {
     const cancelResponse = await testFetch(
-      `/api/stocktakes/${productsOnlyStocktakeId}/cancel`,
+      `/api/stocktakes/${productCategoryStocktakeId}/cancel`,
       {
         method: "POST",
       }
@@ -751,7 +759,7 @@ test.describe("Stocktake flow", () => {
     const [cancelledStocktake] = await db
       .select()
       .from(stocktakes)
-      .where(eq(stocktakes.id, productsOnlyStocktakeId));
+      .where(eq(stocktakes.id, productCategoryStocktakeId));
 
     expect(cancelledStocktake.status).toBe("cancelled");
     expect(cancelledStocktake.cancelledAt).not.toBeNull();
@@ -768,16 +776,18 @@ test.describe("Stocktake flow", () => {
     const cancelledMovements = await db
       .select({ id: stockMovements.id })
       .from(stockMovements)
-      .where(eq(stockMovements.referenceId, productsOnlyStocktakeId));
+      .where(eq(stockMovements.referenceId, productCategoryStocktakeId));
 
     expect(cancelledMovements).toHaveLength(0);
 
-    await page.goto(`/inventory/stocktakes/${productsOnlyStocktakeId}`);
+    await page.goto(`/inventory/stocktakes/${productCategoryStocktakeId}`);
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
 
     await page.goto("/inventory/stocktakes");
-    await filterList(page, "Search stocktakes", `Products Count ${ts}`);
-    await expect(page.getByText(`No results for "Products Count ${ts}"`)).toBeVisible();
+    await filterList(page, "Search stocktakes", `Product Category Count ${ts}`);
+    await expect(
+      page.getByText(`No results for "Product Category Count ${ts}"`)
+    ).toBeVisible();
   });
 
   test("derives product stock-adjustment cost from the updated BOM", async ({ db }) => {

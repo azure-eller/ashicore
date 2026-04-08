@@ -1,5 +1,5 @@
 import { normalizeNumeric } from "@/lib/format";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   items,
   lots,
@@ -23,12 +23,19 @@ import type {
   CompleteStocktake,
   InsertStocktake,
   StocktakeScope,
+  StocktakeScopeItemType,
   UpdateStocktakeCounts,
+} from "@/lib/schemas/stocktakes";
+import {
+  buildStocktakeCategoryScope,
+  parseStocktakeScope,
 } from "@/lib/schemas/stocktakes";
 import type {
   StocktakeDetail,
   StocktakeDetailLine,
   StocktakeListRow,
+  StocktakeScopeOption,
+  StocktakeScopeOptionGroup,
   StocktakeStaleWarningPayload,
 } from "./types";
 
@@ -124,9 +131,15 @@ async function getStocktakeLinesInTx(
 
 async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
   const conditions = [isNull(items.deletedAt)];
+  const parsedScope = parseStocktakeScope(scope);
 
-  if (scope !== "all") {
-    conditions.push(eq(items.itemType, scope));
+  if (parsedScope.kind === "type") {
+    conditions.push(eq(items.itemType, parsedScope.itemType));
+  }
+
+  if (parsedScope.kind === "category") {
+    conditions.push(eq(items.itemType, parsedScope.itemType));
+    conditions.push(eq(items.category, parsedScope.category));
   }
 
   const lockedRows = await tx
@@ -164,6 +177,77 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
     }
 
     return left.name.localeCompare(right.name);
+  });
+}
+
+export async function getStocktakeScopeOptions(): Promise<StocktakeScopeOptionGroup[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .selectDistinct({
+        itemType: items.itemType,
+        category: items.category,
+      })
+      .from(items)
+      .where(
+        and(
+          isNull(items.deletedAt),
+          isNotNull(items.category),
+          inArray(items.itemType, ["material", "product"])
+        )
+      )
+      .orderBy(asc(items.itemType), asc(items.category));
+
+    const categoriesByType = new Map<StocktakeScopeItemType, string[]>([
+      ["material", []],
+      ["product", []],
+    ]);
+
+    rows.forEach((row) => {
+      const itemType = row.itemType as StocktakeScopeItemType;
+      const category = row.category?.trim();
+
+      if (!category) {
+        return;
+      }
+
+      const bucket = categoriesByType.get(itemType);
+      if (!bucket || bucket.includes(category)) {
+        return;
+      }
+
+      bucket.push(category);
+    });
+
+    const quickScopeOptions: StocktakeScopeOption[] = [
+      { value: "all", label: "All Items" },
+      { value: "material", label: "Materials" },
+      { value: "product", label: "Products" },
+    ];
+
+    return [
+      {
+        label: "Quick scopes",
+        options: quickScopeOptions,
+      },
+      {
+        label: "Material categories",
+        options: categoriesByType
+          .get("material")!
+          .map((category) => ({
+            value: buildStocktakeCategoryScope("material", category),
+            label: category,
+          })),
+      },
+      {
+        label: "Product categories",
+        options: categoriesByType
+          .get("product")!
+          .map((category) => ({
+            value: buildStocktakeCategoryScope("product", category),
+            label: category,
+          })),
+      },
+    ].filter((group) => group.options.length > 0);
   });
 }
 

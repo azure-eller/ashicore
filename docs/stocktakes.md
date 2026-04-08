@@ -14,12 +14,16 @@ Stocktakes are an **inventory-native** reconciliation workflow.
 
 V1 is intentionally small:
 
-- a stocktake snapshots all active items in one scope: `all`, `material`, or `product`
+- a stocktake snapshots all active items in one scope chosen from one grouped dropdown:
+  - quick scopes: `all`, `material`, or `product`
+  - category scopes: one category inside `material` or `product`
 - count entry happens on the stocktake detail page
 - blank counted quantities mean "leave unchanged"
 - completion automatically sets inventory to counted truth
 
 Stocktakes are item-total counts only. They do not count lots individually, do not support locations, and do not have a separate review/apply phase.
+
+Category scopes must encode both the item type and the category name in `inventory.stocktakes.scope`, for example `material:category:Soil`. This avoids ambiguous category names shared by both materials and products while keeping list/detail labels readable.
 
 ## Data Model
 
