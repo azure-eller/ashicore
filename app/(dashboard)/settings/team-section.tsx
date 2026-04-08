@@ -5,37 +5,30 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Add01Icon,
-  Delete02Icon,
-  RefreshIcon,
-} from "@hugeicons/core-free-icons";
+import { Add01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import {
   formatAccessLevelLabel,
+  formatAccessPresetLabel,
   formatModuleLabel,
+  getAccessPresetKeys,
+  getAccessPresetModuleAccess,
+  type AccessPresetKey,
+  type DerivedAccessPresetKey,
   MODULE_KEYS,
   type ModuleAccessLevel,
 } from "@/lib/authz";
 import { formatDate } from "@/lib/format";
-import {
-  createTeamInvitationSchema,
-  moduleAccessSchema,
-} from "@/lib/schemas/team";
+import { createTeamInvitationSchema, moduleAccessSchema } from "@/lib/schemas/team";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -44,7 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -53,10 +45,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TeamRoleBadge } from "./team-role-badge";
 import type { TeamMemberRow, TeamPageData } from "./types";
 
 type InviteFormValues = {
   email: string;
+  presetKey: AccessPresetKey;
 };
 
 type UpdateMemberPayload = {
@@ -65,9 +59,22 @@ type UpdateMemberPayload = {
 };
 
 const FULL_ACCESS_OPTIONS: ModuleAccessLevel[] = ["none", "read", "operate", "admin"];
+const ACCESS_PRESET_KEYS = getAccessPresetKeys();
 
 async function parseJson<T>(response: Response): Promise<T | null> {
   return response.json().catch(() => null);
+}
+
+function AccessPresetBadge({ presetKey }: { presetKey: DerivedAccessPresetKey }) {
+  if (presetKey === "admin") {
+    return <Badge>{formatAccessPresetLabel(presetKey)}</Badge>;
+  }
+
+  if (presetKey === "custom") {
+    return <Badge variant="secondary">{formatAccessPresetLabel(presetKey)}</Badge>;
+  }
+
+  return <Badge variant="outline">{formatAccessPresetLabel(presetKey)}</Badge>;
 }
 
 function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
@@ -79,6 +86,7 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
     mode: "onBlur",
     defaultValues: {
       email: "",
+      presetKey: "view_only",
     },
   });
 
@@ -116,7 +124,10 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
     },
     onSuccess: async () => {
       await onSuccess();
-      form.reset({ email: "" });
+      form.reset({
+        email: "",
+        presetKey: "view_only",
+      });
       setOpen(false);
     },
     onError: (error) => {
@@ -134,13 +145,9 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
           Invite member
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-background text-foreground sm:max-w-lg">
+      <DialogContent className="bg-background text-foreground sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Invite member</DialogTitle>
-          <DialogDescription>
-            Invite a teammate. Access is configured from the permissions matrix after
-            they join.
-          </DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-6"
@@ -161,6 +168,43 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
                     autoComplete="email"
                     placeholder="teammate@example.com"
                   />
+                  <FieldError errors={[fieldState.error]} />
+                </Field>
+              )}
+            />
+
+            <Controller
+              name="presetKey"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel>Default role</FieldLabel>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {ACCESS_PRESET_KEYS.map((presetKey) => {
+                      const selected = field.value === presetKey;
+
+                      return (
+                        <button
+                          key={presetKey}
+                          type="button"
+                          onClick={() => field.onChange(presetKey)}
+                          className={`rounded-xl border px-4 py-4 text-left transition-colors ${
+                            selected
+                              ? "border-ring bg-accent text-accent-foreground"
+                              : "border-border bg-card text-card-foreground hover:bg-accent/50"
+                          }`}
+                          aria-pressed={selected}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium">
+                              {formatAccessPresetLabel(presetKey)}
+                            </span>
+                            <AccessPresetBadge presetKey={presetKey} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                   <FieldError errors={[fieldState.error]} />
                 </Field>
               )}
@@ -188,9 +232,135 @@ function InviteMemberDialog({ onSuccess }: { onSuccess: () => Promise<void> }) {
   );
 }
 
+function CustomizeAccessDialog({
+  member,
+  open,
+  onOpenChange,
+  onSave,
+  pending,
+}: {
+  member: TeamMemberRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => void;
+  pending: boolean;
+}) {
+  const [moduleAccess, setModuleAccess] = useState<TeamMemberRow["moduleAccess"]>(
+    member.moduleAccess
+  );
+  const [presetKey, setPresetKey] = useState<AccessPresetKey | "custom">(
+    member.presetKey === "custom" ? "custom" : member.presetKey
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-background text-foreground sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Edit access</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel>Preset</FieldLabel>
+              <Select
+                value={presetKey}
+                onValueChange={(nextValue) => {
+                  if (nextValue === "custom") {
+                    setPresetKey("custom");
+                    return;
+                  }
+
+                  const nextPreset = nextValue as AccessPresetKey;
+                  setPresetKey(nextPreset);
+                  setModuleAccess(getAccessPresetModuleAccess(nextPreset));
+                }}
+                disabled={pending}
+              >
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="Select preset" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover text-popover-foreground">
+                  {ACCESS_PRESET_KEYS.map((preset) => (
+                    <SelectItem key={preset} value={preset}>
+                      {formatAccessPresetLabel(preset)}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </FieldGroup>
+
+          <div className="rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Module</TableHead>
+                  <TableHead className="text-right">Access</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {MODULE_KEYS.map((moduleKey) => (
+                  <TableRow key={moduleKey}>
+                    <TableCell className="font-medium">
+                      {formatModuleLabel(moduleKey)}
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={moduleAccess[moduleKey]}
+                        onValueChange={(nextValue) => {
+                          setPresetKey("custom");
+                          setModuleAccess({
+                            ...moduleAccess,
+                            [moduleKey]: nextValue as ModuleAccessLevel,
+                          });
+                        }}
+                        disabled={pending}
+                      >
+                        <SelectTrigger className="w-full min-w-[180px]">
+                          <SelectValue placeholder="Select access" />
+                        </SelectTrigger>
+                        <SelectContent
+                          align="start"
+                          className="bg-popover text-popover-foreground"
+                        >
+                          {FULL_ACCESS_OPTIONS.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {formatAccessLevelLabel(option)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={pending}
+            onClick={() => onSave(member, moduleAccessSchema.parse(moduleAccess))}
+          >
+            {pending ? "Saving..." : "Save access"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [customizingMember, setCustomizingMember] = useState<TeamMemberRow | null>(null);
 
   const { data = initialData } = useQuery<TeamPageData>({
     queryKey: ["team"],
@@ -258,212 +428,158 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
         throw new Error(body?.error ?? "Failed to update member access.");
       }
     },
-    onSuccess: refreshData,
-    onError: (error) => setActionError(error.message),
-  });
-
-  const removeMemberMutation = useMutation({
-    mutationFn: async (memberId: string) => {
-      const response = await fetch(`/api/team/members/${memberId}`, {
-        method: "DELETE",
-      });
-      const body = await parseJson<{ error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to remove member.");
-      }
+    onSuccess: async () => {
+      await refreshData();
+      setCustomizingMember(null);
     },
-    onSuccess: refreshData,
     onError: (error) => setActionError(error.message),
   });
 
   const mutationPending =
     resendMutation.isPending ||
     cancelInviteMutation.isPending ||
-    updateMemberMutation.isPending ||
-    removeMemberMutation.isPending;
+    updateMemberMutation.isPending;
 
   const updateMember = (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => {
     updateMemberMutation.mutate({
       memberId: member.id,
-      moduleAccess: moduleAccessSchema.parse(moduleAccess),
+      moduleAccess,
     });
   };
 
   return (
-    <section id="team" className="rounded-xl border bg-card">
-      <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
-        <div className="flex flex-col gap-1">
+    <>
+      <section id="team" className="rounded-xl border bg-card">
+        <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
           <h2 className="text-lg font-semibold tracking-tight">Team</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage access from one permissions matrix. Settings admin users can invite
-            teammates and edit non-owner users.
-          </p>
+          <InviteMemberDialog onSuccess={refreshData} />
         </div>
-        <InviteMemberDialog onSuccess={refreshData} />
-      </div>
 
-      {actionError ? (
-        <div className="px-6 pb-4">
-          <FieldError>{actionError}</FieldError>
-        </div>
-      ) : null}
-
-      {data.pendingInvites.length > 0 ? (
-        <>
-          <div className="border-t px-6 py-4">
-            <h3 className="text-sm font-medium">Pending invites</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Invitations stay here until the teammate creates their account.
-            </p>
+        {actionError ? (
+          <div className="px-6 pb-4">
+            <FieldError>{actionError}</FieldError>
           </div>
-          <div className="overflow-x-auto border-t px-6 pb-6 pt-4">
-            <Table className="min-w-[720px]">
+        ) : null}
+
+        {data.pendingInvites.length > 0 ? (
+          <div className="border-t px-6 py-4">
+            <div className="space-y-2">
+              {data.pendingInvites.map((invite) => (
+                <div
+                  key={invite.id}
+                  className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{invite.email}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <AccessPresetBadge presetKey={invite.presetKey} />
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(invite.expiresAt)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={mutationPending}
+                      onClick={() => resendMutation.mutate(invite.id)}
+                    >
+                      <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
+                      Resend
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={mutationPending}
+                      onClick={() => cancelInviteMutation.mutate(invite.id)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="border-t px-6 py-4">
+          <h3 className="mb-3 text-sm font-medium">Members</h3>
+          <div className="rounded-xl border">
+            <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Expires</TableHead>
-                  <TableHead className="w-[180px] text-right">Actions</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Access</TableHead>
+                  <TableHead className="w-16 text-right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.pendingInvites.map((invite) => (
-                  <TableRow key={invite.id}>
-                    <TableCell className="font-medium">{invite.email}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(invite.expiresAt)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={mutationPending}
-                          onClick={() => resendMutation.mutate(invite.id)}
-                        >
-                          <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
-                          Resend
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={mutationPending}
-                          onClick={() => cancelInviteMutation.mutate(invite.id)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </>
-      ) : null}
+                {data.members.map((member) => {
+                  const manageable = member.canManage && !member.isCurrentUser;
 
-      <div className="overflow-x-auto border-t px-6 pb-6 pt-4">
-        <Table className="min-w-[1080px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[320px]">User</TableHead>
-              {MODULE_KEYS.map((module) => (
-                <TableHead key={module} className="min-w-[156px]">
-                  {formatModuleLabel(module)}
-                </TableHead>
-              ))}
-              <TableHead className="w-[80px] text-right"> </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.members.map((member) => {
-              const manageable = member.canManage && !member.isCurrentUser;
-
-              return (
-                <TableRow key={member.id}>
-                  <TableCell className="align-top">
-                    <div className="min-w-0 space-y-1">
-                      <div className="font-medium text-foreground">
-                        {member.name}
-                        {member.isCurrentUser ? (
-                          <span className="ml-2 text-xs text-muted-foreground">(You)</span>
-                        ) : null}
-                      </div>
-                      <div className="truncate text-sm text-muted-foreground">
-                        {member.email}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {member.role === "owner" ? "Owner" : "User"}
-                      </div>
-                    </div>
-                  </TableCell>
-                  {MODULE_KEYS.map((module) => {
-                    const value = member.moduleAccess[module];
-
-                    return (
-                      <TableCell key={module} className="align-middle">
-                        {manageable ? (
-                          <Select
-                            value={value}
-                            onValueChange={(nextValue) =>
-                              updateMember(member, {
-                                ...member.moduleAccess,
-                                [module]: nextValue as ModuleAccessLevel,
-                              })
-                            }
-                            disabled={mutationPending}
-                          >
-                            <SelectTrigger
-                              size="sm"
-                              className="w-full min-w-[132px]"
-                              aria-label={`${formatModuleLabel(module)} access`}
-                            >
-                              <SelectValue placeholder="Select access" />
-                            </SelectTrigger>
-                            <SelectContent align="start">
-                              {FULL_ACCESS_OPTIONS.map((option) => (
-                                <SelectItem key={option} value={option}>
-                                  {formatAccessLevelLabel(option)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <div className="text-sm text-foreground">
-                            {formatAccessLevelLabel(value)}
+                  return (
+                    <TableRow key={member.id} className="group">
+                      <TableCell className="align-top">
+                        <div className="space-y-1">
+                          <div className="font-medium text-foreground">
+                            {member.name}
+                            {member.isCurrentUser ? (
+                              <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                            ) : null}
                           </div>
-                        )}
+                          <div className="truncate text-sm text-muted-foreground">
+                            {member.email}
+                          </div>
+                          {member.role === "owner" ? (
+                            <TeamRoleBadge role={member.role} />
+                          ) : null}
+                        </div>
                       </TableCell>
-                    );
-                  })}
-                  <TableCell className="text-right align-top">
-                    {manageable ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
+                      <TableCell className="align-top">
+                        <AccessPresetBadge presetKey={member.presetKey} />
+                      </TableCell>
+                      <TableCell className="align-top text-right">
+                        {manageable ? (
                           <Button
                             type="button"
                             variant="ghost"
-                            size="icon-sm"
+                            size="sm"
                             disabled={mutationPending}
-                            onClick={() => removeMemberMutation.mutate(member.id)}
-                            aria-label={`Remove ${member.email}`}
-                            className="shrink-0 text-muted-foreground"
+                            onClick={() => setCustomizingMember(member)}
+                            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                           >
-                            <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
+                            Edit
                           </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">Remove member</TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      </section>
+
+      {customizingMember ? (
+        <CustomizeAccessDialog
+          key={customizingMember.id}
+          member={customizingMember}
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setCustomizingMember(null);
+            }
+          }}
+          onSave={updateMember}
+          pending={updateMemberMutation.isPending}
+        />
+      ) : null}
+    </>
   );
 }

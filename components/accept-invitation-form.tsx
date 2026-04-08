@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PublicInvitationDetails } from "@/app/(dashboard)/settings/types";
 import { authClient } from "@/lib/auth-client";
+import { formatAccessPresetLabel } from "@/lib/authz";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -238,13 +239,15 @@ export function AcceptInvitationForm({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
-        <CardDescription>
-          This invite is for {activeInvitation.email}. Create an account to join this workspace.
-          If you already have an account, sign in instead.
-        </CardDescription>
-      </CardHeader>
+        <CardHeader>
+          <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
+          <CardDescription>
+            This invite is for {activeInvitation.email} and starts with{" "}
+            {formatAccessPresetLabel(activeInvitation.presetKey).toLowerCase()} access.
+            Create an account to join this workspace. If you already have an account,
+            sign in instead.
+          </CardDescription>
+        </CardHeader>
       <CardContent>
         <div className="mb-6 flex gap-2">
           <Button

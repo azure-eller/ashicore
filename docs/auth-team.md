@@ -65,8 +65,10 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 
 - Team UI lives under `Settings > Team`
 - Owner or `settings:admin` access only
-- Invite flow does not ask for a visible role; every invited non-owner starts as a `member` with no module access
-- Post-join permissions are edited in the module matrix UI, including `settings`
+- Team invites require a preset: `admin`, `ops_manager`, `sales_manager`, `sales_operator`, or `view_only`
+- Presets are templates over the matrix, not a separate auth system
+- Team UI should show the derived preset first and only open the matrix in a per-member customize surface
+- Any matrix that no longer matches a preset should display as `Custom`
 - Team reads come from repo-native DAL in `app/(dashboard)/settings/queries.ts`
 - Team mutations go through `app/api/team/*`
 - Dashboard Team UI does not call Better Auth directly
@@ -75,6 +77,8 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 ## Invite Flow
 
 - Invite emails are sent through the Better Auth organization plugin `sendInvitationEmail`
+- `POST /api/team/invitations` should send `{ email, presetKey }`
+- Invite and member rows should derive their preset label from the stored matrix tokens
 - Use the app invite page at `/accept-invitation?id=<invitationId>`
 - New invited users create an account and join the org in one submit
 - There is no separate visible accept-invitation confirmation step

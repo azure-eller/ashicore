@@ -12,12 +12,21 @@ export const MODULE_KEYS = [
 
 export const MODULE_ACCESS_LEVELS = ["none", "read", "operate", "admin"] as const;
 export const MATRIX_SENTINEL_ROLE = "access:matrix" as const;
+export const ACCESS_PRESET_KEYS = [
+  "admin",
+  "ops_manager",
+  "sales_manager",
+  "sales_operator",
+  "view_only",
+] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export type ModuleAccessLevel = (typeof MODULE_ACCESS_LEVELS)[number];
 export type ModuleAccessMap = Record<ModuleKey, ModuleAccessLevel>;
 export type MatrixModuleRole = `${ModuleKey}:${Exclude<ModuleAccessLevel, "none">}`;
+export type AccessPresetKey = (typeof ACCESS_PRESET_KEYS)[number];
+export type DerivedAccessPresetKey = AccessPresetKey | "custom";
 
 const MODULE_ACCESS_RANK: Record<ModuleAccessLevel, number> = {
   none: 0,
@@ -48,8 +57,50 @@ const OWNER_MODULE_ACCESS: ModuleAccessMap = {
   settings: "admin",
 };
 
+const ACCESS_PRESET_DEFINITIONS: Record<AccessPresetKey, ModuleAccessMap> = {
+  admin: {
+    inventory: "admin",
+    sales: "admin",
+    manufacturing: "admin",
+    purchasing: "admin",
+    settings: "admin",
+  },
+  ops_manager: {
+    inventory: "admin",
+    sales: "read",
+    manufacturing: "admin",
+    purchasing: "admin",
+    settings: "none",
+  },
+  sales_manager: {
+    inventory: "read",
+    sales: "admin",
+    manufacturing: "read",
+    purchasing: "read",
+    settings: "none",
+  },
+  sales_operator: {
+    inventory: "read",
+    sales: "operate",
+    manufacturing: "read",
+    purchasing: "read",
+    settings: "none",
+  },
+  view_only: {
+    inventory: "read",
+    sales: "read",
+    manufacturing: "read",
+    purchasing: "read",
+    settings: "none",
+  },
+};
+
 function cloneModuleAccess(source: ModuleAccessMap): ModuleAccessMap {
   return { ...source };
+}
+
+function isModuleAccessMapEqual(left: ModuleAccessMap, right: ModuleAccessMap) {
+  return MODULE_KEYS.every((moduleKey) => left[moduleKey] === right[moduleKey]);
 }
 
 export function splitAssignedRoles(role: string | string[] | null | undefined) {
@@ -152,6 +203,38 @@ export function formatRoleLabel(role: string | string[] | null | undefined) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+export function formatAccessPresetLabel(presetKey: DerivedAccessPresetKey) {
+  switch (presetKey) {
+    case "admin":
+      return "Admin";
+    case "ops_manager":
+      return "Ops Manager";
+    case "sales_manager":
+      return "Sales Manager";
+    case "sales_operator":
+      return "Sales Operator";
+    case "view_only":
+      return "View Only";
+    case "custom":
+      return "Custom";
+  }
+}
+
+export function formatAccessPresetDescription(presetKey: AccessPresetKey) {
+  switch (presetKey) {
+    case "admin":
+      return "Full admin access across every module, including team settings.";
+    case "ops_manager":
+      return "Admin for inventory, manufacturing, and purchasing with read access elsewhere.";
+    case "sales_manager":
+      return "Admin for sales with read access across the operational modules.";
+    case "sales_operator":
+      return "Operational sales access with read-only visibility into inventory and operations.";
+    case "view_only":
+      return "Read-only access across inventory, sales, manufacturing, and purchasing.";
+  }
+}
+
 export function formatAccessLevelLabel(level: ModuleAccessLevel) {
   switch (level) {
     case "none":
@@ -190,6 +273,33 @@ export function getInitialModuleAccess(governanceRole: AppRole): ModuleAccessMap
   }
 
   return cloneModuleAccess(EMPTY_MODULE_ACCESS);
+}
+
+export function getAccessPresetKeys() {
+  return [...ACCESS_PRESET_KEYS];
+}
+
+export function getAccessPresetModuleAccess(presetKey: AccessPresetKey): ModuleAccessMap {
+  return cloneModuleAccess(ACCESS_PRESET_DEFINITIONS[presetKey]);
+}
+
+export function getDerivedAccessPresetKey(
+  access: Partial<Record<ModuleKey, ModuleAccessLevel>>
+): DerivedAccessPresetKey {
+  const normalized = normalizeModuleAccess("member", access);
+
+  for (const presetKey of ACCESS_PRESET_KEYS) {
+    if (
+      isModuleAccessMapEqual(
+        normalized,
+        ACCESS_PRESET_DEFINITIONS[presetKey]
+      )
+    ) {
+      return presetKey;
+    }
+  }
+
+  return "custom";
 }
 
 export function normalizeModuleAccess(
@@ -238,6 +348,10 @@ export function buildAssignedRoles(
   }
 
   return assignedRoles;
+}
+
+export function buildPresetAssignedRoles(presetKey: AccessPresetKey) {
+  return buildAssignedRoles("member", getAccessPresetModuleAccess(presetKey));
 }
 
 export function getModuleAccessMap(role: string | string[] | null | undefined): ModuleAccessMap {

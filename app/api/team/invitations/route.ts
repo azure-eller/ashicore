@@ -15,7 +15,7 @@ export const POST = apiHandler(async (request) => {
 
   const response = await callAuthApi(request.headers, "createInvitation", {
     email: data.email,
-    role: buildInvitationRolePayload(),
+    role: buildInvitationRolePayload(data.presetKey),
   });
   return authApiResponseToNextResponse(response);
 });

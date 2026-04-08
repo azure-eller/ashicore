@@ -117,6 +117,16 @@ function createModuleAccessRole(role: MatrixModuleRole) {
     case "purchasing":
       return organizationAc.newRole({ purchasing: actions });
     case "settings":
+      if (level === "admin") {
+        return organizationAc.newRole({
+          member: ["create", "update", "delete"],
+          invitation: ["create", "cancel"],
+          team: ["create", "update", "delete"],
+          ac: ["read"],
+          settings: actions,
+        });
+      }
+
       return organizationAc.newRole({ settings: actions });
   }
 }

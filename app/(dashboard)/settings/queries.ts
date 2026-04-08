@@ -11,9 +11,10 @@ import { db } from "@/lib/db";
 import { invitation, member, organization, user } from "@/lib/db/schema";
 import {
   AuthorizationError,
-  buildAssignedRoles,
+  buildPresetAssignedRoles,
   canManageTargetRole,
   canManageTeam,
+  getDerivedAccessPresetKey,
   getModuleAccessMap,
   normalizeAppRole,
 } from "@/lib/authz";
@@ -90,26 +91,37 @@ async function loadTeamPageData(
   return {
     currentRole: normalizeAppRole(currentAssignedRoles),
     members: sortMembers(
-      memberRows.map((row) => ({
-        id: row.id,
-        userId: row.userId,
-        name: row.name,
-        email: row.email,
-        role: normalizeAppRole(row.role),
-        moduleAccess: getModuleAccessMap(row.role),
-        canManage: canManageTargetRole(currentAssignedRoles, row.role),
-        createdAt: row.createdAt,
-        isCurrentUser: row.userId === currentUserId,
-      }))
+      memberRows.map((row) => {
+        const moduleAccess = getModuleAccessMap(row.role);
+
+        return {
+          id: row.id,
+          userId: row.userId,
+          name: row.name,
+          email: row.email,
+          role: normalizeAppRole(row.role),
+          moduleAccess,
+          presetKey: getDerivedAccessPresetKey(moduleAccess),
+          canManage: canManageTargetRole(currentAssignedRoles, row.role),
+          createdAt: row.createdAt,
+          isCurrentUser: row.userId === currentUserId,
+        };
+      })
     ),
     pendingInvites: sortInvites(
-      inviteRows.map((row) => ({
-        id: row.id,
-        email: row.email,
-        status: row.status,
-        expiresAt: row.expiresAt,
-        createdAt: row.createdAt,
-      }))
+      inviteRows.map((row) => {
+        const moduleAccess = getModuleAccessMap(row.role);
+
+        return {
+          id: row.id,
+          email: row.email,
+          moduleAccess,
+          presetKey: getDerivedAccessPresetKey(moduleAccess),
+          status: row.status,
+          expiresAt: row.expiresAt,
+          createdAt: row.createdAt,
+        };
+      })
     ),
   };
 }
@@ -156,9 +168,13 @@ export async function getPublicInvitationDetails(
     return null;
   }
 
+  const moduleAccess = getModuleAccessMap(row.role);
+
   return {
     id: row.id,
     email: row.email,
+    moduleAccess,
+    presetKey: getDerivedAccessPresetKey(moduleAccess),
     status: row.status,
     expiresAt: row.expiresAt,
     organizationId: row.organizationId,
@@ -177,6 +193,10 @@ export async function ensureInvitableRole(
   }
 
   return actor;
+}
+
+export function buildInvitationRolePayload(presetKey: Parameters<typeof buildPresetAssignedRoles>[0]) {
+  return buildPresetAssignedRoles(presetKey);
 }
 
 export async function getManageableMember(
@@ -254,6 +274,7 @@ export async function getManageableInvitation(
     invitation: {
       id: inviteRow.id,
       email: inviteRow.email,
+      role: inviteRow.role,
       status: inviteRow.status,
     },
   };
@@ -386,8 +407,4 @@ export async function callAuthApi(
         asResponse: true,
       })) as Response;
   }
-}
-
-export function buildInvitationRolePayload() {
-  return buildAssignedRoles("member", {});
 }

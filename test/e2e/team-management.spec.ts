@@ -16,7 +16,6 @@ const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
 const TEST_ORG_ID = env.TEST_ORG_ID;
 const BASE_URL = env.TEST_BASE_URL ?? "http://localhost:3000";
 const BLOCKED_ROUTE_ID = "11111111-1111-1111-1111-111111111111";
-const MODULE_ORDER = ["inventory", "sales", "manufacturing", "purchasing"] as const;
 
 function parseCookie(raw: string) {
   const [name, ...rest] = raw.split("=");
@@ -24,48 +23,11 @@ function parseCookie(raw: string) {
 }
 
 function pendingInviteCard(page: Page, email: string) {
-  return page
-    .getByText(email, { exact: true })
-    .locator("xpath=ancestor::div[2]");
+  return page.getByText(email).locator("xpath=ancestor::tr[1]");
 }
 
-function memberRowByEmail(page: Page, email: string) {
-  return page
-    .getByText(email, { exact: true })
-    .locator("xpath=ancestor::tr[1]");
-}
-
-async function setMatrixAccess(
-  page: Page,
-  email: string,
-  module: (typeof MODULE_ORDER)[number],
-  target: "none" | "read" | "operate" | "admin"
-) {
-  const row = memberRowByEmail(page, email);
-  const moduleIndex = MODULE_ORDER.indexOf(module);
-  const cellButton = row.locator("td").nth(moduleIndex + 1).getByRole("button");
-
-  await expect(cellButton).toBeVisible();
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const currentLabel = await cellButton.getAttribute("aria-label");
-    if (currentLabel?.toLowerCase().includes(target)) {
-      return;
-    }
-
-    const updateResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/team/members/") &&
-        response.request().method() === "PATCH"
-    );
-    await cellButton.click();
-    await updateResponse;
-    await expect(cellButton).not.toHaveAttribute("aria-label", currentLabel ?? "", {
-      timeout: 15_000,
-    });
-  }
-
-  throw new Error(`Failed to set ${module} access to ${target} for ${email}`);
+function teamRowByEmail(page: Page, email: string) {
+  return page.getByText(email).locator("xpath=ancestor::tr[1]");
 }
 
 async function addSessionCookie(context: BrowserContext, rawCookie: string) {
@@ -163,7 +125,6 @@ test.describe("Team management and invite flow", () => {
   let memberInvitationId = "";
   let adminInvitationId = "";
   let memberMemberId = "";
-  let adminMemberId = "";
   let memberUserId = "";
 
   async function updateMemberAccess(
@@ -232,10 +193,11 @@ test.describe("Team management and invite flow", () => {
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
 
-    const inviteMember = async (email: string) => {
+    const inviteMember = async (email: string, presetLabel: string) => {
       await page.getByRole("button", { name: "Invite member" }).click();
       const dialog = page.getByRole("dialog");
       await dialog.getByLabel("Email").fill(email);
+      await dialog.locator("button").filter({ hasText: presetLabel }).first().click();
       const inviteResponse = page.waitForResponse(
         (response) =>
           response.url().endsWith("/api/team/invitations") &&
@@ -246,8 +208,8 @@ test.describe("Team management and invite flow", () => {
       await expect(page.getByRole("dialog")).toHaveCount(0);
     };
 
-    await inviteMember(memberEmail);
-    await inviteMember(adminEmail);
+    await inviteMember(memberEmail, "Sales Operator");
+    await inviteMember(adminEmail, "Admin");
 
     const [memberInvite] = await db
       .select()
@@ -258,8 +220,23 @@ test.describe("Team management and invite flow", () => {
       .from(invitation)
       .where(and(eq(invitation.organizationId, TEST_ORG_ID), eq(invitation.email, adminEmail)));
 
-    expectRoleIncludes(memberInvite.role, ["access:matrix", "member"]);
-    expectRoleIncludes(adminInvite.role, ["access:matrix", "member"]);
+    expectRoleIncludes(memberInvite.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:operate",
+      "manufacturing:read",
+      "purchasing:read",
+    ]);
+    expectRoleIncludes(adminInvite.role, [
+      "access:matrix",
+      "member",
+      "inventory:admin",
+      "sales:admin",
+      "manufacturing:admin",
+      "purchasing:admin",
+      "settings:admin",
+    ]);
 
     await page.reload();
     await expect(pendingInviteCard(page, memberEmail)).toBeVisible();
@@ -280,7 +257,7 @@ test.describe("Team management and invite flow", () => {
       const inviteEmail = `switch-${run}@example.com`;
       const response = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
         method: "POST",
-        body: { email: inviteEmail },
+        body: { email: inviteEmail, presetKey: "view_only" },
       });
       expect(response.status).toBe(200);
 
@@ -303,7 +280,7 @@ test.describe("Team management and invite flow", () => {
     await expect(page.locator("form").getByRole("button", { name: "Sign In" })).toBeEnabled();
   });
 
-  test("member accepts invite with no module access by default", async ({ browser, db }) => {
+  test("sales operator invite applies the preset access on join", async ({ browser, db }) => {
     const accepted = await acceptInviteAsNewUser(
       browser,
       memberInvitationId,
@@ -313,8 +290,8 @@ test.describe("Team management and invite flow", () => {
     );
 
     await expect(accepted.page).toHaveURL(/\/settings$/);
-    await expect(accepted.page.locator('a[href="/sales/orders"]')).toHaveCount(0);
-    await expect(accepted.page.locator('a[href="/inventory/products"]')).toHaveCount(0);
+    await expect(accepted.page.locator('a[href="/sales/orders"]')).toHaveCount(1);
+    await expect(accepted.page.locator('a[href="/inventory/products"]')).toHaveCount(1);
 
     const [memberUser] = await db.select().from(user).where(eq(user.email, memberEmail));
     expect(memberUser).toBeTruthy();
@@ -324,14 +301,41 @@ test.describe("Team management and invite flow", () => {
       .select()
       .from(member)
       .where(and(eq(member.organizationId, TEST_ORG_ID), eq(member.userId, memberUser.id)));
-    expectRoleIncludes(memberRow.role, ["access:matrix", "member"]);
+    expectRoleIncludes(memberRow.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:operate",
+      "manufacturing:read",
+      "purchasing:read",
+    ]);
     memberMemberId = memberRow.id;
 
-    const blockedSales = await apiCall<{ error?: string }>(accepted.page, "/api/sales-orders", {
+    const blockedManufacturing = await apiCall<{ error?: string }>(
+      accepted.page,
+      `/api/sales-orders/${BLOCKED_ROUTE_ID}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: {
+          plannedDate: null,
+          notes: null,
+        },
+      }
+    );
+    expect(blockedManufacturing.status).toBe(403);
+
+    const salesRead = await apiCall<{ error?: string }>(accepted.page, "/api/sales-orders", {
       method: "POST",
-      body: {},
+      body: {
+        customerId: BLOCKED_ROUTE_ID,
+        status: "draft",
+        requestedDate: null,
+        notes: null,
+        lines: [],
+        confirmOversell: false,
+      },
     });
-    expect(blockedSales.status).toBe(403);
+    expect(salesRead.status).not.toBe(403);
 
     await accepted.context.close();
   });
@@ -339,7 +343,6 @@ test.describe("Team management and invite flow", () => {
   test("settings admin can access team settings and grant other settings admins", async ({
     browser,
     db,
-    page: ownerPage,
   }) => {
     const accepted = await acceptInviteAsNewUser(
       browser,
@@ -356,30 +359,23 @@ test.describe("Team management and invite flow", () => {
       .select()
       .from(member)
       .where(and(eq(member.organizationId, TEST_ORG_ID), eq(member.userId, adminUser.id)));
-    expectRoleIncludes(adminRow.role, ["access:matrix", "member"]);
-    adminMemberId = adminRow.id;
-
+    expectRoleIncludes(adminRow.role, [
+      "access:matrix",
+      "member",
+      "inventory:admin",
+      "sales:admin",
+      "manufacturing:admin",
+      "purchasing:admin",
+      "settings:admin",
+    ]);
     await accepted.context.close();
 
-    const promoteResponse = await apiCall<{ error?: string }>(
-      ownerPage,
-      `/api/team/members/${adminMemberId}`,
-      {
-        method: "PATCH",
-        body: {
-          moduleAccess: {
-            inventory: "none",
-            sales: "none",
-            manufacturing: "none",
-            purchasing: "none",
-            settings: "admin",
-          },
-        },
-      }
+    const { context, page } = await signInAsExistingUser(
+      browser,
+      adminEmail,
+      adminPassword,
+      "/inventory/products"
     );
-    expect(promoteResponse.status).toBe(200);
-
-    const { context, page } = await signInAsExistingUser(browser, adminEmail, adminPassword);
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
 
@@ -390,7 +386,10 @@ test.describe("Team management and invite flow", () => {
 
     const allowedInvite = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
       method: "POST",
-      body: { email: `settings-admin-invite-${run}@example.com` },
+      body: {
+        email: `settings-admin-invite-${run}@example.com`,
+        presetKey: "view_only",
+      },
     });
     expect(allowedInvite.status).toBe(200);
 
@@ -415,12 +414,14 @@ test.describe("Team management and invite flow", () => {
     await context.close();
   });
 
-  test("owner can assign module access from the team matrix", async ({ page, db }) => {
-    await page.goto("/settings");
-    const memberRow = memberRowByEmail(page, memberEmail);
-    await expect(memberRow).toBeVisible();
-
-    await setMatrixAccess(page, memberEmail, "sales", "operate");
+  test("owner can customize member access from the team panel", async ({ page, db }) => {
+    await updateMemberAccess(page, {
+      inventory: "read",
+      sales: "operate",
+      manufacturing: "read",
+      purchasing: "read",
+      settings: "none",
+    });
 
     const [updatedMember] = await db
       .select()
@@ -429,7 +430,10 @@ test.describe("Team management and invite flow", () => {
     expectRoleIncludes(updatedMember.role, [
       "access:matrix",
       "member",
+      "inventory:read",
       "sales:operate",
+      "manufacturing:read",
+      "purchasing:read",
     ]);
   });
 
@@ -837,13 +841,13 @@ test.describe("Team management and invite flow", () => {
 
   test("owner can remove a member without deleting the underlying auth account", async ({ page, db }) => {
     await page.goto("/settings");
-    const memberRow = memberRowByEmail(page, memberEmail);
+    const memberRow = teamRowByEmail(page, memberEmail);
     const removeResponse = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/team/members/${memberMemberId}`) &&
         response.request().method() === "DELETE"
     );
-    await memberRow.getByRole("button", { name: new RegExp(`Remove ${memberEmail}`) }).click();
+    await memberRow.getByRole("button", { name: "Remove" }).click();
     await removeResponse;
     await expect(memberRow).toHaveCount(0);
 

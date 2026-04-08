@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import {
-  buildInvitationRolePayload,
   callAuthApi,
   getManageableInvitation,
 } from "@/app/(dashboard)/settings/queries";
 import { authApiResponseToNextResponse } from "@/app/api/_utils/auth-api-response";
+import { splitAssignedRoles } from "@/lib/authz";
 
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
@@ -18,7 +18,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
 
   const response = await callAuthApi(request.headers, "createInvitation", {
     email: invite.invitation.email,
-    role: buildInvitationRolePayload(),
+    role: splitAssignedRoles(invite.invitation.role),
     resend: true,
   });
 
