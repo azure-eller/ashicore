@@ -130,8 +130,11 @@ jobs:
       - name: Run migrations
         run: pnpm drizzle-kit migrate
 
+      - name: Build app
+        run: pnpm build
+
       - name: Start app
-        run: pnpm dev > /tmp/erp-dev.log 2>&1 &
+        run: pnpm start > /tmp/erp-dev.log 2>&1 &
 
       - name: Wait for app
         run: |
