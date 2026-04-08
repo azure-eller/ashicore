@@ -58,24 +58,27 @@ export function buildStorageState(
   }>;
   origins: [];
 } {
-  const { name, value } = parseCookie(rawCookie);
   const url = new URL(baseUrl);
+  const isSecure = url.protocol === "https:";
 
-  return {
-    cookies: [
-      {
+  const cookies = rawCookie
+    .split("; ")
+    .filter(Boolean)
+    .map((pair) => {
+      const { name, value } = parseCookie(pair);
+      return {
         name,
         value,
         domain: url.hostname,
         path: "/",
         expires: -1,
         httpOnly: true,
-        secure: url.protocol === "https:",
-        sameSite: "Lax",
-      },
-    ],
-    origins: [],
-  };
+        secure: isSecure,
+        sameSite: "Lax" as const,
+      };
+    });
+
+  return { cookies, origins: [] };
 }
 
 export function ensureAuthDir() {
