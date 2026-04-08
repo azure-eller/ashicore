@@ -143,6 +143,9 @@ export const auth = betterAuth({
     allowedHosts: authAllowedHosts,
     fallback: authFallbackUrl,
   },
+  advanced: {
+    useSecureCookies: authFallbackUrl.startsWith("https://"),
+  },
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
