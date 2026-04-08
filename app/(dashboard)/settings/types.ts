@@ -1,4 +1,4 @@
-import type { AppRole, ModuleAccessMap } from "@/lib/authz";
+import type { AppRole, DerivedAccessPresetKey, ModuleAccessMap } from "@/lib/authz";
 
 export type TeamMemberRow = {
   id: string;
@@ -7,6 +7,7 @@ export type TeamMemberRow = {
   email: string;
   role: AppRole;
   moduleAccess: ModuleAccessMap;
+  presetKey: DerivedAccessPresetKey | null;
   canManage: boolean;
   createdAt: Date;
   isCurrentUser: boolean;
@@ -15,6 +16,8 @@ export type TeamMemberRow = {
 export type PendingInviteRow = {
   id: string;
   email: string;
+  moduleAccess: ModuleAccessMap;
+  presetKey: DerivedAccessPresetKey;
   status: string;
   expiresAt: Date;
   createdAt: Date;
@@ -22,6 +25,7 @@ export type PendingInviteRow = {
 
 export type TeamPageData = {
   currentRole: AppRole;
+  canGrantTeamManagement: boolean;
   members: TeamMemberRow[];
   pendingInvites: PendingInviteRow[];
 };
@@ -35,6 +39,8 @@ export type AccountPageData = {
 export type PublicInvitationDetails = {
   id: string;
   email: string;
+  moduleAccess: ModuleAccessMap;
+  presetKey: DerivedAccessPresetKey;
   status: string;
   expiresAt: Date;
   organizationId: string;

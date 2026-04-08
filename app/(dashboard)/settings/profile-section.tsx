@@ -293,7 +293,7 @@ export function ProfileSection({
   });
 
   return (
-    <section id="profile" className="rounded-xl border bg-card p-6">
+    <section id="profile" className="rounded-xl border bg-background p-6">
       <form
         className="flex flex-col gap-6"
         onSubmit={form.handleSubmit((input) => mutation.mutate(input))}

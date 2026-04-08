@@ -208,6 +208,15 @@ Keep `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` as the canonical fallback URL. `l
 
 Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` / `VERCEL_URL` for the canonical app URL and auto-allow `*.vercel.app` in preview.
 
+### Team access presets
+
+Team invites should choose a preset (`admin`, `ops_manager`, `sales_manager`, `sales_operator`, `view_only`) and convert it to matrix roles. Presets are derived from module access later; non-matching access shows as `custom`.
+
+```ts
+const assignedRoles = buildPresetAssignedRoles("sales_operator")
+const presetKey = getDerivedAccessPresetKey(moduleAccess)
+```
+
 ### Portal theming
 
 Portal components should use semantic background/text tokens on the portal content itself. Do not hardcode `dark` on individual dialogs or menus.
