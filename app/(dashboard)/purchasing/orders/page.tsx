@@ -1,7 +1,17 @@
+import { Suspense } from "react";
 import { OrdersTable } from "@/app/(dashboard)/purchasing/orders-table";
 import { getPurchaseOrders } from "@/app/(dashboard)/purchasing/queries";
+import OrdersTableSkeleton from "../orders-table-skeleton";
 
-export default async function PurchaseOrdersPage() {
+export default function PurchaseOrdersPage() {
+  return (
+    <Suspense fallback={<OrdersTableSkeleton />}>
+      <PurchaseOrdersData />
+    </Suspense>
+  );
+}
+
+async function PurchaseOrdersData() {
   const orders = await getPurchaseOrders();
   return <OrdersTable initialData={orders} />;
 }

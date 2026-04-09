@@ -250,6 +250,23 @@ export { default } from "../../material-item-detail-loading"
 export { default } from "../../product-item-detail-loading"
 ```
 
+Dashboard list pages should render a sync shell and suspend only the data region so table skeletons appear immediately on navigation.
+
+```tsx
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<OrdersTableSkeleton />}>
+      <OrdersData />
+    </Suspense>
+  )
+}
+
+async function OrdersData() {
+  const orders = await getSalesOrders()
+  return <OrdersTable initialData={orders} />
+}
+```
+
 ### Postgres numeric fields
 
 Postgres `numeric` columns are returned as strings by the driver. Always parse for display — use `formatQuantity()` from `lib/format.ts` or `parseFloat()`:
@@ -508,6 +525,10 @@ Round derived manufacturing quantities to 4 decimals before shortage checks or s
 ```ts
 const actualNeeded = multiplyQuantity(ingredient.quantityPerUnit, actualQuantity)
 ```
+
+### Manufacturing requested vs planned quantity
+
+Manufacturing orders store the user-requested quantity separately from the batch-rounded planned quantity. Use `requestedQuantity` for form/edit inputs and keep `plannedQuantity` for execution math.
 
 ### Manufacturing sales-line snapshots
 

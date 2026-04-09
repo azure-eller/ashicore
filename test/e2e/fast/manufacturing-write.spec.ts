@@ -106,6 +106,7 @@ test.describe("Manufacturing write-path smoke", () => {
       .where(eq(manufacturingOrders.id, orderId));
     expect(order.productId).toBe(productId);
     expect(order.status).toBe("draft");
+    expect(order.requestedQuantity).toBe("5.0000");
     expect(order.plannedQuantity).toBe("5.0000");
     expect(order.plannedDate).toBe("2026-04-25");
     expect(order.notes).toBe("Fast manufacturing smoke test");

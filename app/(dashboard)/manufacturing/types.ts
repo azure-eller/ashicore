@@ -167,6 +167,7 @@ export type ManufacturingOrderEditData = {
   salesOrderLineId: string | null;
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
+  requestedQuantity: string;
   plannedQuantity: string;
   plannedDate: string | null;
   notes: string | null;

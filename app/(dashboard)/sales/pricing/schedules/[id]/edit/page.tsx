@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { requireModuleAccess } from "@/lib/dal/auth";
 import { PricingScheduleForm } from "@/app/(dashboard)/sales/pricing-schedule-form";
 import {
   getCustomerCategoryOptions,
@@ -12,7 +11,6 @@ export default async function EditPricingSchedulePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireModuleAccess("sales", "admin");
   const { id } = await params;
   const [pricingSchedule, customerCategories, units] = await Promise.all([
     getPricingSchedule(id),

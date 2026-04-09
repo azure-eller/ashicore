@@ -958,6 +958,9 @@ export async function getManufacturingOrderEditData(
         salesOrderLineId: manufacturingOrders.salesOrderLineId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
+        requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
+          "requestedQuantity"
+        ),
         plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
           "plannedQuantity"
         ),

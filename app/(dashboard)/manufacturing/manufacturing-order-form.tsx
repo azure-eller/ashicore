@@ -130,7 +130,7 @@ export function ManufacturingOrderForm({
           productId: initialData.productId,
           salesOrderId: initialData.salesOrderId,
           salesOrderLineId: initialData.salesOrderLineId,
-          plannedQuantity: initialData.plannedQuantity,
+          plannedQuantity: initialData.requestedQuantity,
           plannedDate: initialData.plannedDate,
           notes: initialData.notes,
           ingredients: initialData.ingredients.map((ingredient) => ({
@@ -188,7 +188,7 @@ export function ManufacturingOrderForm({
             itemId: initialData.productId,
             itemName: initialData.productName,
             itemSku: initialData.productSku,
-            quantity: initialData.plannedQuantity,
+            quantity: initialData.requestedQuantity,
             unitName: initialData.unitName,
             status: "confirmed" as const,
           },
