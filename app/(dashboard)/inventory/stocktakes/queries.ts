@@ -7,6 +7,7 @@ import {
   stocktakes,
   unitDefinitions,
 } from "@/lib/db/schema";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -114,10 +115,10 @@ async function getStocktakeLinesInTx(
       itemSku: stocktakeItems.itemSku,
       itemType: stocktakeItems.itemType,
       unitName: stocktakeItems.unitName,
-      expectedQty: stocktakeItems.expectedQty,
-      countedQty: stocktakeItems.countedQty,
-      varianceQty: stocktakeItems.varianceQty,
-      appliedDeltaQty: stocktakeItems.appliedDeltaQty,
+      expectedQty: trimScale(stocktakeItems.expectedQty).as("expectedQty"),
+      countedQty: trimScaleNullable(stocktakeItems.countedQty).as("countedQty"),
+      varianceQty: trimScaleNullable(stocktakeItems.varianceQty).as("varianceQty"),
+      appliedDeltaQty: trimScaleNullable(stocktakeItems.appliedDeltaQty).as("appliedDeltaQty"),
       sortOrder: stocktakeItems.sortOrder,
       createdAt: stocktakeItems.createdAt,
       updatedAt: stocktakeItems.updatedAt,
@@ -160,11 +161,11 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
-      currentQty: sql<string>`(
+      currentQty: trimScale(sql`(
         SELECT COALESCE(SUM(${lots.quantity}), 0)
         FROM ${lots}
         WHERE ${lots.itemId} = ${items.id}
-      )`,
+      )`).as("currentQty"),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))

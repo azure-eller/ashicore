@@ -325,7 +325,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                   <TableRow key={line.id}>
                     <TableCell>{line.itemName}</TableCell>
                     <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
-                    <TableCell className="text-right">{parseFloat(line.quantity)}</TableCell>
+                    <TableCell className="text-right">{line.quantity}</TableCell>
                     <TableCell>{line.unitName}</TableCell>
                     <TableCell className="text-right">
                       <div>
@@ -413,7 +413,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {parseFloat(manufacturingOrder.plannedQuantity)}
+                        {manufacturingOrder.plannedQuantity}
                       </TableCell>
                       <TableCell>{manufacturingOrder.unitName}</TableCell>
                       <TableCell>

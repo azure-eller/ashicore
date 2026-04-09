@@ -18,6 +18,7 @@ import {
   stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
   getBomRevisionComponentsInTx,
   getBomRevisionHistoryInTx,
@@ -36,11 +37,11 @@ import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import type { ItemRow, ItemType } from "./types";
 
-const stockSubquery = sql<string>`(
+const stockSubquery = trimScale(sql`(
   SELECT COALESCE(SUM(${lots.quantity}), 0)
   FROM ${lots}
   WHERE ${lots.itemId} = ${items.id}
-)`.as("stock");
+)`).as("stock");
 
 type BomInputRow = { componentId: string; quantity: string };
 
@@ -164,9 +165,9 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         sku: items.sku,
         itemType: items.itemType,
         stock: stockSubquery,
-        committedQty: items.committedQty,
-        expectedQty: items.expectedQty,
-        safetyStock: items.safetyStock,
+        committedQty: trimScale(items.committedQty).as("committedQty"),
+        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         unit: unitDefinitions.name,
         category: items.category,
       })
@@ -190,20 +191,28 @@ export async function getItem(id: string) {
         description: items.description,
         unitDefinitionId: items.unitDefinitionId,
         purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
-        purchaseToStockFactor: items.purchaseToStockFactor,
-        defaultPurchasePrice: items.defaultPurchasePrice,
-        defaultSellingPrice: items.defaultSellingPrice,
+        purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
+          "purchaseToStockFactor"
+        ),
+        defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
+          "defaultPurchasePrice"
+        ),
+        defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
+          "defaultSellingPrice"
+        ),
         manufacturingMode: items.manufacturingMode,
-        expectedBatchYield: items.expectedBatchYield,
+        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
         bomLocked: items.bomLocked,
         bomLockedAt: items.bomLockedAt,
         bomLockedByUserId: items.bomLockedByUserId,
         stock: stockSubquery,
-        committedQty: items.committedQty,
-        expectedQty: items.expectedQty,
-        safetyStock: items.safetyStock,
+        committedQty: trimScale(items.committedQty).as("committedQty"),
+        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         unitName: unitDefinitions.name,
-        unitSize: unitDefinitions.size,
+        unitSize: trimScale(unitDefinitions.size).as("unitSize"),
         unitUom: unitDefinitions.uom,
       })
       .from(items)
@@ -219,7 +228,7 @@ export async function getItem(id: string) {
           .select({
             id: unitDefinitions.id,
             name: unitDefinitions.name,
-            size: unitDefinitions.size,
+            size: trimScale(unitDefinitions.size).as("size"),
             uom: unitDefinitions.uom,
           })
           .from(unitDefinitions)
@@ -494,7 +503,7 @@ export async function getUnitDefinitions() {
       .select({
         id: unitDefinitions.id,
         name: unitDefinitions.name,
-        size: unitDefinitions.size,
+        size: trimScale(unitDefinitions.size).as("size"),
         uom: unitDefinitions.uom,
       })
       .from(unitDefinitions)
@@ -520,8 +529,8 @@ export async function getLots(itemId: string) {
       .select({
         id: lots.id,
         lotNumber: lots.lotNumber,
-        quantity: lots.quantity,
-        costPerUnit: lots.costPerUnit,
+        quantity: trimScale(lots.quantity).as("quantity"),
+        costPerUnit: trimScaleNullable(lots.costPerUnit).as("costPerUnit"),
         receivedAt: lots.receivedAt,
       })
       .from(lots)
@@ -535,7 +544,7 @@ export async function getStockMovements(itemId: string) {
     return tx
       .select({
         id: stockMovements.id,
-        quantity: stockMovements.quantity,
+        quantity: trimScale(stockMovements.quantity).as("quantity"),
         movementType: stockMovements.movementType,
         referenceType: stockMovements.referenceType,
         referenceId: stockMovements.referenceId,
@@ -696,7 +705,7 @@ export async function createUnitDefinition(
       .returning({
         id: unitDefinitions.id,
         name: unitDefinitions.name,
-        size: unitDefinitions.size,
+        size: trimScale(unitDefinitions.size).as("size"),
         uom: unitDefinitions.uom,
       });
     return row;

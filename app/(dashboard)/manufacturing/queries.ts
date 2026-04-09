@@ -17,6 +17,7 @@ import {
   stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
   getCurrentActiveBomIngredientsInTx,
   getCurrentBomCoverageInTx,
@@ -167,7 +168,9 @@ async function getLockedManufacturingOrderInTx(
       status: manufacturingOrders.status,
       manufacturingMode: manufacturingOrders.manufacturingMode,
       numberOfBatches: manufacturingOrders.numberOfBatches,
-      expectedBatchYield: manufacturingOrders.expectedBatchYield,
+      expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
+        "expectedBatchYield"
+      ),
       salesOrderId: manufacturingOrders.salesOrderId,
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       salesOrderNumber: manufacturingOrders.salesOrderNumber,
@@ -218,7 +221,9 @@ async function getValidatedProductInTx(
       sku: items.sku,
       unitName: unitDefinitions.name,
       manufacturingMode: items.manufacturingMode,
-      expectedBatchYield: items.expectedBatchYield,
+      expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+        "expectedBatchYield"
+      ),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -419,6 +424,7 @@ async function insertManufacturingOrderInTx(
     product: ProductSnapshot;
     bomRevisionId: string | null;
     salesLink: SalesLineSnapshot | null;
+    requestedQuantity: string;
     plannedQuantity: number;
     numberOfBatches: number | null;
     plannedDate: string | null;
@@ -442,6 +448,7 @@ async function insertManufacturingOrderInTx(
       manufacturingMode: values.product.manufacturingMode,
       numberOfBatches: values.numberOfBatches,
       expectedBatchYield: values.product.expectedBatchYield,
+      requestedQuantity: normalizeQuantityString(Number(values.requestedQuantity)),
       salesOrderNumber: values.salesLink?.salesOrderNumber ?? null,
       salesCustomerName: values.salesLink?.customerName ?? null,
       status: "draft",
@@ -552,7 +559,9 @@ async function getReleaseShortagesInTx(
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       unitName: manufacturingOrderIngredients.unitName,
-      plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+        "plannedQuantity"
+      ),
     })
     .from(manufacturingOrderIngredients)
     .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId))
@@ -623,8 +632,12 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
-        plannedQuantity: manufacturingOrders.plannedQuantity,
-        actualQuantity: manufacturingOrders.actualQuantity,
+        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+          "plannedQuantity"
+        ),
+        actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+          "actualQuantity"
+        ),
         unitName: manufacturingOrders.unitName,
         plannedDate: manufacturingOrders.plannedDate,
         status: manufacturingOrders.status,
@@ -665,7 +678,9 @@ export async function getManufacturingProductTemplates(): Promise<
         sku: items.sku,
         unitName: unitDefinitions.name,
         manufacturingMode: items.manufacturingMode,
-        expectedBatchYield: items.expectedBatchYield,
+        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -806,7 +821,7 @@ export async function getManufacturingSalesLineOptions(
         itemId: salesOrderLines.itemId,
         itemName: salesOrderLines.itemName,
         itemSku: salesOrderLines.itemSku,
-        quantity: salesOrderLines.quantity,
+        quantity: trimScale(salesOrderLines.quantity).as("quantity"),
         unitName: salesOrderLines.unitName,
         status: salesOrders.status,
       })
@@ -838,12 +853,22 @@ export async function getManufacturingOrder(
         status: manufacturingOrders.status,
         manufacturingMode: manufacturingOrders.manufacturingMode,
         numberOfBatches: manufacturingOrders.numberOfBatches,
-        expectedBatchYield: manufacturingOrders.expectedBatchYield,
-        plannedQuantity: manufacturingOrders.plannedQuantity,
-        actualQuantity: manufacturingOrders.actualQuantity,
+        expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
+        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+          "plannedQuantity"
+        ),
+        actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+          "actualQuantity"
+        ),
         plannedDate: manufacturingOrders.plannedDate,
-        actualMaterialCost: manufacturingOrders.actualMaterialCost,
-        actualCostPerUnit: manufacturingOrders.actualCostPerUnit,
+        actualMaterialCost: trimScaleNullable(manufacturingOrders.actualMaterialCost).as(
+          "actualMaterialCost"
+        ),
+        actualCostPerUnit: trimScaleNullable(manufacturingOrders.actualCostPerUnit).as(
+          "actualCostPerUnit"
+        ),
         notes: manufacturingOrders.notes,
         releasedAt: manufacturingOrders.releasedAt,
         completedAt: manufacturingOrders.completedAt,
@@ -867,10 +892,18 @@ export async function getManufacturingOrder(
         itemSku: manufacturingOrderIngredients.itemSku,
         itemType: manufacturingOrderIngredients.itemType,
         unitName: manufacturingOrderIngredients.unitName,
-        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
-        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
-        actualQuantity: manufacturingOrderIngredients.actualQuantity,
-        actualCostTotal: manufacturingOrderIngredients.actualCostTotal,
+        quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
+          "quantityPerUnit"
+        ),
+        plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+          "plannedQuantity"
+        ),
+        actualQuantity: trimScaleNullable(manufacturingOrderIngredients.actualQuantity).as(
+          "actualQuantity"
+        ),
+        actualCostTotal: trimScaleNullable(manufacturingOrderIngredients.actualCostTotal).as(
+          "actualCostTotal"
+        ),
         sortOrder: manufacturingOrderIngredients.sortOrder,
       })
       .from(manufacturingOrderIngredients)
@@ -881,8 +914,8 @@ export async function getManufacturingOrder(
       .select({
         lotId: lots.id,
         lotNumber: lots.lotNumber,
-        quantity: stockMovements.quantity,
-        costPerUnit: lots.costPerUnit,
+        quantity: trimScale(stockMovements.quantity).as("quantity"),
+        costPerUnit: trimScaleNullable(lots.costPerUnit).as("costPerUnit"),
       })
       .from(stockMovements)
       .innerJoin(lots, eq(stockMovements.lotId, lots.id))
@@ -918,12 +951,16 @@ export async function getManufacturingOrderEditData(
         unitName: manufacturingOrders.unitName,
         manufacturingMode: manufacturingOrders.manufacturingMode,
         numberOfBatches: manufacturingOrders.numberOfBatches,
-        expectedBatchYield: manufacturingOrders.expectedBatchYield,
+        expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
         salesOrderId: manufacturingOrders.salesOrderId,
         salesOrderLineId: manufacturingOrders.salesOrderLineId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
-        plannedQuantity: manufacturingOrders.plannedQuantity,
+        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+          "plannedQuantity"
+        ),
         plannedDate: manufacturingOrders.plannedDate,
         notes: manufacturingOrders.notes,
       })
@@ -947,7 +984,9 @@ export async function getManufacturingOrderEditData(
         itemSku: manufacturingOrderIngredients.itemSku,
         itemType: manufacturingOrderIngredients.itemType,
         unitName: manufacturingOrderIngredients.unitName,
-        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
+          "quantityPerUnit"
+        ),
       })
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
@@ -990,6 +1029,7 @@ export async function createManufacturingOrder(
       product,
       bomRevisionId,
       salesLink,
+      requestedQuantity: payload.plannedQuantity,
       plannedQuantity,
       numberOfBatches,
       plannedDate: payload.plannedDate ?? null,
@@ -1075,6 +1115,7 @@ export async function createManufacturingOrdersFromSalesOrder(
           salesOrderNumber: order.orderNumber,
           customerName: order.customerName,
         },
+        requestedQuantity: line.quantity,
         plannedQuantity,
         numberOfBatches,
         plannedDate,
@@ -1147,6 +1188,7 @@ export async function updateManufacturingOrder(
         salesOrderLineId: salesLink?.salesOrderLineId ?? null,
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
         salesCustomerName: salesLink?.customerName ?? null,
+        requestedQuantity: normalizeQuantityString(Number(payload.plannedQuantity)),
         plannedQuantity: normalizeQuantityString(plannedQuantity),
         numberOfBatches,
         plannedDate: payload.plannedDate ?? null,
@@ -1256,7 +1298,9 @@ export async function completeManufacturingOrder(
         itemId: manufacturingOrderIngredients.itemId,
         itemName: manufacturingOrderIngredients.itemName,
         unitName: manufacturingOrderIngredients.unitName,
-        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
+          "quantityPerUnit"
+        ),
       })
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))

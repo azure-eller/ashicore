@@ -18,7 +18,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
-import { formatPrice, formatMovementType } from "@/lib/format";
+import { formatPrice, formatMovementType, formatQuantity } from "@/lib/format";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
@@ -170,14 +170,14 @@ export function ItemDetail({
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Stocking Unit</dt>
           <dd className="mt-1 text-sm">
-            {item.unitName} ({parseFloat(item.unitSize)} {item.unitUom})
+            {item.unitName} ({item.unitSize} {item.unitUom})
           </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Purchase Unit</dt>
           <dd className="mt-1 text-sm">
             {item.purchaseUnitName && item.purchaseUnitSize && item.purchaseUnitUom
-              ? `${item.purchaseUnitName} (${parseFloat(item.purchaseUnitSize)} ${item.purchaseUnitUom})`
+              ? `${item.purchaseUnitName} (${item.purchaseUnitSize} ${item.purchaseUnitUom})`
               : "\u2014"}
           </dd>
         </div>
@@ -185,7 +185,7 @@ export function ItemDetail({
           <dt className="text-sm font-medium text-muted-foreground">Purchase Conversion</dt>
           <dd className="mt-1 text-sm">
             {item.purchaseUnitName && item.purchaseToStockFactor
-              ? `1 ${item.purchaseUnitName} = ${parseFloat(item.purchaseToStockFactor)} ${item.unitName}`
+              ? `1 ${item.purchaseUnitName} = ${item.purchaseToStockFactor} ${item.unitName}`
               : "\u2014"}
           </dd>
         </div>
@@ -208,24 +208,24 @@ export function ItemDetail({
         {itemType === "product" && item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Expected Batch Yield</dt>
-            <dd className="mt-1 text-sm">{parseFloat(item.expectedBatchYield)} {item.unitName}</dd>
+            <dd className="mt-1 text-sm">{item.expectedBatchYield} {item.unitName}</dd>
           </div>
         )}
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Stock</dt>
-          <dd className="mt-1 text-sm">{parseFloat(item.stock)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">{formatQuantity(item.stock)} {item.unitName}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Committed</dt>
-          <dd className="mt-1 text-sm">{parseFloat(item.committedQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">{formatQuantity(item.committedQty)} {item.unitName}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Expected</dt>
-          <dd className="mt-1 text-sm">{parseFloat(item.expectedQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">{formatQuantity(item.expectedQty)} {item.unitName}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Safety Stock</dt>
-          <dd className="mt-1 text-sm">{parseFloat(item.safetyStock)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">{item.safetyStock} {item.unitName}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
@@ -373,7 +373,7 @@ export function ItemDetail({
                 {lots.map((lot) => (
                   <TableRow key={lot.id}>
                     <TableCell className="font-mono">{lot.lotNumber}</TableCell>
-                    <TableCell className="text-right">{parseFloat(lot.quantity)}</TableCell>
+                    <TableCell className="text-right">{lot.quantity}</TableCell>
                     <TableCell className="text-right">{formatPrice(lot.costPerUnit) ?? "\u2014"}</TableCell>
                     <TableCell className="text-right">{lot.receivedAt.toLocaleDateString("en-US")}</TableCell>
                   </TableRow>
@@ -409,7 +409,8 @@ export function ItemDetail({
                       <TableCell>{m.createdAt.toLocaleDateString("en-US")}</TableCell>
                       <TableCell className="text-muted-foreground">{formatMovementType(m.movementType)}</TableCell>
                       <TableCell className={`text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
-                        {qty > 0 ? "+" : ""}{qty}
+                        {qty > 0 ? "+" : ""}
+                        {formatQuantity(m.quantity)}
                       </TableCell>
                       <TableCell className="font-mono">{m.lotNumber ?? "\u2014"}</TableCell>
                     </TableRow>

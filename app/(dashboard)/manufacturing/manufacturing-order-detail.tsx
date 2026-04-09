@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
+import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { MANUFACTURING_SHORTAGE_TOOLTIP } from "@/lib/tooltip-copy";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type {
@@ -268,7 +268,7 @@ export function ManufacturingOrderDetail({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Planned Quantity</dt>
             <dd className="mt-1 text-sm">
-              {parseFloat(order.plannedQuantity)} {order.unitName}
+              {order.plannedQuantity} {order.unitName}
               {order.manufacturingMode === "batch" && order.numberOfBatches != null && (
                 <span className="text-muted-foreground"> ({order.numberOfBatches} batch{order.numberOfBatches === 1 ? "" : "es"})</span>
               )}
@@ -278,7 +278,7 @@ export function ManufacturingOrderDetail({
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Yield / Batch</dt>
               <dd className="mt-1 text-sm">
-                {parseFloat(order.expectedBatchYield)} {order.unitName}
+                {order.expectedBatchYield} {order.unitName}
               </dd>
             </div>
           )}
@@ -286,7 +286,7 @@ export function ManufacturingOrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Actual Quantity</dt>
             <dd className="mt-1 text-sm">
               {order.actualQuantity != null
-                ? `${parseFloat(order.actualQuantity)} ${order.unitName}`
+                ? `${order.actualQuantity} ${order.unitName}`
                 : "\u2014"}
             </dd>
           </div>
@@ -362,14 +362,14 @@ export function ManufacturingOrderDetail({
                       <Badge variant="outline">{ingredient.itemType}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {parseFloat(ingredient.quantityPerUnit)}
+                      {ingredient.quantityPerUnit}
                     </TableCell>
                     <TableCell className="text-right">
-                      {parseFloat(ingredient.plannedQuantity)}
+                      {ingredient.plannedQuantity}
                     </TableCell>
                     <TableCell className="text-right">
                       {ingredient.actualQuantity != null
-                        ? parseFloat(ingredient.actualQuantity)
+                        ? ingredient.actualQuantity
                         : "\u2014"}
                     </TableCell>
                     <TableCell className="text-right">
@@ -400,7 +400,7 @@ export function ManufacturingOrderDetail({
                   <TableRow>
                     <TableCell className="font-mono">{order.producedLot.lotNumber}</TableCell>
                     <TableCell className="text-right">
-                      {parseFloat(order.producedLot.quantity)}
+                      {formatQuantity(order.producedLot.quantity)}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatPrice(order.producedLot.costPerUnit) ?? "\u2014"}

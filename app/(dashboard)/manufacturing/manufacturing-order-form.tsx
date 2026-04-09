@@ -93,9 +93,7 @@ function formatSalesLineLabel(
   const line = salesLineMap.get(value);
   if (!line) return "";
 
-  const quantity = parseFloat(line.quantity);
-  const quantityLabel = Number.isFinite(quantity) ? quantity : line.quantity;
-  return `${line.salesOrderNumber} - ${line.customerName} - ${quantityLabel} ${line.unitName}`;
+  return `${line.salesOrderNumber} - ${line.customerName} - ${line.quantity} ${line.unitName}`;
 }
 
 export function ManufacturingOrderForm({
@@ -602,7 +600,7 @@ export function ManufacturingOrderForm({
                                         </span>
                                         <span className="text-xs text-muted-foreground">
                                           {line
-                                            ? `${parseFloat(line.quantity)} ${line.unitName} • ${line.status}`
+                                            ? `${line.quantity} ${line.unitName} • ${line.status}`
                                             : ""}
                                         </span>
                                       </div>
@@ -803,7 +801,7 @@ export function ManufacturingOrderForm({
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">
-                                {parseFloat(line.quantity)}
+                                {line.quantity}
                               </TableCell>
                               <TableCell>{line.unitName}</TableCell>
                               <TableCell>

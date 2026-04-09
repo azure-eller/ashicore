@@ -149,19 +149,13 @@ export function ItemForm({
           sku: initialData.sku,
           category: initialData.category,
           description: initialData.description,
-          defaultPurchasePrice: initialData.defaultPurchasePrice != null
-            ? String(parseFloat(initialData.defaultPurchasePrice))
-            : null,
-          defaultSellingPrice: initialData.defaultSellingPrice != null
-            ? String(parseFloat(initialData.defaultSellingPrice))
-            : null,
+          defaultPurchasePrice: initialData.defaultPurchasePrice,
+          defaultSellingPrice: initialData.defaultSellingPrice,
           manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
-          expectedBatchYield: initialData.expectedBatchYield != null
-            ? String(parseFloat(initialData.expectedBatchYield))
-            : null,
+          expectedBatchYield: initialData.expectedBatchYield,
           bomLocked: initialData.bomLocked ?? false,
-          stock: String(parseFloat(initialData.stock)),
-          safetyStock: String(parseFloat(initialData.safetyStock)),
+          stock: initialData.stock,
+          safetyStock: initialData.safetyStock,
           bom: initialData.bom ?? [],
           revisionNote: null,
         }
@@ -476,7 +470,7 @@ export function ItemForm({
                 <Field>
                   <FieldLabel>Stocking Unit</FieldLabel>
                   <p className="py-2 text-sm">
-                    {initialData.unitName} ({parseFloat(initialData.unitSize)} {initialData.unitUom})
+                    {initialData.unitName} ({initialData.unitSize} {initialData.unitUom})
                   </p>
                 </Field>
               ) : (
@@ -508,7 +502,7 @@ export function ItemForm({
                         <SelectContent>
                           {localUnits.map((u) => (
                             <SelectItem key={u.id} value={u.id}>
-                              {u.name} ({parseFloat(u.size)} {u.uom})
+                              {u.name} ({u.size} {u.uom})
                             </SelectItem>
                           ))}
                           <SelectSeparator />
@@ -550,7 +544,7 @@ export function ItemForm({
                         <SelectSeparator />
                         {localUnits.map((u) => (
                           <SelectItem key={u.id} value={u.id}>
-                            {u.name} ({parseFloat(u.size)} {u.uom})
+                            {u.name} ({u.size} {u.uom})
                           </SelectItem>
                         ))}
                       </SelectContent>

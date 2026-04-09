@@ -263,6 +263,13 @@ if (!isNaN(qty)) { ... }
 if (row.quantity) { ... }
 ```
 
+API/DAL read queries must trim fixed Postgres scale before returning numeric strings. Use `trimScale()` / `trimScaleNullable()` from `lib/db/numeric.ts` in select projections and aggregate subqueries.
+
+```ts
+quantity: trimScale(lots.quantity).as("quantity"),
+stock: trimScale(sql`COALESCE(SUM(${lots.quantity}), 0)`).as("stock"),
+```
+
 When writing ANY numeric value to Postgres — quantities, costs, amounts, prices — always strip trailing zeros. This applies to every `normalizeXxxString` helper, not just quantities:
 
 ```ts

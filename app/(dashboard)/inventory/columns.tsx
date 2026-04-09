@@ -14,6 +14,7 @@ import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
 } from "@/lib/tooltip-copy";
+import { formatQuantity } from "@/lib/format";
 import { calcStock } from "./types";
 import type { ItemRow } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
@@ -87,7 +88,7 @@ export const columns: ColumnDef<ItemRow>[] = [
     sortingFn: (rowA, rowB) =>
       parseFloat(rowA.getValue("stock")) - parseFloat(rowB.getValue("stock")),
     header: ({ column }) => <SortableHeader column={column} label="Stock" />,
-    cell: ({ row }) => parseFloat(row.getValue("stock")),
+    cell: ({ row }) => formatQuantity(row.getValue("stock")),
   },
   {
     id: "calculatedStock",

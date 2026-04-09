@@ -52,6 +52,17 @@ return NextResponse.json({ error: "Not found" }, { status: 404 });
 
 Note: **`error`** (singular) for general errors. Never use `errors` for non-field errors.
 
+## Numeric Response Shape
+
+API success payloads should return canonical numeric strings, not fixed Postgres scale. Keep exact decimals as strings, but trim trailing zeroes in DAL read selectors before the route calls `NextResponse.json(...)`.
+
+```ts
+quantity: trimScale(lots.quantity).as("quantity"),
+totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
+```
+
+Do not coerce exact decimals to JS `number` in API responses.
+
 ## Domain Errors
 
 API-facing business errors with shared JSON response behavior should extend `DomainError` from `lib/errors/domain-error.ts` instead of re-implementing `status` and `toResponse()`.

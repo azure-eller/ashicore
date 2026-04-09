@@ -8,6 +8,7 @@ import {
   unitDefinitions,
   user,
 } from "@/lib/db/schema";
+import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export type BomRevisionComponentSnapshot = {
@@ -83,7 +84,7 @@ export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string
       componentSku: bomRevisionComponents.componentSku,
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
-      quantity: bomRevisionComponents.quantity,
+      quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
@@ -116,7 +117,7 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
       itemSku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
-      quantityPerUnit: bomRevisionComponents.quantity,
+      quantityPerUnit: trimScale(bomRevisionComponents.quantity).as("quantityPerUnit"),
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
@@ -171,7 +172,7 @@ export async function getCurrentBomCoverageInTx(tx: Tx, productIds: string[]) {
       componentSku: bomRevisionComponents.componentSku,
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
-      quantity: bomRevisionComponents.quantity,
+      quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)

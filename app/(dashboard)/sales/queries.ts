@@ -20,6 +20,7 @@ import {
   salesOrders,
   unitDefinitions,
 } from "@/lib/db/schema";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -65,11 +66,11 @@ import type {
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 
-const stockSubquery = sql<string>`(
+const stockSubquery = trimScale(sql`(
   SELECT COALESCE(SUM(${lots.quantity}), 0)
   FROM ${lots}
   WHERE ${lots.itemId} = ${items.id}
-)`.as("stock");
+)`).as("stock");
 
 type PreparedOrderLineBase = {
   itemId: string;
@@ -336,9 +337,11 @@ async function getPricingScheduleBreaksInTx(
     .select({
       id: pricingScheduleBreaks.id,
       pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
-      minQuantity: pricingScheduleBreaks.minQuantity,
-      maxQuantity: pricingScheduleBreaks.maxQuantity,
-      discountPercent: pricingScheduleBreaks.discountPercent,
+      minQuantity: trimScale(pricingScheduleBreaks.minQuantity).as("minQuantity"),
+      maxQuantity: trimScaleNullable(pricingScheduleBreaks.maxQuantity).as("maxQuantity"),
+      discountPercent: trimScale(pricingScheduleBreaks.discountPercent).as(
+        "discountPercent"
+      ),
       sortOrder: pricingScheduleBreaks.sortOrder,
     })
     .from(pricingScheduleBreaks)
@@ -521,14 +524,16 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
       itemName: salesOrderLines.itemName,
       itemSku: salesOrderLines.itemSku,
       unitName: salesOrderLines.unitName,
-      quantity: salesOrderLines.quantity,
-      unitPrice: salesOrderLines.unitPrice,
-      suggestedUnitPrice: salesOrderLines.suggestedUnitPrice,
+      quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+      unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
+      suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
+        "suggestedUnitPrice"
+      ),
       pricingSourceType: salesOrderLines.pricingSourceType,
       pricingScheduleName: salesOrderLines.pricingScheduleName,
       pricingBreakLabel: salesOrderLines.pricingBreakLabel,
       isPriceOverridden: salesOrderLines.isPriceOverridden,
-      lineTotal: salesOrderLines.lineTotal,
+      lineTotal: trimScale(salesOrderLines.lineTotal).as("lineTotal"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
       updatedAt: salesOrderLines.updatedAt,
@@ -586,9 +591,9 @@ async function prepareDraftOrdersForConfirmationInTx(
     .select({
       salesOrderId: salesOrderLines.salesOrderId,
       itemId: salesOrderLines.itemId,
-      quantity: salesOrderLines.quantity,
-      unitPrice: salesOrderLines.unitPrice,
-      lineTotal: salesOrderLines.lineTotal,
+      quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+      unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
+      lineTotal: trimScale(salesOrderLines.lineTotal).as("lineTotal"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
     })
@@ -665,7 +670,7 @@ async function recomputeCommittedQty(tx: Tx, itemIds: string[]) {
   const totals = await tx
     .select({
       itemId: salesOrderLines.itemId,
-      total: sql<string>`COALESCE(SUM(${salesOrderLines.quantity}), 0)`,
+      total: trimScale(sql`COALESCE(SUM(${salesOrderLines.quantity}), 0)`).as("total"),
     })
     .from(salesOrderLines)
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
@@ -730,11 +735,13 @@ async function getValidatedSalesItemsInTx(
       sku: items.sku,
       unitDefinitionId: items.unitDefinitionId,
       unitName: unitDefinitions.name,
-      defaultSellingPrice: items.defaultSellingPrice,
+      defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
+        "defaultSellingPrice"
+      ),
       stock: stockSubquery,
-      committedQty: items.committedQty,
-      expectedQty: items.expectedQty,
-      safetyStock: items.safetyStock,
+      committedQty: trimScale(items.committedQty).as("committedQty"),
+      expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+      safetyStock: trimScale(items.safetyStock).as("safetyStock"),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -993,7 +1000,7 @@ export async function getPricingUnitOptions(): Promise<PricingUnitOption[]> {
       .select({
         id: unitDefinitions.id,
         name: unitDefinitions.name,
-        size: unitDefinitions.size,
+        size: trimScale(unitDefinitions.size).as("size"),
         uom: unitDefinitions.uom,
       })
       .from(unitDefinitions)
@@ -1250,7 +1257,7 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
         customerCategoryName: customerCategories.name,
         unitDefinitionId: unitDefinitions.id,
         unitName: unitDefinitions.name,
-        unitSize: unitDefinitions.size,
+        unitSize: trimScale(unitDefinitions.size).as("unitSize"),
         unitUom: unitDefinitions.uom,
         notes: pricingSchedules.notes,
         updatedAt: pricingSchedules.updatedAt,
@@ -1279,9 +1286,11 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
     const breaks = await tx
       .select({
         pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
-        minQuantity: pricingScheduleBreaks.minQuantity,
-        maxQuantity: pricingScheduleBreaks.maxQuantity,
-        discountPercent: pricingScheduleBreaks.discountPercent,
+        minQuantity: trimScale(pricingScheduleBreaks.minQuantity).as("minQuantity"),
+        maxQuantity: trimScaleNullable(pricingScheduleBreaks.maxQuantity).as("maxQuantity"),
+        discountPercent: trimScale(pricingScheduleBreaks.discountPercent).as(
+          "discountPercent"
+        ),
         sortOrder: pricingScheduleBreaks.sortOrder,
       })
       .from(pricingScheduleBreaks)
@@ -1677,11 +1686,13 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         sku: items.sku,
         unitDefinitionId: items.unitDefinitionId,
         unitName: unitDefinitions.name,
-        defaultSellingPrice: items.defaultSellingPrice,
+        defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
+          "defaultSellingPrice"
+        ),
         stock: stockSubquery,
-        committedQty: items.committedQty,
-        expectedQty: items.expectedQty,
-        safetyStock: items.safetyStock,
+        committedQty: trimScale(items.committedQty).as("committedQty"),
+        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        safetyStock: trimScale(items.safetyStock).as("safetyStock"),
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -1707,7 +1718,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
         fulfilledAt: salesOrders.fulfilledAt,
-        totalAmount: salesOrders.totalAmount,
+        totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
         updatedAt: salesOrders.updatedAt,
@@ -1758,7 +1769,7 @@ export async function getSalesOrder(
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
         fulfilledAt: salesOrders.fulfilledAt,
-        totalAmount: salesOrders.totalAmount,
+        totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
         updatedAt: salesOrders.updatedAt,
@@ -1777,14 +1788,16 @@ export async function getSalesOrder(
         itemName: salesOrderLines.itemName,
         itemSku: salesOrderLines.itemSku,
         unitName: salesOrderLines.unitName,
-        quantity: salesOrderLines.quantity,
-        unitPrice: salesOrderLines.unitPrice,
-        suggestedUnitPrice: salesOrderLines.suggestedUnitPrice,
+        quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+        unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
+        suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
+          "suggestedUnitPrice"
+        ),
         pricingSourceType: salesOrderLines.pricingSourceType,
         pricingScheduleName: salesOrderLines.pricingScheduleName,
         pricingBreakLabel: salesOrderLines.pricingBreakLabel,
         isPriceOverridden: salesOrderLines.isPriceOverridden,
-        lineTotal: salesOrderLines.lineTotal,
+        lineTotal: trimScale(salesOrderLines.lineTotal).as("lineTotal"),
         sortOrder: salesOrderLines.sortOrder,
         createdAt: salesOrderLines.createdAt,
         updatedAt: salesOrderLines.updatedAt,
@@ -1803,7 +1816,9 @@ export async function getSalesOrder(
         orderNumber: manufacturingOrders.orderNumber,
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
-        plannedQuantity: manufacturingOrders.plannedQuantity,
+        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+          "plannedQuantity"
+        ),
         unitName: manufacturingOrders.unitName,
         status: manufacturingOrders.status,
       })

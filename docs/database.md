@@ -229,6 +229,24 @@ if (qty != null && !isNaN(qty)) { ... }
 if (row.quantity) { ... }
 ```
 
+For API-backed reads, do not expose fixed-scale strings like `"5.0000"` from DAL queries. Canonicalize numeric strings in the select projection with `trimScale()` / `trimScaleNullable()` from `lib/db/numeric.ts`:
+
+```ts
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+
+quantity: trimScale(lots.quantity).as("quantity"),
+costPerUnit: trimScaleNullable(lots.costPerUnit).as("costPerUnit"),
+stock: trimScale(sql`COALESCE(SUM(${lots.quantity}), 0)`).as("stock"),
+```
+
+Use this for:
+
+- raw numeric columns returned to the app/API
+- nullable numeric columns returned to the app/API
+- aggregate/subquery numeric expressions returned to the app/API
+
+Keep write normalization unchanged. Stored `numeric` values stay exact; read-time trimming only changes the serialized string form.
+
 ## Count-Based Units
 
 The shared unit picker is built from `lib/units-of-measure.ts`. Packaging and internal assemblies sometimes need count semantics even when no convert-library mass/volume unit fits.

@@ -144,7 +144,7 @@ export default async function ProductBomHistoryPage({
                         <Badge variant="outline">{component.componentItemType}</Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {parseFloat(component.quantity)}
+                        {component.quantity}
                       </TableCell>
                       <TableCell className="text-right">{component.unitName}</TableCell>
                     </TableRow>

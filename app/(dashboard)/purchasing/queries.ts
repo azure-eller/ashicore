@@ -7,6 +7,7 @@ import {
   suppliers,
   unitDefinitions,
 } from "@/lib/db/schema";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { recomputeExpectedQty } from "@/lib/inventory/expected";
@@ -137,8 +138,12 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
         FROM ${unitDefinitions}
         WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
       )`,
-      purchaseToStockFactor: items.purchaseToStockFactor,
-      defaultPurchasePrice: items.defaultPurchasePrice,
+      purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
+        "purchaseToStockFactor"
+      ),
+      defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
+        "defaultPurchasePrice"
+      ),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -168,14 +173,20 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       itemSku: purchaseOrderLines.itemSku,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       stockingUnitName: purchaseOrderLines.stockingUnitName,
-      purchaseToStockFactor: purchaseOrderLines.purchaseToStockFactor,
-      quantityOrdered: purchaseOrderLines.quantityOrdered,
-      quantityReceived: purchaseOrderLines.quantityReceived,
-      stockQuantityOrdered: purchaseOrderLines.stockQuantityOrdered,
-      stockQuantityReceived: purchaseOrderLines.stockQuantityReceived,
-      unitCost: purchaseOrderLines.unitCost,
-      stockUnitCost: purchaseOrderLines.stockUnitCost,
-      lineTotal: purchaseOrderLines.lineTotal,
+      purchaseToStockFactor: trimScale(purchaseOrderLines.purchaseToStockFactor).as(
+        "purchaseToStockFactor"
+      ),
+      quantityOrdered: trimScale(purchaseOrderLines.quantityOrdered).as("quantityOrdered"),
+      quantityReceived: trimScale(purchaseOrderLines.quantityReceived).as("quantityReceived"),
+      stockQuantityOrdered: trimScale(purchaseOrderLines.stockQuantityOrdered).as(
+        "stockQuantityOrdered"
+      ),
+      stockQuantityReceived: trimScale(purchaseOrderLines.stockQuantityReceived).as(
+        "stockQuantityReceived"
+      ),
+      unitCost: trimScale(purchaseOrderLines.unitCost).as("unitCost"),
+      stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as("stockUnitCost"),
+      lineTotal: trimScale(purchaseOrderLines.lineTotal).as("lineTotal"),
       sortOrder: purchaseOrderLines.sortOrder,
       createdAt: purchaseOrderLines.createdAt,
       updatedAt: purchaseOrderLines.updatedAt,
@@ -407,8 +418,12 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
           FROM ${unitDefinitions}
           WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
         )`,
-        purchaseToStockFactor: items.purchaseToStockFactor,
-        defaultPurchasePrice: items.defaultPurchasePrice,
+        purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
+          "purchaseToStockFactor"
+        ),
+        defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
+          "defaultPurchasePrice"
+        ),
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -426,7 +441,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
         supplierName: purchaseOrders.supplierName,
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
-        totalAmount: purchaseOrders.totalAmount,
+        totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
         deletedAt: purchaseOrders.deletedAt,
         createdAt: purchaseOrders.createdAt,
         updatedAt: purchaseOrders.updatedAt,
@@ -486,7 +501,7 @@ export async function getPurchaseOrder(
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
-        totalAmount: purchaseOrders.totalAmount,
+        totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
         cancelledAt: purchaseOrders.cancelledAt,

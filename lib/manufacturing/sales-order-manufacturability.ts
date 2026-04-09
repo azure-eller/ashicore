@@ -4,6 +4,7 @@ import {
   manufacturingOrders,
   salesOrderLines,
 } from "@/lib/db/schema";
+import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
 import type { Tx } from "@/lib/db/with-org-context";
 
@@ -112,7 +113,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
       itemId: salesOrderLines.itemId,
       itemName: salesOrderLines.itemName,
       itemSku: salesOrderLines.itemSku,
-      quantity: salesOrderLines.quantity,
+      quantity: trimScale(salesOrderLines.quantity).as("quantity"),
       unitName: salesOrderLines.unitName,
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,

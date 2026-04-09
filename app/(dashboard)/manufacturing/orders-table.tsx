@@ -64,7 +64,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     sortingFn: (a, b) =>
       parseFloat(a.original.plannedQuantity) - parseFloat(b.original.plannedQuantity),
     cell: ({ row }) => {
-      const qty = `${parseFloat(row.original.plannedQuantity)} ${row.original.unitName}`;
+      const qty = `${row.original.plannedQuantity} ${row.original.unitName}`;
       if (row.original.manufacturingMode === "batch" && row.original.numberOfBatches != null) {
         return `${qty} (${row.original.numberOfBatches}b)`;
       }
@@ -76,7 +76,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     header: "Actual",
     cell: ({ row }) =>
       row.original.actualQuantity != null
-        ? `${parseFloat(row.original.actualQuantity)} ${row.original.unitName}`
+        ? `${row.original.actualQuantity} ${row.original.unitName}`
         : "\u2014",
   },
   {
