@@ -155,6 +155,10 @@ export function ItemForm({
           defaultSellingPrice: initialData.defaultSellingPrice != null
             ? String(parseFloat(initialData.defaultSellingPrice))
             : null,
+          manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
+          expectedBatchYield: initialData.expectedBatchYield != null
+            ? String(parseFloat(initialData.expectedBatchYield))
+            : null,
           bomLocked: initialData.bomLocked ?? false,
           stock: String(parseFloat(initialData.stock)),
           safetyStock: String(parseFloat(initialData.safetyStock)),
@@ -172,6 +176,8 @@ export function ItemForm({
           description: null,
           defaultPurchasePrice: null,
           defaultSellingPrice: null,
+          manufacturingMode: "discrete" as const,
+          expectedBatchYield: null,
           bomLocked: false,
           stock: "0",
           safetyStock: "0",
@@ -185,6 +191,10 @@ export function ItemForm({
   const bomLocked = useWatch({
     control: form.control,
     name: "bomLocked",
+  });
+  const watchedManufacturingMode = useWatch({
+    control: form.control,
+    name: "manufacturingMode",
   });
   const selectedStockingUnitId = useWatch({
     control: form.control,
@@ -716,7 +726,9 @@ export function ItemForm({
                   <div className="space-y-1.5">
                     <FieldLegend>Recipe / Bill of Materials</FieldLegend>
                     <FieldDescription>
-                      Ingredients needed to produce one unit of this product.
+                      {watchedManufacturingMode === "batch"
+                        ? "Ingredients needed to produce one batch of this product."
+                        : "Ingredients needed to produce one unit of this product."}
                     </FieldDescription>
                   </div>
                   <Tooltip>
@@ -753,6 +765,7 @@ export function ItemForm({
                 <BomEditor
                   control={form.control}
                   availableComponents={availableComponents}
+                  manufacturingMode={watchedManufacturingMode ?? "discrete"}
                 />
                 {isBomDirty ? (
                   <FieldGroup>
@@ -789,6 +802,80 @@ export function ItemForm({
                     />
                   </FieldGroup>
                 ) : null}
+              </FieldSet>
+            </>
+          )}
+
+          {itemType === "product" && (
+            <>
+              <FieldSeparator />
+              <FieldSet className="max-w-4xl gap-5">
+                <FieldLegend>Manufacturing</FieldLegend>
+                <FieldDescription>
+                  How this product is manufactured.
+                </FieldDescription>
+                <FieldGroup>
+                  <Controller
+                    control={form.control}
+                    name="manufacturingMode"
+                    render={({ field }) => (
+                      <Field>
+                        <FieldLabel htmlFor={field.name}>Manufacturing Mode</FieldLabel>
+                        <Select
+                          value={field.value ?? "discrete"}
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            if (value === "discrete") {
+                              form.setValue("expectedBatchYield", null, {
+                                shouldDirty: true,
+                              });
+                            }
+                          }}
+                        >
+                          <SelectTrigger id={field.name} className="w-48">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="discrete">Discrete</SelectItem>
+                            <SelectItem value="batch">Batch</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FieldDescription>
+                          {watchedManufacturingMode === "batch"
+                            ? "Produced in fixed batches. BOM quantities are per batch."
+                            : "Produced per unit. BOM quantities are per finished unit."}
+                        </FieldDescription>
+                      </Field>
+                    )}
+                  />
+                  {watchedManufacturingMode === "batch" && (
+                    <Controller
+                      control={form.control}
+                      name="expectedBatchYield"
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>Expected Batch Yield</FieldLabel>
+                          <Input
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            aria-invalid={fieldState.invalid}
+                            inputMode="decimal"
+                            autoComplete="off"
+                            placeholder="0"
+                            className="w-48"
+                          />
+                          <FieldDescription>
+                            Number of finished units produced per batch.
+                          </FieldDescription>
+                          {fieldState.invalid && (
+                            <FieldError errors={[fieldState.error]} />
+                          )}
+                        </Field>
+                      )}
+                    />
+                  )}
+                </FieldGroup>
               </FieldSet>
             </>
           )}

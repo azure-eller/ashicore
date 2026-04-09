@@ -193,6 +193,8 @@ export async function getItem(id: string) {
         purchaseToStockFactor: items.purchaseToStockFactor,
         defaultPurchasePrice: items.defaultPurchasePrice,
         defaultSellingPrice: items.defaultSellingPrice,
+        manufacturingMode: items.manufacturingMode,
+        expectedBatchYield: items.expectedBatchYield,
         bomLocked: items.bomLocked,
         bomLockedAt: items.bomLockedAt,
         bomLockedByUserId: items.bomLockedByUserId,

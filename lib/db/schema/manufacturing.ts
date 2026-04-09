@@ -38,6 +38,10 @@ export const manufacturingOrders = manufacturingSchema
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       salesOrderNumber: varchar("sales_order_number", { length: 32 }),
       salesCustomerName: varchar("sales_customer_name", { length: 255 }),
+      // Batch manufacturing snapshots (from product at creation time)
+      manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
+      numberOfBatches: integer("number_of_batches"),
+      expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),

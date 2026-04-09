@@ -44,6 +44,8 @@ interface ItemDetailProps {
     committedQty: string;
     expectedQty: string;
     safetyStock: string;
+    manufacturingMode?: string;
+    expectedBatchYield?: string | null;
     bomLocked?: boolean;
     currentBomRevision?: {
       id: string;
@@ -197,6 +199,18 @@ export function ItemDetail({
           <dt className="text-sm font-medium text-muted-foreground">Selling Price</dt>
           <dd className="mt-1 text-sm">{formatPrice(item.defaultSellingPrice) ?? "\u2014"}</dd>
         </div>
+        {itemType === "product" && (
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Manufacturing Mode</dt>
+            <dd className="mt-1 text-sm capitalize">{item.manufacturingMode ?? "discrete"}</dd>
+          </div>
+        )}
+        {itemType === "product" && item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Expected Batch Yield</dt>
+            <dd className="mt-1 text-sm">{parseFloat(item.expectedBatchYield)} {item.unitName}</dd>
+          </div>
+        )}
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Stock</dt>
           <dd className="mt-1 text-sm">{parseFloat(item.stock)} {item.unitName}</dd>
@@ -291,23 +305,41 @@ export function ItemDetail({
                     <TableRow>
                       <TableHead>Component</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">
+                        {item.manufacturingMode === "batch" ? "Qty / Batch" : "Qty"}
+                      </TableHead>
+                      {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
+                        <TableHead className="text-right">Qty / Unit</TableHead>
+                      )}
                       <TableHead className="text-right">Stocking Unit</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {bom.map((b) => (
-                      <TableRow key={b.id}>
-                        <TableCell>{b.componentName}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{b.componentItemType}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {b.quantity ? parseFloat(b.quantity) : "\u2014"}
-                        </TableCell>
-                        <TableCell className="text-right">{b.componentUnit}</TableCell>
-                      </TableRow>
-                    ))}
+                    {bom.map((b) => {
+                      const batchQty = b.quantity ? parseFloat(b.quantity) : null;
+                      const yieldVal = item.expectedBatchYield ? parseFloat(item.expectedBatchYield) : null;
+                      const perUnit = batchQty != null && yieldVal != null && yieldVal > 0
+                        ? parseFloat((batchQty / yieldVal).toFixed(4).replace(/\.?0+$/, ""))
+                        : null;
+
+                      return (
+                        <TableRow key={b.id}>
+                          <TableCell>{b.componentName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{b.componentItemType}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {batchQty ?? "\u2014"}
+                          </TableCell>
+                          {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
+                            <TableCell className="text-right font-mono text-muted-foreground">
+                              {perUnit ?? "\u2014"}
+                            </TableCell>
+                          )}
+                          <TableCell className="text-right">{b.componentUnit}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

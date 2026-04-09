@@ -58,6 +58,8 @@ type ProductSnapshot = {
   name: string;
   sku: string | null;
   unitName: string;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
 };
 
 type SalesLineSnapshot = {
@@ -71,6 +73,9 @@ type LockedManufacturingOrder = {
   id: string;
   productId: string;
   status: (typeof manufacturingOrders.$inferSelect)["status"];
+  manufacturingMode: string;
+  numberOfBatches: number | null;
+  expectedBatchYield: string | null;
   salesOrderId: string | null;
   salesOrderLineId: string | null;
   salesOrderNumber: string | null;
@@ -98,6 +103,38 @@ function normalizeQuantityNumber(value: number) {
 
 function multiplyQuantity(quantityPerUnit: string, quantity: number) {
   return normalizeQuantityNumber(parseFloat(quantityPerUnit) * quantity);
+}
+
+/**
+ * Compute batch-aware planning values from a product and desired quantity.
+ * For batch products: rounds up to full batches.
+ * For discrete products: passes through unchanged.
+ */
+function computeBatchPlanning(
+  product: ProductSnapshot,
+  desiredQuantity: number
+): {
+  plannedQuantity: number;
+  numberOfBatches: number | null;
+  ingredientMultiplier: number;
+} {
+  if (product.manufacturingMode === "batch" && product.expectedBatchYield != null) {
+    const yield_ = parseFloat(product.expectedBatchYield);
+    if (yield_ > 0) {
+      const numberOfBatches = Math.ceil(desiredQuantity / yield_);
+      return {
+        plannedQuantity: normalizeQuantityNumber(numberOfBatches * yield_),
+        numberOfBatches,
+        ingredientMultiplier: numberOfBatches,
+      };
+    }
+  }
+
+  return {
+    plannedQuantity: desiredQuantity,
+    numberOfBatches: null,
+    ingredientMultiplier: desiredQuantity,
+  };
 }
 
 
@@ -128,6 +165,9 @@ async function getLockedManufacturingOrderInTx(
       id: manufacturingOrders.id,
       productId: manufacturingOrders.productId,
       status: manufacturingOrders.status,
+      manufacturingMode: manufacturingOrders.manufacturingMode,
+      numberOfBatches: manufacturingOrders.numberOfBatches,
+      expectedBatchYield: manufacturingOrders.expectedBatchYield,
       salesOrderId: manufacturingOrders.salesOrderId,
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       salesOrderNumber: manufacturingOrders.salesOrderNumber,
@@ -177,6 +217,8 @@ async function getValidatedProductInTx(
       name: items.name,
       sku: items.sku,
       unitName: unitDefinitions.name,
+      manufacturingMode: items.manufacturingMode,
+      expectedBatchYield: items.expectedBatchYield,
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -294,7 +336,7 @@ async function validateSalesLineLinkInTx(
 async function prepareCreateIngredientsInTx(
   tx: Tx,
   productId: string,
-  plannedQuantity: number,
+  ingredientMultiplier: number,
   submittedIngredients: InsertManufacturingOrder["ingredients"]
 ): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
@@ -330,7 +372,7 @@ async function prepareCreateIngredientsInTx(
       itemType: row.itemType,
       unitName: row.unitName,
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
+      plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: index,
     };
     }),
@@ -340,7 +382,7 @@ async function prepareCreateIngredientsInTx(
 async function prepareCreateIngredientsFromBomInTx(
   tx: Tx,
   productId: string,
-  plannedQuantity: number
+  ingredientMultiplier: number
 ): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
 
@@ -363,7 +405,7 @@ async function prepareCreateIngredientsFromBomInTx(
       itemType: row.itemType,
       unitName: row.unitName,
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
+      plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: index,
     };
     }),
@@ -378,6 +420,7 @@ async function insertManufacturingOrderInTx(
     bomRevisionId: string | null;
     salesLink: SalesLineSnapshot | null;
     plannedQuantity: number;
+    numberOfBatches: number | null;
     plannedDate: string | null;
     notes: string | null;
     ingredients: ValidatedIngredient[];
@@ -396,6 +439,9 @@ async function insertManufacturingOrderInTx(
       productName: values.product.name,
       productSku: values.product.sku,
       unitName: values.product.unitName,
+      manufacturingMode: values.product.manufacturingMode,
+      numberOfBatches: values.numberOfBatches,
+      expectedBatchYield: values.product.expectedBatchYield,
       salesOrderNumber: values.salesLink?.salesOrderNumber ?? null,
       salesCustomerName: values.salesLink?.customerName ?? null,
       status: "draft",
@@ -428,7 +474,7 @@ async function insertManufacturingOrderInTx(
 async function prepareUpdatedIngredientsInTx(
   tx: Tx,
   orderId: string,
-  plannedQuantity: number,
+  ingredientMultiplier: number,
   submittedIngredients: UpdateManufacturingOrder["ingredients"]
 ): Promise<ValidatedIngredient[]> {
   const existingRows = await tx
@@ -472,7 +518,7 @@ async function prepareUpdatedIngredientsInTx(
       itemType: row.itemType,
       unitName: row.unitName,
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * plannedQuantity),
+      plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: row.sortOrder,
     };
   });
@@ -543,12 +589,12 @@ async function getCompletionShortagesInTx(
     unitName: string;
     quantityPerUnit: string;
   }>,
-  actualQuantity: number
+  consumptionMultiplier: number
 ): Promise<ManufacturingReleaseWarningPayload["ingredients"]> {
   const shortages: ManufacturingReleaseWarningPayload["ingredients"] = [];
 
   for (const ingredient of ingredients) {
-    const needed = multiplyQuantity(ingredient.quantityPerUnit, actualQuantity);
+    const needed = multiplyQuantity(ingredient.quantityPerUnit, consumptionMultiplier);
     const available = normalizeQuantityNumber(
       await getCurrentStockInTx(tx, ingredient.itemId)
     );
@@ -582,6 +628,8 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         unitName: manufacturingOrders.unitName,
         plannedDate: manufacturingOrders.plannedDate,
         status: manufacturingOrders.status,
+        manufacturingMode: manufacturingOrders.manufacturingMode,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
         deletedAt: manufacturingOrders.deletedAt,
         createdAt: manufacturingOrders.createdAt,
         updatedAt: manufacturingOrders.updatedAt,
@@ -616,6 +664,8 @@ export async function getManufacturingProductTemplates(): Promise<
         name: items.name,
         sku: items.sku,
         unitName: unitDefinitions.name,
+        manufacturingMode: items.manufacturingMode,
+        expectedBatchYield: items.expectedBatchYield,
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -786,6 +836,9 @@ export async function getManufacturingOrder(
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
         status: manufacturingOrders.status,
+        manufacturingMode: manufacturingOrders.manufacturingMode,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
+        expectedBatchYield: manufacturingOrders.expectedBatchYield,
         plannedQuantity: manufacturingOrders.plannedQuantity,
         actualQuantity: manufacturingOrders.actualQuantity,
         plannedDate: manufacturingOrders.plannedDate,
@@ -863,6 +916,9 @@ export async function getManufacturingOrderEditData(
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
         unitName: manufacturingOrders.unitName,
+        manufacturingMode: manufacturingOrders.manufacturingMode,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
+        expectedBatchYield: manufacturingOrders.expectedBatchYield,
         salesOrderId: manufacturingOrders.salesOrderId,
         salesOrderLineId: manufacturingOrders.salesOrderLineId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
@@ -915,8 +971,10 @@ export async function createManufacturingOrder(
       );
     }
 
-    const plannedQuantity = Number(payload.plannedQuantity);
     const product = await getValidatedProductInTx(tx, payload.productId);
+    const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
+      computeBatchPlanning(product, Number(payload.plannedQuantity));
+
     const salesLink = await validateSalesLineLinkInTx(tx, {
       salesOrderId: payload.salesOrderId,
       salesOrderLineId: payload.salesOrderLineId,
@@ -925,7 +983,7 @@ export async function createManufacturingOrder(
     const { bomRevisionId, ingredients } = await prepareCreateIngredientsInTx(
       tx,
       payload.productId,
-      plannedQuantity,
+      ingredientMultiplier,
       payload.ingredients
     );
     const order = await insertManufacturingOrderInTx(tx, orgId, {
@@ -933,6 +991,7 @@ export async function createManufacturingOrder(
       bomRevisionId,
       salesLink,
       plannedQuantity,
+      numberOfBatches,
       plannedDate: payload.plannedDate ?? null,
       notes: payload.notes ?? null,
       ingredients,
@@ -1000,10 +1059,12 @@ export async function createManufacturingOrdersFromSalesOrder(
       }
 
       const product = await getValidatedProductInTx(tx, line.itemId);
+      const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
+        computeBatchPlanning(product, Number(line.quantity));
       const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
         tx,
         line.itemId,
-        Number(line.quantity)
+        ingredientMultiplier
       );
       const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
         product,
@@ -1014,7 +1075,8 @@ export async function createManufacturingOrdersFromSalesOrder(
           salesOrderNumber: order.orderNumber,
           customerName: order.customerName,
         },
-        plannedQuantity: Number(line.quantity),
+        plannedQuantity,
+        numberOfBatches,
         plannedDate,
         notes: payload.notes ?? null,
         ingredients,
@@ -1046,7 +1108,18 @@ export async function updateManufacturingOrder(
       throw new ManufacturingError("Only draft orders can be edited", 400);
     }
 
-    const plannedQuantity = Number(payload.plannedQuantity);
+    // For batch MOs, recalculate batch planning from the snapshotted yield
+    const batchProduct: ProductSnapshot = {
+      id: existing.productId,
+      name: "",
+      sku: null,
+      unitName: "",
+      manufacturingMode: existing.manufacturingMode,
+      expectedBatchYield: existing.expectedBatchYield,
+    };
+    const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
+      computeBatchPlanning(batchProduct, Number(payload.plannedQuantity));
+
     const salesLink = await validateSalesLineLinkInTx(tx, {
       salesOrderId: payload.salesOrderId,
       salesOrderLineId: payload.salesOrderLineId,
@@ -1063,7 +1136,7 @@ export async function updateManufacturingOrder(
     const ingredients = await prepareUpdatedIngredientsInTx(
       tx,
       id,
-      plannedQuantity,
+      ingredientMultiplier,
       payload.ingredients
     );
 
@@ -1075,6 +1148,7 @@ export async function updateManufacturingOrder(
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
         salesCustomerName: salesLink?.customerName ?? null,
         plannedQuantity: normalizeQuantityString(plannedQuantity),
+        numberOfBatches,
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
         updatedAt: new Date(),
@@ -1198,10 +1272,17 @@ export async function completeManufacturingOrder(
       ...ingredientRows.map((row) => row.itemId),
     ]);
 
+    // For batch MOs, ingredient consumption is based on number of batches run,
+    // not actual yield. You loaded N batches into the mixer regardless of output.
+    const consumptionMultiplier =
+      order.manufacturingMode === "batch" && order.numberOfBatches != null
+        ? order.numberOfBatches
+        : actualQuantity;
+
     const shortages = await getCompletionShortagesInTx(
       tx,
       ingredientRows,
-      actualQuantity
+      consumptionMultiplier
     );
 
     if (shortages.length > 0) {
@@ -1219,7 +1300,7 @@ export async function completeManufacturingOrder(
     for (const ingredient of ingredientRows) {
       const actualNeeded = multiplyQuantity(
         ingredient.quantityPerUnit,
-        actualQuantity
+        consumptionMultiplier
       );
       const { allocations } = await applyStockDeltaInTx(tx, {
         orgId,

@@ -47,6 +47,10 @@ export const items = inventorySchema
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
       defaultSellingPrice: numeric("default_selling_price", { precision: 10, scale: 2 }),
 
+      // Manufacturing
+      manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
+      expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
+
       // BOM lock
       bomLocked: boolean("bom_locked").notNull().default(false),
       bomLockedAt: timestamp("bom_locked_at"),

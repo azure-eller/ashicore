@@ -269,8 +269,19 @@ export function ManufacturingOrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Planned Quantity</dt>
             <dd className="mt-1 text-sm">
               {parseFloat(order.plannedQuantity)} {order.unitName}
+              {order.manufacturingMode === "batch" && order.numberOfBatches != null && (
+                <span className="text-muted-foreground"> ({order.numberOfBatches} batch{order.numberOfBatches === 1 ? "" : "es"})</span>
+              )}
             </dd>
           </div>
+          {order.manufacturingMode === "batch" && order.expectedBatchYield != null && (
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">Yield / Batch</dt>
+              <dd className="mt-1 text-sm">
+                {parseFloat(order.expectedBatchYield)} {order.unitName}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Actual Quantity</dt>
             <dd className="mt-1 text-sm">
@@ -331,7 +342,9 @@ export function ManufacturingOrderDetail({
                 <TableRow>
                   <TableHead>Ingredient</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Qty / Unit</TableHead>
+                  <TableHead className="text-right">
+                    {order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
+                  </TableHead>
                   <TableHead className="text-right">Planned</TableHead>
                   <TableHead className="text-right">Actual</TableHead>
                   <TableHead className="text-right">Cost</TableHead>

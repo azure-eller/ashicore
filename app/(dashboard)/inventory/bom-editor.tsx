@@ -33,9 +33,11 @@ type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
 interface BomEditorProps {
   control: Control<ItemFormValues>;
   availableComponents: AvailableComponent[];
+  manufacturingMode?: string;
 }
 
-export function BomEditor({ control, availableComponents }: BomEditorProps) {
+export function BomEditor({ control, availableComponents, manufacturingMode = "discrete" }: BomEditorProps) {
+  const isBatch = manufacturingMode === "batch";
   const { fields, append, remove } = useFieldArray({
     control,
     name: "bom",
@@ -57,7 +59,7 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
         <div className="space-y-3 rounded-lg border p-3">
           <div className="hidden grid-cols-[minmax(0,1fr)_8rem_6rem_2.5rem] gap-3 px-2 text-xs font-medium text-muted-foreground md:grid">
             <span>Component</span>
-            <span>Qty</span>
+            <span>{isBatch ? "Qty / Batch" : "Qty"}</span>
             <span>Unit</span>
             <span />
           </div>
@@ -77,7 +79,9 @@ export function BomEditor({ control, availableComponents }: BomEditorProps) {
       ) : (
         <div className="rounded-lg border border-dashed px-4 py-6">
           <p className="text-sm text-muted-foreground">
-            Add ingredients to define what goes into one unit of this product.
+            {isBatch
+              ? "Add ingredients to define what goes into one batch of this product."
+              : "Add ingredients to define what goes into one unit of this product."}
           </p>
         </div>
       )}

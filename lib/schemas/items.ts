@@ -31,6 +31,8 @@ const rawBaseItemSchema = createInsertSchema(items, {
   defaultPurchasePrice: nullableString,
   defaultSellingPrice: nullableString,
   description: nullableString,
+  manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
+  expectedBatchYield: nullableStringOptional,
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
 }).omit({
   id: true,
@@ -91,6 +93,32 @@ function purchaseUnitRefine(
   }
 }
 
+function batchYieldRefine(
+  data: { manufacturingMode?: string; expectedBatchYield?: string | null },
+  ctx: z.RefinementCtx
+) {
+  if (data.manufacturingMode !== "batch") return;
+
+  const raw = data.expectedBatchYield?.trim() ?? "";
+  if (raw === "") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Expected batch yield is required for batch manufacturing",
+      path: ["expectedBatchYield"],
+    });
+    return;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Expected batch yield must be greater than 0",
+      path: ["expectedBatchYield"],
+    });
+  }
+}
+
 function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.RefinementCtx) {
   if (!data.bom || data.bom.length === 0) return;
   const seen = new Set<string>();
@@ -109,6 +137,7 @@ function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.Refine
 export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
+  batchYieldRefine(data, ctx);
 });
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
@@ -122,6 +151,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   unitDefinitionId: true,
   stock: true,
 }).extend({
+  manufacturingMode: z.enum(["discrete", "batch"]),
   stock: z.string().refine(
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
@@ -129,6 +159,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
 }).superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
+  batchYieldRefine(data, ctx);
 });
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;

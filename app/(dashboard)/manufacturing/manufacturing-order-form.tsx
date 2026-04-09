@@ -205,6 +205,25 @@ export function ManufacturingOrderForm({
   const selectedSalesOrder = salesOrderMap.get(watchedSalesOrderId ?? "");
   const isSalesOrderMode = !isEditing && watchedSalesOrderId != null;
 
+  // For editing, use the snapshotted batch info from the MO
+  const isBatchMode = isEditing
+    ? initialData?.manufacturingMode === "batch"
+    : selectedProduct?.manufacturingMode === "batch";
+  const batchYield = isEditing
+    ? initialData?.expectedBatchYield != null ? parseFloat(initialData.expectedBatchYield) : null
+    : selectedProduct?.expectedBatchYield != null ? parseFloat(selectedProduct.expectedBatchYield) : null;
+
+  // Batch calculation from the desired quantity
+  const batchCalc = (() => {
+    if (!isBatchMode || batchYield == null || batchYield <= 0) return null;
+    const desired = parseFloat(watchedPlannedQuantity ?? "");
+    if (!Number.isFinite(desired) || desired <= 0) return null;
+    const numberOfBatches = Math.ceil(desired / batchYield);
+    const plannedOutput = numberOfBatches * batchYield;
+    const excess = plannedOutput - desired;
+    return { numberOfBatches, plannedOutput, excess };
+  })();
+
   const previewQuery = useQuery<ManufacturingSalesOrderPreview>({
     queryKey: ["manufacturing-sales-order-preview", watchedSalesOrderId],
     queryFn: async () => {
@@ -670,6 +689,21 @@ export function ManufacturingOrderForm({
                   />
                 )}
 
+                {!isSalesOrderMode && isBatchMode && batchCalc && (
+                  <div className="col-span-full rounded-lg border border-dashed px-4 py-3">
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{batchCalc.numberOfBatches} batch{batchCalc.numberOfBatches === 1 ? "" : "es"}</span>
+                      {" \u00d7 "}
+                      {batchYield} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}/batch
+                      {" = "}
+                      <span className="font-medium text-foreground">{batchCalc.plannedOutput} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}</span>
+                      {batchCalc.excess > 0 && (
+                        <span className="text-muted-foreground"> ({batchCalc.excess} excess)</span>
+                      )}
+                    </p>
+                  </div>
+                )}
+
                 <Controller
                   control={form.control}
                   name="plannedDate"
@@ -824,7 +858,7 @@ export function ManufacturingOrderForm({
                       <TableHeader>
                         <TableRow>
                           <TableHead>Ingredient</TableHead>
-                          <TableHead className="w-40">Qty / Unit</TableHead>
+                          <TableHead className="w-40">{isBatchMode ? "Qty / Batch" : "Qty / Unit"}</TableHead>
                           <TableHead className="w-40">Planned Total</TableHead>
                           <TableHead className="w-28">Unit</TableHead>
                         </TableRow>
@@ -836,11 +870,14 @@ export function ManufacturingOrderForm({
                             : selectedProduct?.bom[index];
                           const quantityPerUnit =
                             watchedIngredients?.[index]?.quantityPerUnit ?? "";
-                          const plannedQuantity = parsePositive(watchedPlannedQuantity);
                           const perUnit = parsePositive(quantityPerUnit);
+                          // For batch products, multiply per-batch qty by number of batches
+                          const multiplier = isBatchMode && batchCalc
+                            ? batchCalc.numberOfBatches
+                            : parsePositive(watchedPlannedQuantity);
                           const plannedTotal =
-                            plannedQuantity != null && perUnit != null
-                              ? (plannedQuantity * perUnit)
+                            multiplier != null && perUnit != null
+                              ? (multiplier * perUnit)
                                   .toFixed(4)
                                   .replace(/\.?0+$/, "")
                               : "\u2014";

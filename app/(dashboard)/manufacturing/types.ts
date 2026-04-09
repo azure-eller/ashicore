@@ -5,6 +5,8 @@ export type ManufacturingProductOption = {
   name: string;
   sku: string | null;
   unitName: string;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
 };
 
 export type ManufacturingSalesLineOption = {
@@ -94,6 +96,8 @@ export type ManufacturingOrderListRow = {
   unitName: string;
   plannedDate: string | null;
   status: ManufacturingOrderStatus;
+  manufacturingMode: string;
+  numberOfBatches: number | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -126,6 +130,9 @@ export type ManufacturingOrderDetail = {
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   status: ManufacturingOrderStatus;
+  manufacturingMode: string;
+  numberOfBatches: number | null;
+  expectedBatchYield: string | null;
   plannedQuantity: string;
   actualQuantity: string | null;
   plannedDate: string | null;
@@ -153,6 +160,9 @@ export type ManufacturingOrderEditData = {
   productName: string;
   productSku: string | null;
   unitName: string;
+  manufacturingMode: string;
+  numberOfBatches: number | null;
+  expectedBatchYield: string | null;
   salesOrderId: string | null;
   salesOrderLineId: string | null;
   salesOrderNumber: string | null;
