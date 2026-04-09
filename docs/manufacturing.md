@@ -61,6 +61,13 @@ Locked BOMs are a product-level flag on `inventory.items`, not a separate BOM he
 
 Manufacturing product pickers should only show products whose filtered BOM still has at least one active ingredient. If deleted items are removed from the BOM snapshot query, drop products whose remaining ingredient list is empty so the form never offers an unbuildable template.
 
+For quantity snapshots, store both:
+
+- `requested_quantity`: the user-entered or sales-line requested output
+- `planned_quantity`: the actual execution quantity after any batch rounding
+
+Discrete orders keep these values the same. Batch orders may round `planned_quantity` up to a whole-batch output while preserving `requested_quantity` so draft edit forms and sales traceability continue to reflect the original request.
+
 ## Release Behavior
 
 Release validates that:

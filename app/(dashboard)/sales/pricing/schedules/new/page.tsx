@@ -1,4 +1,3 @@
-import { requireModuleAccess } from "@/lib/dal/auth";
 import { PricingScheduleForm } from "@/app/(dashboard)/sales/pricing-schedule-form";
 import {
   getCustomerCategoryOptions,
@@ -6,7 +5,6 @@ import {
 } from "@/app/(dashboard)/sales/queries";
 
 export default async function NewPricingSchedulePage() {
-  await requireModuleAccess("sales", "admin");
   const [customerCategories, units] = await Promise.all([
     getCustomerCategoryOptions(),
     getPricingUnitOptions(),

@@ -132,6 +132,26 @@ Use a dedicated page layout for create/edit routes. Do not center the entire for
 if (isLoading) return <MaterialFormSkeleton />;
 ```
 
+For App Router list pages, keep the route shell synchronous and suspend only the slow data region. Do not make the entire page wait on a top-level `await` before returning JSX, or the previous page will linger during navigation.
+
+```tsx
+import { Suspense } from "react";
+import OrdersTableSkeleton from "../orders-table-skeleton";
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<OrdersTableSkeleton />}>
+      <OrdersData />
+    </Suspense>
+  );
+}
+
+async function OrdersData() {
+  const orders = await getSalesOrders();
+  return <OrdersTable initialData={orders} />;
+}
+```
+
 For create/edit routes that share the same form, reuse one route-level loading component per item type instead of duplicating a separate loader for `new` and `edit`.
 
 For detail routes, add a local `[id]/loading.tsx` per item type and point it at a shared detail loader. Do not let `/products/[id]` or `/materials/[id]` inherit the parent list/table skeleton from the segment above.
