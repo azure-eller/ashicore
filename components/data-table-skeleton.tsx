@@ -30,7 +30,7 @@ export default function DataTableSkeleton({ columns = 6 }: { columns?: number })
             </TableRow>
           </TableHeader>
           <TableBody>
-            {Array.from({ length: 5 }).map((_, rowIndex) => (
+            {Array.from({ length: 25 }).map((_, rowIndex) => (
               <TableRow key={rowIndex}>
                 {Array.from({ length: columns }).map((_, cellIndex) => (
                   <TableCell key={cellIndex}>
@@ -44,9 +44,15 @@ export default function DataTableSkeleton({ columns = 6 }: { columns?: number })
       </div>
       <div className="flex items-center justify-between py-4">
         <Skeleton className="h-4 w-40" />
-        <div className="flex gap-2">
-          <Skeleton className="h-9 w-20" />
-          <Skeleton className="h-9 w-20" />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-8" />
+            <Skeleton className="h-8 w-16" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-20" />
+            <Skeleton className="h-9 w-20" />
+          </div>
         </div>
       </div>
     </div>
