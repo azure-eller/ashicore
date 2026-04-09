@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
+import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -58,7 +59,8 @@ const columns: ColumnDef<PurchaseOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: "Status",
+    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    filterFn: multiValueFilter,
     cell: ({ row }) => <PurchaseOrderStatusBadge status={row.original.status} />,
   },
   {

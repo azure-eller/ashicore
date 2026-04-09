@@ -4,8 +4,11 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
+  getFacetedRowModel,
+  getFacetedUniqueValues,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
@@ -19,6 +22,7 @@ import {
   Add01Icon,
   MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
+import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +45,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -112,7 +123,8 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: "Status",
+    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    filterFn: multiValueFilter,
     cell: ({ row }) => <SalesOrderStatusBadge status={row.original.status} />,
   },
   {
@@ -164,6 +176,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   ]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [pendingConfirmIds, setPendingConfirmIds] = useState<string[]>([]);
@@ -267,15 +280,22 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
+    onColumnFiltersChange: setColumnFilters,
     globalFilterFn: "includesString",
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),
+    getFacetedUniqueValues: getFacetedUniqueValues(),
+    initialState: {
+      pagination: { pageSize: 25 },
+    },
     state: {
       sorting,
       rowSelection,
       globalFilter,
+      columnFilters,
     },
   });
 
@@ -368,7 +388,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
 
         {formError && <p className="pb-4 text-sm text-destructive">{formError}</p>}
 
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-md border">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
@@ -422,23 +442,41 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
               ? `${selectedCount} of ${table.getFilteredRowModel().rows.length} row(s) selected.`
               : `Page ${table.getState().pagination.pageIndex + 1} of ${table.getPageCount()}`}
           </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              Next
-            </Button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Rows</span>
+              <Select
+                value={String(table.getState().pagination.pageSize)}
+                onValueChange={(value) => table.setPageSize(Number(value))}
+              >
+                <SelectTrigger size="sm" className="w-auto" aria-label="Rows per page">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </div>
       </div>

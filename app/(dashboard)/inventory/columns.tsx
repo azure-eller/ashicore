@@ -3,6 +3,7 @@
 import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import {
   Tooltip,
@@ -114,7 +115,8 @@ export const columns: ColumnDef<ItemRow>[] = [
   },
   {
     accessorKey: "category",
-    header: "Category",
+    header: ({ column }) => <FilterableHeader column={column} label="Category" />,
+    filterFn: multiValueFilter,
     cell: ({ row }) => (row.getValue("category") as string | null) ?? "—",
   },
 ];

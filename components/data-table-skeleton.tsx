@@ -18,7 +18,7 @@ export default function DataTableSkeleton({ columns = 6 }: { columns?: number })
           <Skeleton className="h-10 w-10" />
         </div>
       </div>
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
