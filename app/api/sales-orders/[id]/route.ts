@@ -1,13 +1,26 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateSalesOrderSchema } from "@/lib/schemas/sales-orders";
 import {
   deleteSalesOrder,
+  getSalesOrder,
   SalesError,
   updateSalesOrder,
 } from "@/app/(dashboard)/sales/queries";
 
+
+export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
+  await assertModuleReadAccess("sales", _request.headers);
+  const { id } = await (ctx as RouteContext).params;
+  const order = await getSalesOrder(id);
+
+  if (!order) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(order);
+});
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
