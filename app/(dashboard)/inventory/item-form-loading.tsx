@@ -2,12 +2,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FieldSeparator } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { FieldSkeleton } from "@/components/field-skeleton";
+import type { ItemType } from "./types";
 
 interface ItemFormLoadingProps {
-  showBom?: boolean;
+  itemType?: ItemType;
 }
 
-export function ItemFormLoading({ showBom = false }: ItemFormLoadingProps) {
+export function ItemFormLoading({ itemType = "material" }: ItemFormLoadingProps) {
+  const isProduct = itemType === "product";
+
   return (
     <div className="mx-auto w-full max-w-4xl space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -51,14 +54,14 @@ export function ItemFormLoading({ showBom = false }: ItemFormLoadingProps) {
             <Skeleton className="h-4 w-72 max-w-full" />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <FieldSkeleton />
+            {!isProduct && <FieldSkeleton />}
             <FieldSkeleton />
             <FieldSkeleton />
             <FieldSkeleton />
           </div>
         </div>
 
-        {showBom && (
+        {isProduct && (
           <>
             <FieldSeparator />
             <div className="space-y-6">
@@ -82,6 +85,15 @@ export function ItemFormLoading({ showBom = false }: ItemFormLoadingProps) {
                 </div>
               </div>
               <Skeleton className="h-9 w-32" />
+            </div>
+
+            <FieldSeparator />
+            <div className="max-w-4xl space-y-5">
+              <div className="space-y-1">
+                <Skeleton className="h-6 w-36" />
+                <Skeleton className="h-4 w-80 max-w-full" />
+              </div>
+              <FieldSkeleton />
             </div>
           </>
         )}

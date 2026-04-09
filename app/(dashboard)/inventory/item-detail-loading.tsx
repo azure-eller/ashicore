@@ -51,7 +51,7 @@ function DetailTableSkeleton({
 
 export function ItemDetailLoading({ itemType }: ItemDetailLoadingProps) {
   const showBom = itemType === "product";
-  const metadataCount = itemType === "material" ? 10 : 9;
+  const metadataCount = 12;
 
   return (
     <div className="space-y-6 p-6">

@@ -1,1 +1,1 @@
-export { default } from "../data-table-skeleton";
+export { default } from "../orders-table-skeleton";

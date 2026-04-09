@@ -29,7 +29,7 @@ export default function StocktakeDetailLoading() {
       <Separator />
 
       <div className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-        {Array.from({ length: 6 }).map((_, index) => (
+        {Array.from({ length: 8 }).map((_, index) => (
           <div key={index} className="space-y-2">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-4 w-36" />

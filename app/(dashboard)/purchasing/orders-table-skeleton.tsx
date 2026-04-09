@@ -1,5 +1,5 @@
 import DataTableSkeleton from "@/components/data-table-skeleton";
 
-export default function InventoryDataTableSkeleton() {
+export default function PurchasingOrdersTableSkeleton() {
   return <DataTableSkeleton columns={7} />;
 }
