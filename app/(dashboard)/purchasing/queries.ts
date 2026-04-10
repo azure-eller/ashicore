@@ -460,16 +460,20 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
       .select({
         purchaseOrderId: purchaseOrderLines.purchaseOrderId,
         itemName: purchaseOrderLines.itemName,
+        quantity: trimScale(purchaseOrderLines.quantityOrdered).as("quantity"),
         sortOrder: purchaseOrderLines.sortOrder,
       })
       .from(purchaseOrderLines)
       .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
       .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
 
-    const linesByOrderId = new Map<string, Array<{ itemName: string }>>();
+    const linesByOrderId = new Map<
+      string,
+      Array<{ itemName: string; quantity: string }>
+    >();
     lines.forEach((line) => {
       const bucket = linesByOrderId.get(line.purchaseOrderId) ?? [];
-      bucket.push({ itemName: line.itemName });
+      bucket.push({ itemName: line.itemName, quantity: line.quantity });
       linesByOrderId.set(line.purchaseOrderId, bucket);
     });
 

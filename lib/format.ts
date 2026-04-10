@@ -80,12 +80,27 @@ export function roundQuantity(value: number): number {
 
 /**
  * Summarize a list of line items for display in table columns.
- * e.g. "Widget A + 2 more"
+ * Shows up to 2 items with optional quantities, then "+ N more".
+ * e.g. "50 Widget A, 20 Widget B + 1 more"
  */
-export function summarizeItems(lines: Array<{ itemName: string }>): string {
+export function summarizeItems(
+  lines: Array<{ itemName: string; quantity?: string | null }>
+): string {
   if (lines.length === 0) return "\u2014";
-  if (lines.length === 1) return lines[0].itemName;
-  return `${lines[0].itemName} + ${lines.length - 1} more`;
+
+  const fmt = (line: { itemName: string; quantity?: string | null }) => {
+    if (line.quantity != null) {
+      const qty = parseFloat(line.quantity);
+      if (!isNaN(qty)) return `${qty} ${line.itemName}`;
+    }
+    return line.itemName;
+  };
+
+  if (lines.length === 1) return fmt(lines[0]);
+
+  const visible = [fmt(lines[0]), fmt(lines[1])].join(", ");
+  if (lines.length === 2) return visible;
+  return `${visible} + ${lines.length - 2} more`;
 }
 
 const MOVEMENT_TYPE_LABELS: Record<string, string> = {
