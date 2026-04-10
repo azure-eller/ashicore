@@ -140,8 +140,8 @@ function InviteMemberDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline">
-          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
           Invite member
+          <HugeiconsIcon icon={Add01Icon} data-icon="inline-end" />
         </Button>
       </DialogTrigger>
       <DialogContent className="bg-background text-foreground sm:max-w-2xl">

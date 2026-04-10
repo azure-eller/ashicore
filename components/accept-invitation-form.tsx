@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PublicInvitationDetails } from "@/app/(dashboard)/settings/types";
 import { authClient } from "@/lib/auth-client";
 import { formatAccessPresetLabel } from "@/lib/authz";
+import { clearReadabilityCookie } from "@/lib/readability-cookie";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -193,8 +194,17 @@ export function AcceptInvitationForm({
     setLoading(true);
 
     try {
-      await authClient.signOut();
+      const { error: signOutError } = await authClient.signOut();
+
+      if (signOutError) {
+        setError(signOutError.message ?? "Failed to log out");
+        return;
+      }
+
+      clearReadabilityCookie();
       router.refresh();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to log out");
     } finally {
       setLoading(false);
     }

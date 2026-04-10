@@ -59,22 +59,17 @@ const modules = [
 ]
 
 export function SidebarCollapsedBar() {
-  const { state } = useSidebar()
+  const { isMobile, state } = useSidebar()
   const pathname = usePathname()
   const router = useRouter()
   const collapsed = state === "collapsed"
 
+  if (isMobile) {
+    return <SidebarTrigger className="-ml-1" />
+  }
+
   return (
     <div className="relative flex items-center">
-      {/* Trigger — visible when expanded */}
-      <SidebarTrigger
-        className={cn(
-          "-ml-1 transition-opacity duration-200 ease-out",
-          collapsed && "pointer-events-none absolute opacity-0"
-        )}
-      />
-
-      {/* Menubar — visible when collapsed, shrinks back on expand */}
       <div
         data-sidebar-bar=""
         className={cn(

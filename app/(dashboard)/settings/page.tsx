@@ -4,6 +4,7 @@ import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
+import { AppearanceSection } from "./appearance-section";
 import { ProfileSection } from "./profile-section";
 import { TeamSection } from "./team-section";
 
@@ -34,6 +35,7 @@ export default async function SettingsPage() {
         <div className="order-2 min-w-0 xl:order-1">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
             <ProfileSection initialData={accountData} />
+            <AppearanceSection />
             {teamData ? <TeamSection initialData={teamData} /> : null}
           </div>
         </div>

@@ -4,15 +4,16 @@ import { useTheme } from "next-themes"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Sun03Icon, Moon02Icon } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme()
 
   return (
     <Button
       variant="ghost"
       size="icon"
-      className="h-7 w-7"
+      className={cn("h-7 w-7", className)}
       onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
     >
       <HugeiconsIcon

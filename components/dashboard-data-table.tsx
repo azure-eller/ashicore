@@ -256,8 +256,13 @@ export function DashboardDataTable<TData extends { id: string }>({
 
             <Button variant="default" aria-label={addAriaLabel} asChild>
               <Link href={addHref}>
-                <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" aria-hidden />
                 {addAriaLabel}
+                <HugeiconsIcon
+                  icon={Add01Icon}
+                  className="h-4 w-4"
+                  data-icon="inline-end"
+                  aria-hidden
+                />
               </Link>
             </Button>
           </div>

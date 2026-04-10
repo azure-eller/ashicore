@@ -380,8 +380,13 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             </DropdownMenu>
             <Button variant="default" aria-label="New Order" asChild>
               <Link href="/sales/orders/new">
-                <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" aria-hidden />
                 New Order
+                <HugeiconsIcon
+                  icon={Add01Icon}
+                  className="h-4 w-4"
+                  data-icon="inline-end"
+                  aria-hidden
+                />
               </Link>
             </Button>
           </div>

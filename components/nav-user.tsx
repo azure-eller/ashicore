@@ -28,6 +28,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { authClient } from "@/lib/auth-client"
 import { getInitials } from "@/lib/format"
+import { clearReadabilityCookie } from "@/lib/readability-cookie"
 import { useRouter } from "next/navigation"
 
 export function NavUser({
@@ -44,7 +45,13 @@ export function NavUser({
   const initials = getInitials(user.name)
 
   async function handleLogout() {
-    await authClient.signOut()
+    const { error } = await authClient.signOut()
+
+    if (error) {
+      return
+    }
+
+    clearReadabilityCookie()
     router.push("/sign-in")
   }
 

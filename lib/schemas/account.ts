@@ -98,6 +98,28 @@ export const accountSettingsSchema = z
     }
   });
 
+export const READABILITY_OPTIONS = ["default", "large", "x-large"] as const;
+export type ReadabilityOption = (typeof READABILITY_OPTIONS)[number];
+
+export function normalizeReadabilityOption(
+  value: string | null | undefined
+): ReadabilityOption {
+  switch (value) {
+    case "comfortable":
+      return "large";
+    case "large":
+      return "large";
+    case "x-large":
+      return "x-large";
+    default:
+      return "default";
+  }
+}
+
+export const updateReadabilitySchema = z.object({
+  readability: z.enum(READABILITY_OPTIONS),
+});
+
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

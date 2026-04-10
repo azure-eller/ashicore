@@ -7,6 +7,7 @@ export type SettingsSection = {
 
 const ALL_SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "profile", title: "Profile" },
+  { id: "appearance", title: "Appearance" },
   { id: "team", title: "Team" },
 ];
 

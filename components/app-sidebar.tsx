@@ -17,6 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
@@ -136,7 +137,7 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon" variant="floating" {...props}>
       <SidebarHeader className="group-data-[collapsible=icon]:hidden">
-        <div className="flex items-center gap-2">
+        <div className="flex items-start gap-2">
           <SidebarMenu className="flex-1">
             <SidebarMenuItem>
               <SidebarMenuButton
@@ -153,16 +154,19 @@ export function AppSidebar({
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-          <div className="flex items-center">
-            <ThemeToggle />
-          </div>
+          <SidebarTrigger className="mt-1 size-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
         </div>
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter className="group-data-[collapsible=icon]:hidden">
-        <NavUser user={user} />
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <NavUser user={user} />
+          </div>
+          <ThemeToggle className="h-8 w-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
+        </div>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

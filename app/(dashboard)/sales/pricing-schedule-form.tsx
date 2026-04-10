@@ -459,8 +459,13 @@ export function PricingScheduleForm({
                     });
                   }}
                 >
-                  <HugeiconsIcon icon={Add01Icon} className="mr-2 h-4 w-4" aria-hidden />
                   Add Break
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    className="h-4 w-4"
+                    data-icon="inline-end"
+                    aria-hidden
+                  />
                 </Button>
               </div>
             </FieldGroup>

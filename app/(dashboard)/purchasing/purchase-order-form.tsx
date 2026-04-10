@@ -355,8 +355,13 @@ export function PurchaseOrderForm({
                     })
                   }
                 >
-                  <HugeiconsIcon icon={Add01Icon} className="mr-2 h-4 w-4" aria-hidden />
                   Add Material
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    className="h-4 w-4"
+                    data-icon="inline-end"
+                    aria-hidden
+                  />
                 </Button>
 
                 <div className="rounded-md border px-4 py-2 text-sm">
