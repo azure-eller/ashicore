@@ -117,7 +117,7 @@ export function OrdersTable({
       }}
       searchAriaLabel="Search manufacturing orders"
       addHref="/manufacturing/orders/new"
-      addAriaLabel="Add order"
+      addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
       deleteAction={{
         endpoint: "/api/manufacturing-orders",

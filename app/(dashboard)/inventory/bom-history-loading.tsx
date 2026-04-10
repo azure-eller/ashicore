@@ -52,8 +52,7 @@ export default function BomHistoryLoading() {
                   <TableRow>
                     <TableHead><Skeleton className="h-4 w-20" /></TableHead>
                     <TableHead><Skeleton className="h-4 w-10" /></TableHead>
-                    <TableHead className="text-right"><Skeleton className="ml-auto h-4 w-8" /></TableHead>
-                    <TableHead className="text-right"><Skeleton className="ml-auto h-4 w-20" /></TableHead>
+                    <TableHead className="text-right"><Skeleton className="ml-auto h-4 w-16" /></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -61,8 +60,7 @@ export default function BomHistoryLoading() {
                     <TableRow key={rowIndex}>
                       <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                      <TableCell className="text-right"><Skeleton className="ml-auto h-4 w-8" /></TableCell>
-                      <TableCell className="text-right"><Skeleton className="ml-auto h-4 w-12" /></TableCell>
+                      <TableCell className="text-right"><Skeleton className="ml-auto h-4 w-20" /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

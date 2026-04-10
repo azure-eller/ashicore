@@ -43,6 +43,34 @@ const stockSubquery = trimScale(sql`(
   WHERE ${lots.itemId} = ${items.id}
 )`).as("stock");
 
+// Potential: how many finished units could be produced from current available ingredient stock.
+// For discrete products: floor(min(component_available / bom_qty))
+// For batch products: floor(min(component_available / bom_qty)) * expected_batch_yield
+// Available = lot stock - committed qty (stock already allocated to open orders)
+const potentialSubquery = sql<string | null>`(
+  CASE WHEN ${items.itemType} = 'product' AND EXISTS (
+    SELECT 1 FROM inventory.bom_components WHERE item_id = ${items.id}
+  ) THEN
+    FLOOR(
+      (
+        SELECT MIN(
+          (
+            COALESCE((SELECT SUM(${lots.quantity}) FROM ${lots} WHERE ${lots.itemId} = bc.component_id), 0)
+            - COALESCE((SELECT ci.committed_qty FROM inventory.items ci WHERE ci.id = bc.component_id), 0)
+          )
+          / NULLIF(bc.quantity, 0)
+        )
+        FROM inventory.bom_components bc
+        WHERE bc.item_id = ${items.id}
+      )
+      * CASE WHEN ${items.manufacturingMode} = 'batch' AND ${items.expectedBatchYield} IS NOT NULL
+          THEN ${items.expectedBatchYield}
+          ELSE 1
+        END
+    )
+  ELSE NULL END
+)`.as("potential");
+
 type BomInputRow = { componentId: string; quantity: string };
 
 function normalizeBomRows(bom: BomInputRow[]) {
@@ -169,7 +197,10 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         expectedQty: trimScale(items.expectedQty).as("expectedQty"),
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         unit: unitDefinitions.name,
+        unitSize: unitDefinitions.size,
+        unitUom: unitDefinitions.uom,
         category: items.category,
+        potential: potentialSubquery,
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))

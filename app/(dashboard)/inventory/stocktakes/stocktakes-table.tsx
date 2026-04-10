@@ -105,7 +105,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
       enableRowSelection={(row) => row.original.status === "draft"}
       searchAriaLabel="Search stocktakes"
       addHref="/inventory/stocktakes/new"
-      addAriaLabel="Add stocktake"
+      addAriaLabel="New Stocktake"
       emptyMessage="No stocktakes yet."
       deleteAction={{
         endpoint: "/api/stocktakes",

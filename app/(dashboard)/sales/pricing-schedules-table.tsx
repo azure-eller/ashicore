@@ -85,7 +85,7 @@ export function PricingSchedulesTable({
       }}
       searchAriaLabel="Search pricing schedules"
       addHref="/sales/pricing/schedules/new"
-      addAriaLabel="Add pricing schedule"
+      addAriaLabel="New Pricing Schedule"
       emptyMessage="No pricing schedules yet."
       deleteAction={{
         endpoint: "/api/pricing-schedules",

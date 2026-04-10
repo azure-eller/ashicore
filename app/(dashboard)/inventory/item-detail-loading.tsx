@@ -85,10 +85,10 @@ export function ItemDetailLoading({ itemType }: ItemDetailLoadingProps) {
               <Skeleton className="h-4 w-28" />
             </div>
             <DetailTableSkeleton
-              columnsClassName="grid-cols-[minmax(0,1.4fr)_7rem_5rem_6rem]"
-              headerWidths={["w-24", "w-10", "w-8", "w-10"]}
-              rowWidths={["w-40", "w-14", "w-10", "w-16"]}
-              cellClassNames={["", "", "justify-self-end", "justify-self-end"]}
+              columnsClassName="grid-cols-[minmax(0,1.4fr)_7rem_6rem]"
+              headerWidths={["w-24", "w-10", "w-12"]}
+              rowWidths={["w-40", "w-14", "w-16"]}
+              cellClassNames={["", "", "justify-self-end"]}
               rows={2}
             />
           </div>

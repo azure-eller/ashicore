@@ -86,7 +86,7 @@ export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) 
       }}
       searchAriaLabel="Search customers"
       addHref="/sales/customers/new"
-      addAriaLabel="Add customer"
+      addAriaLabel="New Customer"
       emptyMessage="No customers yet."
       deleteAction={{
         endpoint: "/api/customers",

@@ -86,7 +86,7 @@ export function OrdersTable({ initialData }: { initialData: PurchaseOrderListRow
       }}
       searchAriaLabel="Search purchase orders"
       addHref="/purchasing/orders/new"
-      addAriaLabel="Add purchase order"
+      addAriaLabel="New Purchase Order"
       emptyMessage="No purchase orders yet."
       deleteAction={{
         endpoint: "/api/purchase-orders",

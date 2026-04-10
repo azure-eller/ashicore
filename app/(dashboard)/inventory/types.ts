@@ -17,7 +17,10 @@ export type ItemRow = {
   expectedQty: string;
   safetyStock: string;
   unit: string;
+  unitSize: string;
+  unitUom: string;
   category: string | null;
+  potential: string | null;
 };
 
 export function calcStock(

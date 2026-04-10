@@ -1,7 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
-import { columns } from "./columns";
+import { getColumns } from "./columns";
 import type { ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
@@ -11,6 +12,8 @@ interface DataTableProps {
 }
 
 export function DataTable({ initialData, itemType }: DataTableProps) {
+  const columns = useMemo(() => getColumns(itemType), [itemType]);
+
   return (
     <DashboardDataTable
       columns={columns}
@@ -26,7 +29,7 @@ export function DataTable({ initialData, itemType }: DataTableProps) {
       }}
       searchAriaLabel="Search items"
       addHref={`/inventory/${ITEM_TYPE_SEGMENTS[itemType]}/new`}
-      addAriaLabel="Add item"
+      addAriaLabel={itemType === "product" ? "New Product" : "New Material"}
       emptyMessage="No items yet."
       deleteAction={{
         endpoint: "/api/items",

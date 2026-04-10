@@ -226,6 +226,21 @@ Portal components should use semantic background/text tokens on the portal conte
 <DropdownMenuContent className="bg-popover text-popover-foreground" />
 ```
 
+### Inverted / dark surfaces
+
+To create a dark surface in light mode (or light in dark mode), scope `className="dark"` on the container. This is how shadcn does it on their create page. All children automatically pick up dark mode tokens through the `@custom-variant dark (&:is(.dark *))` rule — no manual CSS variable overrides needed.
+
+```tsx
+// ✓ Correct — dark class scopes all children to dark tokens
+<Sidebar className="dark" />
+<Card className="dark bg-card/90 shadow-xl backdrop-blur-xl" />
+
+// ✗ Wrong — manually overriding CSS variables for each token
+// ✗ Wrong — hardcoding colors like bg-[#303030] text-white
+```
+
+The app sidebar uses this pattern. Never replace it with manual `--sidebar-*` variable swaps or hardcoded colors.
+
 ### Tooltips
 
 Use tooltips only for computed terms or alert indicators that need brief clarification. Reuse the existing label/link as the trigger — no extra info icons unless there is no natural hover target.

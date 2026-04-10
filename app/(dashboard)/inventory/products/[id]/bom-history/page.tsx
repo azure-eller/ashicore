@@ -133,7 +133,6 @@ export default async function ProductBomHistoryPage({
                     <TableHead>Component</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Stocking Unit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -143,10 +142,9 @@ export default async function ProductBomHistoryPage({
                       <TableCell>
                         <Badge variant="outline">{component.componentItemType}</Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {component.quantity}
+                      <TableCell className="text-right">
+                        {component.quantity} {component.unitName}
                       </TableCell>
-                      <TableCell className="text-right">{component.unitName}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

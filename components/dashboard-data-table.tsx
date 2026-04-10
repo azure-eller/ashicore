@@ -254,9 +254,10 @@ export function DashboardDataTable<TData extends { id: string }>({
               </DropdownMenu>
             )}
 
-            <Button variant="default" size="icon" aria-label={addAriaLabel} asChild>
+            <Button variant="default" aria-label={addAriaLabel} asChild>
               <Link href={addHref}>
                 <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" aria-hidden />
+                {addAriaLabel}
               </Link>
             </Button>
           </div>

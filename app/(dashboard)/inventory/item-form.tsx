@@ -70,6 +70,7 @@ import {
 } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 
 const CREATE_NEW_UNIT = "__create_new__";
@@ -725,37 +726,91 @@ export function ItemForm({
                         : "Ingredients needed to produce one unit of this product."}
                     </FieldDescription>
                   </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="mt-0.5 shrink-0"
-                          aria-label={bomLocked ? "Unlock recipe" : "Lock recipe"}
-                          disabled={!canManageBomLock}
-                          onClick={() => {
-                            setPendingBomLocked(!bomLocked);
-                            setBomLockConfirmOpen(true);
+                  <div className="flex items-center gap-2">
+                    <Controller
+                      control={form.control}
+                      name="manufacturingMode"
+                      render={({ field }) => (
+                        <ToggleGroup
+                          type="single"
+                          variant="outline"
+                          size="sm"
+                          value={field.value ?? "discrete"}
+                          onValueChange={(value) => {
+                            if (!value) return;
+                            field.onChange(value);
+                            if (value === "discrete") {
+                              form.setValue("expectedBatchYield", null, {
+                                shouldDirty: true,
+                              });
+                            }
                           }}
                         >
-                          <HugeiconsIcon
-                            icon={bomLocked ? CircleLock01Icon : CircleUnlock01Icon}
-                            strokeWidth={2}
-                          />
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {canManageBomLock
-                        ? bomLocked
-                          ? "Recipe is locked. Click to unlock."
-                          : "Recipe is unlocked. Click to lock."
-                        : "Inventory admin access is required to lock or unlock recipes."}
-                    </TooltipContent>
-                  </Tooltip>
+                          <ToggleGroupItem value="discrete">Discrete</ToggleGroupItem>
+                          <ToggleGroupItem value="batch">Batch</ToggleGroupItem>
+                        </ToggleGroup>
+                      )}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="shrink-0"
+                            aria-label={bomLocked ? "Unlock recipe" : "Lock recipe"}
+                            disabled={!canManageBomLock}
+                            onClick={() => {
+                              setPendingBomLocked(!bomLocked);
+                              setBomLockConfirmOpen(true);
+                            }}
+                          >
+                            <HugeiconsIcon
+                              icon={bomLocked ? CircleLock01Icon : CircleUnlock01Icon}
+                              strokeWidth={2}
+                            />
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {canManageBomLock
+                          ? bomLocked
+                            ? "Recipe is locked. Click to unlock."
+                            : "Recipe is unlocked. Click to lock."
+                          : "Inventory admin access is required to lock or unlock recipes."}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
+                {watchedManufacturingMode === "batch" && (
+                  <Controller
+                    control={form.control}
+                    name="expectedBatchYield"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>Expected Batch Yield</FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder="0"
+                          className="w-48"
+                        />
+                        {fieldState.invalid ? (
+                          <FieldError errors={[fieldState.error]} />
+                        ) : (
+                          <FieldDescription>
+                            Number of finished units produced per batch.
+                          </FieldDescription>
+                        )}
+                      </Field>
+                    )}
+                  />
+                )}
                 <BomEditor
                   control={form.control}
                   availableComponents={availableComponents}
@@ -796,80 +851,6 @@ export function ItemForm({
                     />
                   </FieldGroup>
                 ) : null}
-              </FieldSet>
-            </>
-          )}
-
-          {itemType === "product" && (
-            <>
-              <FieldSeparator />
-              <FieldSet className="max-w-4xl gap-5">
-                <FieldLegend>Manufacturing</FieldLegend>
-                <FieldDescription>
-                  How this product is manufactured.
-                </FieldDescription>
-                <FieldGroup>
-                  <Controller
-                    control={form.control}
-                    name="manufacturingMode"
-                    render={({ field }) => (
-                      <Field>
-                        <FieldLabel htmlFor={field.name}>Manufacturing Mode</FieldLabel>
-                        <Select
-                          value={field.value ?? "discrete"}
-                          onValueChange={(value) => {
-                            field.onChange(value);
-                            if (value === "discrete") {
-                              form.setValue("expectedBatchYield", null, {
-                                shouldDirty: true,
-                              });
-                            }
-                          }}
-                        >
-                          <SelectTrigger id={field.name} className="w-48">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="discrete">Discrete</SelectItem>
-                            <SelectItem value="batch">Batch</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FieldDescription>
-                          {watchedManufacturingMode === "batch"
-                            ? "Produced in fixed batches. BOM quantities are per batch."
-                            : "Produced per unit. BOM quantities are per finished unit."}
-                        </FieldDescription>
-                      </Field>
-                    )}
-                  />
-                  {watchedManufacturingMode === "batch" && (
-                    <Controller
-                      control={form.control}
-                      name="expectedBatchYield"
-                      render={({ field, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>Expected Batch Yield</FieldLabel>
-                          <Input
-                            {...field}
-                            id={field.name}
-                            value={field.value ?? ""}
-                            aria-invalid={fieldState.invalid}
-                            inputMode="decimal"
-                            autoComplete="off"
-                            placeholder="0"
-                            className="w-48"
-                          />
-                          <FieldDescription>
-                            Number of finished units produced per batch.
-                          </FieldDescription>
-                          {fieldState.invalid && (
-                            <FieldError errors={[fieldState.error]} />
-                          )}
-                        </Field>
-                      )}
-                    />
-                  )}
-                </FieldGroup>
               </FieldSet>
             </>
           )}

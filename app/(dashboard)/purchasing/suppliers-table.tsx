@@ -81,7 +81,7 @@ export function SuppliersTable({ initialData }: { initialData: SupplierRow[] }) 
       }}
       searchAriaLabel="Search suppliers"
       addHref="/purchasing/suppliers/new"
-      addAriaLabel="Add supplier"
+      addAriaLabel="New Supplier"
       emptyMessage="No suppliers yet."
       deleteAction={{
         endpoint: "/api/suppliers",

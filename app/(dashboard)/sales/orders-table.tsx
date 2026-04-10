@@ -378,9 +378,10 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="default" size="icon" aria-label="Add order" asChild>
+            <Button variant="default" aria-label="New Order" asChild>
               <Link href="/sales/orders/new">
                 <HugeiconsIcon icon={Add01Icon} className="h-4 w-4" aria-hidden />
+                New Order
               </Link>
             </Button>
           </div>

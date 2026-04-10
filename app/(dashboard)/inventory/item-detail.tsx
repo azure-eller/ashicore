@@ -311,7 +311,6 @@ export function ItemDetail({
                       {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
                         <TableHead className="text-right">Qty / Unit</TableHead>
                       )}
-                      <TableHead className="text-right">Stocking Unit</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -328,15 +327,14 @@ export function ItemDetail({
                           <TableCell>
                             <Badge variant="outline">{b.componentItemType}</Badge>
                           </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {batchQty ?? "\u2014"}
+                          <TableCell className="text-right">
+                            {batchQty != null ? `${batchQty} ${b.componentUnit}` : "\u2014"}
                           </TableCell>
                           {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-                            <TableCell className="text-right font-mono text-muted-foreground">
-                              {perUnit ?? "\u2014"}
+                            <TableCell className="text-right text-muted-foreground">
+                              {perUnit != null ? `${perUnit} ${b.componentUnit}` : "\u2014"}
                             </TableCell>
                           )}
-                          <TableCell className="text-right">{b.componentUnit}</TableCell>
                         </TableRow>
                       );
                     })}
