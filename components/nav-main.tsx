@@ -18,7 +18,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
 
 export function NavMain({
   items,
@@ -47,7 +47,7 @@ export function NavMain({
 
   return (
     <SidebarGroup>
-      <SidebarMenu>
+      <SidebarMenu className="gap-2">
         {items.map((item) => {
           const hasChildren = Boolean(item.items?.length)
           const isItemActive =
@@ -87,26 +87,36 @@ export function NavMain({
               className="group/collapsible"
             >
               <SidebarMenuItem>
-                <CollapsibleTrigger asChild>
-                  <SidebarMenuButton isActive={Boolean(isItemActive)} tooltip={item.title}>
-                    {item.icon}
-                    <span>{item.title}</span>
-                    <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                  </SidebarMenuButton>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <SidebarMenuSub>
-                    {item.items?.map((subItem) => (
-                      <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton asChild isActive={isPathActive(subItem.url)}>
-                          <Link href={subItem.url}>
-                            <span>{subItem.title}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    ))}
-                  </SidebarMenuSub>
-                </CollapsibleContent>
+                <div className="rounded-lg ring-1 ring-sidebar-border overflow-hidden">
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      isActive={Boolean(isItemActive)}
+                      tooltip={item.title}
+                      className="rounded-b-none group-data-[state=closed]/collapsible:rounded-b-lg"
+                    >
+                      {item.icon}
+                      <span>{item.title}</span>
+                      <HugeiconsIcon
+                        icon={ArrowDown01Icon}
+                        strokeWidth={2}
+                        className="ml-auto size-4 transition-transform duration-200 group-data-[state=closed]/collapsible:-rotate-90"
+                      />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub className="ml-0 border-l-0 px-1 pb-1">
+                      {item.items?.map((subItem) => (
+                        <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubButton asChild isActive={isPathActive(subItem.url)}>
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ))}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </div>
               </SidebarMenuItem>
             </Collapsible>
           )

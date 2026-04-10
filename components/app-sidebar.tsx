@@ -134,8 +134,8 @@ export function AppSidebar({
   ] as Array<NavMainItem | null>).filter((item): item is NavMainItem => item !== null)
 
   return (
-    <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
+    <Sidebar collapsible="icon" variant="floating" {...props}>
+      <SidebarHeader className="group-data-[collapsible=icon]:hidden">
         <div className="flex items-center gap-2">
           <SidebarMenu className="flex-1">
             <SidebarMenuItem>
@@ -153,7 +153,7 @@ export function AppSidebar({
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-          <div className="flex items-center group-data-[collapsible=icon]:hidden">
+          <div className="flex items-center">
             <ThemeToggle />
           </div>
         </div>
@@ -161,7 +161,7 @@ export function AppSidebar({
       <SidebarContent>
         <NavMain items={navMain} />
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="group-data-[collapsible=icon]:hidden">
         <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />

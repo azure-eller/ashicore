@@ -1,5 +1,5 @@
 import { Separator } from "@/components/ui/separator";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 
 export default function SettingsLayout({
   children,
@@ -9,7 +9,7 @@ export default function SettingsLayout({
   return (
     <>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <SidebarTrigger className="-ml-1" />
+        <SidebarCollapsedBar />
         <Separator
           orientation="vertical"
           className="mr-2 data-vertical:h-4 data-vertical:self-auto"
