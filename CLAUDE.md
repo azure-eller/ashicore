@@ -144,6 +144,14 @@ Controller text inputs should bind `value={field.value ?? ""}` so slow rerenders
 <Textarea {...field} value={field.value ?? ""} />
 ```
 
+### Variant names
+
+Variants inherit `items.name` from their master. Never expose an editable variant name; show a read-only family name plus a derived title from `formatVariantDisplay()`.
+
+```tsx
+const title = formatVariantDisplay(masterName, variantAttrs, variantAxes)
+```
+
 ### Standalone form pages
 
 Single-page create/edit forms should use a centered page shell with top actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one centered card for the entire form.

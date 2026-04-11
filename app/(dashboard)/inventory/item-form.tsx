@@ -112,9 +112,12 @@ export function ItemForm({
   const queryClient = useQueryClient();
   const segment = ITEM_TYPE_SEGMENTS[itemType];
   const isEditing = Boolean(initialData);
+  const isVariant = itemType === "product" && initialData?.parentId != null;
   const typeLabel = itemType === "product" ? "Product" : "Material";
   const fallbackPath = `/inventory/${segment}${initialData ? `/${initialData.id}` : ""}`;
   const [isMaster, setIsMaster] = useState(initialData?.isMaster ?? false);
+  const variantFamilyName = isVariant ? (initialData?.parentName ?? initialData?.name ?? "") : "";
+  const variantTitle = isVariant ? (initialData?.displayName ?? variantFamilyName) : "";
   const showMasterToggle = itemType === "product" && !isEditing && !initialData?.isMaster;
   const [categoryInput, setCategoryInput] = useState("");
   const [localUnits, setLocalUnits] = useState(units);
@@ -265,7 +268,8 @@ export function ItemForm({
     mutationFn: async (data: ItemFormValues) => {
       const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
       const method = initialData ? "PUT" : "POST";
-      const payload = isMaster ? { ...data, isMaster: true } : data;
+      const nextData = isVariant ? { ...data, name: variantFamilyName } : data;
+      const payload = isMaster ? { ...nextData, isMaster: true } : nextData;
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -345,11 +349,19 @@ export function ItemForm({
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? `Edit ${typeLabel}` : isMaster ? "Add Product with Variants" : `Add ${typeLabel}`}
+            {isEditing
+              ? isVariant
+                ? "Edit Variant"
+                : `Edit ${typeLabel}`
+              : isMaster
+                ? "Add Product with Variants"
+                : `Add ${typeLabel}`}
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             {isEditing
-              ? `Update this ${typeLabel.toLowerCase()}'s details.`
+              ? isVariant
+                ? "Update variant-specific details. Family name and title are derived from the product family."
+                : `Update this ${typeLabel.toLowerCase()}'s details.`
               : isMaster
                 ? "Variants can be added from the product detail page after creation."
                 : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
@@ -403,29 +415,64 @@ export function ItemForm({
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Basics</FieldLegend>
             <FieldDescription>
-              Name, category, and unit details for this {typeLabel.toLowerCase()}.
+              {isVariant
+                ? "Family name is inherited, and the variant title is derived from its dimensions."
+                : `Name, category, and unit details for this ${typeLabel.toLowerCase()}.`}
             </FieldDescription>
             <FieldGroup>
-              <Controller
-                name="name"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Name</FieldLabel>
-                    <Input
-                      {...field}
-                      id={field.name}
-                      value={field.value ?? ""}
-                      aria-invalid={fieldState.invalid}
-                      placeholder="e.g. Sand, Gravel, Topsoil"
-                      autoComplete="off"
+              {isVariant ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field>
+                    <input
+                      type="hidden"
+                      {...form.register("name")}
+                      value={variantFamilyName}
+                      readOnly
                     />
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
+                    <FieldLabel htmlFor="variant-family-name">Family Name</FieldLabel>
+                    <Input
+                      id="variant-family-name"
+                      value={variantFamilyName}
+                      readOnly
+                      className="bg-muted/40 text-muted-foreground"
+                    />
                   </Field>
-                )}
-              />
+
+                  <Field>
+                    <FieldLabel htmlFor="variant-title">Variant Title</FieldLabel>
+                    <Input
+                      id="variant-title"
+                      value={variantTitle}
+                      readOnly
+                      className="bg-muted/40 font-medium"
+                    />
+                    <FieldDescription>
+                      Derived from the family name and variant dimensions.
+                    </FieldDescription>
+                  </Field>
+                </div>
+              ) : (
+                <Controller
+                  name="name"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Name</FieldLabel>
+                      <Input
+                        {...field}
+                        id={field.name}
+                        value={field.value ?? ""}
+                        aria-invalid={fieldState.invalid}
+                        placeholder="e.g. Sand, Gravel, Topsoil"
+                        autoComplete="off"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+              )}
 
               <Controller
                 name="description"

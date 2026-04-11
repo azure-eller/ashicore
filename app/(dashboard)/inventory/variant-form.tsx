@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   insertVariantSchema,
   type InsertVariantFormValues,
 } from "@/lib/schemas/items";
+import { formatVariantDisplay } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,6 +61,19 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
       expectedBatchYield: null,
     },
   });
+  const watchedVariantAttrs = useWatch({
+    control: form.control,
+    name: "variantAttrs",
+  });
+  const variantTitle = useMemo(
+    () =>
+      formatVariantDisplay(
+        masterName,
+        (watchedVariantAttrs as Record<string, string> | undefined) ?? {},
+        masterAxes,
+      ),
+    [masterAxes, masterName, watchedVariantAttrs],
+  );
 
   const mutation = useMutation({
     mutationFn: async (data: InsertVariantFormValues) => {
@@ -137,6 +151,31 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
               Values for each variant dimension of <span className="font-medium">{masterName}</span>.
             </FieldDescription>
             <FieldGroup>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="variant-family-name">Family Name</FieldLabel>
+                  <Input
+                    id="variant-family-name"
+                    value={masterName}
+                    readOnly
+                    className="bg-muted/40 text-muted-foreground"
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="variant-title">Variant Title</FieldLabel>
+                  <Input
+                    id="variant-title"
+                    value={variantTitle}
+                    readOnly
+                    className="bg-muted/40 font-medium"
+                  />
+                  <FieldDescription>
+                    Derived from the family name and variant dimensions.
+                  </FieldDescription>
+                </Field>
+              </div>
+
               {masterAxes.map((axis) => (
                 <Controller
                   key={axis}

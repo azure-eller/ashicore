@@ -76,3 +76,13 @@ Page component
 | Manufacturing table example | `app/(dashboard)/manufacturing/orders-table.tsx` |
 | Purchasing form example | `app/(dashboard)/purchasing/purchase-order-form.tsx` |
 | Purchasing table example | `app/(dashboard)/purchasing/orders-table.tsx` |
+
+## Variant Families
+
+Variant products use one identity model:
+
+- master products own the family `name` and ordered `variantAxes`
+- child variants store the same `name` as their master plus per-axis `variantAttrs`
+- user-facing variant titles are derived with `formatVariantDisplay(masterName, variantAttrs, variantAxes)`
+
+Do not expose a freeform variant name in create or edit flows. Variant edits should keep `items.name` aligned to the parent family name, while the UI shows the derived title separately.

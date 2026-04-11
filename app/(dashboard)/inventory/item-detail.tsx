@@ -28,6 +28,7 @@ interface ItemDetailProps {
   item: {
     id: string;
     name: string;
+    displayName?: string;
     sku: string | null;
     category: string | null;
     description: string | null;
@@ -112,6 +113,7 @@ export function ItemDetail({
 }: ItemDetailProps) {
   const isMaster = item.isMaster === true;
   const isVariant = item.parentId != null;
+  const headingTitle = item.displayName ?? item.name;
   const calculatedStock = calcStock(item);
   const basePath = `/inventory/${ITEM_TYPE_SEGMENTS[itemType]}`;
   const typeLabel = itemType === "product" ? "Products" : "Materials";
@@ -295,7 +297,7 @@ export function ItemDetail({
           >
             <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
           </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{headingTitle}</h1>
           {isVariant && item.parentName && (
             <p className="text-sm text-muted-foreground">
               Variant of{" "}

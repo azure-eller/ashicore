@@ -8,6 +8,9 @@ test.describe("variant product family", () => {
   const ts = Date.now();
   const masterName = `Test Soil ${ts}`;
   let masterId: string;
+  let variantId: string;
+  const packageValue = "2 Cubic Foot Bag";
+  const variantDisplayName = `${masterName} / ${packageValue}`;
 
   test("create master product with variant axis", async ({ page, db }) => {
     await page.goto("/inventory/products/new");
@@ -60,7 +63,8 @@ test.describe("variant product family", () => {
     await expect(page.getByText("Add Variant")).toBeVisible({ timeout: 15_000 });
 
     // Fill Package axis value — field label is the axis name "Package"
-    await page.getByLabel("Package").fill("2 Cubic Foot Bag");
+    await page.getByLabel("Package").fill(packageValue);
+    await expect(page.getByLabel("Variant Title")).toHaveValue(variantDisplayName);
 
     // Select stocking unit — the select trigger has id="unitDefinitionId"
     await page.locator("#unitDefinitionId").click();
@@ -85,8 +89,38 @@ test.describe("variant product family", () => {
       .then((r: typeof items.$inferSelect[]) => r[0]);
 
     expect(variant).toBeTruthy();
+    variantId = variant!.id;
     expect(variant!.name).toBe(masterName); // variant name = master name
-    expect(variant!.variantAttrs).toEqual({ Package: "2 Cubic Foot Bag" });
+    expect(variant!.variantAttrs).toEqual({ Package: packageValue });
     expect(variant!.unitDefinitionId).not.toBeNull();
+  });
+
+  test("editing a variant keeps the family name locked", async ({ page, db }) => {
+    await page.goto(`/inventory/products/${variantId}`);
+    await expect(page.getByRole("heading", { name: variantDisplayName })).toBeVisible();
+
+    await page.getByRole("link", { name: "Edit" }).click();
+    await page.waitForURL(new RegExp(`/inventory/products/${variantId}/edit$`), { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Edit Variant" })).toBeVisible();
+    await expect(page.getByLabel("Family Name")).toHaveValue(masterName);
+    await expect(page.getByLabel("Variant Title")).toHaveValue(variantDisplayName);
+    await expect(page.getByLabel("Family Name")).toHaveAttribute("readonly", "");
+
+    await page.getByLabel("Description").fill("Variant description updated");
+
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/items/${variantId}`)
+    );
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateResponsePromise).status()).toBe(200);
+
+    await page.waitForURL(new RegExp(`/inventory/products/${variantId}$`), { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: variantDisplayName })).toBeVisible();
+
+    const [updatedVariant] = await db.select().from(items).where(eq(items.id, variantId));
+    expect(updatedVariant.name).toBe(masterName);
+    expect(updatedVariant.description).toBe("Variant description updated");
   });
 });

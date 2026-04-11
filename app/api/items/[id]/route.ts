@@ -31,8 +31,15 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
 
   const body = await request.json();
   const { stock, bom, revisionNote, ...itemData } = updateItemSchema.parse(body);
+  const nextItemData =
+    existingItem.parentId != null
+      ? {
+          ...itemData,
+          name: existingItem.parentName ?? existingItem.name,
+        }
+      : itemData;
 
-  if (existingItem.itemType === "product" && itemData.bomLocked && !existingItem.bomLocked) {
+  if (existingItem.itemType === "product" && nextItemData.bomLocked && !existingItem.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
   }
 
@@ -46,7 +53,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   try {
     const item = await updateItem(
       id,
-      itemData,
+      nextItemData,
       stock != null ? parseFloat(stock) : undefined,
       bom,
       revisionNote,
