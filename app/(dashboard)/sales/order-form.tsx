@@ -896,7 +896,7 @@ function OrderLineRow({
                 items={itemIds}
                 value={field.value ?? ""}
                 onValueChange={(value) => onItemChange(value ?? "")}
-                itemToStringLabel={(value) => itemMap.get(value)?.name ?? ""}
+                itemToStringLabel={(value) => itemMap.get(value)?.displayName ?? ""}
               >
                 <ComboboxInput placeholder="Search items..." />
                 <ComboboxContent>
@@ -913,7 +913,7 @@ function OrderLineRow({
 
                       return (
                         <ComboboxItem key={value} value={value}>
-                          <span>{current?.name ?? value}</span>
+                          <span>{current?.displayName ?? value}</span>
                           {metadata && (
                             <span className="ml-auto text-xs text-muted-foreground">
                               {metadata}

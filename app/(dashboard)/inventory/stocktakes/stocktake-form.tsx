@@ -149,6 +149,7 @@ export function StocktakeForm({
                     <Input
                       {...field}
                       id={field.name}
+                      value={field.value ?? ""}
                       aria-invalid={fieldState.invalid}
                       placeholder="Quarterly inventory count"
                       autoComplete="off"

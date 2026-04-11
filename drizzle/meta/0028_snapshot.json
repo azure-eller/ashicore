@@ -1,6 +1,6 @@
 {
-  "id": "de2aac4f-e1f4-49a5-8b72-14b88f75b67a",
-  "prevId": "25a412e3-f529-499b-98c5-4ab9108f52c9",
+  "id": "262565c7-fee2-4fd2-8205-b7c1bd23d91a",
+  "prevId": "de2aac4f-e1f4-49a5-8b72-14b88f75b67a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2883,12 +2883,6 @@
         },
         "planned_quantity": {
           "name": "planned_quantity",
-          "type": "numeric(12, 4)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_quantity": {
-          "name": "requested_quantity",
           "type": "numeric(12, 4)",
           "primaryKey": false,
           "notNull": true

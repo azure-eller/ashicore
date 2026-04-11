@@ -92,6 +92,7 @@ export type SalesOrderItemOption = {
   id: string;
   itemType: "material" | "product";
   name: string;
+  displayName: string;
   sku: string | null;
   unitName: string;
   defaultSellingPrice: string | null;
@@ -135,6 +136,8 @@ export type SalesOrderDetailLine = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  calcStock: string | null;
+  potential: string | null;
 };
 
 export type SalesOrderDetail = {

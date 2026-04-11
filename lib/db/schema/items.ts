@@ -1,13 +1,16 @@
 import {
+  type AnyPgColumn,
   uuid,
   varchar,
   text,
   numeric,
   timestamp,
   boolean,
+  check,
   pgPolicy,
   index,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { inventorySchema, unitDefinitions } from "./units";
@@ -28,7 +31,6 @@ export const items = inventorySchema
 
       // Units
       unitDefinitionId: uuid("unit_definition_id")
-        .notNull()
         .references(() => unitDefinitions.id),
       purchaseUnitDefinitionId: uuid("purchase_unit_definition_id").references(
         () => unitDefinitions.id
@@ -51,6 +53,12 @@ export const items = inventorySchema
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
 
+      // Variant family
+      isMaster: boolean("is_master").notNull().default(false),
+      parentId: uuid("parent_id").references((): AnyPgColumn => items.id, { onDelete: "restrict" }),
+      variantAxes: jsonb("variant_axes").$type<string[]>(),
+      variantAttrs: jsonb("variant_attrs").$type<Record<string, string>>(),
+
       // BOM lock
       bomLocked: boolean("bom_locked").notNull().default(false),
       bomLockedAt: timestamp("bom_locked_at"),
@@ -71,6 +79,19 @@ export const items = inventorySchema
       uniqueIndex("items_org_sku_uidx")
         .on(table.organizationId, table.sku)
         .where(sql`sku IS NOT NULL AND deleted_at IS NULL`),
+      index("items_parent_id_idx")
+        .on(table.parentId)
+        .where(sql`parent_id IS NOT NULL`),
+      uniqueIndex("items_org_parent_variant_attrs_uidx")
+        .on(table.organizationId, table.parentId, table.variantAttrs)
+        .where(sql`parent_id IS NOT NULL AND deleted_at IS NULL`),
+      check("items_no_self_parent", sql`parent_id != id`),
+      check("items_products_only_variants", sql`parent_id IS NULL OR item_type = 'product'`),
+      check("items_products_only_masters", sql`is_master = false OR item_type = 'product'`),
+      check("items_variants_not_masters", sql`parent_id IS NULL OR is_master = false`),
+      check("items_non_master_needs_unit", sql`is_master = true OR unit_definition_id IS NOT NULL`),
+      check("items_variant_attrs_needs_parent", sql`variant_attrs IS NULL OR parent_id IS NOT NULL`),
+      check("items_variant_axes_needs_master", sql`variant_axes IS NULL OR is_master = true`),
       pgPolicy("items_org_isolation", {
         for: "all",
         to: "public",

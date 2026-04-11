@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { useState } from "react";
 import {
@@ -9,21 +10,25 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  type BuiltInFilterFn,
   type ColumnDef,
   type ColumnFiltersState,
+  type ExpandedState,
+  type FilterFn,
+  type Row,
+  type RowSelectionState,
+  type SortingState,
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   getFacetedRowModel,
   getFacetedUniqueValues,
   getFilteredRowModel,
   getPaginationRowModel,
-  type Row,
   getSortedRowModel,
-  type RowSelectionState,
-  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { Add01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertDialog,
@@ -69,6 +74,11 @@ type DeleteActionConfig = {
   trackDeletingRows?: boolean;
 };
 
+type AddAction = {
+  label: string;
+  href: string;
+};
+
 type DashboardDataTableProps<TData extends { id: string }> = {
   columns: ColumnDef<TData>[];
   initialData: TData[];
@@ -80,6 +90,12 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   addAriaLabel: string;
   emptyMessage: string;
   deleteAction?: DeleteActionConfig;
+  addActions?: AddAction[];
+  getRowCanExpand?: (row: Row<TData>) => boolean;
+  renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
+  getSubRows?: (row: TData) => TData[] | undefined;
+  subRowClassName?: string;
+  globalFilterFn?: FilterFn<TData> | BuiltInFilterFn;
 };
 
 export function DashboardDataTable<TData extends { id: string }>({
@@ -93,12 +109,19 @@ export function DashboardDataTable<TData extends { id: string }>({
   addAriaLabel,
   emptyMessage,
   deleteAction,
+  addActions,
+  getRowCanExpand: getRowCanExpandProp,
+  renderExpandedRow,
+  getSubRows: getSubRowsProp,
+  subRowClassName,
+  globalFilterFn,
 }: DashboardDataTableProps<TData>) {
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -159,6 +182,7 @@ export function DashboardDataTable<TData extends { id: string }>({
 
   const rowSelectionConfig = enableRowSelection ?? (deleteAction != null);
   const enableSelection = rowSelectionConfig !== false;
+  const hasExpansion = renderExpandedRow != null || getSubRowsProp != null;
   // TanStack Table returns instance methods that React Compiler treats as incompatible.
   // Centralizing the hook here keeps the warning scoped to the shared table shell.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -170,13 +194,21 @@ export function DashboardDataTable<TData extends { id: string }>({
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
-    globalFilterFn: "includesString",
+    globalFilterFn: globalFilterFn ?? "includesString",
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
+    ...(hasExpansion
+      ? {
+          getExpandedRowModel: getExpandedRowModel(),
+          getRowCanExpand: getRowCanExpandProp,
+          onExpandedChange: setExpanded,
+          ...(getSubRowsProp ? { getSubRows: getSubRowsProp, paginateExpandedRows: false } : {}),
+        }
+      : {}),
     initialState: {
       pagination: { pageSize: 25 },
     },
@@ -185,6 +217,7 @@ export function DashboardDataTable<TData extends { id: string }>({
       rowSelection,
       globalFilter,
       columnFilters,
+      ...(hasExpansion ? { expanded } : {}),
     },
   });
 
@@ -254,17 +287,49 @@ export function DashboardDataTable<TData extends { id: string }>({
               </DropdownMenu>
             )}
 
-            <Button variant="default" aria-label={addAriaLabel} asChild>
-              <Link href={addHref}>
-                {addAriaLabel}
-                <HugeiconsIcon
-                  icon={Add01Icon}
-                  className="h-4 w-4"
-                  data-icon="inline-end"
-                  aria-hidden
-                />
-              </Link>
-            </Button>
+            {addActions ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="default" aria-label={addAriaLabel}>
+                    {addAriaLabel}
+                    <HugeiconsIcon
+                      icon={Add01Icon}
+                      className="h-4 w-4"
+                      data-icon="inline-end"
+                      aria-hidden
+                    />
+                    <HugeiconsIcon
+                      icon={ArrowDown01Icon}
+                      className="h-3 w-3"
+                      data-icon="inline-end"
+                      aria-hidden
+                    />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="bg-popover text-popover-foreground"
+                >
+                  {addActions.map((action) => (
+                    <DropdownMenuItem key={action.href} asChild>
+                      <Link href={action.href}>{action.label}</Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button variant="default" aria-label={addAriaLabel} asChild>
+                <Link href={addHref}>
+                  {addAriaLabel}
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    className="h-4 w-4"
+                    data-icon="inline-end"
+                    aria-hidden
+                  />
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -291,19 +356,30 @@ export function DashboardDataTable<TData extends { id: string }>({
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && "selected"}
-                    className={
-                      deletingIds.has(row.original.id) ? "opacity-50" : undefined
-                    }
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                  <Fragment key={row.id}>
+                    <TableRow
+                      data-state={row.getIsSelected() && "selected"}
+                      className={
+                        [
+                          deletingIds.has(row.original.id) ? "opacity-50" : "",
+                          row.depth > 0 && subRowClassName ? subRowClassName : "",
+                        ].filter(Boolean).join(" ") || undefined
+                      }
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {renderExpandedRow && row.getIsExpanded() && !getSubRowsProp && (
+                      <TableRow key={`${row.id}-expanded`} className="hover:bg-transparent">
+                        <TableCell colSpan={row.getVisibleCells().length} className="p-0">
+                          {renderExpandedRow(row)}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 ))
               ) : (
                 <TableRow>

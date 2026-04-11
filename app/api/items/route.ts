@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getItems, createItemWithLot, deleteItems } from "@/app/(dashboard)/inventory/queries";
+import { getItems, createItemWithLot, createMasterProduct, deleteItems } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { MissingStockCostError } from "@/lib/inventory/stock";
-import { insertItemSchema } from "@/lib/schemas/items";
+import { insertItemSchema, insertMasterItemSchema } from "@/lib/schemas/items";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { apiHandler } from "@/lib/api/handler";
 import {
@@ -39,6 +39,13 @@ export const DELETE = apiHandler(async (request) => {
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
+
+  if (body.isMaster) {
+    const data = insertMasterItemSchema.parse(body);
+    const item = await createMasterProduct(data);
+    return NextResponse.json(item, { status: 201 });
+  }
+
   const { stock, bom, revisionNote, ...data } = insertItemSchema.parse(body);
 
   if (data.itemType === "product" && data.bomLocked) {

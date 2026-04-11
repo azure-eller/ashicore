@@ -2,7 +2,10 @@
 
 import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import {
@@ -49,37 +52,59 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
       accessorKey: "name",
       header: ({ column }) => <SortableHeader column={column} label="Name" />,
       cell: ({ row }) => {
-        const isLow = calcStock(row.original) < 0;
-        const name = row.getValue("name") as string;
-        const displayName = isProduct
-          ? `${name} / ${row.original.unit}`
-          : name;
-        const link = (
-          <Link
-            href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
-            className="inline-flex items-center gap-1.5 hover:underline"
-          >
-            {isLow && (
-              <span
-                className="h-2 w-2 shrink-0 rounded-full bg-destructive"
-                aria-label="Below safety stock"
-              />
-            )}
-            {displayName}
-          </Link>
-        );
+        const { isMaster, parentId, variantCount, variantAttrs } = row.original;
+        const isVariant = parentId != null;
+        const isLow = !isMaster && calcStock(row.original) < 0;
 
-        if (!isLow) {
-          return link;
+        if (row.depth > 0) {
+          // Variant sub-row: show only attr values (master name visible above)
+          const attrValues: string = variantAttrs
+            ? Object.values(variantAttrs).join(" / ")
+            : (row.getValue("name") as string);
+          return (
+            <div className="pl-6 text-sm text-muted-foreground">{attrValues}</div>
+          );
         }
 
         return (
-          <Tooltip>
-            <TooltipTrigger asChild>{link}</TooltipTrigger>
-            <TooltipContent side="top">
-              {CALCULATED_STOCK_ALERT_TOOLTIP}
-            </TooltipContent>
-          </Tooltip>
+          <div className={`flex items-center gap-1.5 ${isVariant ? "pl-7" : ""}`}>
+            {isMaster && (
+              <button
+                onClick={() => row.toggleExpanded()}
+                aria-label={row.getIsExpanded() ? "Collapse" : "Expand"}
+                className="p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <HugeiconsIcon
+                  icon={row.getIsExpanded() ? ArrowDown01Icon : ArrowRight01Icon}
+                  className="h-4 w-4"
+                />
+              </button>
+            )}
+            {isLow && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="h-2 w-2 shrink-0 cursor-default rounded-full bg-destructive"
+                    aria-label="Below safety stock"
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {CALCULATED_STOCK_ALERT_TOOLTIP}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Link
+              href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
+              className="hover:underline"
+            >
+              {row.getValue("name")}
+            </Link>
+            {isMaster && variantCount > 0 && (
+              <Badge variant="outline" className="text-xs">
+                {variantCount} variant{variantCount !== 1 ? "s" : ""}
+              </Badge>
+            )}
+          </div>
         );
       },
     },
@@ -89,7 +114,7 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
       filterFn: multiValueFilter,
       cell: ({ row, column }) => {
         const value = row.getValue("category") as string | null;
-        if (!value) return "—";
+        if (!value) return "\u2014";
 
         return (
           <button
@@ -157,7 +182,7 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
             ),
             cell: ({ row }) => {
               const val = row.original.potential;
-              if (val == null) return "—";
+              if (val == null) return "\u2014";
               const num = parseFloat(val);
               return (
                 <span className={num <= 0 ? "text-muted-foreground" : undefined}>
@@ -168,19 +193,17 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
           } satisfies ColumnDef<ItemRow>,
         ]
       : []),
-    // Unit column: only shown for materials (products fold unit into the name cell)
-    ...(!isProduct
-      ? [
-          {
-            accessorKey: "unit",
-            header: "Stocking Unit",
-          } satisfies ColumnDef<ItemRow>,
-        ]
-      : []),
+    {
+      accessorKey: "unit",
+      header: "Stocking Unit",
+    },
     {
       accessorKey: "sku",
       header: "SKU",
-      cell: ({ row }) => (row.getValue("sku") as string | null) ?? "—",
+      cell: ({ row }) => {
+        if (row.original.isMaster) return "\u2014";
+        return (row.getValue("sku") as string | null) ?? "\u2014";
+      },
     },
   ];
 }

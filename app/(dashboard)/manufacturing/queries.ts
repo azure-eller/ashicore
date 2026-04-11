@@ -684,7 +684,7 @@ export async function getManufacturingProductTemplates(): Promise<
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(and(eq(items.itemType, "product"), isNull(items.deletedAt)))
+      .where(and(eq(items.itemType, "product"), isNull(items.deletedAt), eq(items.isMaster, false)))
       .orderBy(items.name);
 
     if (products.length === 0) return [];

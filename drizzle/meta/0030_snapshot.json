@@ -1,6 +1,6 @@
 {
-  "id": "de2aac4f-e1f4-49a5-8b72-14b88f75b67a",
-  "prevId": "25a412e3-f529-499b-98c5-4ab9108f52c9",
+  "id": "2009fb84-1429-42f3-b98e-99aa178d1c1c",
+  "prevId": "2a794e21-4ed9-4d14-a0c8-ce3b1505f936",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -147,7 +147,7 @@
           "name": "unit_definition_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "purchase_unit_definition_id": {
           "name": "purchase_unit_definition_id",
@@ -220,12 +220,17 @@
           "primaryKey": false,
           "notNull": false
         },
-        "bom_inherited": {
-          "name": "bom_inherited",
-          "type": "boolean",
+        "variant_axes": {
+          "name": "variant_axes",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": true,
-          "default": false
+          "notNull": false
+        },
+        "variant_attrs": {
+          "name": "variant_attrs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "bom_locked": {
           "name": "bom_locked",
@@ -336,6 +341,34 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "items_org_parent_variant_attrs_uidx": {
+          "name": "items_org_parent_variant_attrs_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "parent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "variant_attrs",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "parent_id IS NOT NULL AND deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -412,6 +445,18 @@
         "items_variants_not_masters": {
           "name": "items_variants_not_masters",
           "value": "parent_id IS NULL OR is_master = false"
+        },
+        "items_non_master_needs_unit": {
+          "name": "items_non_master_needs_unit",
+          "value": "is_master = true OR unit_definition_id IS NOT NULL"
+        },
+        "items_variant_attrs_needs_parent": {
+          "name": "items_variant_attrs_needs_parent",
+          "value": "variant_attrs IS NULL OR parent_id IS NOT NULL"
+        },
+        "items_variant_axes_needs_master": {
+          "name": "items_variant_axes_needs_master",
+          "value": "variant_axes IS NULL OR is_master = true"
         }
       },
       "isRLSEnabled": true
@@ -2883,12 +2928,6 @@
         },
         "planned_quantity": {
           "name": "planned_quantity",
-          "type": "numeric(12, 4)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_quantity": {
-          "name": "requested_quantity",
           "type": "numeric(12, 4)",
           "primaryKey": false,
           "notNull": true

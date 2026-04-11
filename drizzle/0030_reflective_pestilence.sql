@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "items_org_parent_variant_attrs_uidx" ON "inventory"."items" USING btree ("organization_id","parent_id","variant_attrs") WHERE parent_id IS NOT NULL AND deleted_at IS NULL;

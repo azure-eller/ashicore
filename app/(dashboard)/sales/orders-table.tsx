@@ -5,8 +5,10 @@ import { useState } from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type ExpandedState,
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   getFacetedRowModel,
   getFacetedUniqueValues,
   getFilteredRowModel,
@@ -20,6 +22,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
   MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
@@ -63,6 +67,7 @@ import {
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
+import { OrderExpandedDetail } from "./order-expanded-detail";
 import type {
   BulkOversellWarningPayload,
   SalesOrderListRow,
@@ -101,9 +106,24 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     accessorKey: "orderNumber",
     header: ({ column }) => <SortableHeader column={column} label="Order" />,
     cell: ({ row }) => (
-      <Link href={`/sales/orders/${row.original.id}`} className="hover:underline">
-        {row.original.orderNumber}
-      </Link>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            row.toggleExpanded();
+          }}
+          aria-label={row.getIsExpanded() ? "Collapse order" : "Expand order"}
+          className="p-0.5 text-muted-foreground hover:text-foreground"
+        >
+          <HugeiconsIcon
+            icon={row.getIsExpanded() ? ArrowDown01Icon : ArrowRight01Icon}
+            className="h-4 w-4"
+          />
+        </button>
+        <Link href={`/sales/orders/${row.original.id}`} className="hover:underline">
+          {row.original.orderNumber}
+        </Link>
+      </div>
     ),
   },
   {
@@ -180,6 +200,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [pendingConfirmIds, setPendingConfirmIds] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [bulkOversellWarning, setBulkOversellWarning] =
     useState<BulkOversellWarningPayload | null>(null);
@@ -283,11 +304,13 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     onColumnFiltersChange: setColumnFilters,
     globalFilterFn: "includesString",
     getCoreRowModel: getCoreRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
+    onExpandedChange: setExpanded,
     initialState: {
       pagination: { pageSize: 25 },
     },
@@ -296,6 +319,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       rowSelection,
       globalFilter,
       columnFilters,
+      expanded,
     },
   });
 
@@ -415,16 +439,25 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && "selected"}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                  <>
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && "selected"}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {row.getIsExpanded() && (
+                      <TableRow key={`${row.id}-expanded`} className="hover:bg-transparent">
+                        <TableCell colSpan={columns.length} className="p-0">
+                          <OrderExpandedDetail orderId={row.original.id} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 ))
               ) : (
                 <TableRow>

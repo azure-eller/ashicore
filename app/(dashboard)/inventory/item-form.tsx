@@ -10,8 +10,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { CircleLock01Icon, CircleUnlock01Icon } from "@hugeicons/core-free-icons";
 import {
   insertItemSchema,
+  insertMasterItemSchema,
   updateItemSchema,
   type InsertItemFormValues,
+  type InsertMasterItemFormValues,
   type UpdateItemFormValues,
 } from "@/lib/schemas/items";
 import { ITEM_TYPE_SEGMENTS } from "@/app/(dashboard)/inventory/types";
@@ -19,6 +21,7 @@ import type { getItem } from "@/app/(dashboard)/inventory/queries";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -95,7 +98,7 @@ interface ItemFormProps {
   };
 }
 
-type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
+type ItemFormValues = InsertItemFormValues | UpdateItemFormValues | InsertMasterItemFormValues;
 
 export function ItemForm({
   itemType,
@@ -111,6 +114,8 @@ export function ItemForm({
   const isEditing = Boolean(initialData);
   const typeLabel = itemType === "product" ? "Product" : "Material";
   const fallbackPath = `/inventory/${segment}${initialData ? `/${initialData.id}` : ""}`;
+  const [isMaster, setIsMaster] = useState(initialData?.isMaster ?? false);
+  const showMasterToggle = itemType === "product" && !isEditing && !initialData?.isMaster;
   const [categoryInput, setCategoryInput] = useState("");
   const [localUnits, setLocalUnits] = useState(units);
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
@@ -139,8 +144,14 @@ export function ItemForm({
     return categories;
   }, [categoryInput, categories, categoriesSet]);
 
+  const activeSchema = isMaster
+    ? insertMasterItemSchema
+    : initialData
+      ? updateItemSchema
+      : insertItemSchema;
+
   const form = useForm<ItemFormValues>({
-    resolver: zodResolver(initialData ? updateItemSchema : insertItemSchema),
+    resolver: zodResolver(activeSchema),
     mode: "onBlur",
     defaultValues: initialData
       ? {
@@ -160,25 +171,32 @@ export function ItemForm({
           bom: initialData.bom ?? [],
           revisionNote: null,
         }
-      : {
-          name: "",
-          itemType: itemType as "material" | "product",
-          unitDefinitionId: "",
-          purchaseUnitDefinitionId: null,
-          purchaseToStockFactor: null,
-          sku: null,
-          category: null,
-          description: null,
-          defaultPurchasePrice: null,
-          defaultSellingPrice: null,
-          manufacturingMode: "discrete" as const,
-          expectedBatchYield: null,
-          bomLocked: false,
-          stock: "0",
-          safetyStock: "0",
-          bom: [],
-          revisionNote: null,
-        },
+      : isMaster
+        ? {
+            name: "",
+            description: null,
+            category: null,
+            variantAxes: [],
+          }
+        : {
+            name: "",
+            itemType: itemType as "material" | "product",
+            unitDefinitionId: "",
+            purchaseUnitDefinitionId: null,
+            purchaseToStockFactor: null,
+            sku: null,
+            category: null,
+            description: null,
+            defaultPurchasePrice: null,
+            defaultSellingPrice: null,
+            manufacturingMode: "discrete" as const,
+            expectedBatchYield: null,
+            bomLocked: false,
+            stock: "0",
+            safetyStock: "0",
+            bom: [],
+            revisionNote: null,
+          },
   });
 
   const [formError, setFormError] = useState<string | null>(null);
@@ -219,8 +237,10 @@ export function ItemForm({
   }, [purchaseUnit, stockingUnit]);
 
   useEffect(() => {
+    if (isMaster) return;
+
     if (!selectedPurchaseUnitId) {
-      form.setValue("purchaseToStockFactor", null, {
+      form.setValue("purchaseToStockFactor" as never, null as never, {
         shouldDirty: true,
         shouldValidate: true,
       });
@@ -228,27 +248,28 @@ export function ItemForm({
     }
 
     if (derivedPurchaseFactor == null) {
-      form.setValue("purchaseToStockFactor", null, {
+      form.setValue("purchaseToStockFactor" as never, null as never, {
         shouldDirty: true,
         shouldValidate: true,
       });
       return;
     }
 
-    form.setValue("purchaseToStockFactor", derivedPurchaseFactor.toFixed(4).replace(/\.?0+$/, ""), {
+    form.setValue("purchaseToStockFactor" as never, derivedPurchaseFactor.toFixed(4).replace(/\.?0+$/, "") as never, {
       shouldDirty: true,
       shouldValidate: true,
     });
-  }, [derivedPurchaseFactor, form, selectedPurchaseUnitId]);
+  }, [derivedPurchaseFactor, form, isMaster, selectedPurchaseUnitId]);
 
   const mutation = useMutation({
     mutationFn: async (data: ItemFormValues) => {
       const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
       const method = initialData ? "PUT" : "POST";
+      const payload = isMaster ? { ...data, isMaster: true } : data;
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const fallback = initialData
@@ -292,7 +313,9 @@ export function ItemForm({
     },
     onSuccess: (newUnit) => {
       setLocalUnits((prev) => [...prev, newUnit]);
-      form.setValue("unitDefinitionId", newUnit.id);
+      if (!isMaster) {
+        form.setValue("unitDefinitionId" as never, newUnit.id as never);
+      }
       setIsUnitDialogOpen(false);
       resetUnitForm();
       setUnitError(null);
@@ -308,7 +331,7 @@ export function ItemForm({
   const submitLabel = isEditing
     ? (mutation.isPending ? "Saving..." : "Save Changes")
     : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`);
-  const isBomDirty = itemType === "product" && Boolean(form.formState.dirtyFields.bom);
+  const isBomDirty = itemType === "product" && !isMaster && Boolean((form.formState.dirtyFields as Record<string, unknown>).bom);
   const lockTarget = pendingBomLocked ?? bomLocked;
   const lockDialogTitle = lockTarget ? "Lock this BOM?" : "Unlock this BOM?";
   const lockDialogDescription = lockTarget
@@ -322,16 +345,34 @@ export function ItemForm({
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? `Edit ${typeLabel}` : `Add ${typeLabel}`}
+            {isEditing ? `Edit ${typeLabel}` : isMaster ? "Add Product with Variants" : `Add ${typeLabel}`}
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             {isEditing
               ? `Update this ${typeLabel.toLowerCase()}'s details.`
-              : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
+              : isMaster
+                ? "Variants can be added from the product detail page after creation."
+                : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
           </p>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+          {showMasterToggle && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                  <Switch
+                    checked={isMaster}
+                    onCheckedChange={setIsMaster}
+                  />
+                  Has variants
+                </label>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                Enable this to create a product with variants (e.g. sizes or colors). Stock, pricing, and SKU are managed per variant.
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -374,6 +415,7 @@ export function ItemForm({
                     <Input
                       {...field}
                       id={field.name}
+                      value={field.value ?? ""}
                       aria-invalid={fieldState.invalid}
                       placeholder="e.g. Sand, Gravel, Topsoil"
                       autoComplete="off"
@@ -407,27 +449,30 @@ export function ItemForm({
                 )}
               />
 
+
               <div className="grid gap-4 md:grid-cols-2">
-                <Controller
-                  name="sku"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>SKU</FieldLabel>
-                      <Input
-                        {...field}
-                        id={field.name}
-                        value={field.value ?? ""}
-                        aria-invalid={fieldState.invalid}
-                        placeholder="MAT-001"
-                        autoComplete="off"
-                      />
-                      {fieldState.invalid && (
-                        <FieldError errors={[fieldState.error]} />
-                      )}
-                    </Field>
-                  )}
-                />
+                {!isMaster && (
+                  <Controller
+                    name="sku"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>SKU</FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="MAT-001"
+                          autoComplete="off"
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+                )}
 
                 <Controller
                   name="category"
@@ -467,14 +512,14 @@ export function ItemForm({
                 />
               </div>
 
-              {initialData ? (
+              {!isMaster && initialData ? (
                 <Field>
                   <FieldLabel>Stocking Unit</FieldLabel>
                   <p className="py-2 text-sm">
                     {initialData.unitName} ({initialData.unitSize} {initialData.unitUom})
                   </p>
                 </Field>
-              ) : (
+              ) : !isMaster ? (
                 <Controller
                   name="unitDefinitionId"
                   control={form.control}
@@ -482,9 +527,9 @@ export function ItemForm({
                     <Field data-invalid={fieldState.invalid}>
                       <FieldLabel htmlFor={field.name}>Stocking Unit</FieldLabel>
                       <Select
-                        key={field.value}
+                        key={field.value as string}
                         name={field.name}
-                        value={field.value}
+                        value={field.value as string}
                         onValueChange={(value) => {
                           if (value === CREATE_NEW_UNIT) {
                             setIsUnitDialogOpen(true);
@@ -518,51 +563,53 @@ export function ItemForm({
                     </Field>
                   )}
                 />
+              ) : null}
+
+              {!isMaster && (
+                <Controller
+                  name="purchaseUnitDefinitionId"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Purchase Unit</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={(field.value as string | null) ?? "__none__"}
+                        onValueChange={(value) => {
+                          field.onChange(value === "__none__" ? null : value);
+                        }}
+                      >
+                        <SelectTrigger
+                          id={field.name}
+                          aria-invalid={fieldState.invalid}
+                          className="w-full"
+                        >
+                          <SelectValue placeholder="Purchased in stocking units" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Purchased in stocking units</SelectItem>
+                          <SelectSeparator />
+                          {localUnits.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.name} ({u.size} {u.uom})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {!fieldState.invalid && (
+                        <FieldDescription>
+                          Leave blank to purchase this {typeLabel.toLowerCase()} in stocking units.
+                        </FieldDescription>
+                      )}
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
               )}
 
-              <Controller
-                name="purchaseUnitDefinitionId"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Purchase Unit</FieldLabel>
-                    <Select
-                      name={field.name}
-                      value={field.value ?? "__none__"}
-                      onValueChange={(value) => {
-                        field.onChange(value === "__none__" ? null : value);
-                      }}
-                    >
-                      <SelectTrigger
-                        id={field.name}
-                        aria-invalid={fieldState.invalid}
-                        className="w-full"
-                      >
-                        <SelectValue placeholder="Purchased in stocking units" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Purchased in stocking units</SelectItem>
-                        <SelectSeparator />
-                        {localUnits.map((u) => (
-                          <SelectItem key={u.id} value={u.id}>
-                            {u.name} ({u.size} {u.uom})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!fieldState.invalid && (
-                      <FieldDescription>
-                        Leave blank to purchase this {typeLabel.toLowerCase()} in stocking units.
-                      </FieldDescription>
-                    )}
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
-
-              {purchaseUnit && stockingUnit && derivedPurchaseFactor != null ? (
+              {!isMaster && purchaseUnit && stockingUnit && derivedPurchaseFactor != null ? (
                 <Field>
                   <FieldLabel>Purchase Conversion</FieldLabel>
                   <p className="py-2 text-sm text-muted-foreground">
@@ -571,7 +618,7 @@ export function ItemForm({
                 </Field>
               ) : null}
 
-              {purchaseUnit && stockingUnit && derivedPurchaseFactor == null ? (
+              {!isMaster && purchaseUnit && stockingUnit && derivedPurchaseFactor == null ? (
                 <Controller
                   name="purchaseToStockFactor"
                   control={form.control}
@@ -583,7 +630,7 @@ export function ItemForm({
                       <Input
                         {...field}
                         id={field.name}
-                        value={field.value ?? ""}
+                        value={(field.value as string | null) ?? ""}
                         onChange={(event) => field.onChange(event.target.value || null)}
                         aria-invalid={fieldState.invalid}
                         placeholder={`How many ${stockingUnit.name} per 1 ${purchaseUnit.name}?`}
@@ -605,6 +652,38 @@ export function ItemForm({
             </FieldGroup>
           </FieldSet>
 
+          {isMaster && (
+            <>
+              <FieldSeparator />
+              <FieldSet className="max-w-4xl gap-5">
+                <FieldLegend>Variant Axes</FieldLegend>
+                <FieldDescription>
+                  Define the dimensions that vary across this product family (e.g. Package, Wattage, Color).
+                </FieldDescription>
+                <FieldGroup>
+                  <Controller
+                    name="variantAxes"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel>Axes</FieldLabel>
+                        <AxesInput
+                          value={(field.value as string[]) ?? []}
+                          onChange={field.onChange}
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error as { message?: string } | undefined]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+                </FieldGroup>
+              </FieldSet>
+            </>
+          )}
+
+          {!isMaster && (
+          <>
           <FieldSeparator />
 
           <FieldSet className="max-w-4xl gap-5">
@@ -712,8 +791,10 @@ export function ItemForm({
               </div>
             </FieldGroup>
           </FieldSet>
+          </>
+          )}
 
-          {itemType === "product" && availableComponents && (
+          {itemType === "product" && availableComponents && !isMaster && (
             <>
               <FieldSeparator />
               <FieldSet className="gap-6">
@@ -812,7 +893,7 @@ export function ItemForm({
                   />
                 )}
                 <BomEditor
-                  control={form.control}
+                  control={form.control as Parameters<typeof BomEditor>[0]["control"]}
                   availableComponents={availableComponents}
                   manufacturingMode={watchedManufacturingMode ?? "discrete"}
                 />
@@ -974,6 +1055,61 @@ export function ItemForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function AxesInput({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (axes: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function add() {
+    const trimmed = draft.trim();
+    if (!trimmed || value.includes(trimmed)) return;
+    onChange([...value, trimmed]);
+    setDraft("");
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="e.g. Package"
+          autoComplete="off"
+        />
+        <Button type="button" variant="outline" onClick={add}>
+          Add
+        </Button>
+      </div>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {value.map((axis) => (
+            <div key={axis} className="flex items-center gap-1 rounded border px-2 py-1 text-sm">
+              {axis}
+              <button
+                type="button"
+                className="ml-1 text-muted-foreground hover:text-foreground"
+                onClick={() => onChange(value.filter((a) => a !== axis))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

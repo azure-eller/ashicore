@@ -26,6 +26,7 @@ export default async function EditProductPage({
     getAvailableComponents(id),
   ]);
   if (!item) redirect("/inventory/products");
+  if (item.isMaster) redirect(`/inventory/products/${id}`);
   if (item.bomLocked && !hasModuleAccess(context.assignedRoles, "inventory", "admin")) {
     redirect(`/inventory/products/${id}`);
   }

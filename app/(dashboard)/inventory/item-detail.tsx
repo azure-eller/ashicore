@@ -31,9 +31,9 @@ interface ItemDetailProps {
     sku: string | null;
     category: string | null;
     description: string | null;
-    unitName: string;
-    unitSize: string;
-    unitUom: string;
+    unitName: string | null;
+    unitSize: string | null;
+    unitUom: string | null;
     purchaseUnitName: string | null;
     purchaseUnitSize: string | null;
     purchaseUnitUom: string | null;
@@ -46,6 +46,10 @@ interface ItemDetailProps {
     safetyStock: string;
     manufacturingMode?: string;
     expectedBatchYield?: string | null;
+    isMaster?: boolean;
+    variantAxes?: string[] | null;
+    parentId?: string | null;
+    parentName?: string | null;
     bomLocked?: boolean;
     currentBomRevision?: {
       id: string;
@@ -80,6 +84,18 @@ interface ItemDetailProps {
     lotNumber: string | null;
     createdAt: Date;
   }[];
+  variants?: {
+    id: string;
+    name: string;
+    sku: string | null;
+    stock: string;
+    committedQty: string;
+    expectedQty: string;
+    safetyStock: string;
+    defaultSellingPrice: string | null;
+    unit: string | null;
+    variantAttrs: Record<string, string> | null;
+  }[];
   canEdit?: boolean;
   canViewBom?: boolean;
 }
@@ -90,9 +106,12 @@ export function ItemDetail({
   bom,
   lots,
   movements,
+  variants,
   canEdit = false,
   canViewBom = true,
 }: ItemDetailProps) {
+  const isMaster = item.isMaster === true;
+  const isVariant = item.parentId != null;
   const calculatedStock = calcStock(item);
   const basePath = `/inventory/${ITEM_TYPE_SEGMENTS[itemType]}`;
   const typeLabel = itemType === "product" ? "Products" : "Materials";
@@ -115,6 +134,157 @@ export function ItemDetail({
     </span>
   );
 
+  if (isMaster) {
+    const axes = item.variantAxes ?? [];
+    return (
+      <div className="space-y-6 p-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <Link
+              href={basePath}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
+            </Link>
+            <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+            <Badge variant="outline">Variant Family</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            {canEdit && (
+              <Button size="sm" asChild>
+                <Link href={`/inventory/products/${item.id}/variants/new`}>Add Variant</Link>
+              </Button>
+            )}
+          </div>
+        </div>
+        <Separator />
+
+        {item.description && (
+          <p className="max-w-2xl text-sm text-muted-foreground">{item.description}</p>
+        )}
+
+        <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Category</dt>
+            <dd className="mt-1 text-sm">{item.category ?? "\u2014"}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Variant Axes</dt>
+            <dd className="mt-1 flex flex-wrap gap-1.5">
+              {axes.length > 0
+                ? axes.map((axis) => (
+                    <Badge key={axis} variant="secondary">
+                      {axis}
+                    </Badge>
+                  ))
+                : "\u2014"}
+            </dd>
+          </div>
+        </dl>
+
+        <Separator />
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Variants
+            {variants && variants.length > 0 && (
+              <span className="ml-2 text-base font-normal text-muted-foreground">
+                ({variants.length})
+              </span>
+            )}
+          </h2>
+          {variants && variants.length > 0 ? (
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Variant</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead className="text-right">Stock</TableHead>
+                    <TableHead className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
+                            Available
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          {CALCULATED_STOCK_TOOLTIP}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableHead>
+                    <TableHead className="text-right">Price</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {variants.map((v) => {
+                    const attrLabel = axes.length > 0 && v.variantAttrs
+                      ? axes.map((a) => v.variantAttrs![a]).filter(Boolean).join(" / ")
+                      : v.name;
+                    const calcStockVal = calcStock(v);
+                    const isLow = calcStockVal < 0;
+                    return (
+                      <TableRow key={v.id}>
+                        <TableCell>
+                          <Link
+                            href={`/inventory/products/${v.id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {attrLabel}
+                          </Link>
+                          {v.unit && (
+                            <span className="ml-1.5 text-xs text-muted-foreground">
+                              {v.unit}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm text-muted-foreground">
+                          {v.sku ?? "\u2014"}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">
+                          {formatQuantity(v.stock)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">
+                          {isLow ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center justify-end gap-1.5 text-destructive">
+                                  <span className="h-2 w-2 shrink-0 rounded-full bg-destructive" />
+                                  {calcStockVal}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                {CALCULATED_STOCK_ALERT_TOOLTIP}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            calcStockVal
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">
+                          {formatPrice(v.defaultSellingPrice) ?? "\u2014"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No variants yet.{" "}
+              <Link
+                href={`/inventory/products/${item.id}/variants/new`}
+                className="font-medium hover:underline"
+              >
+                Add the first one.
+              </Link>
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -126,6 +296,17 @@ export function ItemDetail({
             <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+          {isVariant && item.parentName && (
+            <p className="text-sm text-muted-foreground">
+              Variant of{" "}
+              <Link
+                href={`/inventory/products/${item.parentId}`}
+                className="font-medium hover:underline"
+              >
+                {item.parentName}
+              </Link>
+            </p>
+          )}
           {itemType === "product" && item.bomLocked ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -189,16 +370,18 @@ export function ItemDetail({
               : "\u2014"}
           </dd>
         </div>
-        {itemType === "material" && (
+        {!isMaster && itemType === "material" && (
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Purchase Price</dt>
             <dd className="mt-1 text-sm">{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</dd>
           </div>
         )}
+        {!isMaster && (
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Selling Price</dt>
           <dd className="mt-1 text-sm">{formatPrice(item.defaultSellingPrice) ?? "\u2014"}</dd>
         </div>
+        )}
         {itemType === "product" && (
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Manufacturing Mode</dt>
@@ -211,6 +394,8 @@ export function ItemDetail({
             <dd className="mt-1 text-sm">{item.expectedBatchYield} {item.unitName}</dd>
           </div>
         )}
+        {!isMaster && (
+        <>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Stock</dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.stock)} {item.unitName}</dd>
@@ -227,6 +412,9 @@ export function ItemDetail({
           <dt className="text-sm font-medium text-muted-foreground">Safety Stock</dt>
           <dd className="mt-1 text-sm">{item.safetyStock} {item.unitName}</dd>
         </div>
+        </>
+        )}
+        {!isMaster && (
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <Tooltip>
@@ -253,6 +441,7 @@ export function ItemDetail({
             )}
           </dd>
         </div>
+        )}
       </dl>
 
       {/* BOM Section — renders only when bom prop is provided and non-empty */}
@@ -419,6 +608,7 @@ export function ItemDetail({
           </div>
         )}
       </div>
+
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { formatVariantDisplay } from "@/lib/format";
 import {
   getBomRevisionComponentsInTx,
   getBomRevisionHistoryInTx,
@@ -33,9 +34,16 @@ import {
   getCurrentStockInTx,
   lockItemsInTx,
 } from "@/lib/inventory/stock";
-import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
+import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
+import { DomainError } from "@/lib/errors/domain-error";
 import type { ItemRow, ItemType } from "./types";
+
+export class InventoryError extends DomainError {
+  constructor(message: string, status = 400) {
+    super(message, status, { name: "InventoryError" });
+  }
+}
 
 const stockSubquery = trimScale(sql`(
   SELECT COALESCE(SUM(${lots.quantity}), 0)
@@ -183,8 +191,21 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
   return withAuthedOrgContext(async (tx) => {
     const conditions = [
       isNull(items.deletedAt),
+      isNull(items.parentId), // top-level rows only (standalone + masters)
       ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
     ];
+
+    const variantCountSubquery = sql<number>`(
+      SELECT COUNT(*)::int FROM ${items} AS v
+      WHERE v.parent_id = ${items.id} AND v.deleted_at IS NULL
+    )`.as("variant_count");
+
+    const variantStockSubquery = trimScale(sql`(
+      SELECT COALESCE(SUM(vl.quantity), 0)
+      FROM ${items} AS vi
+      INNER JOIN ${lots} AS vl ON vl.item_id = vi.id
+      WHERE vi.parent_id = ${items.id} AND vi.deleted_at IS NULL
+    )`).as("variant_stock");
 
     const rows = await tx
       .select({
@@ -192,6 +213,8 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         name: items.name,
         sku: items.sku,
         itemType: items.itemType,
+        isMaster: items.isMaster,
+        parentId: items.parentId,
         stock: stockSubquery,
         committedQty: trimScale(items.committedQty).as("committedQty"),
         expectedQty: trimScale(items.expectedQty).as("expectedQty"),
@@ -201,12 +224,121 @@ export async function getItems(filters?: { itemType?: ItemType }): Promise<ItemR
         unitUom: unitDefinitions.uom,
         category: items.category,
         potential: potentialSubquery,
+        variantCount: variantCountSubquery,
+        variantStock: variantStockSubquery,
+        variantAxes: items.variantAxes,
       })
       .from(items)
-      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(...conditions));
-    // Cast: Drizzle infers varchar as string, but we know itemType is always a valid ItemType
-    return rows as ItemRow[];
+
+    // For product lists, eagerly load all variants for search + aggregation
+    const masterIds = rows.filter((r) => r.isMaster).map((r) => r.id);
+    let variantsByParent = new Map<string, typeof variantRows>();
+    type VariantDbRow = typeof variantRows[number];
+    const variantRows = masterIds.length > 0
+      ? await tx
+          .select({
+            id: items.id,
+            parentId: items.parentId,
+            name: items.name,
+            sku: items.sku,
+            itemType: items.itemType,
+            isMaster: items.isMaster,
+            stock: stockSubquery,
+            committedQty: trimScale(items.committedQty).as("committedQty"),
+            expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+            safetyStock: trimScale(items.safetyStock).as("safetyStock"),
+            defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
+            unit: unitDefinitions.name,
+            unitSize: unitDefinitions.size,
+            unitUom: unitDefinitions.uom,
+            category: items.category,
+            variantAttrs: items.variantAttrs,
+          })
+          .from(items)
+          .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+          .where(and(inArray(items.parentId, masterIds), isNull(items.deletedAt)))
+      : [];
+
+    if (variantRows.length > 0) {
+      variantsByParent = new Map<string, VariantDbRow[]>();
+      for (const v of variantRows) {
+        const pid = v.parentId!;
+        const list = variantsByParent.get(pid) ?? [];
+        list.push(v);
+        variantsByParent.set(pid, list);
+      }
+    }
+
+    return rows.map((row) => {
+      const variants = row.isMaster ? (variantsByParent.get(row.id) ?? []) : null;
+      let priceRange: string | null = null;
+
+      if (variants && variants.length > 0) {
+        const prices = variants
+          .map((v) => v.defaultSellingPrice)
+          .filter((p): p is string => p != null)
+          .map((p) => parseFloat(p))
+          .filter((p) => !isNaN(p));
+        if (prices.length > 0) {
+          const min = Math.min(...prices);
+          const max = Math.max(...prices);
+          priceRange = min === max ? `$${min}` : `$${min} \u2013 $${max}`;
+        }
+      }
+
+      return {
+        id: row.id,
+        name: row.name,
+        displayName: row.name,
+        sku: row.sku,
+        itemType: row.itemType,
+        stock: row.isMaster ? row.variantStock : row.stock,
+        committedQty: row.committedQty,
+        expectedQty: row.expectedQty,
+        safetyStock: row.safetyStock,
+        unit: row.unit ?? null,
+        unitSize: row.unitSize ?? null,
+        unitUom: row.unitUom ?? null,
+        category: row.category,
+        potential: row.potential,
+        isMaster: row.isMaster,
+        parentId: row.parentId,
+        variantCount: row.variantCount,
+        variantAxes: (row.variantAxes as string[] | null) ?? null,
+        variantAttrs: null,
+        priceRange,
+        subRows: variants?.map((v) => ({
+          id: v.id,
+          name: v.name,
+          displayName: row.variantAxes
+            ? formatVariantDisplay(
+                row.name,
+                (v.variantAttrs as Record<string, string>) ?? {},
+                row.variantAxes as string[],
+              )
+            : v.name,
+          sku: v.sku,
+          itemType: v.itemType,
+          stock: v.stock,
+          committedQty: v.committedQty,
+          expectedQty: v.expectedQty,
+          safetyStock: v.safetyStock,
+          unit: v.unit ?? null,
+          unitSize: v.unitSize ?? null,
+          unitUom: v.unitUom ?? null,
+          category: v.category,
+          potential: null,
+          isMaster: false,
+          parentId: v.parentId,
+          variantCount: 0,
+          variantAxes: null,
+          variantAttrs: (v.variantAttrs as Record<string, string> | null) ?? null,
+          priceRange: null,
+        })) ?? undefined,
+      } as ItemRow;
+    });
   });
 }
 
@@ -235,6 +367,10 @@ export async function getItem(id: string) {
         expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
           "expectedBatchYield"
         ),
+        isMaster: items.isMaster,
+        parentId: items.parentId,
+        variantAxes: items.variantAxes,
+        variantAttrs: items.variantAttrs,
         bomLocked: items.bomLocked,
         bomLockedAt: items.bomLockedAt,
         bomLockedByUserId: items.bomLockedByUserId,
@@ -247,7 +383,7 @@ export async function getItem(id: string) {
         unitUom: unitDefinitions.uom,
       })
       .from(items)
-      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(eq(items.id, id), isNull(items.deletedAt)));
 
     if (!row) {
@@ -268,8 +404,35 @@ export async function getItem(id: string) {
       : null;
     const currentBomRevision = await getCurrentBomRevisionInTx(tx, id);
 
+    const parentName = row.parentId
+      ? await tx
+          .select({ name: items.name })
+          .from(items)
+          .where(eq(items.id, row.parentId))
+          .then((rows) => rows[0]?.name ?? null)
+      : null;
+
+    const masterAxes = row.parentId
+      ? await tx
+          .select({ variantAxes: items.variantAxes })
+          .from(items)
+          .where(eq(items.id, row.parentId))
+          .then((rows) => (rows[0]?.variantAxes as string[] | null) ?? [])
+      : null;
+
     return {
       ...row,
+      parentName,
+      variantAxes: (row.variantAxes as string[] | null) ?? null,
+      variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+      displayName:
+        row.parentId && parentName && masterAxes && masterAxes.length > 0
+          ? formatVariantDisplay(
+              parentName,
+              (row.variantAttrs as Record<string, string>) ?? {},
+              masterAxes,
+            )
+          : row.name,
       purchaseUnitName: purchaseUnit?.name ?? null,
       purchaseUnitSize: purchaseUnit?.size ?? null,
       purchaseUnitUom: purchaseUnit?.uom ?? null,
@@ -287,9 +450,21 @@ export async function deleteItem(
   usedInActiveManufacturing?: boolean;
   usedInActivePurchasing?: boolean;
   usedInDraftStocktakes?: boolean;
+  hasActiveVariants?: boolean;
 }> {
   return withAuthedOrgContext(async (tx) => {
     await lockItemsInTx(tx, [id]);
+
+    // Check for active variants (masters can't be deleted while variants exist)
+    const [activeVariant] = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.parentId, id), isNull(items.deletedAt)))
+      .limit(1);
+
+    if (activeVariant) {
+      return { deleted: false, hasActiveVariants: true };
+    }
 
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
@@ -402,6 +577,20 @@ export async function deleteItems(
     const uniqueIds = [...new Set(ids)];
 
     await lockItemsInTx(tx, uniqueIds);
+
+    // Check for active variants
+    const [activeVariantRef] = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(inArray(items.parentId, uniqueIds), isNull(items.deletedAt)))
+      .limit(1);
+
+    if (activeVariantRef) {
+      return {
+        deletedCount: 0,
+        error: "Cannot delete: one or more products still have active variants.",
+      };
+    }
 
     const [bomRef] = await tx
       .select({ componentId: bomRevisionComponents.componentId })
@@ -789,7 +978,7 @@ export async function getBomRevision(itemId: string, revisionId: string) {
 
 export async function getAvailableComponents(excludeItemId?: string) {
   return withAuthedOrgContext(async (tx) => {
-    const conditions = [isNull(items.deletedAt)];
+    const conditions = [isNull(items.deletedAt), eq(items.isMaster, false), isNull(items.parentId)];
     if (excludeItemId) {
       conditions.push(sql`${items.id} != ${excludeItemId}`);
     }
@@ -804,5 +993,133 @@ export async function getAvailableComponents(excludeItemId?: string) {
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(...conditions));
     return rows;
+  });
+}
+
+export async function createMasterProduct(
+  data: InsertMasterItem,
+): Promise<{ id: string }> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [item] = await tx
+      .insert(items)
+      .values({
+        ...data,
+        organizationId: orgId,
+        itemType: "product",
+        isMaster: true,
+      })
+      .returning({ id: items.id });
+
+    return item;
+  });
+}
+
+export async function createVariant(
+  parentId: string,
+  data: InsertVariant,
+): Promise<{ id: string }> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const [master] = await tx
+      .select({
+        id: items.id,
+        isMaster: items.isMaster,
+        parentId: items.parentId,
+        category: items.category,
+        name: items.name,
+        variantAxes: items.variantAxes,
+      })
+      .from(items)
+      .where(and(eq(items.id, parentId), isNull(items.deletedAt)))
+      .for("update");
+
+    if (!master) throw new InventoryError("Master product not found", 404);
+    if (!master.isMaster) throw new InventoryError("Parent is not a master product");
+    if (master.parentId != null) throw new InventoryError("Cannot create variant under a variant");
+
+    // Validate that all master axes have a value in variantAttrs
+    const axes = (master.variantAxes as string[] | null) ?? [];
+    for (const axis of axes) {
+      if (!data.variantAttrs[axis]) {
+        throw new InventoryError(`Missing value for variant axis: ${axis}`);
+      }
+    }
+
+    // Guard against duplicate variants with identical attribute combinations
+    const [duplicate] = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(
+        and(
+          eq(items.parentId, parentId),
+          isNull(items.deletedAt),
+          sql`variant_attrs = ${JSON.stringify(data.variantAttrs)}::jsonb`,
+        ),
+      )
+      .limit(1);
+
+    if (duplicate) {
+      throw new InventoryError("A variant with these attribute values already exists");
+    }
+
+    const [variant] = await tx
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        name: master.name,           // variant name = master name
+        sku: data.sku ?? null,
+        description: data.description ?? null,
+        itemType: "product",
+        category: master.category,
+        unitDefinitionId: data.unitDefinitionId,
+        manufacturingMode: data.manufacturingMode,
+        expectedBatchYield: data.expectedBatchYield ?? null,
+        defaultSellingPrice: data.defaultSellingPrice ?? null,
+        defaultPurchasePrice: data.defaultPurchasePrice ?? null,
+        safetyStock: data.safetyStock,
+        isMaster: false,
+        parentId: parentId,
+        variantAttrs: data.variantAttrs,
+      })
+      .returning({ id: items.id });
+
+    // Create initial BOM only if provided by caller (not copied from master)
+    if (data.bom && data.bom.length > 0) {
+      await createBomRevisionInTx(tx, {
+        orgId,
+        userId,
+        productId: variant.id,
+        note: data.revisionNote,
+        bom: data.bom,
+      });
+    }
+
+    return variant;
+  });
+}
+
+export async function getVariants(parentId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: items.id,
+        name: items.name,
+        sku: items.sku,
+        stock: stockSubquery,
+        committedQty: trimScale(items.committedQty).as("committedQty"),
+        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        safetyStock: trimScale(items.safetyStock).as("safetyStock"),
+        defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
+        unit: unitDefinitions.name,
+        variantAttrs: items.variantAttrs,
+      })
+      .from(items)
+      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(eq(items.parentId, parentId), isNull(items.deletedAt)));
+
+    return rows.map((r) => ({
+      ...r,
+      unit: r.unit ?? null,
+      variantAttrs: (r.variantAttrs as Record<string, string> | null) ?? null,
+    }));
   });
 }

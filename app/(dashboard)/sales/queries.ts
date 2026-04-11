@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
+  formatVariantDisplay,
   formatQuantity,
   normalizeNumeric,
   normalizeMoney,
@@ -96,6 +97,8 @@ type SalesItemValidationRow = {
   itemType: string;
   name: string;
   sku: string | null;
+  parentId: string | null;
+  variantAttrs: Record<string, string> | null;
   unitDefinitionId: string;
   unitName: string;
   defaultSellingPrice: string | null;
@@ -103,6 +106,7 @@ type SalesItemValidationRow = {
   committedQty: string;
   expectedQty: string;
   safetyStock: string;
+  displayName: string;
 };
 
 type ValidatedCustomerRow = {
@@ -637,7 +641,7 @@ async function prepareDraftOrdersForConfirmationInTx(
 
       return {
         itemId: item.id,
-        itemName: item.name,
+        itemName: item.displayName,
         itemSku: item.sku,
         unitName: item.unitName,
         quantity: line.quantity,
@@ -733,6 +737,8 @@ async function getValidatedSalesItemsInTx(
       itemType: items.itemType,
       name: items.name,
       sku: items.sku,
+      parentId: items.parentId,
+      variantAttrs: items.variantAttrs,
       unitDefinitionId: items.unitDefinitionId,
       unitName: unitDefinitions.name,
       defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
@@ -753,7 +759,57 @@ async function getValidatedSalesItemsInTx(
       )
     );
 
-  const itemMap = new Map(rows.map((row) => [row.id, row as SalesItemValidationRow]));
+  // For variant items, fetch parent info for displayName computation
+  const variantItemRows = rows.filter((r) => r.parentId != null);
+  const parentIds = [...new Set(variantItemRows.map((r) => r.parentId))];
+
+  const parentsByParentId = new Map<string, { name: string; variantAxes: string[] | null }>();
+  if (parentIds.length > 0) {
+    const parents = await tx
+      .select({
+        id: items.id,
+        name: items.name,
+        variantAxes: items.variantAxes,
+      })
+      .from(items)
+      .where(
+        and(
+          inArray(items.id, parentIds as string[]),
+          isNull(items.deletedAt)
+        )
+      );
+
+    parents.forEach((p) => {
+      parentsByParentId.set(p.id, {
+        name: p.name,
+        variantAxes: (p.variantAxes as string[] | null) ?? null,
+      });
+    });
+  }
+
+  const itemMap = new Map(
+    rows.map((row) => {
+      let displayName = row.name;
+
+      if (row.parentId && row.variantAttrs) {
+        const parent = parentsByParentId.get(row.parentId);
+        if (parent && parent.variantAxes && parent.variantAxes.length > 0) {
+          const attrValues = (parent.variantAxes as string[]).map(
+            (axis) => (row.variantAttrs as Record<string, string>)[axis]
+          ).filter(Boolean).join(" / ");
+          displayName = `${parent.name} / ${attrValues}`;
+        }
+      }
+
+      return [
+        row.id,
+        {
+          ...row,
+          displayName,
+        } as SalesItemValidationRow & { displayName: string },
+      ];
+    })
+  );
 
   if (itemMap.size !== uniqueIds.length) {
     throw new SalesError("Item not found", 404);
@@ -806,7 +862,7 @@ async function prepareOrderPayload(
 
       return {
         itemId: item.id,
-        itemName: item.name,
+        itemName: item.displayName,
         itemSku: item.sku,
         unitName: item.unitName,
         quantity: normalizeNumeric(quantity),
@@ -872,7 +928,7 @@ async function buildOversellWarning(
 
       return {
         itemId: item.id,
-        itemName: item.name,
+        itemName: item.displayName,
         itemSku: item.sku,
         unitName: item.unitName,
         inStock: roundQuantity(parseFloat(item.stock)),
@@ -1683,8 +1739,9 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         id: items.id,
         itemType: items.itemType,
         name: items.name,
+        parentId: items.parentId,
+        variantAttrs: items.variantAttrs,
         sku: items.sku,
-        unitDefinitionId: items.unitDefinitionId,
         unitName: unitDefinitions.name,
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
           "defaultSellingPrice"
@@ -1699,12 +1756,66 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
       .where(
         and(
           inArray(items.itemType, ["product", "material"]),
-          isNull(items.deletedAt)
+          isNull(items.deletedAt),
+          eq(items.isMaster, false),
         )
       )
       .orderBy(asc(items.name));
 
-    return rows as SalesOrderItemOption[];
+    const variantRows = rows.filter((row) => row.parentId != null);
+    const parentIds = [
+      ...new Set(variantRows.map((row) => row.parentId).filter((id): id is string => id != null)),
+    ];
+
+    const parentsById = new Map<string, { name: string; variantAxes: string[] | null }>();
+    if (parentIds.length > 0) {
+      const parents = await tx
+        .select({
+          id: items.id,
+          name: items.name,
+          variantAxes: items.variantAxes,
+        })
+        .from(items)
+        .where(and(inArray(items.id, parentIds), isNull(items.deletedAt)));
+
+      parents.forEach((parent) => {
+        parentsById.set(parent.id, {
+          name: parent.name,
+          variantAxes: (parent.variantAxes as string[] | null) ?? null,
+        });
+      });
+    }
+
+    return rows
+      .map((row) => {
+        let displayName = row.name;
+
+        if (row.parentId && row.variantAttrs) {
+          const parent = parentsById.get(row.parentId);
+          if (parent) {
+            displayName = formatVariantDisplay(
+              parent.name,
+              (row.variantAttrs as Record<string, string>) ?? {},
+              parent.variantAxes ?? [],
+            );
+          }
+        }
+
+        return {
+          id: row.id,
+          itemType: row.itemType as SalesOrderItemOption["itemType"],
+          name: row.name,
+          displayName,
+          sku: row.sku,
+          unitName: row.unitName,
+          defaultSellingPrice: row.defaultSellingPrice,
+          stock: row.stock,
+          committedQty: row.committedQty,
+          expectedQty: row.expectedQty,
+          safetyStock: row.safetyStock,
+        } satisfies SalesOrderItemOption;
+      })
+      .sort((left, right) => left.displayName.localeCompare(right.displayName));
   });
 }
 
@@ -1801,8 +1912,40 @@ export async function getSalesOrder(
         sortOrder: salesOrderLines.sortOrder,
         createdAt: salesOrderLines.createdAt,
         updatedAt: salesOrderLines.updatedAt,
+        calcStock: trimScaleNullable(
+          sql<string | null>`(
+            (SELECT COALESCE(SUM(l.quantity), 0) FROM inventory.lots l WHERE l.item_id = ${items.id})
+            - ${items.committedQty} + ${items.expectedQty} - ${items.safetyStock}
+          )`
+        ).as("calcStock"),
+        potential: trimScaleNullable(
+          sql<string | null>`(
+            CASE WHEN ${items.itemType} = 'product' AND EXISTS (
+              SELECT 1 FROM inventory.bom_components WHERE item_id = ${items.id}
+            ) THEN
+              FLOOR(
+                (
+                  SELECT MIN(
+                    (
+                      COALESCE((SELECT SUM(l.quantity) FROM inventory.lots l WHERE l.item_id = bc.component_id), 0)
+                      - COALESCE((SELECT ci.committed_qty FROM inventory.items ci WHERE ci.id = bc.component_id), 0)
+                    )
+                    / NULLIF(bc.quantity, 0)
+                  )
+                  FROM inventory.bom_components bc
+                  WHERE bc.item_id = ${items.id}
+                )
+                * CASE WHEN ${items.manufacturingMode} = 'batch' AND ${items.expectedBatchYield} IS NOT NULL
+                    THEN ${items.expectedBatchYield}::numeric
+                    ELSE 1
+                  END
+              )
+            ELSE NULL END
+          )`
+        ).as("potential"),
       })
       .from(salesOrderLines)
+      .leftJoin(items, eq(salesOrderLines.itemId, items.id))
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 

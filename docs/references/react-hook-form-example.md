@@ -54,6 +54,7 @@ Here's a basic example of a form using the `<Controller />` component from React
       <Input
         {...field}
         id={field.name}
+        value={field.value ?? ""}
         aria-invalid={fieldState.invalid}
         placeholder="Login button not working on mobile"
         autoComplete="off"
@@ -217,6 +218,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
         {...field}
         id={field.name}
         type="email"
+        value={field.value ?? ""}
         aria-invalid={fieldState.invalid}
       />
       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
@@ -238,7 +240,7 @@ Display errors next to the field using `<FieldError />`. For styling and accessi
   chromeLessOnMobile
 />
 
-For simple text inputs, spread the `field` object onto the input.
+For simple text inputs, spread the `field` object onto the input and keep it controlled with `value={field.value ?? ""}` so async rerenders cannot clear typed text.
 
 ```tsx showLineNumbers title="form.tsx" {5,7,8}
 <Controller
@@ -247,7 +249,12 @@ For simple text inputs, spread the `field` object onto the input.
   render={({ field, fieldState }) => (
     <Field data-invalid={fieldState.invalid}>
       <FieldLabel htmlFor={field.name}>Name</FieldLabel>
-      <Input {...field} id={field.name} aria-invalid={fieldState.invalid} />
+      <Input
+        {...field}
+        id={field.name}
+        value={field.value ?? ""}
+        aria-invalid={fieldState.invalid}
+      />
       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
     </Field>
   )}

@@ -1,0 +1,92 @@
+import { test, expect } from "../fixtures";
+import { and, eq, isNull } from "drizzle-orm";
+import { items } from "@/lib/db/schema";
+
+test.describe.configure({ mode: "serial" });
+
+test.describe("variant product family", () => {
+  const ts = Date.now();
+  const masterName = `Test Soil ${ts}`;
+  let masterId: string;
+
+  test("create master product with variant axis", async ({ page, db }) => {
+    await page.goto("/inventory/products/new");
+
+    // Fill basic fields
+    await page.getByLabel("Name").fill(masterName);
+
+    // Enable variants — the Switch is inside a label that says "Has variants"
+    const variantsToggle = page.getByRole("switch");
+    await variantsToggle.click();
+
+    // Wait for the Variant Axes section to appear
+    await expect(page.getByText("Variant Axes")).toBeVisible();
+
+    // Add an axis using the AxesInput component
+    const axisInput = page.getByPlaceholder("e.g. Package");
+    await axisInput.fill("Package");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+
+    // The axis tag should appear
+    await expect(page.getByText("Package").first()).toBeVisible();
+
+    // Submit — button label is "Create Product" when isMaster is true
+    // but actually when isMaster=true the label from item-form is submitLabel = "Create Product"
+    await page.getByRole("button", { name: "Create Product" }).click();
+
+    // Should land on the master detail page
+    await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+/, { timeout: 15_000 });
+
+    // Capture the masterId from URL
+    const url = page.url();
+    masterId = url.split("/").at(-1)!;
+
+    // Verify DB
+    const master = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.name, masterName), eq(items.isMaster, true), isNull(items.deletedAt)))
+      .then((r: typeof items.$inferSelect[]) => r[0]);
+
+    expect(master).toBeTruthy();
+    expect(master!.variantAxes).toEqual(["Package"]);
+    expect(master!.unitDefinitionId).toBeNull();
+  });
+
+  test("add variant to master product", async ({ page, db }) => {
+    await page.goto(`/inventory/products/${masterId}/variants/new`);
+
+    // Wait for form to load
+    await expect(page.getByText("Add Variant")).toBeVisible({ timeout: 15_000 });
+
+    // Fill Package axis value — field label is the axis name "Package"
+    await page.getByLabel("Package").fill("2 Cubic Foot Bag");
+
+    // Select stocking unit — the select trigger has id="unitDefinitionId"
+    await page.locator("#unitDefinitionId").click();
+    const firstOption = page.getByRole("option").first();
+    await firstOption.waitFor({ state: "visible", timeout: 5_000 });
+    await firstOption.click();
+
+    // Fill selling price
+    await page.getByLabel("Selling Price").fill("30.00");
+
+    // Submit
+    await page.getByRole("button", { name: "Create Variant" }).click();
+
+    // Should redirect back to master detail
+    await page.waitForURL(new RegExp(`/inventory/products/${masterId}$`), { timeout: 15_000 });
+
+    // Verify DB
+    const variant = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.parentId, masterId), isNull(items.deletedAt)))
+      .then((r: typeof items.$inferSelect[]) => r[0]);
+
+    expect(variant).toBeTruthy();
+    expect(variant!.name).toBe(masterName); // variant name = master name
+    expect(variant!.variantAttrs).toEqual({ Package: "2 Cubic Foot Bag" });
+    expect(variant!.unitDefinitionId).not.toBeNull();
+  });
+});

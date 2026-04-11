@@ -135,6 +135,15 @@ defaultValues: {
 }
 ```
 
+### Controlled text inputs (react-hook-form)
+
+Controller text inputs should bind `value={field.value ?? ""}` so slow rerenders never drop typed text.
+
+```tsx
+<Input {...field} value={field.value ?? ""} />
+<Textarea {...field} value={field.value ?? ""} />
+```
+
 ### Standalone form pages
 
 Single-page create/edit forms should use a centered page shell with top actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one centered card for the entire form.

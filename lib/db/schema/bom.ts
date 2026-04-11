@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   uuid,
   numeric,
   timestamp,
@@ -79,6 +80,7 @@ export const bomRevisions = inventorySchema
       isCurrent: boolean("is_current").notNull().default(false),
       note: varchar("note", { length: 500 }),
       createdBy: text("created_by").notNull(),
+      parentBomRevisionId: uuid("parent_bom_revision_id").references((): AnyPgColumn => bomRevisions.id, { onDelete: "set null" }),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },

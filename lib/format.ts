@@ -127,3 +127,22 @@ export function getFieldArrayError(error: unknown): string | null {
   }
   return null;
 }
+
+/**
+ * Build the canonical display name for a variant item.
+ * For standalone items: returns the item name as-is.
+ * For variants: returns "Master Name / Value1 / Value2" in axis order.
+ *
+ * @param masterName  The parent product family name (e.g. "Bomb")
+ * @param attrs       The variant's attribute map (e.g. {"Package": "2 Cubic Foot Bag"})
+ * @param axes        The master's axis order (e.g. ["Package"]) — values are shown in this order
+ */
+export function formatVariantDisplay(
+  masterName: string,
+  attrs: Record<string, string>,
+  axes: string[],
+): string {
+  const values = axes.map((axis) => attrs[axis]).filter(Boolean);
+  if (values.length === 0) return masterName;
+  return `${masterName} / ${values.join(" / ")}`;
+}

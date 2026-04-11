@@ -197,6 +197,27 @@
       "when": 1775841565203,
       "tag": "0027_real_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1775796784779,
+      "tag": "0027_flaky_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1775865478457,
+      "tag": "0029_red_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1775931722606,
+      "tag": "0030_reflective_pestilence",
+      "breakpoints": true
     }
   ]
 }

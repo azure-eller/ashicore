@@ -18,6 +18,13 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
+  if (existingItem.isMaster) {
+    return NextResponse.json(
+      { error: "Cannot edit a master product directly — edit its variants instead" },
+      { status: 400 }
+    );
+  }
+
   if (existingItem.itemType === "product" && existingItem.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
   }
@@ -70,6 +77,12 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
 
   const result = await deleteItem(id);
+  if (result.hasActiveVariants) {
+    return NextResponse.json(
+      { error: "Cannot delete: this product still has active variants. Delete all variants first." },
+      { status: 400 }
+    );
+  }
   if (result.usedInBom) {
     return NextResponse.json(
       { error: "Cannot delete: this item is used as a component in other products." },

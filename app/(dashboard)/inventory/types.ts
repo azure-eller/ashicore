@@ -7,20 +7,41 @@ export const ITEM_TYPE_SEGMENTS: Record<ItemType, string> = {
   product: "products",
 };
 
+export type VariantRow = {
+  id: string;
+  name: string;
+  sku: string | null;
+  stock: string;
+  committedQty: string;
+  expectedQty: string;
+  safetyStock: string;
+  defaultSellingPrice: string | null;
+  unit: string | null;
+  variantAttrs: Record<string, string> | null;
+};
+
 export type ItemRow = {
   id: string;
   name: string;
+  displayName: string;
   sku: string | null;
   itemType: ItemType;
   stock: string;
   committedQty: string;
   expectedQty: string;
   safetyStock: string;
-  unit: string;
-  unitSize: string;
-  unitUom: string;
+  unit: string | null;
+  unitSize: string | null;
+  unitUom: string | null;
   category: string | null;
   potential: string | null;
+  isMaster: boolean;
+  parentId: string | null;
+  variantCount: number;
+  variantAxes: string[] | null;
+  variantAttrs: Record<string, string> | null;
+  priceRange: string | null;
+  subRows?: ItemRow[];
 };
 
 export function calcStock(
