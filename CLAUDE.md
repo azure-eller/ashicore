@@ -620,6 +620,7 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 
 ### Key rules
 
+- Follow red -> green -> refactor for user-facing changes: add or update a failing Playwright spec first, make it pass, then run `pnpm test`
 - Default local test after normal changes: `pnpm test`
 - If you touch one domain deeply, run that domain's slow spec too: `pnpm test:e2e:<domain>:slow`
 - If you touch auth, invites, or team access, run `pnpm test:e2e:auth`
