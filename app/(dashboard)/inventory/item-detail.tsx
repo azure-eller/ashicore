@@ -41,6 +41,7 @@ interface ItemDetailProps {
     purchaseToStockFactor: string | null;
     defaultPurchasePrice: string | null;
     defaultSellingPrice: string | null;
+    sellable?: boolean | null;
     stock: string;
     committedQty: string;
     expectedQty: string;
@@ -85,6 +86,11 @@ interface ItemDetailProps {
     lotNumber: string | null;
     createdAt: Date;
   }[];
+  usedInParents?: {
+    id: string;
+    name: string;
+    displayName: string;
+  }[];
   variants?: {
     id: string;
     name: string;
@@ -107,6 +113,7 @@ export function ItemDetail({
   bom,
   lots,
   movements,
+  usedInParents,
   variants,
   canEdit = false,
   canViewBom = true,
@@ -309,6 +316,11 @@ export function ItemDetail({
               </Link>
             </p>
           )}
+          {itemType === "product" && item.sellable === false ? (
+            <Badge variant="outline" className="mt-2">
+              Not sellable
+            </Badge>
+          ) : null}
           {itemType === "product" && item.bomLocked ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -540,6 +552,40 @@ export function ItemDetail({
           </div>
         </>
       ) : null}
+
+      <Separator />
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold tracking-tight">Used In</h2>
+        {usedInParents && usedInParents.length > 0 ? (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {usedInParents.map((parent) => (
+                  <TableRow key={parent.id}>
+                    <TableCell>
+                      <Link
+                        href={`/inventory/products/${parent.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {parent.displayName}
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Not used in any current product recipes.
+          </p>
+        )}
+      </div>
 
       {/* Lots */}
       <Separator />

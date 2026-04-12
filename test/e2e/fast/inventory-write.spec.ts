@@ -180,7 +180,12 @@ test.describe("Inventory write-path smoke", () => {
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
 
     const bomRow = page.getByTestId("bom-row").first();
-    await bomRow.locator("input[inputmode='decimal']").fill("1.5");
+    const quantityInput = bomRow.locator("input[inputmode='decimal']").first();
+    await quantityInput.click();
+    await quantityInput.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
+    await quantityInput.fill("1.5");
+    await page.getByRole("heading", { name: "Edit Product" }).click();
+    await expect(page.getByLabel("Revision Note")).toBeVisible();
     await page.getByLabel("Revision Note").fill("Increase sand ratio");
 
     const updateResponsePromise = page.waitForResponse(

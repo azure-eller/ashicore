@@ -2,6 +2,7 @@
 
 import { Fragment } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   type QueryKey,
@@ -116,6 +117,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   subRowClassName,
   globalFilterFn,
 }: DashboardDataTableProps<TData>) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -171,6 +173,7 @@ export function DashboardDataTable<TData extends { id: string }>({
       setConfirmDeleteOpen(false);
       setPendingDeleteIds([]);
       setRowSelection({});
+      router.refresh();
     },
     onError: (error) => {
       setFormError(error.message);

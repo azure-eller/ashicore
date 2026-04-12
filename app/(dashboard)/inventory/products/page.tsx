@@ -12,6 +12,6 @@ export default function ProductsPage() {
 }
 
 async function ProductsData() {
-  const items = await getItems({ itemType: "product" });
-  return <DataTable initialData={items} itemType="product" />;
+  const items = await getItems({ itemType: "product", view: "products" });
+  return <DataTable initialData={items} itemType="product" view="products" />;
 }

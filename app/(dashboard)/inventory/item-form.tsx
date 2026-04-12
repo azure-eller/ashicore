@@ -83,6 +83,7 @@ const uomGroups = getUomOptions();
 type AvailableComponent = {
   id: string;
   name: string;
+  displayName: string;
   itemType: string;
   unit: string;
 };
@@ -166,6 +167,7 @@ export function ItemForm({
           description: initialData.description,
           defaultPurchasePrice: initialData.defaultPurchasePrice,
           defaultSellingPrice: initialData.defaultSellingPrice,
+          sellable: initialData.sellable ?? true,
           manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
           expectedBatchYield: initialData.expectedBatchYield,
           bomLocked: initialData.bomLocked ?? false,
@@ -192,6 +194,7 @@ export function ItemForm({
             description: null,
             defaultPurchasePrice: null,
             defaultSellingPrice: null,
+            sellable: true,
             manufacturingMode: "discrete" as const,
             expectedBatchYield: null,
             bomLocked: false,
@@ -291,7 +294,7 @@ export function ItemForm({
       return res.json();
     },
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
       router.push(isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`);
     },
     onError: (error) => {
@@ -651,6 +654,28 @@ export function ItemForm({
                       {fieldState.invalid && (
                         <FieldError errors={[fieldState.error]} />
                       )}
+                    </Field>
+                  )}
+                />
+              )}
+
+              {itemType === "product" && !isMaster && (
+                <Controller
+                  name="sellable"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Field orientation="horizontal">
+                      <Switch
+                        id={field.name}
+                        checked={field.value ?? true}
+                        onCheckedChange={field.onChange}
+                      />
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
+                        <FieldDescription>
+                          Show this product in the main Products catalog.
+                        </FieldDescription>
+                      </div>
                     </Field>
                   )}
                 />

@@ -19,7 +19,7 @@ test.describe("variant product family", () => {
     await page.getByLabel("Name").fill(masterName);
 
     // Enable variants — the Switch is inside a label that says "Has variants"
-    const variantsToggle = page.getByRole("switch");
+    const variantsToggle = page.getByRole("switch", { name: "Has variants" });
     await variantsToggle.click();
 
     // Wait for the Variant Axes section to appear

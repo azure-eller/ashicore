@@ -13,6 +13,7 @@ import {
 import { formatVariantDisplay } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -52,6 +53,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
     defaultValues: {
       unitDefinitionId: "",
       variantAttrs: Object.fromEntries(masterAxes.map((axis) => [axis, ""])),
+      sellable: true,
       sku: null,
       description: null,
       defaultSellingPrice: null,
@@ -95,7 +97,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
       return res.json();
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["items", "product"] });
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["variants", masterId] });
       router.push(fallbackPath);
     },
@@ -232,6 +234,26 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
               />
 
               {/* SKU */}
+              <Controller
+                name="sellable"
+                control={form.control}
+                render={({ field }) => (
+                  <Field orientation="horizontal">
+                    <Switch
+                      id={field.name}
+                      checked={field.value ?? true}
+                      onCheckedChange={field.onChange}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
+                      <FieldDescription>
+                        Show this variant in the main Products catalog.
+                      </FieldDescription>
+                    </div>
+                  </Field>
+                )}
+              />
+
               <Controller
                 name="sku"
                 control={form.control}

@@ -30,6 +30,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
   category: nullableString,
   defaultPurchasePrice: nullableString,
   defaultSellingPrice: nullableString,
+  sellable: z.boolean().default(true),
   description: nullableString,
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
@@ -155,6 +156,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   unitDefinitionId: true,
   stock: true,
 }).extend({
+  sellable: z.boolean().optional(),
   manufacturingMode: z.enum(["discrete", "batch"]),
   stock: z.string().refine(
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
@@ -186,6 +188,7 @@ export type InsertMasterItemFormValues = z.input<typeof insertMasterItemSchema>;
 export const insertVariantSchema = z.object({
   unitDefinitionId: z.string().min(1, "Unit is required"),
   variantAttrs: z.record(z.string(), z.string().min(1, "Value is required")),
+  sellable: z.boolean().default(true),
   sku: nullableStringOptional,
   description: nullableStringOptional,
   defaultSellingPrice: nullableStringOptional,
