@@ -50,7 +50,7 @@ export const itemsOrgPolicy = pgPolicy("items_org_policy", {
 
 Define policies in schema files, but still patch generated SQL when needed for repo requirements such as `FORCE ROW LEVEL SECURITY`, schema grants, or sequences. See the manufacturing and sales migrations for the current pattern.
 
-The `system` schema (Better Auth tables) must **never** have RLS enabled.
+The `system` schema (Better Auth tables) must **never** have RLS enabled, but `app_user` still needs `USAGE` on the schema plus CRUD on its tables because the normal app runtime and Better Auth both use `DATABASE_URL_APP`.
 
 ## Org Scoping in Queries
 
@@ -324,6 +324,52 @@ When a module generates human-readable document numbers with `nextval()` in the 
 ```sql
 CREATE SEQUENCE "purchasing"."order_number_seq";
 GRANT USAGE, SELECT ON SEQUENCE "purchasing"."order_number_seq" TO app_user;
+```
+
+## Local Worktree Database Workflow
+
+Local development defaults to one shared local Postgres instance and one database per worktree.
+
+Default flow:
+
+```bash
+pnpm db:local:setup
+```
+
+`pnpm db:local:setup`:
+
+- auto-starts the shared local Postgres container if it is not already running
+- derives a database name from the current worktree folder
+- creates the database if needed
+- creates or updates `app_user`
+- writes worktree-local `DATABASE_URL` and `DATABASE_URL_APP` into `.env.local`
+- runs `pnpm drizzle-kit migrate`
+
+Worktrees still fall back to the repo-root `.env.local` for shared settings like auth secrets and app URLs, but they do **not** inherit `DATABASE_URL` or `DATABASE_URL_APP` from it. This prevents a new worktree from silently pointing migrations at a shared remote Neon branch.
+
+Cleanup flow after merge:
+
+```bash
+pnpm worktree:cleanup <branch>
+```
+
+Run it from the repo root.
+
+`pnpm worktree:cleanup <branch>`:
+
+- resolves the matching worktree from the branch name
+- refuses to remove a dirty worktree
+- drops that worktree's local database
+- removes the worktree
+- deletes the local branch when possible
+- stops the shared Docker Postgres container when no linked worktrees remain
+
+Data persists across `pnpm db:local:stop` because the Docker Postgres service uses a named volume. You do not need to reseed every time you start it.
+
+If you already run Postgres outside Docker, set `LOCAL_DB_ADMIN_URL` before `pnpm db:local:setup`:
+
+```bash
+LOCAL_DB_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5433/postgres pnpm db:local:setup
 ```
 
 ## Partial Unique Indexes

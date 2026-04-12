@@ -43,23 +43,31 @@ Explicitly out of scope today:
 pnpm install
 ```
 
-2. Create local env:
+2. Create the shared repo-root env:
 
 ```bash
 cp .env.example .env.local
 ```
 
-3. Fill the required values in `.env.local`.
+3. Fill the non-database values you need in `.env.local` like `BETTER_AUTH_SECRET`.
 
-Worktrees reuse the repo root `.env.local` automatically for `pnpm dev`, `pnpm build`, and `pnpm test`. Only create a worktree-local `.env.local` if you need overrides.
+4. In each worktree, create that worktree's local DB and env:
 
-4. Start the app:
+```bash
+pnpm db:local:setup
+```
+
+`pnpm db:local:setup` auto-starts the shared local Postgres container if needed.
+
+Worktrees still fall back to the repo-root `.env.local` for shared settings, but they do not inherit `DATABASE_URL` or `DATABASE_URL_APP` from it.
+
+5. Start the app:
 
 ```bash
 pnpm dev
 ```
 
-5. Validate changes:
+6. Validate changes:
 
 ```bash
 pnpm build
@@ -95,6 +103,11 @@ Optional:
 
 - `DATABASE_URL` is the owner connection. Use it for `drizzle-kit generate` and `drizzle-kit migrate` only.
 - `DATABASE_URL_APP` is the app role. Use it for normal app runtime so RLS is actually exercised.
+- Default local dev is one shared local Postgres instance plus one database per worktree.
+- `pnpm db:local:setup` auto-starts local Postgres when needed, derives the database name from the current worktree folder, creates `app_user`, writes worktree-local DB URLs, and runs migrations.
+- Run `pnpm worktree:cleanup <branch>` from the repo root after merge. It drops that branch's local DB, removes the worktree, deletes the local branch when possible, and stops Docker Postgres when no linked worktrees remain.
+- Local Postgres data persists across `pnpm db:local:stop`. You do not need to reseed on each start.
+- If you already run Postgres locally, set `LOCAL_DB_ADMIN_URL` before `pnpm db:local:setup` and skip Docker.
 - Do not use `drizzle push`.
 - New schemas and tables must follow the RLS and grant rules in `docs/database.md`.
 
@@ -119,6 +132,10 @@ pnpm test:sales
 Database:
 
 ```bash
+pnpm db:local:setup
+pnpm worktree:cleanup <branch>
+pnpm db:local:start   # optional manual control
+pnpm db:local:stop
 pnpm drizzle-kit generate
 pnpm drizzle-kit migrate
 ```

@@ -12,7 +12,7 @@ concurrency:
 
 env:
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-  DATABASE_URL_APP: postgresql://postgres:postgres@localhost:5432/postgres
+  DATABASE_URL_APP: postgresql://app_user:postgres@localhost:5432/postgres
   BETTER_AUTH_URL: http://127.0.0.1:3000
   NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
   BETTER_AUTH_SECRET: ci-test-secret-not-for-production

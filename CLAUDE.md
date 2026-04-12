@@ -17,6 +17,10 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:e2e:auth` — run auth, invite, and team-access regressions
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
 - `pnpm test:sales` — run the fast sales write-path smoke flow
+- `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
+- `pnpm worktree:cleanup <branch>` — drop that worktree DB, remove the worktree, and stop shared Postgres when no linked worktrees remain
+- `pnpm db:local:start` — optional manual Postgres start
+- `pnpm db:local:stop` — optional manual Postgres stop
 - `pnpm drizzle-kit generate` — generate migration from schema changes
 - `pnpm drizzle-kit migrate` — apply migrations
 
@@ -54,6 +58,7 @@ When you discover a new pattern or gotcha:
 
 New schemas: grant `app_user` USAGE + CRUD on tables + sequences (see `docs/database.md`).
 New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on `current_setting('app.current_org_id', true)`. Always use `FORCE` — without it the owner bypasses RLS.
+`system` schema keeps RLS off, but `app_user` still needs USAGE + CRUD on Better Auth tables.
 
 ## Critical Rules
 
@@ -151,7 +156,6 @@ Variants inherit `items.name` from their master. Never expose an editable varian
 ```tsx
 const title = formatVariantDisplay(masterName, variantAttrs, variantAxes)
 ```
-
 ### Standalone form pages
 
 Single-page create/edit forms should use a centered page shell with top actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one centered card for the entire form.
@@ -628,7 +632,6 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 
 ### Key rules
 
-- Follow red -> green -> refactor for user-facing changes: add or update a failing Playwright spec first, make it pass, then run `pnpm test`
 - Default local test after normal changes: `pnpm test`
 - If you touch one domain deeply, run that domain's slow spec too: `pnpm test:e2e:<domain>:slow`
 - If you touch auth, invites, or team access, run `pnpm test:e2e:auth`
@@ -678,7 +681,9 @@ For code-changing work:
 - Do not edit files in `/home/aeller/Projects/erp` or on `main` unless the user explicitly asks for that
 - Create or enter a dedicated worktree before making changes
 - Do not reuse another active worktree unless the user explicitly points to it
-- `pnpm dev`, `pnpm build`, and `pnpm test` load the repo root `.env.local` automatically in worktrees; only create a per-worktree `.env.local` when you need overrides
+- Worktrees fall back to the repo root `.env.local` for shared settings, but DB URLs must come from the worktree `.env.local` created by `pnpm db:local:setup`
+- After a PR merges, agents MUST run `pnpm worktree:cleanup <branch>` from the repo root to drop the local DB and remove the worktree. If no linked worktrees remain, shared local Postgres should be stopped too.
+- Local Postgres data persists across `pnpm db:local:stop`; no reseed is required for normal dev or tests.
 
 ```bash
 git worktree add .worktrees/<branch-name> -b <branch-name>

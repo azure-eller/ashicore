@@ -218,6 +218,20 @@
       "when": 1775931722606,
       "tag": "0030_reflective_pestilence",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1775936400000,
+      "tag": "0031_system_app_user_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1775937000000,
+      "tag": "0032_inventory_base_app_user_grants",
+      "breakpoints": true
     }
   ]
 }

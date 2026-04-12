@@ -3,7 +3,13 @@ import * as schema from "./schema";
 
 // App role (RLS enforced, no DDL). Falls back to DATABASE_URL for migration scripts.
 const connectionString =
-  process.env.DATABASE_URL_APP || process.env.DATABASE_URL!;
+  process.env.DATABASE_URL_APP || process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error(
+    "DATABASE_URL_APP or DATABASE_URL is required. In a worktree, run `pnpm db:local:setup` first."
+  );
+}
 
 // Neon serverless driver uses WebSocket — only works against Neon Postgres.
 // Plain Postgres (CI, local) needs the standard pg driver over TCP.
