@@ -3,6 +3,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getEmailSenderConfig } from "@/lib/email/config";
+import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "@/lib/email/outbox";
 
 export type TransactionalEmailInput = {
   tag: "email-verification" | "password-reset" | "team-invite";
@@ -12,10 +13,21 @@ export type TransactionalEmailInput = {
   text: string;
 };
 
-const EMAIL_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "email-outbox");
-
 function sanitizeFileSegment(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function shouldWriteEmailOutbox() {
+  if (process.env.EMAIL_OUTBOX_ONLY === "1") {
+    return true;
+  }
+
+  try {
+    await fs.access(EMAIL_OUTBOX_MODE_FLAG);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function writeEmailOutbox(email: TransactionalEmailInput) {
@@ -45,7 +57,7 @@ async function writeEmailOutbox(email: TransactionalEmailInput) {
 export async function sendTransactionalEmail(email: TransactionalEmailInput) {
   const senderConfig = getEmailSenderConfig();
 
-  if (process.env.EMAIL_OUTBOX_ONLY === "1" || !senderConfig) {
+  if (!senderConfig || (await shouldWriteEmailOutbox())) {
     await writeEmailOutbox(email);
     return;
   }

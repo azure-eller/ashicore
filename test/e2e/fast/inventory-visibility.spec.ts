@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { getInventoryTabCount, test, expect, filterList } from "../fixtures";
+import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect, filterList } from "../fixtures";
 import { items } from "../../../lib/db/schema";
 import { createItem, createVariant, deleteItem, getUnitId } from "../../helpers/api";
 
@@ -221,8 +221,6 @@ test.describe("inventory visibility", () => {
   test("toggling sellable moves a product from Products to Sub-assemblies", async ({ page, db }) => {
     await page.goto(`/inventory/products/${sellableOnlyId}/edit`);
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
-    const productsBefore = await getInventoryTabCount(page, "Products");
-    const subAssembliesBefore = await getInventoryTabCount(page, "Sub-assemblies");
 
     const sellableSwitch = page.getByRole("switch", { name: "Sellable" });
     await expect(sellableSwitch).toHaveAttribute("data-state", "checked");
@@ -236,10 +234,14 @@ test.describe("inventory visibility", () => {
     );
     await page.getByRole("button", { name: "Save Changes" }).click();
     expect((await updateResponsePromise).status()).toBe(200);
-    await expect.poll(() => getInventoryTabCount(page, "Products")).toBe(productsBefore - 1);
-    await expect.poll(() => getInventoryTabCount(page, "Sub-assemblies")).toBe(
-      subAssembliesBefore + 1,
-    );
+    await expect
+      .poll(async () => {
+        const uiProducts = await getInventoryTabCount(page, "Products");
+        const uiSubAssemblies = await getInventoryTabCount(page, "Sub-assemblies");
+        const counts = await getExpectedInventoryTabCounts(db);
+        return `${uiProducts}:${counts.products}:${uiSubAssemblies}:${counts.subAssemblies}`;
+      })
+      .toMatch(/^(\d+):\1:(\d+):\2$/);
 
     const [updated] = await db.select().from(items).where(eq(items.id, sellableOnlyId));
     expect(updated.sellable).toBe(false);

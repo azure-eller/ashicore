@@ -1,4 +1,4 @@
-import { getInventoryTabCount, test, expect } from "../fixtures";
+import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect } from "../fixtures";
 import { and, eq, isNull } from "drizzle-orm";
 import { items } from "@/lib/db/schema";
 
@@ -61,7 +61,6 @@ test.describe("variant product family", () => {
 
     // Wait for form to load
     await expect(page.getByText("Add Variant")).toBeVisible({ timeout: 15_000 });
-    const productsBefore = await getInventoryTabCount(page, "Products");
 
     // Fill Package axis value — field label is the axis name "Package"
     await page.getByLabel("Package").fill(packageValue);
@@ -81,7 +80,13 @@ test.describe("variant product family", () => {
 
     // Should redirect back to master detail
     await page.waitForURL(new RegExp(`/inventory/products/${masterId}$`), { timeout: 15_000 });
-    await expect.poll(() => getInventoryTabCount(page, "Products")).toBe(productsBefore + 1);
+    await expect
+      .poll(async () => {
+        const uiCount = await getInventoryTabCount(page, "Products");
+        const counts = await getExpectedInventoryTabCounts(db);
+        return uiCount - counts.products;
+      })
+      .toBe(0);
 
     // Verify DB
     const variant = await db
