@@ -2,6 +2,7 @@ import fs from "node:fs";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { and, eq } from "drizzle-orm";
 import { expect, test } from "./fixtures";
+import { testFetch } from "../helpers/api";
 import {
   invitation,
   items,
@@ -102,13 +103,8 @@ async function ownerApiCall<T>(
     body?: Record<string, unknown>;
   } = {}
 ): Promise<{ status: number; body: T | null }> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await testFetch(path, {
     method: options.method ?? "GET",
-    headers: {
-      Origin: BASE_URL,
-      Cookie: SESSION_COOKIE,
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-    },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
@@ -616,6 +612,8 @@ test.describe("Team management and invite flow", () => {
       },
     });
     expect(lockMaterial.status).toBe(201);
+    expect(lockMaterial.body?.id).toBeTruthy();
+    const lockMaterialId = lockMaterial.body!.id;
 
     const lockedProduct = await ownerApiCall<{ id?: string }>("/api/items", {
       method: "POST",
@@ -642,9 +640,10 @@ test.describe("Team management and invite flow", () => {
     });
     expect(lockedProduct.status).toBe(201);
     expect(lockedProduct.body?.id).toBeTruthy();
+    const lockedProductId = lockedProduct.body!.id;
 
     const lockResponse = await ownerApiCall<{ bomLocked?: boolean; error?: string }>(
-      `/api/items/${lockedProduct.body?.id}/bom-lock`,
+      `/api/items/${lockedProductId}/bom-lock`,
       {
         method: "POST",
         body: { locked: true },
@@ -652,6 +651,34 @@ test.describe("Team management and invite flow", () => {
     );
     expect(lockResponse.status).toBe(200);
     expect(lockResponse.body?.bomLocked).toBe(true);
+
+    await updateMemberAccess({
+      inventory: "read",
+      sales: "none",
+      manufacturing: "none",
+      purchasing: "none",
+      settings: "none",
+    });
+
+    const { context: readContext, page: readPage } = await signInAsExistingUser(
+      browser,
+      memberEmail,
+      memberPassword,
+      "/inventory/products"
+    );
+
+    await readPage.goto(`/inventory/materials/${lockMaterialId}`);
+    await expect(readPage.getByText("Not used in any current product recipes.")).toBeVisible();
+    await expect(readPage.getByRole("link", { name: `Locked Product ${run}` })).toHaveCount(0);
+
+    const hiddenUsedInResponse = await apiCall<{ parents?: Array<{ id: string }> }>(
+      readPage,
+      `/api/items/${lockMaterialId}/used-in`
+    );
+    expect(hiddenUsedInResponse.status).toBe(200);
+    expect(hiddenUsedInResponse.body?.parents ?? []).toEqual([]);
+
+    await readContext.close();
 
     await updateMemberAccess({
       inventory: "operate",
@@ -668,7 +695,7 @@ test.describe("Team management and invite flow", () => {
       "/inventory/products"
     );
 
-    await memberPage.goto(`/inventory/products/${lockedProduct.body?.id}`);
+    await memberPage.goto(`/inventory/products/${lockedProductId}`);
     await expect(memberPage.getByLabel("Locked recipe")).toBeVisible();
     await expect(
       memberPage.getByText("This recipe is locked. Inventory or manufacturing admin access is required")
@@ -676,12 +703,12 @@ test.describe("Team management and invite flow", () => {
     await expect(memberPage.getByText(`Locked Material ${run}`)).toHaveCount(0);
     await expect(memberPage.getByRole("link", { name: "Edit" })).toHaveCount(0);
 
-    await memberPage.goto(`/inventory/products/${lockedProduct.body?.id}/edit`);
-    await memberPage.waitForURL(`**/inventory/products/${lockedProduct.body?.id}`);
+    await memberPage.goto(`/inventory/products/${lockedProductId}/edit`);
+    await memberPage.waitForURL(`**/inventory/products/${lockedProductId}`);
 
     const blockedLockedProductMutation = await apiCall<{ error?: string }>(
       memberPage,
-      `/api/items/${lockedProduct.body?.id}`,
+      `/api/items/${lockedProductId}`,
       {
         method: "PUT",
         body: {
@@ -722,12 +749,12 @@ test.describe("Team management and invite flow", () => {
       "/inventory/products"
     );
 
-    await adminPage.goto(`/inventory/products/${lockedProduct.body?.id}`);
+    await adminPage.goto(`/inventory/products/${lockedProductId}`);
     await expect(adminPage.getByText(`Locked Material ${run}`)).toBeVisible();
     await expect(adminPage.getByRole("link", { name: "Edit" })).toBeVisible();
     await adminPage.getByRole("link", { name: "Edit" }).click();
     await expect(adminPage).toHaveURL(
-      new RegExp(`/inventory/products/${lockedProduct.body?.id}/edit$`)
+      new RegExp(`/inventory/products/${lockedProductId}/edit$`)
     );
     await expect(adminPage.getByRole("button", { name: "Unlock recipe" })).toBeVisible();
 

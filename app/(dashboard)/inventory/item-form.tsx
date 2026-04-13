@@ -296,6 +296,7 @@ export function ItemForm({
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       router.push(isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`);
+      router.refresh();
     },
     onError: (error) => {
       setFormError(error.message);

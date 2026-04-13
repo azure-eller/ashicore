@@ -20,13 +20,14 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { formatVariantDisplay } from "@/lib/format";
+import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
   getBomRevisionHistoryInTx,
   getCurrentBomComponentsInTx,
   getCurrentBomRevisionInTx,
 } from "@/lib/bom/revisions";
-import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   applyStockDeltaInTx,
@@ -85,6 +86,10 @@ const potentialSubquery = sql<string | null>`(
 )`.as("potential");
 
 type BomInputRow = { componentId: string; quantity: string };
+type BomViewPermissions = {
+  canViewUnlockedBom: boolean;
+  canViewLockedBom: boolean;
+};
 
 function normalizeBomRows(bom: BomInputRow[]) {
   return bom.map((row, index) => ({
@@ -140,6 +145,32 @@ function formatPriceRange(values: Array<string | null | undefined>) {
   return min === max ? `$${min}` : `$${min} \u2013 $${max}`;
 }
 
+function getBomViewPermissions(assignedRoles: string[]): BomViewPermissions {
+  return {
+    canViewUnlockedBom: canViewUnlockedBom(assignedRoles),
+    canViewLockedBom: canViewLockedBom(assignedRoles),
+  };
+}
+
+function hasBomViewAccess(permissions: BomViewPermissions) {
+  return permissions.canViewUnlockedBom || permissions.canViewLockedBom;
+}
+
+function getBomParentVisibilityCondition(
+  bomLockedColumn: typeof items.bomLocked,
+  permissions: BomViewPermissions,
+) {
+  if (permissions.canViewLockedBom) {
+    return sql`true`;
+  }
+
+  if (permissions.canViewUnlockedBom) {
+    return sql`${bomLockedColumn} = false`;
+  }
+
+  return sql`false`;
+}
+
 async function getCurrentBomProductIdSetInTx(tx: Tx, productIds: string[]) {
   const uniqueProductIds = [...new Set(productIds)];
 
@@ -160,13 +191,21 @@ async function getCurrentBomProductIdSetInTx(tx: Tx, productIds: string[]) {
   return new Set(rows.map((row) => row.productId));
 }
 
-async function getUsedInCountsInTx(tx: Tx, componentIds: string[]) {
+async function getUsedInCountsInTx(
+  tx: Tx,
+  componentIds: string[],
+  permissions: BomViewPermissions,
+) {
   const uniqueComponentIds = [...new Set(componentIds)];
 
-  if (uniqueComponentIds.length === 0) {
+  if (uniqueComponentIds.length === 0 || !hasBomViewAccess(permissions)) {
     return new Map<string, number>();
   }
 
+  const bomParentVisibilityCondition = getBomParentVisibilityCondition(
+    items.bomLocked,
+    permissions,
+  );
   const rows = await tx
     .select({
       componentId: bomRevisionComponents.componentId,
@@ -174,10 +213,13 @@ async function getUsedInCountsInTx(tx: Tx, componentIds: string[]) {
     })
     .from(bomRevisionComponents)
     .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
+    .innerJoin(items, eq(bomRevisions.productId, items.id))
     .where(
       and(
         inArray(bomRevisionComponents.componentId, uniqueComponentIds),
         eq(bomRevisions.isCurrent, true),
+        isNull(items.deletedAt),
+        bomParentVisibilityCondition,
       ),
     )
     .groupBy(bomRevisionComponents.componentId);
@@ -301,6 +343,9 @@ export async function getItems(filters?: {
   itemType?: ItemType;
   view?: InventoryProductView;
 }): Promise<ItemRow[]> {
+  const context = await getAuthedMemberContext();
+  const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
+
   return withAuthedOrgContext<ItemRow[]>(async (tx) => {
     if (filters?.itemType !== "product") {
       const materialRows = await tx
@@ -406,6 +451,7 @@ export async function getItems(filters?: {
         getUsedInCountsInTx(
           tx,
           leafRows.map((row) => row.id),
+          bomViewPermissions,
         ),
         parentIds.length > 0
           ? tx
@@ -543,7 +589,7 @@ export async function getItems(filters?: {
     ];
     const [hasBomSet, usedInCounts, revenueByItemId] = await Promise.all([
       getCurrentBomProductIdSetInTx(tx, leafIds),
-      getUsedInCountsInTx(tx, leafIds),
+      getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
       getRevenue30dByItemIdInTx(tx, leafIds),
     ]);
 
@@ -708,14 +754,25 @@ export async function getItems(filters?: {
 }
 
 export async function getInventoryTabCounts(): Promise<InventoryTabCounts> {
+  const context = await getAuthedMemberContext();
+  const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
+
   return withAuthedOrgContext(async (tx) => {
+    const bomParentVisibilityCondition = bomViewPermissions.canViewLockedBom
+      ? sql`true`
+      : bomViewPermissions.canViewUnlockedBom
+        ? sql`parent_item.bom_locked = false`
+        : sql`false`;
     const currentBomUsageExists = sql`
       EXISTS (
         SELECT 1
         FROM inventory.bom_revision_components brc
         INNER JOIN inventory.bom_revisions br ON br.id = brc.bom_revision_id
+        INNER JOIN inventory.items parent_item ON parent_item.id = br.product_id
         WHERE brc.component_id = ${items.id}
           AND br.is_current = true
+          AND parent_item.deleted_at IS NULL
+          AND ${bomParentVisibilityCondition}
       )
     `;
     const masterHasSellableVariant = sql`
@@ -1394,7 +1451,18 @@ export async function getBomRevision(itemId: string, revisionId: string) {
 }
 
 export async function getUsedInParents(itemId: string) {
+  const context = await getAuthedMemberContext();
+  const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
+
   return withAuthedOrgContext(async (tx) => {
+    if (!hasBomViewAccess(bomViewPermissions)) {
+      return [];
+    }
+
+    const bomParentVisibilityCondition = getBomParentVisibilityCondition(
+      items.bomLocked,
+      bomViewPermissions,
+    );
     const rows = await tx
       .select({
         id: items.id,
@@ -1410,6 +1478,7 @@ export async function getUsedInParents(itemId: string) {
           eq(bomRevisionComponents.componentId, itemId),
           eq(bomRevisions.isCurrent, true),
           isNull(items.deletedAt),
+          bomParentVisibilityCondition,
         ),
       )
       .orderBy(asc(items.name));

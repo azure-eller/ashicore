@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { test, expect, filterList } from "../fixtures";
+import { getInventoryTabCount, test, expect, filterList } from "../fixtures";
 import { items } from "../../../lib/db/schema";
-import { createItem, createVariant, getUnitId } from "../../helpers/api";
+import { createItem, createVariant, deleteItem, getUnitId } from "../../helpers/api";
 
 test.describe.configure({ mode: "serial" });
 
@@ -221,6 +221,8 @@ test.describe("inventory visibility", () => {
   test("toggling sellable moves a product from Products to Sub-assemblies", async ({ page, db }) => {
     await page.goto(`/inventory/products/${sellableOnlyId}/edit`);
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
+    const productsBefore = await getInventoryTabCount(page, "Products");
+    const subAssembliesBefore = await getInventoryTabCount(page, "Sub-assemblies");
 
     const sellableSwitch = page.getByRole("switch", { name: "Sellable" });
     await expect(sellableSwitch).toHaveAttribute("data-state", "checked");
@@ -234,6 +236,10 @@ test.describe("inventory visibility", () => {
     );
     await page.getByRole("button", { name: "Save Changes" }).click();
     expect((await updateResponsePromise).status()).toBe(200);
+    await expect.poll(() => getInventoryTabCount(page, "Products")).toBe(productsBefore - 1);
+    await expect.poll(() => getInventoryTabCount(page, "Sub-assemblies")).toBe(
+      subAssembliesBefore + 1,
+    );
 
     const [updated] = await db.select().from(items).where(eq(items.id, sellableOnlyId));
     expect(updated.sellable).toBe(false);
@@ -247,5 +253,25 @@ test.describe("inventory visibility", () => {
     const movedRow = page.getByRole("row", { name: new RegExp(sellableOnlyName) });
     await expect(movedRow.getByRole("link", { name: sellableOnlyName })).toBeVisible();
     await expect(movedRow.getByText("Not sellable")).toBeVisible();
+  });
+
+  test("soft-deleting the only parent clears used-in counts and sub-assembly inclusion", async ({
+    page,
+    db,
+  }) => {
+    const deleteResponse = await deleteItem(parentProductId);
+    expect(deleteResponse.status).toBe(200);
+
+    const [deletedParent] = await db.select().from(items).where(eq(items.id, parentProductId));
+    expect(deletedParent.deletedAt).toBeTruthy();
+
+    await page.goto(`/inventory/products/${sharedComponentId}`);
+    await expect(page.getByRole("heading", { name: sharedComponentName })).toBeVisible();
+    await expect(page.getByText("Not used in any current product recipes.")).toBeVisible();
+    await expect(page.getByRole("link", { name: parentProductName })).toHaveCount(0);
+
+    await page.goto("/inventory/sub-assemblies");
+    await filterList(page, "Search items", sharedComponentName);
+    await expect(page.getByRole("link", { name: sharedComponentName })).toHaveCount(0);
   });
 });

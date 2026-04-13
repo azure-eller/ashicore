@@ -100,6 +100,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["variants", masterId] });
       router.push(fallbackPath);
+      router.refresh();
     },
     onError: (error) => {
       setFormError(error.message);

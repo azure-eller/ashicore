@@ -152,6 +152,21 @@ export async function filterList(
   await expect(input).toHaveValue(value);
 }
 
+export async function getInventoryTabCount(
+  page: Page,
+  label: "Products" | "Materials" | "Sub-assemblies"
+): Promise<number> {
+  const navText = await page.locator("header nav").innerText();
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = navText.match(new RegExp(`${escapedLabel}\\s*(\\d+)`));
+
+  if (!match) {
+    throw new Error(`Could not find inventory tab count for ${label}. Nav text: ${navText}`);
+  }
+
+  return Number.parseInt(match[1], 10);
+}
+
 export async function selectDate(
   page: Page,
   trigger: Locator,
