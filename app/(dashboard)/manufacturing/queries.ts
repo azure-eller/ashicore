@@ -139,6 +139,13 @@ type ExecutionBatchRow = {
   costPerUnit: string | null;
 };
 
+type LockedBatchStateRow = {
+  id: string;
+  batchNumber: number;
+  status: ManufacturingBatchStatus;
+  pickedAt: Date | null;
+};
+
 function normalizeQuantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
@@ -156,6 +163,33 @@ function getRemainingQuantityNumber(plannedQuantity: string, pickedQuantity: str
     0,
     normalizeQuantityNumber(parseFloat(plannedQuantity) - parseFloat(pickedQuantity))
   );
+}
+
+function getCurrentExecutionBatch<T extends { id: string; batchNumber: number; status: string }>(
+  batches: T[]
+) {
+  return batches.find((batch) => batch.status !== "completed") ?? null;
+}
+
+function assertCurrentExecutionBatch<T extends { id: string; batchNumber: number; status: string }>(
+  batches: T[],
+  batchId: string,
+  action: "started" | "picked" | "completed"
+) {
+  const currentBatch = getCurrentExecutionBatch(batches);
+
+  if (!currentBatch) {
+    throw new ManufacturingError("All batches are already completed", 400);
+  }
+
+  if (currentBatch.id !== batchId) {
+    throw new ManufacturingError(
+      `Only batch ${currentBatch.batchNumber} can be ${action} right now.`,
+      400
+    );
+  }
+
+  return currentBatch;
 }
 
 function getRemainingQuantityString(plannedQuantity: string, pickedQuantity: string) {
@@ -759,6 +793,20 @@ async function getBatchRowsInTx(tx: Tx, orderId: string) {
     .leftJoin(lots, eq(manufacturingOrderBatches.lotId, lots.id))
     .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId))
     .orderBy(asc(manufacturingOrderBatches.batchNumber)) as Promise<ExecutionBatchRow[]>;
+}
+
+async function getLockedBatchStateRowsInTx(tx: Tx, orderId: string) {
+  return tx
+    .select({
+      id: manufacturingOrderBatches.id,
+      batchNumber: manufacturingOrderBatches.batchNumber,
+      status: manufacturingOrderBatches.status,
+      pickedAt: manufacturingOrderBatches.pickedAt,
+    })
+    .from(manufacturingOrderBatches)
+    .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId))
+    .orderBy(asc(manufacturingOrderBatches.batchNumber))
+    .for("update") as Promise<LockedBatchStateRow[]>;
 }
 
 async function ensureBatchExecutionRowsInTx(
@@ -1867,28 +1915,14 @@ export async function startManufacturingBatch(
     }
 
     await ensureBatchExecutionRowsInTx(tx, order);
-
-    const [batch] = await tx
-      .select({
-        id: manufacturingOrderBatches.id,
-        status: manufacturingOrderBatches.status,
-      })
-      .from(manufacturingOrderBatches)
-      .where(
-        and(
-          eq(manufacturingOrderBatches.id, batchId),
-          eq(manufacturingOrderBatches.manufacturingOrderId, orderId)
-        )
-      )
-      .for("update");
+    const batches = await getLockedBatchStateRowsInTx(tx, orderId);
+    const batch = batches.find((row) => row.id === batchId);
 
     if (!batch) {
       throw new ManufacturingError("Batch not found", 404);
     }
 
-    if (batch.status === "completed") {
-      throw new ManufacturingError("Completed batches cannot be started again", 400);
-    }
+    assertCurrentExecutionBatch(batches, batchId, "started");
 
     if (batch.status === "pending") {
       await tx
@@ -1921,16 +1955,15 @@ export async function completeManufacturingBatch(
       throw new ManufacturingError("Only released batch-mode orders can complete batches", 400);
     }
 
-    const batches = await ensureBatchExecutionRowsInTx(tx, order);
+    await ensureBatchExecutionRowsInTx(tx, order);
+    const batches = await getLockedBatchStateRowsInTx(tx, orderId);
     const batch = batches.find((row) => row.id === batchId);
 
     if (!batch) {
       throw new ManufacturingError("Batch not found", 404);
     }
 
-    if (batch.status === "completed") {
-      throw new ManufacturingError("Batch is already completed", 400);
-    }
+    assertCurrentExecutionBatch(batches, batchId, "completed");
 
     const ingredientRows = await getBatchIngredientsInTx(tx, batchId);
     await validateActiveIngredientItemsInTx(
@@ -2069,8 +2102,10 @@ export async function pickManufacturingIngredient(
       throw new ManufacturingError("Only released orders can be picked", 400);
     }
 
+    let lockedBatches: LockedBatchStateRow[] = [];
     if (order.manufacturingMode === "batch") {
       await ensureBatchExecutionRowsInTx(tx, order);
+      lockedBatches = await getLockedBatchStateRowsInTx(tx, orderId);
     }
 
     const [ingredient] = await tx
@@ -2112,22 +2147,11 @@ export async function pickManufacturingIngredient(
     await validateActiveIngredientItemsInTx(tx, [ingredient.itemId]);
 
     if (ingredient.manufacturingOrderBatchId != null) {
-      const [batch] = await tx
-        .select({
-          id: manufacturingOrderBatches.id,
-          status: manufacturingOrderBatches.status,
-        })
-        .from(manufacturingOrderBatches)
-        .where(eq(manufacturingOrderBatches.id, ingredient.manufacturingOrderBatchId))
-        .for("update");
-
-      if (!batch) {
-        throw new ManufacturingError("Batch not found", 404);
-      }
-
-      if (batch.status === "completed") {
-        throw new ManufacturingError("Completed batches cannot be picked again", 400);
-      }
+      const batch = assertCurrentExecutionBatch(
+        lockedBatches,
+        ingredient.manufacturingOrderBatchId,
+        "picked"
+      );
 
       if (batch.status === "pending") {
         await tx
@@ -2362,16 +2386,11 @@ export async function getManufacturingExecutionDetail(
 
     let batches: ExecutionBatchRow[] = [];
     if (order.manufacturingMode === "batch" && order.status !== "draft") {
-      const lockedOrder = await getLockedManufacturingOrderInTx(tx, orderId);
-      if (lockedOrder) {
-        batches = await ensureBatchExecutionRowsInTx(tx, lockedOrder);
-      }
+      batches = await getBatchRowsInTx(tx, orderId);
     }
 
     const currentBatch =
-      order.manufacturingMode === "batch"
-        ? batches.find((batch) => batch.status !== "completed") ?? null
-        : null;
+      order.manufacturingMode === "batch" ? getCurrentExecutionBatch(batches) : null;
 
     const ingredients =
       order.manufacturingMode === "batch" && currentBatch != null
@@ -2431,7 +2450,7 @@ export async function cancelManufacturingOrder(
 
     if (order.status === "released") {
       if (order.manufacturingMode === "batch") {
-        const batches = await ensureBatchExecutionRowsInTx(tx, order);
+        const batches = await getLockedBatchStateRowsInTx(tx, order.id);
         const startedBatch = batches.find((batch) => batch.status !== "pending");
 
         if (startedBatch) {

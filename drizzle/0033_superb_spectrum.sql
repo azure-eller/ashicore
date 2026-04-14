@@ -17,8 +17,62 @@ CREATE TABLE IF NOT EXISTS "manufacturing"."manufacturing_order_batches" (
 --> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_order_batches" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_order_batches" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "status" varchar(20) DEFAULT 'pending' NOT NULL;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "actual_quantity" numeric(12, 4);--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "started_at" timestamp;--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "picked_at" timestamp;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "completed_at" timestamp;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "lot_id" uuid;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "created_at" timestamp DEFAULT now() NOT NULL;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_batches" ADD COLUMN IF NOT EXISTS "updated_at" timestamp DEFAULT now() NOT NULL;--> statement-breakpoint
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint
+		WHERE conname = 'manufacturing_order_batches_lot_id_lots_id_fk'
+			AND conrelid = 'manufacturing.manufacturing_order_batches'::regclass
+	) THEN
+		ALTER TABLE "manufacturing"."manufacturing_order_batches"
+			ADD CONSTRAINT "manufacturing_order_batches_lot_id_lots_id_fk"
+			FOREIGN KEY ("lot_id") REFERENCES "inventory"."lots"("id") ON DELETE no action ON UPDATE no action;
+	END IF;
+END $$;
+--> statement-breakpoint
+DO $$
+DECLARE
+	missing_columns text[];
+BEGIN
+	SELECT ARRAY_AGG(required.column_name ORDER BY required.column_name)
+	INTO missing_columns
+	FROM (
+		VALUES
+			('id'),
+			('manufacturing_order_id'),
+			('batch_number'),
+			('status'),
+			('planned_quantity'),
+			('actual_quantity'),
+			('started_at'),
+			('picked_at'),
+			('completed_at'),
+			('lot_id'),
+			('created_at'),
+			('updated_at')
+	) AS required(column_name)
+	WHERE NOT EXISTS (
+		SELECT 1
+		FROM information_schema.columns
+		WHERE table_schema = 'manufacturing'
+			AND table_name = 'manufacturing_order_batches'
+			AND column_name = required.column_name
+	);
+
+	IF missing_columns IS NOT NULL THEN
+		RAISE EXCEPTION 'manufacturing_order_batches is missing required columns: %', missing_columns;
+	END IF;
+END $$;
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "manufacturing"."manufacturing_pick_allocations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"manufacturing_order_ingredient_id" uuid NOT NULL,
