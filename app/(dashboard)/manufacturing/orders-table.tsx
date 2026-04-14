@@ -7,6 +7,7 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
+import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
 
@@ -70,6 +71,13 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
       }
       return qty;
     },
+  },
+  {
+    accessorKey: "pickProgressStatus",
+    header: "Execution",
+    cell: ({ row }) => (
+      <ManufacturingPickProgressBadge status={row.original.pickProgressStatus} />
+    ),
   },
   {
     accessorKey: "actualQuantity",

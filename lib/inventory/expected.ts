@@ -23,7 +23,7 @@ export async function recomputeExpectedQty(tx: Tx, itemIds: string[]) {
   const manufacturingTotals = await tx
     .select({
       itemId: manufacturingOrders.productId,
-      total: sql<string>`COALESCE(SUM(${manufacturingOrders.plannedQuantity}), 0)`,
+      total: sql<string>`COALESCE(SUM(GREATEST(${manufacturingOrders.plannedQuantity} - COALESCE(${manufacturingOrders.actualQuantity}, 0), 0)), 0)`,
     })
     .from(manufacturingOrders)
     .where(

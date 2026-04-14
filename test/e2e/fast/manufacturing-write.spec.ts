@@ -1,10 +1,14 @@
 import { eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
+  items,
+  lots,
+  manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  stockMovements,
 } from "../../../lib/db/schema";
-import { createItem, getUnitId } from "../../helpers/api";
+import { createItem, getUnitId, testFetch } from "../../helpers/api";
 
 test.describe("Manufacturing write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -137,5 +141,385 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
     expect(updatedOrder.notes).toBe("Fast manufacturing updated");
+  });
+
+  test("runs a batch-mode order through sequential batch execution", async ({
+    page,
+    db,
+  }) => {
+    test.slow();
+
+    const batchTs = Date.now();
+    const batchSandName = `Fast Batch Sand ${batchTs}`;
+    const batchCompostName = `Fast Batch Compost ${batchTs}`;
+    const batchProductName = `Fast Batch Blend ${batchTs}`;
+
+    const batchSandCreate = await createItem({
+      name: batchSandName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-SAND-${batchTs}`,
+      category: `Fast Batch ${batchTs}`,
+      description: "Fast batch sand",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    const batchCompostCreate = await createItem({
+      name: batchCompostName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-COMPOST-${batchTs}`,
+      category: `Fast Batch ${batchTs}`,
+      description: "Fast batch compost",
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(batchSandCreate.status).toBe(201);
+    expect(batchCompostCreate.status).toBe(201);
+
+    const batchSandId = batchSandCreate.body.id as string;
+    const batchCompostId = batchCompostCreate.body.id as string;
+
+    const batchProductCreate = await createItem({
+      name: batchProductName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-PRODUCT-${batchTs}`,
+      category: `Fast Batch ${batchTs}`,
+      description: "Fast batch product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "60.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "2",
+      bom: [
+        { componentId: batchSandId, quantity: "3" },
+        { componentId: batchCompostId, quantity: "1" },
+      ],
+    });
+
+    expect(batchProductCreate.status).toBe(201);
+    const batchProductId = batchProductCreate.body.id as string;
+
+    await page.goto("/manufacturing/orders/new");
+    const productInput = page.getByPlaceholder("Search products...");
+    await productInput.click();
+    await productInput.fill(batchProductName);
+    await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
+
+    await page.getByLabel("Planned Quantity").fill("5");
+    await page.getByLabel("Notes").fill("Fast batch execution smoke");
+    await page.getByRole("button", { name: "Create Order" }).click();
+
+    await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
+    const batchOrderId = getIdFromUrl(page.url());
+
+    const [draftOrder] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, batchOrderId));
+    expect(draftOrder.productId).toBe(batchProductId);
+    expect(draftOrder.plannedQuantity).toBe("6.0000");
+    expect(draftOrder.numberOfBatches).toBe(3);
+
+    await page.getByRole("button", { name: "Release" }).click();
+    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const createdBatches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId));
+    expect(createdBatches).toHaveLength(3);
+
+    const batchIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, batchOrderId));
+    expect(batchIngredients).toHaveLength(6);
+
+    const sortedBatches = [...createdBatches].sort((left, right) => left.batchNumber - right.batchNumber);
+    const blockedBatch = sortedBatches[1];
+    expect(blockedBatch).toBeDefined();
+    if (!blockedBatch) {
+      throw new Error("Expected a second batch for out-of-order execution coverage");
+    }
+
+    const blockedIngredient = batchIngredients.find(
+      (ingredient) => ingredient.manufacturingOrderBatchId === blockedBatch.id
+    );
+    expect(blockedIngredient).toBeDefined();
+    if (!blockedIngredient) {
+      throw new Error("Expected an ingredient row for the blocked batch");
+    }
+
+    const blockedStartResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/batches/${blockedBatch.id}/start`,
+      {
+        method: "POST",
+      }
+    );
+    expect(blockedStartResponse.status).toBe(400);
+
+    const blockedPickResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/ingredients/${blockedIngredient.id}/pick`,
+      {
+        method: "POST",
+      }
+    );
+    expect(blockedPickResponse.status).toBe(400);
+
+    const blockedCompleteResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/batches/${blockedBatch.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({ actualQuantity: "2" }),
+      }
+    );
+    expect(blockedCompleteResponse.status).toBe(400);
+
+    await page.getByRole("link", { name: "Start Manufacturing" }).click();
+    await page.waitForURL(`**/manufacturing/orders/${batchOrderId}/execute`);
+
+    const runBatch = async (output: string, expectedActual: string, expectedExpected: string) => {
+      await page.getByRole("button", { name: "Start Batch" }).click();
+
+      const sandCard = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: batchSandName })
+        .first();
+      const compostCard = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: batchCompostName })
+        .first();
+
+      await sandCard.getByRole("button", { name: /Pick / }).click();
+      await compostCard.getByRole("button", { name: /Pick / }).click();
+
+      await page.getByLabel("Actual Output").fill(output);
+      await page.getByRole("button", { name: "Complete Batch" }).click();
+
+      await expect
+        .poll(
+          async () => {
+            const [currentOrder] = await db
+              .select({
+                actualQuantity: manufacturingOrders.actualQuantity,
+                expectedQty: items.expectedQty,
+              })
+              .from(manufacturingOrders)
+              .innerJoin(items, eq(items.id, manufacturingOrders.productId))
+              .where(eq(manufacturingOrders.id, batchOrderId));
+
+            return {
+              actualQuantity: currentOrder?.actualQuantity ?? null,
+              expectedQty: currentOrder?.expectedQty ?? null,
+            };
+          },
+          { timeout: 15_000 }
+        )
+        .toEqual({
+          actualQuantity: expectedActual,
+          expectedQty: expectedExpected,
+        });
+    };
+
+    await runBatch("2", "2.0000", "4.0000");
+    await runBatch("1.5", "3.5000", "2.5000");
+    await runBatch("2.2", "5.7000", "0.0000");
+
+    await expect
+      .poll(
+        async () => {
+          const [completedOrder] = await db
+            .select({
+              status: manufacturingOrders.status,
+              actualQuantity: manufacturingOrders.actualQuantity,
+            })
+            .from(manufacturingOrders)
+            .where(eq(manufacturingOrders.id, batchOrderId));
+
+          return completedOrder ?? null;
+        },
+        { timeout: 15_000 }
+      )
+      .toEqual({
+        status: "completed",
+        actualQuantity: "5.7000",
+      });
+
+    const completedBatches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId));
+    expect(completedBatches).toHaveLength(3);
+    expect(completedBatches.every((batch) => batch.status === "completed")).toBe(true);
+
+    const producedLots = await db.select().from(lots).where(eq(lots.itemId, batchProductId));
+    expect(producedLots).toHaveLength(3);
+
+    const movements = await db
+      .select({
+        movementType: stockMovements.movementType,
+      })
+      .from(stockMovements)
+      .where(eq(stockMovements.referenceId, batchOrderId));
+    expect(movements).toHaveLength(9);
+    expect(
+      movements.filter((movement) => movement.movementType === "manufacturing_picked")
+    ).toHaveLength(6);
+    expect(
+      movements.filter((movement) => movement.movementType === "manufacturing_produced")
+    ).toHaveLength(3);
+  });
+
+  test("keeps execution detail reads side-effect free for released batch orders", async ({
+    db,
+  }) => {
+    const legacyTs = Date.now();
+    const legacySandCreate = await createItem({
+      name: `Legacy Batch Sand ${legacyTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `LEGACY-BATCH-SAND-${legacyTs}`,
+      category: `Legacy Batch ${legacyTs}`,
+      description: "Legacy batch sand",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    const legacyCompostCreate = await createItem({
+      name: `Legacy Batch Compost ${legacyTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `LEGACY-BATCH-COMPOST-${legacyTs}`,
+      category: `Legacy Batch ${legacyTs}`,
+      description: "Legacy batch compost",
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(legacySandCreate.status).toBe(201);
+    expect(legacyCompostCreate.status).toBe(201);
+
+    const legacyProductCreate = await createItem({
+      name: `Legacy Batch Blend ${legacyTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `LEGACY-BATCH-PRODUCT-${legacyTs}`,
+      category: `Legacy Batch ${legacyTs}`,
+      description: "Legacy batch product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "60.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "2",
+      bom: [
+        { componentId: legacySandCreate.body.id as string, quantity: "3" },
+        { componentId: legacyCompostCreate.body.id as string, quantity: "1" },
+      ],
+    });
+
+    expect(legacyProductCreate.status).toBe(201);
+
+    const createOrderResponse = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        productId: legacyProductCreate.body.id,
+        plannedQuantity: "5",
+        plannedDate: null,
+        notes: "Legacy released batch read regression",
+        ingredients: [
+          {
+            itemId: legacySandCreate.body.id,
+            quantityPerUnit: "3",
+          },
+          {
+            itemId: legacyCompostCreate.body.id,
+            quantityPerUnit: "1",
+          },
+        ],
+      }),
+    });
+    expect(createOrderResponse.status).toBe(201);
+    const createOrderBody = await createOrderResponse.json();
+    const legacyOrderId = createOrderBody.id as string;
+
+    const draftTemplateIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
+    expect(draftTemplateIngredients).toHaveLength(2);
+
+    const releaseResponse = await testFetch(`/api/manufacturing-orders/${legacyOrderId}/release`, {
+      method: "POST",
+      body: JSON.stringify({ confirmShortage: false }),
+    });
+    expect(releaseResponse.status).toBe(200);
+
+    await db
+      .delete(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));
+
+    await db.insert(manufacturingOrderIngredients).values(
+      draftTemplateIngredients.map((ingredient) => ({
+        manufacturingOrderId: legacyOrderId,
+        manufacturingOrderBatchId: null,
+        itemId: ingredient.itemId,
+        itemName: ingredient.itemName,
+        itemSku: ingredient.itemSku,
+        itemType: ingredient.itemType,
+        unitName: ingredient.unitName,
+        quantityPerUnit: ingredient.quantityPerUnit,
+        plannedQuantity: ingredient.plannedQuantity,
+        pickedQuantity: "0",
+        pickStatus: "not_picked",
+        pickedAt: null,
+        sortOrder: ingredient.sortOrder,
+      }))
+    );
+
+    const beforeReadBatches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));
+    expect(beforeReadBatches).toHaveLength(0);
+
+    const executionResponse = await testFetch(
+      `/api/manufacturing-orders/${legacyOrderId}/execution`
+    );
+    expect(executionResponse.status).toBe(200);
+
+    const afterReadBatches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));
+    expect(afterReadBatches).toHaveLength(0);
+
+    const afterReadTemplateIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
+    expect(afterReadTemplateIngredients).toHaveLength(2);
+    expect(
+      afterReadTemplateIngredients.every(
+        (ingredient) => ingredient.manufacturingOrderBatchId == null
+      )
+    ).toBe(true);
   });
 });

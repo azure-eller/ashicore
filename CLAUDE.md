@@ -501,7 +501,7 @@ if (activeOrderRef) {
 
 ### Manufacturing expected quantity
 
-`items.expectedQty` is inbound supply, not a manual counter. Recompute it from active released manufacturing orders plus active ordered/partial purchase orders after every status-changing write.
+`items.expectedQty` is inbound supply, not a manual counter. Recompute it from active released manufacturing orders plus active ordered/partial purchase orders after every status-changing write. Batch-mode MOs contribute only unfinished planned output.
 
 ```ts
 await recomputeExpectedQty(tx, affectedItemIds)
@@ -565,6 +565,24 @@ const actualNeeded = multiplyQuantity(ingredient.quantityPerUnit, actualQuantity
 ### Manufacturing requested vs planned quantity
 
 Manufacturing orders store the user-requested quantity separately from the batch-rounded planned quantity. Use `requestedQuantity` for form/edit inputs and keep `plannedQuantity` for execution math.
+
+### Manufacturing execution surfaces
+
+Keep manufacturing detail/history separate from field execution. Detail pages link into `/execute`, while the actual work happens through execution queue/detail routes.
+
+### Manufacturing picking and completion
+
+Picking is the ingredient stock event. Discrete orders must pick every ingredient before `/complete`, and completion must reuse persisted pick allocations instead of deducting stock again.
+
+```ts
+if (unpickedIngredients.length > 0) {
+  throw new ManufacturingError("Pick all ingredients before completing the order.", 400)
+}
+```
+
+### Manufacturing batch execution
+
+Batch-mode orders create execution batches on release, pick/complete one batch at a time, and stay `released` until the final batch completes. Batch completion creates one produced lot per batch; direct parent completion is invalid for batch-mode orders.
 
 ### Manufacturing sales-line snapshots
 

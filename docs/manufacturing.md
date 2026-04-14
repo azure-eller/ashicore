@@ -3,39 +3,42 @@ read_when:
   - Planning or implementing manufacturing orders
   - Changing manufacturing status transitions or inventory effects
   - Wiring manufacturing UI, API routes, or DAL queries
-  - Debugging shortages, expected quantities, or produced lots
+  - Debugging shortages, expected quantities, produced lots, or picking flows
 ---
 
 # Manufacturing Orders
 
 ## Scope
 
-Manufacturing v1 is intentionally small:
+Manufacturing v1 now covers both planning and simple execution:
 
-- one finished product per order
+- one finished product per manufacturing order
 - BOM ingredients stored per unit of output
-- editable draft snapshot before release
+- editable draft snapshots before release
 - optional sales-order-line traceability
 - release warning on shortage
-- one-shot completion with FIFO consumption and one produced lot
+- mobile-first execution flow with a minimal web fallback
+- discrete orders picked once, then completed once
+- batch-mode orders executed one batch at a time
 
-Explicitly excluded in v1:
+Still excluded in v1:
 
-- batch tracking
-- partial completions
+- partial ingredient picks
+- reverse picks / unpick
+- manual lot selection
 - reservations
 - negative stock
-- work centers, labor, or overhead costing
+- work centers, operations, labor, or overhead costing
 - child manufacturing orders
-- auto-created orders from sales
+- auto-created orders from sales without an explicit user action
 
 ## Workflow
 
-Statuses:
+Top-level statuses stay small:
 
 - `draft`: editable; ingredient rows may be recalculated and replaced
-- `released`: frozen; contributes to `items.expectedQty`
-- `completed`: terminal; records actuals, material cost, and produced lot
+- `released`: frozen for planning; execution happens from here
+- `completed`: terminal; all discrete work or all batches are finished
 - `cancelled`: terminal; does not affect stock or expected quantity
 
 Allowed transitions:
@@ -48,25 +51,40 @@ Allowed transitions:
 
 No revert-to-draft in v1.
 
+## Execution Surfaces
+
+There are now two manufacturing experiences:
+
+- detail pages for planning, review, history, and traceability
+- execution pages for field work
+
+Use:
+
+- `/manufacturing/orders/[id]` for admin/detail
+- `/manufacturing/execution` for the actionable queue
+- `/manufacturing/orders/[id]/execute` for discrete execution
+
+The detail page should link into execution with `Start Manufacturing` or `Continue Manufacturing`.
+
 ## Snapshot Model
 
-Manufacturing orders copy live master data into snapshots at create time:
+Manufacturing orders still snapshot live master data at create time:
 
 - header snapshots: product name, SKU, unit, optional sales order number, optional sales customer
 - ingredient snapshots: item name, SKU, item type, unit, quantity per unit
 
-The product BOM is the source of truth for creating the draft, but the draft order owns its copied ingredient rows after creation. Editing a draft manufacturing order never mutates the product BOM.
+Editing a draft manufacturing order never mutates the product BOM.
 
-Locked BOMs are a product-level flag on `inventory.items`, not a separate BOM header object. Locking a BOM restricts general recipe view/edit surfaces in inventory, but it does not block manufacturing-order creation, release, or completion. Manufacturing continues to snapshot the live BOM rows for execution even when the source BOM is locked.
+Locked BOMs are still product-level flags on `inventory.items`. Locked BOMs restrict inventory editing surfaces, but manufacturing can still snapshot and execute from them.
 
-Manufacturing product pickers should only show products whose filtered BOM still has at least one active ingredient. If deleted items are removed from the BOM snapshot query, drop products whose remaining ingredient list is empty so the form never offers an unbuildable template.
+Manufacturing product pickers should only show products whose active BOM still has at least one non-deleted ingredient.
 
-For quantity snapshots, store both:
+For quantities, store both:
 
-- `requested_quantity`: the user-entered or sales-line requested output
-- `planned_quantity`: the actual execution quantity after any batch rounding
+- `requested_quantity`: what the user or sales line asked for
+- `planned_quantity`: what execution will actually run
 
-Discrete orders keep these values the same. Batch orders may round `planned_quantity` up to a whole-batch output while preserving `requested_quantity` so draft edit forms and sales traceability continue to reflect the original request.
+Discrete orders keep these values the same. Batch-mode orders may round `planned_quantity` up to full-batch output while preserving `requested_quantity`.
 
 ## Release Behavior
 
@@ -82,29 +100,105 @@ Release checks live lot-backed stock against planned ingredient quantities:
 - if shortages exist, the first response is `409` with `{ error, shortage }`
 - retrying with `confirmShortage: true` allows release
 
+Release behavior differs by manufacturing mode:
+
+- discrete: the existing ingredient snapshot rows remain the execution rows
+- batch: release creates `manufacturing_order_batches` rows and replaces the template ingredient rows with one set of batch-specific ingredient rows per batch
+
 Only released, non-deleted manufacturing orders contribute to `items.expectedQty`.
+
+For batch-mode orders, expected quantity is remaining unfinished output only:
+
+- released order contribution = `plannedQuantity - completed actual quantity`
+- each completed batch reduces expected quantity immediately
+
+## Picking Behavior
+
+Picking is now the ingredient stock event.
+
+When a worker picks an ingredient:
+
+- lock the manufacturing order row first
+- lock affected `inventory.items` rows
+- lock FIFO candidate `inventory.lots` rows
+- deduct the remaining quantity immediately
+- write `inventory.stock_movements` with `movementType = manufacturing_picked`
+- persist the lot allocations in `manufacturing_pick_allocations`
+- update ingredient `pickedQuantity`, `pickStatus`, and `pickedAt`
+
+Discrete picking rules:
+
+- pick the full remaining quantity only
+- no partial quantity entry in v1
+- no manual lot choice in v1
+
+Batch picking rules:
+
+- only the current batch’s ingredient rows are actionable
+- starting a batch marks it `in_progress`
+- a fully picked batch records `pickedAt`
 
 ## Completion Behavior
 
-Completion is one-shot:
+### Discrete Orders
+
+Discrete completion is still one-shot, but it is now pick-gated:
 
 - user enters `actualQuantity`
-- each ingredient actual is derived as `quantityPerUnit * actualQuantity`
-- shortages at completion hard-block the operation before any lot mutation
-
-Derived manufacturing quantities should be normalized to the database scale before comparing or mutating stock. Do not compare raw JavaScript float multiplication like `0.1 * 3`, because values such as `0.30000000000000004` can trigger false shortages or slightly oversized deductions. Round to 4 decimals first, then use that normalized number for both shortage checks and FIFO consumption.
-
-On successful completion:
-
-- ingredient lots are consumed FIFO
-- `inventory.stock_movements` rows are written with `movementType = manufacturing_consumed`
-- actual material cost is derived from consumed lot costs
-- one positive finished-product lot is created
-- one `manufacturing_produced` movement is written for that lot
+- every ingredient must already be fully picked
+- completion uses persisted pick allocations for quantity and cost
+- completion must not deduct ingredient stock a second time
+- one finished-product lot is created
+- one `manufacturing_produced` movement is written
 - the order stores `actualQuantity`, `actualMaterialCost`, and `actualCostPerUnit`
-- `items.expectedQty` is recomputed so the released demand is removed
 
-Material costing in v1 is material-only. Labor and overhead are intentionally excluded.
+Discrete completion should hard-block with a domain error if any ingredient remains unpicked.
+
+### Batch Orders
+
+Batch-mode orders complete one batch at a time:
+
+- worker starts the next pending batch
+- picks the current batch’s ingredients
+- enters the batch’s actual output
+- completes that batch
+
+Each completed batch:
+
+- uses only that batch’s pick allocations
+- writes ingredient actuals/costs for that batch’s ingredient rows
+- creates one finished-product lot
+- writes one `manufacturing_produced` movement
+- stores the batch’s actual quantity
+
+The parent order:
+
+- stays `released` while any batch is `pending` or `in_progress`
+- accumulates total `actualQuantity` and cost across completed batches
+- becomes `completed` automatically when the final batch completes
+
+Direct parent completion is invalid for batch-mode orders.
+
+## Quantity and Cost Rules
+
+Derived manufacturing quantities should be normalized to the database scale before comparing or mutating stock. Do not compare raw JavaScript float multiplication like `0.1 * 3`.
+
+Costing is still material-only in v1:
+
+- discrete orders derive actual material cost from picked lot allocations
+- batch-mode orders derive each batch’s cost from that batch’s picked lot allocations
+
+Labor and overhead remain excluded.
+
+## Cancellation Behavior
+
+Cancellation stays intentionally strict in v1:
+
+- `draft` orders may be cancelled normally
+- released discrete orders may be cancelled only before any picking begins
+- released batch orders may be cancelled only before any batch starts
+
+Once picking or batch execution has started, cancellation should fail. Reverse-pick / unwind is a future feature.
 
 ## Sales Traceability
 
@@ -113,16 +207,10 @@ Manufacturing may optionally link one sales order line:
 - eligible lines come from non-deleted `draft` or `confirmed` sales orders
 - the linked line must match the selected finished product
 - the link is informational only; it does not create or complete anything in sales
-- the link blocks duplicate sales-driven MO creation for that line; a cancelled linked MO is required before another one can be created
+- the link blocks duplicate sales-driven MO creation for that line
 - linked MOs in `draft`, `released`, or `completed` keep claiming the line; only `cancelled` frees it
 
-`salesOrderLineId` is stored as a snapshot reference because sales draft edits replace line rows. Draft manufacturing-order edits should therefore keep working when the original line id goes stale:
-
-- if the submitted line id still resolves to an active matching line, use it
-- if the user left the existing snapshot unchanged and the sales order now has a replacement line for the same product, relink to that current line
-- if the user left the existing snapshot unchanged and no active replacement exists, preserve the stored snapshot instead of blocking the draft edit
-
-Only newly selected or changed links should fail validation when they do not point to an active matching sales line.
+`salesOrderLineId` stays a snapshot reference because sales draft edits replace line rows. Draft manufacturing-order edits should preserve or relink unchanged snapshots when possible.
 
 ## Delete Guards
 

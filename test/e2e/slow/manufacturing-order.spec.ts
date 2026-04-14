@@ -222,6 +222,27 @@ async function completeManufacturingOrder(orderId: string, actualQuantity: strin
   return { status: response.status, body };
 }
 
+async function pickAllManufacturingIngredients(orderId: string) {
+  const executionResponse = await testFetch(`/api/manufacturing-orders/${orderId}/execution`);
+  const executionBody = await executionResponse.json().catch(() => null);
+
+  expect(executionResponse.status).toBe(200);
+
+  for (const ingredient of executionBody?.ingredients ?? []) {
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      }
+    );
+    const pickBody = await pickResponse.json().catch(() => null);
+
+    expect(pickResponse.status).toBe(200);
+    expect(pickBody?.id).toBe(ingredient.id);
+  }
+}
+
 test.describe("Manufacturing order flow", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -284,6 +305,8 @@ test.describe("Manufacturing order flow", () => {
       description: "Primary base material",
       defaultPurchasePrice: "3.00",
       defaultSellingPrice: null,
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
       safetyStock: "0",
       stock: "20",
       bom: [],
@@ -684,6 +707,7 @@ test.describe("Manufacturing order flow", () => {
     expect(repeatOrderId).toBeTruthy();
 
     await releaseManufacturingOrder(repeatOrderId!);
+    await pickAllManufacturingIngredients(repeatOrderId!);
 
     const completeResult = await completeManufacturingOrder(repeatOrderId!, "2");
     expect(completeResult.status).toBe(200);
@@ -802,7 +826,7 @@ test.describe("Manufacturing order flow", () => {
     await page.getByRole("button", { name: "Release Anyway" }).click();
 
     await expect(
-      page.getByRole("button", { name: "Complete" })
+      page.getByRole("link", { name: "Start Manufacturing" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
     await expect(page.locator("main").getByText("Released", { exact: true }).first()).toBeVisible();
@@ -837,7 +861,7 @@ test.describe("Manufacturing order flow", () => {
     db,
   }) => {
     await page.goto(`/manufacturing/orders/${releasedOrderId}`);
-    await expect(page.getByRole("button", { name: "Complete" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toBeVisible();
 
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Cancel this order?")).toBeVisible();
@@ -846,7 +870,7 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.getByRole("button", { name: "Delete" })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByRole("button", { name: "Complete" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toHaveCount(0);
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
 
     const [cancelledOrder] = await db
@@ -902,7 +926,7 @@ test.describe("Manufacturing order flow", () => {
     expect(completionOrderId).toBeTruthy();
 
     await page.getByRole("button", { name: "Release" }).click();
-    await expect(page.getByRole("button", { name: "Complete" })).toBeVisible({
+    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toBeVisible({
       timeout: 15_000,
     });
 
@@ -914,16 +938,19 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(items.id, productId));
     expect(releasedProduct.expectedQty).toBe("4.0000");
 
-    await page.getByRole("button", { name: "Complete" }).click();
-    await page.getByLabel("Actual Quantity").fill("12");
-    await page.getByRole("button", { name: "Complete Order" }).click();
+    await page.getByRole("link", { name: "Start Manufacturing" }).click();
+    await page.waitForURL(`**/manufacturing/orders/${completionOrderId}/execute`);
 
-    await expect(
-      page.getByText("Cannot complete order. Short on")
-    ).toBeVisible({ timeout: 15_000 });
+    const sandCard = page.locator('[data-slot="card"]').filter({ hasText: sandName }).first();
+    const compostCard = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: compostName })
+      .first();
 
-    await page.getByRole("button", { name: "Complete" }).click();
-    await page.getByLabel("Actual Quantity").fill("6");
+    await sandCard.getByRole("button", { name: /Pick / }).click();
+    await compostCard.getByRole("button", { name: /Pick / }).click();
+
+    await page.getByLabel("Actual Output").fill("6");
     await page.getByRole("button", { name: "Complete Order" }).click();
 
     await expect
@@ -939,11 +966,12 @@ test.describe("Manufacturing order flow", () => {
       )
       .toBe("completed");
 
+    await page.goto(`/manufacturing/orders/${completionOrderId}`);
     await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("dl").getByText("$35.00", { exact: true })).toBeVisible();
-    await expect(page.locator("dl").getByText("$5.83", { exact: true })).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("12");
-    await expect(page.locator("table").first()).toContainText("6");
+    await expect(page.locator("dl").getByText("$22.00", { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("$3.67", { exact: true })).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("8");
+    await expect(page.locator("table").first()).toContainText("4");
     await expect(page.locator("table").nth(1)).toContainText("6");
 
     const [completedOrder] = await db
@@ -953,8 +981,8 @@ test.describe("Manufacturing order flow", () => {
 
     expect(completedOrder.status).toBe("completed");
     expect(completedOrder.actualQuantity).toBe("6.0000");
-    expect(completedOrder.actualMaterialCost).toBe("35.0000");
-    expect(completedOrder.actualCostPerUnit).toBe("5.8333");
+    expect(completedOrder.actualMaterialCost).toBe("22.0000");
+    expect(completedOrder.actualCostPerUnit).toBe("3.6667");
     expect(completedOrder.completedAt).toBeTruthy();
 
     const completedIngredients = await db
@@ -965,10 +993,12 @@ test.describe("Manufacturing order flow", () => {
       completedIngredients.map((row) => [row.itemId, row])
     );
 
-    expect(completedByItemId.get(sandId)?.actualQuantity).toBe("12.0000");
-    expect(completedByItemId.get(sandId)?.actualCostTotal).toBe("26.0000");
-    expect(completedByItemId.get(compostId)?.actualQuantity).toBe("6.0000");
-    expect(completedByItemId.get(compostId)?.actualCostTotal).toBe("9.0000");
+    expect(completedByItemId.get(sandId)?.pickedQuantity).toBe("8.0000");
+    expect(completedByItemId.get(sandId)?.actualQuantity).toBe("8.0000");
+    expect(completedByItemId.get(sandId)?.actualCostTotal).toBe("16.0000");
+    expect(completedByItemId.get(compostId)?.pickedQuantity).toBe("4.0000");
+    expect(completedByItemId.get(compostId)?.actualQuantity).toBe("4.0000");
+    expect(completedByItemId.get(compostId)?.actualCostTotal).toBe("6.0000");
 
     const sandLots = await db.select().from(lots).where(eq(lots.itemId, sandId));
     expect(sandLots).toHaveLength(2);
@@ -981,19 +1011,19 @@ test.describe("Manufacturing order flow", () => {
       }))
       .sort((a, b) => a.lotNumber.localeCompare(b.lotNumber));
 
-    expect(sandLotSummary[0].quantity).toBe("0.0000");
+    expect(sandLotSummary[0].quantity).toBe("2.0000");
     expect(sandLotSummary[0].costPerUnit).toBe("2.0000");
-    expect(sandLotSummary[1].quantity).toBe("8.0000");
+    expect(sandLotSummary[1].quantity).toBe("10.0000");
     expect(sandLotSummary[1].costPerUnit).toBe("3.0000");
 
     const compostLots = await db.select().from(lots).where(eq(lots.itemId, compostId));
     expect(compostLots).toHaveLength(1);
-    expect(compostLots[0].quantity).toBe("4.0000");
+    expect(compostLots[0].quantity).toBe("6.0000");
 
     const producedLots = await db.select().from(lots).where(eq(lots.itemId, productId));
     expect(producedLots).toHaveLength(1);
     expect(producedLots[0].quantity).toBe("6.0000");
-    expect(producedLots[0].costPerUnit).toBe("5.8333");
+    expect(producedLots[0].costPerUnit).toBe("3.6667");
 
     const movements = await db
       .select({
@@ -1006,10 +1036,10 @@ test.describe("Manufacturing order flow", () => {
       .from(stockMovements)
       .where(eq(stockMovements.referenceId, completionOrderId));
 
-    expect(movements).toHaveLength(4);
+    expect(movements).toHaveLength(3);
     expect(
-      movements.filter((movement) => movement.movementType === "manufacturing_consumed")
-    ).toHaveLength(3);
+      movements.filter((movement) => movement.movementType === "manufacturing_picked")
+    ).toHaveLength(2);
     expect(
       movements.filter((movement) => movement.movementType === "manufacturing_produced")
     ).toHaveLength(1);
@@ -1118,6 +1148,7 @@ test.describe("Manufacturing order flow", () => {
     });
 
     await releaseManufacturingOrder(subassemblyOrderId);
+    await pickAllManufacturingIngredients(subassemblyOrderId);
     const subassemblyCompleteResult = await completeManufacturingOrder(
       subassemblyOrderId,
       "2"
@@ -1155,6 +1186,7 @@ test.describe("Manufacturing order flow", () => {
     });
 
     await releaseManufacturingOrder(finishedOrderId);
+    await pickAllManufacturingIngredients(finishedOrderId);
     const finishedCompleteResult = await completeManufacturingOrder(
       finishedOrderId,
       "1"
@@ -1227,7 +1259,7 @@ test.describe("Manufacturing order flow", () => {
       movements.some(
         (movement) =>
           movement.itemId === subassemblyId &&
-          movement.movementType === "manufacturing_consumed"
+          movement.movementType === "manufacturing_picked"
       )
     ).toBe(true);
     expect(
@@ -1292,6 +1324,7 @@ test.describe("Manufacturing order flow", () => {
     });
 
     await releaseManufacturingOrder(decimalOrderId);
+    await pickAllManufacturingIngredients(decimalOrderId);
 
     const completeResult = await completeManufacturingOrder(decimalOrderId, "3");
     expect(completeResult.status).toBe(200);
@@ -1391,6 +1424,8 @@ test.describe("Manufacturing order flow", () => {
       description: "Product protected by an active manufacturing order",
       defaultPurchasePrice: null,
       defaultSellingPrice: "18.00",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
       safetyStock: "0",
       bom: [],
     });

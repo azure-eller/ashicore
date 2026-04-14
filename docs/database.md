@@ -101,25 +101,34 @@ Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 
 ### Manufacturing Orders
 
-Manufacturing uses a header/ingredient snapshot split:
+Manufacturing now uses a header/ingredient/batch/allocation split:
 
 - `manufacturing.manufacturing_orders` stores the order header, workflow state, product snapshots, optional sales traceability, and actual cost rollups
-- `manufacturing.manufacturing_order_ingredients` stores copied ingredient snapshots plus planned and actual quantities
+- `manufacturing.manufacturing_order_ingredients` stores copied ingredient snapshots plus planned, picked, and actual quantities
+- `manufacturing.manufacturing_order_batches` stores execution batches for batch-mode orders
+- `manufacturing.manufacturing_pick_allocations` stores the FIFO lot allocations captured at pick time
 - `salesOrderLineId` is stored as a plain UUID snapshot reference, not an FK, because draft sales-order edits replace line rows
 
-Draft manufacturing edits replace ingredient rows in one transaction:
+Draft manufacturing edits still replace ingredient rows in one transaction:
 
 - update the header
 - delete existing ingredient rows
 - insert the recalculated snapshot rows
 
-Released manufacturing orders are the only source for `items.expectedQty`. Recompute from the database after every release, completion, or cancellation; never apply deltas directly.
+Release behavior:
 
-Completion consumes ingredient lots FIFO and records stock movement metadata:
+- discrete orders keep the template ingredient rows as the execution rows
+- batch-mode orders create batch rows and replace the template ingredient rows with one set of batch-specific ingredient rows per batch
 
-- `movementType = manufacturing_consumed` for ingredient deductions
+Released manufacturing orders are a source for `items.expectedQty`, but batch-mode orders contribute only unfinished planned output. Recompute from the database after every release, pick-triggered execution change, completion, or cancellation; never apply deltas directly.
+
+Inventory effects are now split between pick and produce:
+
+- `movementType = manufacturing_picked` for ingredient deductions at pick time
 - `movementType = manufacturing_produced` for the finished-product lot
 - `referenceType = manufacturing_order` and `referenceId = <mo id>` for traceability
+
+Discrete completion must reuse persisted pick allocations and must not deduct ingredient stock a second time. Batch-mode completion uses the batch’s pick allocations and creates one finished lot per completed batch.
 
 ## Concurrent Stock Writes
 
