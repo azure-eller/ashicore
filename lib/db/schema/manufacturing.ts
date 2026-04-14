@@ -14,6 +14,7 @@ import {
 import { sql } from "drizzle-orm";
 import { bomRevisions } from "./bom";
 import { items } from "./items";
+import { lots } from "./lots";
 import { salesOrders } from "./sales";
 
 export const manufacturingSchema = pgSchema("manufacturing");
@@ -98,6 +99,10 @@ export const manufacturingOrderIngredients = manufacturingSchema
       manufacturingOrderId: uuid("manufacturing_order_id")
         .notNull()
         .references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+      manufacturingOrderBatchId: uuid("manufacturing_order_batch_id").references(
+        () => manufacturingOrderBatches.id,
+        { onDelete: "cascade" }
+      ),
       itemId: uuid("item_id")
         .notNull()
         .references(() => items.id),
@@ -109,6 +114,11 @@ export const manufacturingOrderIngredients = manufacturingSchema
         .notNull(),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
+      pickedQuantity: numeric("picked_quantity", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
+      pickStatus: varchar("pick_status", { length: 20 }).notNull().default("not_picked"),
+      pickedAt: timestamp("picked_at"),
       actualQuantity: numeric("actual_quantity", { precision: 12, scale: 4 }),
       actualCostTotal: numeric("actual_cost_total", {
         precision: 12,
@@ -122,11 +132,16 @@ export const manufacturingOrderIngredients = manufacturingSchema
       index("manufacturing_order_ingredients_order_id_idx").on(
         table.manufacturingOrderId
       ),
-      index("manufacturing_order_ingredients_item_id_idx").on(table.itemId),
-      uniqueIndex("manufacturing_order_ingredients_order_item_uidx").on(
-        table.manufacturingOrderId,
-        table.itemId
+      index("manufacturing_order_ingredients_batch_id_idx").on(
+        table.manufacturingOrderBatchId
       ),
+      index("manufacturing_order_ingredients_item_id_idx").on(table.itemId),
+      uniqueIndex("manufacturing_order_ingredients_template_item_uidx")
+        .on(table.manufacturingOrderId, table.itemId)
+        .where(sql`${table.manufacturingOrderBatchId} IS NULL`),
+      uniqueIndex("manufacturing_order_ingredients_batch_item_uidx")
+        .on(table.manufacturingOrderBatchId, table.itemId)
+        .where(sql`${table.manufacturingOrderBatchId} IS NOT NULL`),
       pgPolicy("manufacturing_order_ingredients_org_isolation", {
         for: "all",
         to: "public",
@@ -139,6 +154,93 @@ export const manufacturingOrderIngredients = manufacturingSchema
           SELECT id
           FROM manufacturing.manufacturing_orders
           WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const manufacturingOrderBatches = manufacturingSchema
+  .table(
+    "manufacturing_order_batches",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      manufacturingOrderId: uuid("manufacturing_order_id")
+        .notNull()
+        .references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+      batchNumber: integer("batch_number").notNull(),
+      status: varchar("status", { length: 20 }).notNull().default("pending"),
+      plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
+        .notNull(),
+      actualQuantity: numeric("actual_quantity", { precision: 12, scale: 4 }),
+      startedAt: timestamp("started_at"),
+      pickedAt: timestamp("picked_at"),
+      completedAt: timestamp("completed_at"),
+      lotId: uuid("lot_id").references(() => lots.id),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("manufacturing_order_batches_order_id_idx").on(table.manufacturingOrderId),
+      index("manufacturing_order_batches_status_idx").on(table.status),
+      uniqueIndex("manufacturing_order_batches_order_batch_uidx").on(
+        table.manufacturingOrderId,
+        table.batchNumber
+      ),
+      pgPolicy("manufacturing_order_batches_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`manufacturing_order_id IN (
+          SELECT id
+          FROM manufacturing.manufacturing_orders
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`manufacturing_order_id IN (
+          SELECT id
+          FROM manufacturing.manufacturing_orders
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const manufacturingPickAllocations = manufacturingSchema
+  .table(
+    "manufacturing_pick_allocations",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      manufacturingOrderIngredientId: uuid("manufacturing_order_ingredient_id")
+        .notNull()
+        .references(() => manufacturingOrderIngredients.id, { onDelete: "cascade" }),
+      lotId: uuid("lot_id")
+        .notNull()
+        .references(() => lots.id),
+      quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
+      costPerUnit: numeric("cost_per_unit", { precision: 12, scale: 4 }),
+      createdBy: text("created_by").notNull(),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("manufacturing_pick_allocations_ingredient_id_idx").on(
+        table.manufacturingOrderIngredientId
+      ),
+      pgPolicy("manufacturing_pick_allocations_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`manufacturing_order_ingredient_id IN (
+          SELECT i.id
+          FROM manufacturing.manufacturing_order_ingredients i
+          INNER JOIN manufacturing.manufacturing_orders o
+            ON o.id = i.manufacturing_order_id
+          WHERE o.organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`manufacturing_order_ingredient_id IN (
+          SELECT i.id
+          FROM manufacturing.manufacturing_order_ingredients i
+          INNER JOIN manufacturing.manufacturing_orders o
+            ON o.id = i.manufacturing_order_id
+          WHERE o.organization_id = current_setting('app.current_org_id', true)
         )`,
       }),
     ]

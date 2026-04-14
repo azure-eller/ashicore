@@ -8,6 +8,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 
 export const STOCK_MOVEMENT_TYPES = [
   "manual_adjustment",
+  "manufacturing_picked",
   "manufacturing_consumed",
   "manufacturing_produced",
   "purchase_received",

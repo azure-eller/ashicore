@@ -12,8 +12,8 @@ test.describe("Purchasing write-path smoke", () => {
 
   const ts = Date.now();
   const unitId = getUnitId();
-  const barkName = `Fast Bark ${ts}`;
-  const sandName = `Fast Sand ${ts}`;
+  const barkName = `Fast Purchasing Bark ${ts}`;
+  const sandName = `Fast Purchasing Sand ${ts}`;
   const supplierName = `Fast Supplier ${ts}`;
   let barkId = "";
   let sandId = "";
@@ -76,6 +76,9 @@ test.describe("Purchasing write-path smoke", () => {
   });
 
   test("creates a draft purchase order through the browser form", async ({ page, db }) => {
+    const barkOptionPattern = new RegExp(`${barkName}.*FAST-PO-BARK-${ts}`);
+    const sandOptionPattern = new RegExp(`${sandName}.*FAST-PO-SAND-${ts}`);
+
     const barkCreate = await createItem({
       name: barkName,
       itemType: "material",
@@ -122,14 +125,14 @@ test.describe("Purchasing write-path smoke", () => {
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
     await firstMaterialInput.click();
     await firstMaterialInput.pressSequentially(barkName);
-    await page.getByRole("option", { name: new RegExp(barkName) }).click();
+    await page.getByRole("option", { name: barkOptionPattern }).click();
     await page.getByPlaceholder("0").first().fill("10");
 
     await page.getByRole("button", { name: "Add Material" }).click();
     const secondRow = page.locator("tbody tr").nth(1);
     await secondRow.getByPlaceholder("Search materials...").click();
     await secondRow.getByPlaceholder("Search materials...").pressSequentially(sandName);
-    await page.getByRole("option", { name: new RegExp(sandName) }).click();
+    await page.getByRole("option", { name: sandOptionPattern }).click();
     await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
     const [createOrderResponse] = await Promise.all([

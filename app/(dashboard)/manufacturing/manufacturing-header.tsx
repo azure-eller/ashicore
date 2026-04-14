@@ -5,7 +5,10 @@ import { usePathname } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 
-const tabs = [{ label: "Orders", href: "/manufacturing/orders" }];
+const tabs = [
+  { label: "Execution", href: "/manufacturing/execution" },
+  { label: "Orders", href: "/manufacturing/orders" },
+];
 
 export function ManufacturingHeader() {
   const pathname = usePathname();
@@ -20,7 +23,11 @@ export function ManufacturingHeader() {
         />
         <nav className="flex items-center gap-4 text-sm">
           {tabs.map((tab) => {
-            const isActive = pathname.startsWith(tab.href);
+            const isActive =
+              pathname.startsWith(tab.href) ||
+              (tab.href === "/manufacturing/execution" &&
+                pathname.startsWith("/manufacturing/orders/") &&
+                pathname.includes("/execute"));
             return isActive ? (
               <span key={tab.href} className="font-medium text-foreground">
                 {tab.label}

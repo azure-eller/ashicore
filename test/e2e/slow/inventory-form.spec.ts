@@ -613,6 +613,8 @@ test.describe("Inventory creation flow", () => {
       description: "Premium blend — updated recipe",
       defaultPurchasePrice: null,
       defaultSellingPrice: "34.99",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
       safetyStock: "0",
       stock: "0",
       bom: [{ componentId: fullMaterialId, quantity: "-1" }],

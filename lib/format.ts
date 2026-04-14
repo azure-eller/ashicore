@@ -106,6 +106,7 @@ export function summarizeItems(
 const MOVEMENT_TYPE_LABELS: Record<string, string> = {
   manual_adjustment: "Manual",
   purchase_received: "Purchase",
+  manufacturing_picked: "MO picked",
   manufacturing_consumed: "MO consumed",
   manufacturing_produced: "MO produced",
   sales_fulfilled: "Sale",

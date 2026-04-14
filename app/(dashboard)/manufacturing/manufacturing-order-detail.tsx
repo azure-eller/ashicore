@@ -19,7 +19,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
   Table,
@@ -31,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { MANUFACTURING_SHORTAGE_TOOLTIP } from "@/lib/tooltip-copy";
+import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type {
   ManufacturingOrderDetail as ManufacturingOrderDetailType,
@@ -52,10 +52,8 @@ export function ManufacturingOrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [completeOpen, setCompleteOpen] = useState(false);
   const [releaseWarning, setReleaseWarning] =
     useState<ManufacturingReleaseWarningPayload | null>(null);
-  const [actualQuantity, setActualQuantity] = useState(order.plannedQuantity);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refreshQueries = async () => {
@@ -144,36 +142,15 @@ export function ManufacturingOrderDetail({
     },
   });
 
-  const completeMutation = useMutation({
-    mutationFn: async (value: string) => {
-      const response = await fetch(`/api/manufacturing-orders/${order.id}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actualQuantity: value }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to complete order.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await refreshQueries();
-      setCompleteOpen(false);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
   const canEdit = order.status === "draft";
   const canRelease = order.status === "draft";
-  const canComplete = order.status === "released";
+  const canExecute = order.status === "released";
   const canCancel = order.status === "draft" || order.status === "released";
   const canDelete = order.status !== "released";
+  const executionLabel =
+    order.pickProgressStatus === "not_started"
+      ? "Start Manufacturing"
+      : "Continue Manufacturing";
 
   return (
     <>
@@ -189,6 +166,9 @@ export function ManufacturingOrderDetail({
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{order.orderNumber}</h1>
               <ManufacturingOrderStatusBadge status={order.status} />
+              {order.status === "released" && (
+                <ManufacturingPickProgressBadge status={order.pickProgressStatus} />
+              )}
               {order.deletedAt && <Badge variant="outline">Deleted</Badge>}
             </div>
           </div>
@@ -209,14 +189,11 @@ export function ManufacturingOrderDetail({
                 Release
               </Button>
             )}
-            {canComplete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCompleteOpen(true)}
-                disabled={completeMutation.isPending}
-              >
-                Complete
+            {canExecute && (
+              <Button size="sm" asChild>
+                <Link href={`/manufacturing/orders/${order.id}/execute`}>
+                  {executionLabel}
+                </Link>
               </Button>
             )}
             {canCancel && (
@@ -291,6 +268,12 @@ export function ManufacturingOrderDetail({
             </dd>
           </div>
           <div>
+            <dt className="text-sm font-medium text-muted-foreground">Execution</dt>
+            <dd className="mt-1 text-sm">
+              <ManufacturingPickProgressBadge status={order.pickProgressStatus} />
+            </dd>
+          </div>
+          <div>
             <dt className="text-sm font-medium text-muted-foreground">Planned Date</dt>
             <dd className="mt-1 text-sm">{formatDate(order.plannedDate)}</dd>
           </div>
@@ -334,6 +317,58 @@ export function ManufacturingOrderDetail({
 
         <Separator />
 
+        {order.batches.length > 0 && (
+          <>
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold tracking-tight">Batches</h2>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Batch</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Planned</TableHead>
+                      <TableHead className="text-right">Actual</TableHead>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Completed</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {order.batches.map((batch) => (
+                      <TableRow key={batch.id}>
+                        <TableCell>Batch {batch.batchNumber}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              batch.status === "completed"
+                                ? "outline"
+                                : batch.status === "in_progress"
+                                  ? "default"
+                                  : "secondary"
+                            }
+                          >
+                            {batch.status.replace("_", " ")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatQuantity(batch.plannedQuantity)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatQuantity(batch.actualQuantity)}
+                        </TableCell>
+                        <TableCell>{formatDateTime(batch.startedAt)}</TableCell>
+                        <TableCell>{formatDateTime(batch.completedAt)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <Separator />
+          </>
+        )}
+
         <div className="space-y-3">
           <h2 className="text-lg font-semibold tracking-tight">Ingredients</h2>
           <div className="rounded-md border">
@@ -346,6 +381,8 @@ export function ManufacturingOrderDetail({
                     {order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
                   </TableHead>
                   <TableHead className="text-right">Planned</TableHead>
+                  <TableHead className="text-right">Picked</TableHead>
+                  <TableHead className="text-right">Remaining</TableHead>
                   <TableHead className="text-right">Actual</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                 </TableRow>
@@ -368,6 +405,12 @@ export function ManufacturingOrderDetail({
                       {ingredient.plannedQuantity}
                     </TableCell>
                     <TableCell className="text-right">
+                      {ingredient.pickedQuantity}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {ingredient.remainingQuantity}
+                    </TableCell>
+                    <TableCell className="text-right">
                       {ingredient.actualQuantity != null
                         ? ingredient.actualQuantity
                         : "\u2014"}
@@ -386,26 +429,32 @@ export function ManufacturingOrderDetail({
 
         <div className="space-y-3">
           <h2 className="text-lg font-semibold tracking-tight">Produced Output</h2>
-          {order.producedLot ? (
+          {order.producedLots.length > 0 ? (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Batch</TableHead>
                     <TableHead>Lot</TableHead>
                     <TableHead className="text-right">Quantity</TableHead>
                     <TableHead className="text-right">Cost / Unit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell className="font-mono">{order.producedLot.lotNumber}</TableCell>
-                    <TableCell className="text-right">
-                      {formatQuantity(order.producedLot.quantity)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(order.producedLot.costPerUnit) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
+                  {order.producedLots.map((lot) => (
+                    <TableRow key={lot.lotId}>
+                      <TableCell>
+                        {lot.batchNumber != null ? `Batch ${lot.batchNumber}` : "\u2014"}
+                      </TableCell>
+                      <TableCell className="font-mono">{lot.lotNumber}</TableCell>
+                      <TableCell className="text-right">
+                        {formatQuantity(lot.quantity)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatPrice(lot.costPerUnit) ?? "\u2014"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
@@ -518,38 +567,6 @@ export function ManufacturingOrderDetail({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={completeOpen} onOpenChange={setCompleteOpen}>
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Complete this order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Enter the actual finished quantity. Ingredient actuals and lot cost
-              will be derived from this value.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2">
-            <label htmlFor="actualQuantity" className="text-sm font-medium">
-              Actual Quantity
-            </label>
-            <Input
-              id="actualQuantity"
-              value={actualQuantity}
-              onChange={(event) => setActualQuantity(event.target.value)}
-              inputMode="decimal"
-              autoComplete="off"
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={completeMutation.isPending}
-              onClick={() => completeMutation.mutate(actualQuantity)}
-            >
-              {completeMutation.isPending ? "Completing..." : "Complete Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

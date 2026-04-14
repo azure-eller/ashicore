@@ -17,7 +17,7 @@ test.describe("Inventory write-path smoke", () => {
   let productName = "";
 
   test("creates and edits a material through the browser form", async ({ page, db }) => {
-    materialName = `Fast Sand ${ts}`;
+    materialName = `Fast Inventory Sand ${ts}`;
     const sku = `FAST-MAT-${ts}`;
 
     await page.goto("/inventory/materials/new");

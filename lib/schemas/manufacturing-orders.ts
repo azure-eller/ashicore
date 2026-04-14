@@ -13,6 +13,24 @@ export const MANUFACTURING_ORDER_STATUSES = [
 export type ManufacturingOrderStatus =
   (typeof MANUFACTURING_ORDER_STATUSES)[number];
 
+export const MANUFACTURING_PICK_STATUSES = [
+  "not_picked",
+  "in_progress",
+  "picked",
+] as const;
+
+export type ManufacturingPickStatus =
+  (typeof MANUFACTURING_PICK_STATUSES)[number];
+
+export const MANUFACTURING_BATCH_STATUSES = [
+  "pending",
+  "in_progress",
+  "completed",
+] as const;
+
+export type ManufacturingBatchStatus =
+  (typeof MANUFACTURING_BATCH_STATUSES)[number];
+
 const ingredientRowSchema = z.object({
   itemId: z.string().min(1, "Ingredient is required"),
   quantityPerUnit: positiveDecimalString("Quantity per unit"),
@@ -154,6 +172,23 @@ export const completeManufacturingOrderSchema = z.object({
 });
 export type CompleteManufacturingOrder = z.infer<
   typeof completeManufacturingOrderSchema
+>;
+
+export const completeManufacturingBatchSchema = z.object({
+  actualQuantity: positiveDecimalString("Actual quantity"),
+});
+export type CompleteManufacturingBatch = z.infer<
+  typeof completeManufacturingBatchSchema
+>;
+
+export const startManufacturingBatchSchema = z.object({});
+export type StartManufacturingBatch = z.infer<
+  typeof startManufacturingBatchSchema
+>;
+
+export const pickManufacturingIngredientSchema = z.object({});
+export type PickManufacturingIngredient = z.infer<
+  typeof pickManufacturingIngredientSchema
 >;
 
 export const createManufacturingOrdersFromSalesOrderSchema = z.object({

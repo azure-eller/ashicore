@@ -232,6 +232,13 @@
       "when": 1775937000000,
       "tag": "0032_inventory_base_app_user_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1776136653677,
+      "tag": "0033_superb_spectrum",
+      "breakpoints": true
     }
   ]
 }
