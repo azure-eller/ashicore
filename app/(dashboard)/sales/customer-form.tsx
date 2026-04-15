@@ -13,7 +13,9 @@ import {
   updateCustomerSchema,
 } from "@/lib/schemas/customers";
 import type { CustomerCategoryOption, CustomerRow } from "./types";
+import { AddressFields } from "@/components/address-fields";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -78,10 +80,44 @@ export function CustomerForm({
           customerCategoryId: initialData.customerCategoryId,
           email: initialData.email,
           phone: initialData.phone,
-          address: initialData.address,
+          billingLine1: initialData.billingLine1,
+          billingLine2: initialData.billingLine2,
+          billingCity: initialData.billingCity,
+          billingRegion: initialData.billingRegion,
+          billingPostcode: initialData.billingPostcode,
+          billingCountry: initialData.billingCountry,
+          shipLine1: initialData.shipLine1,
+          shipLine2: initialData.shipLine2,
+          shipCity: initialData.shipCity,
+          shipRegion: initialData.shipRegion,
+          shipPostcode: initialData.shipPostcode,
+          shipCountry: initialData.shipCountry,
           notes: initialData.notes,
         }
       : customerDefaultValues,
+  });
+
+  const [shippingSameAsBilling, setShippingSameAsBilling] = useState(() => {
+    if (!initialData) return true;
+    const billing = [
+      initialData.billingLine1,
+      initialData.billingLine2,
+      initialData.billingCity,
+      initialData.billingRegion,
+      initialData.billingPostcode,
+      initialData.billingCountry,
+    ];
+    const shipping = [
+      initialData.shipLine1,
+      initialData.shipLine2,
+      initialData.shipCity,
+      initialData.shipRegion,
+      initialData.shipPostcode,
+      initialData.shipCountry,
+    ];
+    const allShippingBlank = shipping.every((value) => value == null || value === "");
+    if (allShippingBlank) return true;
+    return billing.every((value, index) => (value ?? "") === (shipping[index] ?? ""));
   });
 
   const categoryMutation = useMutation({
@@ -321,24 +357,73 @@ export function CustomerForm({
                 />
               </div>
 
-              <Controller
-                control={form.control}
-                name="address"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Address</FieldLabel>
-                    <Textarea
-                      {...field}
-                      id={field.name}
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value)}
-                      aria-invalid={fieldState.invalid}
-                      rows={4}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
+            </FieldGroup>
+          </FieldSet>
+
+          <FieldSeparator />
+
+          <FieldSet className="max-w-4xl gap-5">
+            <FieldLegend>Billing Address</FieldLegend>
+            <FieldDescription>
+              Mailing address used for invoices and accounting sync.
+            </FieldDescription>
+            <AddressFields
+              control={form.control}
+              idPrefix="customer-billing"
+              names={{
+                line1: "billingLine1",
+                line2: "billingLine2",
+                city: "billingCity",
+                region: "billingRegion",
+                postcode: "billingPostcode",
+                country: "billingCountry",
+              }}
+            />
+          </FieldSet>
+
+          <FieldSeparator />
+
+          <FieldSet className="max-w-4xl gap-5">
+            <FieldLegend>Shipping Address</FieldLegend>
+            <FieldDescription>
+              Default ship-to address for sales orders. Each order can override it.
+            </FieldDescription>
+            <FieldGroup>
+              <Field>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={shippingSameAsBilling}
+                    onCheckedChange={(checked) => {
+                      const isSame = checked === true;
+                      setShippingSameAsBilling(isSame);
+                      if (isSame) {
+                        const values = form.getValues();
+                        form.setValue("shipLine1", values.billingLine1, { shouldDirty: true });
+                        form.setValue("shipLine2", values.billingLine2, { shouldDirty: true });
+                        form.setValue("shipCity", values.billingCity, { shouldDirty: true });
+                        form.setValue("shipRegion", values.billingRegion, { shouldDirty: true });
+                        form.setValue("shipPostcode", values.billingPostcode, { shouldDirty: true });
+                        form.setValue("shipCountry", values.billingCountry, { shouldDirty: true });
+                      }
+                    }}
+                  />
+                  Same as billing address
+                </label>
+              </Field>
+              {!shippingSameAsBilling && (
+                <AddressFields
+                  control={form.control}
+                  idPrefix="customer-shipping"
+                  names={{
+                    line1: "shipLine1",
+                    line2: "shipLine2",
+                    city: "shipCity",
+                    region: "shipRegion",
+                    postcode: "shipPostcode",
+                    country: "shipCountry",
+                  }}
+                />
+              )}
             </FieldGroup>
           </FieldSet>
 

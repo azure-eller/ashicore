@@ -13,7 +13,7 @@ export const STOCK_MOVEMENT_TYPES = [
   "manufacturing_produced",
   "purchase_received",
   "stocktake_adjustment",
-  "sales_fulfilled",
+  "sales_shipped",
 ] as const;
 
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];

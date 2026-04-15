@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import { formatDateTime } from "@/lib/format";
+import { formatAddress, formatDateTime } from "@/lib/format";
 import type { SupplierRow } from "./types";
 
 export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
@@ -113,9 +113,16 @@ export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
             <dd className="mt-1 text-sm">{supplier.phone ?? "\u2014"}</dd>
           </div>
           <div className="sm:col-span-2">
-            <dt className="text-sm font-medium text-muted-foreground">Address</dt>
+            <dt className="text-sm font-medium text-muted-foreground">Billing Address</dt>
             <dd className="mt-1 whitespace-pre-wrap text-sm">
-              {supplier.address ?? "\u2014"}
+              {formatAddress({
+                line1: supplier.billingLine1,
+                line2: supplier.billingLine2,
+                city: supplier.billingCity,
+                region: supplier.billingRegion,
+                postcode: supplier.billingPostcode,
+                country: supplier.billingCountry,
+              }) || "\u2014"}
             </dd>
           </div>
           <div>

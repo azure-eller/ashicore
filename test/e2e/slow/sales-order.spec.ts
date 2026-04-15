@@ -183,7 +183,10 @@ test.describe("Sales order flow", () => {
     await nameInput.fill(customerName);
     await page.getByLabel("Email").fill(`sales-${run}@example.com`);
     await page.getByLabel("Phone").fill("555-0100");
-    await page.getByLabel("Address").fill("123 Market Street");
+    await page.locator("#customer-billing-line1").fill("123 Market Street");
+    await page.locator("#customer-billing-city").fill("Paonia");
+    await page.locator("#customer-billing-region").fill("CO");
+    await page.locator("#customer-billing-postcode").fill("81428");
     await page.getByLabel("Notes").fill("Primary landscaping account");
 
     await Promise.all([
@@ -213,7 +216,10 @@ test.describe("Sales order flow", () => {
 
     expect(customer.email).toBe(`sales-${run}@example.com`);
     expect(customer.phone).toBe("555-0100");
-    expect(customer.address).toBe("123 Market Street");
+    expect(customer.billingLine1).toBe("123 Market Street");
+    expect(customer.billingCity).toBe("Paonia");
+    expect(customer.billingRegion).toBe("CO");
+    expect(customer.billingPostcode).toBe("81428");
     expect(customer.notes).toBe("Primary landscaping account");
     expect(customer.deletedAt).toBeNull();
   });
@@ -228,7 +234,8 @@ test.describe("Sales order flow", () => {
     await expect(page.getByLabel("Name")).toHaveValue(customerName);
     await expect(page.getByLabel("Email")).toHaveValue(`sales-${run}@example.com`);
     await expect(page.getByLabel("Phone")).toHaveValue("555-0100");
-    await expect(page.getByLabel("Address")).toHaveValue("123 Market Street");
+    await expect(page.locator("#customer-billing-line1")).toHaveValue("123 Market Street");
+    await expect(page.locator("#customer-billing-city")).toHaveValue("Paonia");
     await expect(page.getByLabel("Notes")).toHaveValue("Primary landscaping account");
 
     // Make changes
@@ -250,7 +257,7 @@ test.describe("Sales order flow", () => {
     expect(updated.phone).toBe("555-0200");
     expect(updated.notes).toBe("Updated account notes");
     expect(updated.email).toBe(`sales-${run}@example.com`);
-    expect(updated.address).toBe("123 Market Street");
+    expect(updated.billingLine1).toBe("123 Market Street");
   });
 
   test("creates a minimal customer", async ({ page, db }) => {
@@ -284,7 +291,7 @@ test.describe("Sales order flow", () => {
     extraCustomerId = customer.id;
     expect(customer.email).toBeNull();
     expect(customer.phone).toBeNull();
-    expect(customer.address).toBeNull();
+    expect(customer.billingLine1).toBeNull();
     expect(customer.notes).toBeNull();
     expect(customer.deletedAt).toBeNull();
   });
@@ -853,16 +860,16 @@ test.describe("Sales order flow", () => {
     expect(orderRows[0].deletedAt).not.toBeNull();
   });
 
-  test("fulfills a confirmed order and releases committed stock", async ({ page, db }) => {
-    const fulfillCustomerResult = await createCustomer({
-      name: `Fulfillment Customer ${run}`,
+  test("ships a confirmed order and releases committed stock", async ({ page, db }) => {
+    const shipCustomerResult = await createCustomer({
+      name: `Shipping Customer ${run}`,
     });
-    expect(fulfillCustomerResult.status).toBe(201);
-    const fulfillCustomerId = fulfillCustomerResult.body.id as string;
+    expect(shipCustomerResult.status).toBe(201);
+    const shipCustomerId = shipCustomerResult.body.id as string;
 
-    const fulfillOrderId = await createDraftSalesOrder({
-      customerId: fulfillCustomerId,
-      notes: "Fulfillment coverage",
+    const shipOrderId = await createDraftSalesOrder({
+      customerId: shipCustomerId,
+      notes: "Shipping coverage",
       lines: [
         {
           itemId: primaryProductId,
@@ -873,7 +880,7 @@ test.describe("Sales order flow", () => {
     });
 
     const confirmResponse = await testFetch(
-      `/api/sales-orders/${fulfillOrderId}/confirm`,
+      `/api/sales-orders/${shipOrderId}/confirm`,
       {
         method: "POST",
         body: JSON.stringify({ confirmOversell: false }),
@@ -884,14 +891,14 @@ test.describe("Sales order flow", () => {
     const [confirmedOrder] = await db
       .select({ status: salesOrders.status })
       .from(salesOrders)
-      .where(eq(salesOrders.id, fulfillOrderId));
+      .where(eq(salesOrders.id, shipOrderId));
     expect(confirmedOrder.status).toBe("confirmed");
 
-    const [beforeFulfill] = await db
+    const [beforeShip] = await db
       .select({ committedQty: items.committedQty })
       .from(items)
       .where(eq(items.id, primaryProductId));
-    expect(beforeFulfill.committedQty).toBe("3.0000");
+    expect(beforeShip.committedQty).toBe("3.0000");
 
     const lotsBefore = await db
       .select({ quantity: lots.quantity })
@@ -902,27 +909,27 @@ test.describe("Sales order flow", () => {
       0
     );
 
-    const fulfillResponse = await testFetch(
-      `/api/sales-orders/${fulfillOrderId}/fulfill`,
+    const shipResponse = await testFetch(
+      `/api/sales-orders/${shipOrderId}/ship`,
       { method: "POST" }
     );
-    expect(fulfillResponse.status).toBe(200);
+    expect(shipResponse.status).toBe(200);
 
-    const [fulfilledOrder] = await db
+    const [shippedOrder] = await db
       .select({
         status: salesOrders.status,
-        fulfilledAt: salesOrders.fulfilledAt,
+        shippedAt: salesOrders.shippedAt,
       })
       .from(salesOrders)
-      .where(eq(salesOrders.id, fulfillOrderId));
-    expect(fulfilledOrder.status).toBe("fulfilled");
-    expect(fulfilledOrder.fulfilledAt).not.toBeNull();
+      .where(eq(salesOrders.id, shipOrderId));
+    expect(shippedOrder.status).toBe("shipped");
+    expect(shippedOrder.shippedAt).not.toBeNull();
 
-    const [afterFulfill] = await db
+    const [afterShip] = await db
       .select({ committedQty: items.committedQty })
       .from(items)
       .where(eq(items.id, primaryProductId));
-    expect(afterFulfill.committedQty).toBe("0.0000");
+    expect(afterShip.committedQty).toBe("0.0000");
 
     const lotsAfter = await db
       .select({ quantity: lots.quantity })
@@ -934,19 +941,19 @@ test.describe("Sales order flow", () => {
     );
     expect(stockAfter).toBeCloseTo(stockBefore - 3, 2);
 
-    const fulfillMovements = await db
+    const shipMovements = await db
       .select({
         itemId: stockMovements.itemId,
         movementType: stockMovements.movementType,
         referenceType: stockMovements.referenceType,
       })
       .from(stockMovements)
-      .where(eq(stockMovements.referenceId, fulfillOrderId));
+      .where(eq(stockMovements.referenceId, shipOrderId));
 
-    const secondaryProductMovements = fulfillMovements.filter(
+    const secondaryProductMovements = shipMovements.filter(
       (movement) =>
         movement.itemId === primaryProductId &&
-        movement.movementType === "sales_fulfilled"
+        movement.movementType === "sales_shipped"
     );
 
     expect(secondaryProductMovements.length).toBeGreaterThanOrEqual(1);
@@ -956,22 +963,22 @@ test.describe("Sales order flow", () => {
       )
     ).toBe(true);
 
-    await page.goto(`/sales/orders/${fulfillOrderId}`);
-    await expect(page.locator("main").getByText("Fulfilled", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Fulfillment coverage")).toBeVisible();
+    await page.goto(`/sales/orders/${shipOrderId}`);
+    await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Shipping coverage")).toBeVisible();
     await expect(page.locator("table").first()).toContainText(primaryProductName);
-    await expect(page.getByRole("button", { name: "Fulfill" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Ship" })).toHaveCount(0);
 
     await page.goto("/sales/orders");
-    const [fulfilledOrderRow] = await db
+    const [shippedOrderRow] = await db
       .select({ orderNumber: salesOrders.orderNumber })
       .from(salesOrders)
-      .where(eq(salesOrders.id, fulfillOrderId));
-    await filterList(page, "Search orders", fulfilledOrderRow.orderNumber);
-    const fulfilledRow = page.getByRole("row", {
-      name: new RegExp(fulfilledOrderRow.orderNumber),
+      .where(eq(salesOrders.id, shipOrderId));
+    await filterList(page, "Search orders", shippedOrderRow.orderNumber);
+    const shippedRow = page.getByRole("row", {
+      name: new RegExp(shippedOrderRow.orderNumber),
     });
-    await expect(fulfilledRow).toContainText("Fulfilled");
+    await expect(shippedRow).toContainText("Shipped");
   });
 
   /* ================================================================ */

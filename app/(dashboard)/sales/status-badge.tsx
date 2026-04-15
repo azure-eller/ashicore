@@ -6,8 +6,8 @@ export function SalesOrderStatusBadge({ status }: { status: SalesOrderStatus }) 
     return <Badge>Confirmed</Badge>;
   }
 
-  if (status === "fulfilled") {
-    return <Badge variant="outline">Fulfilled</Badge>;
+  if (status === "shipped") {
+    return <Badge variant="outline">Shipped</Badge>;
   }
 
   if (status === "cancelled") {

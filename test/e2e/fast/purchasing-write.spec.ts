@@ -30,7 +30,7 @@ test.describe("Purchasing write-path smoke", () => {
     await page.locator("#paymentTerms").fill("Net 15");
     await page.locator("#email").fill(`fast-purchasing-${ts}@example.com`);
     await page.locator("#phone").fill("555-0215");
-    await page.locator("#address").fill("88 Supply Road");
+    await page.locator("#supplier-billing-line1").fill("88 Supply Road");
     await page.locator("#notes").fill("Fast supplier smoke test");
 
     const [createSupplierResponse] = await Promise.all([

@@ -72,3 +72,25 @@ export const positiveDecimalString = (label: string) =>
       const parsed = Number(value);
       return Number.isFinite(parsed) && parsed > 0;
     }, `${label} must be greater than 0`);
+
+/**
+ * Default values for the six structured address columns. Reuse in form
+ * defaultValues so every field has an explicit null instead of undefined.
+ */
+export const addressDefaultValues = {
+  line1: null,
+  line2: null,
+  city: null,
+  region: null,
+  postcode: null,
+  country: null,
+} as const;
+
+export type StructuredAddress = {
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postcode: string | null;
+  country: string | null;
+};

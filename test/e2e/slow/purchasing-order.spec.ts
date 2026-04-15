@@ -104,7 +104,7 @@ test.describe("Purchasing flow", () => {
       delay: 20,
     });
     await page.locator("#phone").pressSequentially("555-0215", { delay: 20 });
-    await page.locator("#address").pressSequentially("88 Supply Road", { delay: 20 });
+    await page.locator("#supplier-billing-line1").pressSequentially("88 Supply Road", { delay: 20 });
     await page.locator("#notes").pressSequentially("Primary mulch and sand vendor", {
       delay: 20,
     });

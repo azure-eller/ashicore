@@ -9,7 +9,19 @@ export type CustomerRow = {
   customerCategoryName: string | null;
   email: string | null;
   phone: string | null;
-  address: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  xeroContactId: string | null;
   notes: string | null;
   deletedAt: Date | null;
   createdAt: Date;
@@ -19,6 +31,18 @@ export type CustomerRow = {
 export type CustomerOption = {
   id: string;
   name: string;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
 };
 
 export type CustomerCategoryOption = {
@@ -108,7 +132,7 @@ export type SalesOrderListRow = {
   customerName: string;
   status: SalesOrderStatus;
   requestedDate: string | null;
-  fulfilledAt: Date | null;
+  shippedAt: Date | null;
   totalAmount: string;
   itemSummary: string;
   hasManufacturableLines: boolean;
@@ -148,7 +172,18 @@ export type SalesOrderDetail = {
   status: SalesOrderStatus;
   requestedDate: string | null;
   notes: string | null;
-  fulfilledAt: Date | null;
+  shippedAt: Date | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  xeroInvoiceId: string | null;
+  xeroInvoiceNumber: string | null;
+  xeroPushStatus: "pending" | "pushed" | "failed" | null;
+  xeroPushError: string | null;
+  xeroPushedAt: Date | null;
   totalAmount: string;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
@@ -174,6 +209,12 @@ export type SalesOrderEditData = {
   status: Extract<SalesOrderStatus, "draft">;
   requestedDate: string | null;
   notes: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
   lines: Array<{
     itemId: string;
     quantity: string;

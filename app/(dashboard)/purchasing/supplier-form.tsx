@@ -41,7 +41,12 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
           contactName: initialData.contactName,
           email: initialData.email,
           phone: initialData.phone,
-          address: initialData.address,
+          billingLine1: initialData.billingLine1,
+          billingLine2: initialData.billingLine2,
+          billingCity: initialData.billingCity,
+          billingRegion: initialData.billingRegion,
+          billingPostcode: initialData.billingPostcode,
+          billingCountry: initialData.billingCountry,
           paymentTerms: initialData.paymentTerms,
           notes: initialData.notes,
         }

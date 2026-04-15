@@ -21,7 +21,7 @@ test.describe("Sales write-path smoke", () => {
     await page.getByLabel("Name").fill(customerName);
     await page.getByLabel("Email").fill(`fast-sales-${ts}@example.com`);
     await page.getByLabel("Phone").fill("555-0300");
-    await page.getByLabel("Address").fill("100 Market Street");
+    await page.locator("#customer-billing-line1").fill("100 Market Street");
     await page.getByLabel("Notes").fill("Fast customer smoke test");
 
     const [createCustomerResponse] = await Promise.all([
@@ -43,7 +43,7 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesCustomers.id, customerId));
     expect(customer.email).toBe(`fast-sales-${ts}@example.com`);
     expect(customer.phone).toBe("555-0300");
-    expect(customer.address).toBe("100 Market Street");
+    expect(customer.billingLine1).toBe("100 Market Street");
     expect(customer.notes).toBe("Fast customer smoke test");
 
     await page.getByRole("link", { name: "Edit" }).click();

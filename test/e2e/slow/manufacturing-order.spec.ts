@@ -25,7 +25,6 @@ async function createCustomer(name: string) {
       name,
       email: null,
       phone: null,
-      address: null,
       notes: null,
     }),
   });

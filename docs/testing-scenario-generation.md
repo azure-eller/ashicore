@@ -25,7 +25,7 @@ read_when:
 
 - Keep `test.describe.configure({ mode: "serial" })`.
 - Write the file as a business story, not a bag of isolated guards.
-- Prefer flows like create, edit, submit, receive, confirm, fulfill, release, complete.
+- Prefer flows like create, edit, submit, receive, confirm, ship, release, complete.
 - Include error or guard checks only when they naturally occur in the operational sequence.
 
 ## Local defaults

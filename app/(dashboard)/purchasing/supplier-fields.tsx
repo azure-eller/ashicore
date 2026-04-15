@@ -3,6 +3,7 @@
 import { Controller, type Control } from "react-hook-form";
 import { z } from "zod";
 import { insertSupplierSchema } from "@/lib/schemas/suppliers";
+import { AddressFields } from "@/components/address-fields";
 import {
   Field,
   FieldDescription,
@@ -155,30 +156,32 @@ export function SupplierFieldGroups({
       <FieldSeparator />
 
       <FieldSet className="max-w-4xl gap-5">
-        <FieldLegend>Address & Notes</FieldLegend>
+        <FieldLegend>Billing Address</FieldLegend>
         <FieldDescription>
-          Keep any mailing details or internal supplier context here.
+          Mailing address used for purchase orders and invoices.
+        </FieldDescription>
+        <AddressFields
+          control={control}
+          idPrefix="supplier-billing"
+          names={{
+            line1: "billingLine1",
+            line2: "billingLine2",
+            city: "billingCity",
+            region: "billingRegion",
+            postcode: "billingPostcode",
+            country: "billingCountry",
+          }}
+        />
+      </FieldSet>
+
+      <FieldSeparator />
+
+      <FieldSet className="max-w-4xl gap-5">
+        <FieldLegend>Notes</FieldLegend>
+        <FieldDescription>
+          Keep any internal supplier context here.
         </FieldDescription>
         <FieldGroup>
-          <Controller
-            control={control}
-            name="address"
-            render={({ field, fieldState }) => (
-              <Field data-invalid={fieldState.invalid}>
-                <FieldLabel htmlFor={field.name}>Address</FieldLabel>
-                <Textarea
-                  {...field}
-                  id={field.name}
-                  value={field.value ?? ""}
-                  onChange={(event) => field.onChange(event.target.value || null)}
-                  aria-invalid={fieldState.invalid}
-                  rows={4}
-                />
-                {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-              </Field>
-            )}
-          />
-
           <Controller
             control={control}
             name="notes"

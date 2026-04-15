@@ -73,6 +73,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { AddressFields } from "@/components/address-fields";
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import type {
   CustomerOption,
@@ -160,6 +161,12 @@ export function OrderForm({
           status: "draft",
           requestedDate: initialData.requestedDate,
           notes: initialData.notes,
+          shipLine1: initialData.shipLine1,
+          shipLine2: initialData.shipLine2,
+          shipCity: initialData.shipCity,
+          shipRegion: initialData.shipRegion,
+          shipPostcode: initialData.shipPostcode,
+          shipCountry: initialData.shipCountry,
           lines: initialData.lines.map((line) => ({
             itemId: line.itemId,
             quantity: line.quantity,
@@ -395,7 +402,54 @@ export function OrderForm({
                       <Combobox
                         items={customerIds}
                         value={field.value ?? ""}
-                        onValueChange={(value) => field.onChange(value ?? "")}
+                        onValueChange={(value) => {
+                          const nextValue = value ?? "";
+                          field.onChange(nextValue);
+                          // Prefill ship-to from the selected customer only if
+                          // the form ship-to is currently blank — never overwrite
+                          // a user-entered override.
+                          const values = form.getValues();
+                          const shipIsBlank =
+                            !values.shipLine1 &&
+                            !values.shipLine2 &&
+                            !values.shipCity &&
+                            !values.shipRegion &&
+                            !values.shipPostcode &&
+                            !values.shipCountry;
+                          if (!shipIsBlank || !nextValue) return;
+                          const customer = customerMap.get(nextValue);
+                          if (!customer) return;
+                          const hasShipping =
+                            customer.shipLine1 ||
+                            customer.shipLine2 ||
+                            customer.shipCity ||
+                            customer.shipRegion ||
+                            customer.shipPostcode ||
+                            customer.shipCountry;
+                          const source = hasShipping
+                            ? {
+                                line1: customer.shipLine1,
+                                line2: customer.shipLine2,
+                                city: customer.shipCity,
+                                region: customer.shipRegion,
+                                postcode: customer.shipPostcode,
+                                country: customer.shipCountry,
+                              }
+                            : {
+                                line1: customer.billingLine1,
+                                line2: customer.billingLine2,
+                                city: customer.billingCity,
+                                region: customer.billingRegion,
+                                postcode: customer.billingPostcode,
+                                country: customer.billingCountry,
+                              };
+                          form.setValue("shipLine1", source.line1, { shouldDirty: true });
+                          form.setValue("shipLine2", source.line2, { shouldDirty: true });
+                          form.setValue("shipCity", source.city, { shouldDirty: true });
+                          form.setValue("shipRegion", source.region, { shouldDirty: true });
+                          form.setValue("shipPostcode", source.postcode, { shouldDirty: true });
+                          form.setValue("shipCountry", source.country, { shouldDirty: true });
+                        }}
                         itemToStringLabel={(value) => customerMap.get(value)?.name ?? ""}
                       >
                         <ComboboxInput placeholder="Search customers..." />
@@ -459,6 +513,28 @@ export function OrderForm({
                   />
                 </div>
               </FieldGroup>
+            </FieldSet>
+
+            <FieldSeparator />
+
+            <FieldSet className="max-w-4xl gap-5">
+              <FieldLegend>Ship To</FieldLegend>
+              <FieldDescription>
+                Defaults from the customer&apos;s shipping address. Override for
+                this order if it&apos;s going somewhere else.
+              </FieldDescription>
+              <AddressFields
+                control={form.control}
+                idPrefix="order-ship"
+                names={{
+                  line1: "shipLine1",
+                  line2: "shipLine2",
+                  city: "shipCity",
+                  region: "shipRegion",
+                  postcode: "shipPostcode",
+                  country: "shipCountry",
+                }}
+              />
             </FieldSet>
 
             <FieldSeparator />

@@ -239,6 +239,34 @@
       "when": 1776136653677,
       "tag": "0033_superb_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1776288624839,
+      "tag": "0034_rename_fulfilled_to_shipped",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1776289449467,
+      "tag": "0035_address_split",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1776289672557,
+      "tag": "0036_sales_order_ship_to",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1776290134883,
+      "tag": "0037_xero",
+      "breakpoints": true
     }
   ]
 }
