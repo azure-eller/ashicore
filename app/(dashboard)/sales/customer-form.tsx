@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -119,6 +119,68 @@ export function CustomerForm({
     if (allShippingBlank) return true;
     return billing.every((value, index) => (value ?? "") === (shipping[index] ?? ""));
   });
+  const billingAddress = useWatch({
+    control: form.control,
+    name: [
+      "billingLine1",
+      "billingLine2",
+      "billingCity",
+      "billingRegion",
+      "billingPostcode",
+      "billingCountry",
+    ],
+  });
+  const hasInitializedShippingSync = useRef(false);
+
+  useEffect(() => {
+    if (!shippingSameAsBilling) {
+      hasInitializedShippingSync.current = true;
+      return;
+    }
+
+    const [
+      billingLine1,
+      billingLine2,
+      billingCity,
+      billingRegion,
+      billingPostcode,
+      billingCountry,
+    ] = billingAddress;
+    const currentShipping = form.getValues([
+      "shipLine1",
+      "shipLine2",
+      "shipCity",
+      "shipRegion",
+      "shipPostcode",
+      "shipCountry",
+    ]);
+    const nextShipping = [
+      billingLine1 ?? null,
+      billingLine2 ?? null,
+      billingCity ?? null,
+      billingRegion ?? null,
+      billingPostcode ?? null,
+      billingCountry ?? null,
+    ];
+
+    if (
+      currentShipping.every(
+        (value, index) => (value ?? null) === (nextShipping[index] ?? null)
+      )
+    ) {
+      hasInitializedShippingSync.current = true;
+      return;
+    }
+
+    const shouldDirty = hasInitializedShippingSync.current;
+    form.setValue("shipLine1", billingLine1 ?? null, { shouldDirty });
+    form.setValue("shipLine2", billingLine2 ?? null, { shouldDirty });
+    form.setValue("shipCity", billingCity ?? null, { shouldDirty });
+    form.setValue("shipRegion", billingRegion ?? null, { shouldDirty });
+    form.setValue("shipPostcode", billingPostcode ?? null, { shouldDirty });
+    form.setValue("shipCountry", billingCountry ?? null, { shouldDirty });
+    hasInitializedShippingSync.current = true;
+  }, [billingAddress, form, shippingSameAsBilling]);
 
   const categoryMutation = useMutation({
     mutationFn: async () => {
@@ -394,17 +456,7 @@ export function CustomerForm({
                   <Checkbox
                     checked={shippingSameAsBilling}
                     onCheckedChange={(checked) => {
-                      const isSame = checked === true;
-                      setShippingSameAsBilling(isSame);
-                      if (isSame) {
-                        const values = form.getValues();
-                        form.setValue("shipLine1", values.billingLine1, { shouldDirty: true });
-                        form.setValue("shipLine2", values.billingLine2, { shouldDirty: true });
-                        form.setValue("shipCity", values.billingCity, { shouldDirty: true });
-                        form.setValue("shipRegion", values.billingRegion, { shouldDirty: true });
-                        form.setValue("shipPostcode", values.billingPostcode, { shouldDirty: true });
-                        form.setValue("shipCountry", values.billingCountry, { shouldDirty: true });
-                      }
+                      setShippingSameAsBilling(checked === true);
                     }}
                   />
                   Same as billing address

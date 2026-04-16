@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   Address,
   Contact,
@@ -171,7 +171,13 @@ async function loadOrderForPushInTx(
       totalAmount: salesOrders.totalAmount,
     })
     .from(salesOrders)
-    .where(eq(salesOrders.id, orderId));
+    .where(
+      and(
+        eq(salesOrders.id, orderId),
+        eq(salesOrders.status, "shipped"),
+        isNull(salesOrders.deletedAt)
+      )
+    );
 
   if (!order) return null;
 

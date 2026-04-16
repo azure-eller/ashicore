@@ -34,9 +34,15 @@ const ERROR_MESSAGES: Record<string, string> = {
 export function XeroSection({
   connection,
   error,
+  canManageConnection,
+  canImportCustomers,
+  canImportSuppliers,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
+  canManageConnection: boolean;
+  canImportCustomers: boolean;
+  canImportSuppliers: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -95,7 +101,7 @@ export function XeroSection({
             existing contacts to seed your ERP.
           </p>
         </div>
-        {connection ? (
+        {connection && canManageConnection ? (
           <Button
             variant="outline"
             size="sm"
@@ -104,11 +110,11 @@ export function XeroSection({
           >
             {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect"}
           </Button>
-        ) : (
+        ) : !connection && canManageConnection ? (
           <Button asChild size="sm">
             <a href="/api/xero/connect">Connect Xero</a>
           </Button>
-        )}
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-6">
         {error && (
@@ -131,77 +137,90 @@ export function XeroSection({
               </div>
             </div>
 
-            <FieldGroup>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field>
-                  <FieldLabel htmlFor="xero-account-code">
-                    Default account code
-                  </FieldLabel>
-                  <FieldDescription>
-                    GL account code applied to every invoice line (e.g. 200).
-                  </FieldDescription>
-                  <Input
-                    id="xero-account-code"
-                    value={accountCode}
-                    onChange={(event) => setAccountCode(event.target.value)}
-                    placeholder="200"
-                  />
-                </Field>
+            {canManageConnection && (
+              <FieldGroup>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field>
+                    <FieldLabel htmlFor="xero-account-code">
+                      Default account code
+                    </FieldLabel>
+                    <FieldDescription>
+                      GL account code applied to every invoice line (e.g. 200).
+                    </FieldDescription>
+                    <Input
+                      id="xero-account-code"
+                      value={accountCode}
+                      onChange={(event) => setAccountCode(event.target.value)}
+                      placeholder="200"
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="xero-tax-type">
+                      Default tax type
+                    </FieldLabel>
+                    <FieldDescription>
+                      Xero TaxType string (e.g. NONE, OUTPUT).
+                    </FieldDescription>
+                    <Input
+                      id="xero-tax-type"
+                      value={taxType}
+                      onChange={(event) => setTaxType(event.target.value)}
+                      placeholder="NONE"
+                    />
+                  </Field>
+                </div>
 
                 <Field>
-                  <FieldLabel htmlFor="xero-tax-type">
-                    Default tax type
-                  </FieldLabel>
+                  <FieldLabel>Invoice status</FieldLabel>
                   <FieldDescription>
-                    Xero TaxType string (e.g. NONE, OUTPUT).
+                    DRAFT lets you review in Xero before sending. AUTHORISED is
+                    final.
                   </FieldDescription>
-                  <Input
-                    id="xero-tax-type"
-                    value={taxType}
-                    onChange={(event) => setTaxType(event.target.value)}
-                    placeholder="NONE"
-                  />
+                  <Select
+                    value={invoiceStatus}
+                    onValueChange={(value) =>
+                      setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
+                      <SelectItem value="DRAFT">DRAFT</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </Field>
-              </div>
 
-              <Field>
-                <FieldLabel>Invoice status</FieldLabel>
-                <FieldDescription>
-                  DRAFT lets you review in Xero before sending. AUTHORISED is
-                  final.
-                </FieldDescription>
-                <Select
-                  value={invoiceStatus}
-                  onValueChange={(value) =>
-                    setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
-                    <SelectItem value="DRAFT">DRAFT</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
+                <div>
+                  <Button
+                    onClick={() => saveMutation.mutate()}
+                    disabled={saveMutation.isPending}
+                  >
+                    {saveMutation.isPending ? "Saving..." : "Save settings"}
+                  </Button>
+                </div>
+              </FieldGroup>
+            )}
 
-              <div>
-                <Button
-                  onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
-                >
-                  {saveMutation.isPending ? "Saving..." : "Save settings"}
-                </Button>
-              </div>
-            </FieldGroup>
+            {!canManageConnection && (canImportCustomers || canImportSuppliers) && (
+              <p className="text-sm text-muted-foreground">
+                Your access here is limited to imports. A sales operator can manage the
+                Xero connection and invoice defaults.
+              </p>
+            )}
 
-            <XeroImportSection />
+            <XeroImportSection
+              canImportCustomers={canImportCustomers}
+              canImportSuppliers={canImportSuppliers}
+            />
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Connect a Xero organization to start pushing invoices and importing
-            contacts.
+            {canManageConnection
+              ? "Connect a Xero organization to start pushing invoices and importing contacts."
+              : "A teammate with sales access must connect Xero before imports are available."}
           </p>
         )}
       </CardContent>

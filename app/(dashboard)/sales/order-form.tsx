@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -113,6 +113,101 @@ const DEFAULT_LINE_PRICING_STATE: LinePricingState = {
   isPriceOverridden: false,
 };
 
+type ShipAddress = {
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postcode: string | null;
+  country: string | null;
+};
+
+function getShipAddressFromCustomer(customer: CustomerOption | undefined): ShipAddress | null {
+  if (!customer) return null;
+
+  const hasShippingAddress = Boolean(
+    customer.shipLine1 ||
+      customer.shipLine2 ||
+      customer.shipCity ||
+      customer.shipRegion ||
+      customer.shipPostcode ||
+      customer.shipCountry
+  );
+
+  return hasShippingAddress
+    ? {
+        line1: customer.shipLine1,
+        line2: customer.shipLine2,
+        city: customer.shipCity,
+        region: customer.shipRegion,
+        postcode: customer.shipPostcode,
+        country: customer.shipCountry,
+      }
+    : {
+        line1: customer.billingLine1,
+        line2: customer.billingLine2,
+        city: customer.billingCity,
+        region: customer.billingRegion,
+        postcode: customer.billingPostcode,
+        country: customer.billingCountry,
+      };
+}
+
+function getShipAddressFromValues(values: {
+  shipLine1?: string | null;
+  shipLine2?: string | null;
+  shipCity?: string | null;
+  shipRegion?: string | null;
+  shipPostcode?: string | null;
+  shipCountry?: string | null;
+}): ShipAddress {
+  return {
+    line1: values.shipLine1 ?? null,
+    line2: values.shipLine2 ?? null,
+    city: values.shipCity ?? null,
+    region: values.shipRegion ?? null,
+    postcode: values.shipPostcode ?? null,
+    country: values.shipCountry ?? null,
+  };
+}
+
+function isShipAddressBlank(address: ShipAddress | null) {
+  if (!address) return true;
+
+  return !address.line1 &&
+    !address.line2 &&
+    !address.city &&
+    !address.region &&
+    !address.postcode &&
+    !address.country;
+}
+
+function shipAddressesEqual(left: ShipAddress | null, right: ShipAddress | null) {
+  if (!left || !right) {
+    return left === right;
+  }
+
+  return left.line1 === right.line1 &&
+    left.line2 === right.line2 &&
+    left.city === right.city &&
+    left.region === right.region &&
+    left.postcode === right.postcode &&
+    left.country === right.country;
+}
+
+function setShipAddress(
+  setValue: UseFormSetValue<OrderFormValues>,
+  address: ShipAddress,
+  shouldDirty = true
+) {
+  setValue("shipLine1", address.line1, { shouldDirty });
+  setValue("shipLine2", address.line2, { shouldDirty });
+  setValue("shipCity", address.city, { shouldDirty });
+  setValue("shipRegion", address.region, { shouldDirty });
+  setValue("shipPostcode", address.postcode, { shouldDirty });
+  setValue("shipCountry", address.country, { shouldDirty });
+}
+
 export function OrderForm({
   customers,
   items,
@@ -150,6 +245,28 @@ export function OrderForm({
   const itemMap = useMemo(
     () => new Map(items.map((item) => [item.id, item])),
     [items]
+  );
+  const initialAutoFilledShipAddress =
+    initialData?.customerId != null
+      ? (() => {
+          const customer = customerMap.get(initialData.customerId);
+          const customerShipAddress = getShipAddressFromCustomer(customer);
+          const orderShipAddress = getShipAddressFromValues({
+            shipLine1: initialData.shipLine1,
+            shipLine2: initialData.shipLine2,
+            shipCity: initialData.shipCity,
+            shipRegion: initialData.shipRegion,
+            shipPostcode: initialData.shipPostcode,
+            shipCountry: initialData.shipCountry,
+          });
+
+          return shipAddressesEqual(orderShipAddress, customerShipAddress)
+            ? customerShipAddress
+            : null;
+        })()
+      : null;
+  const lastAutoFilledShipAddressRef = useRef<ShipAddress | null>(
+    initialAutoFilledShipAddress
   );
 
   const form = useForm<OrderFormValues>({
@@ -405,50 +522,29 @@ export function OrderForm({
                         onValueChange={(value) => {
                           const nextValue = value ?? "";
                           field.onChange(nextValue);
-                          // Prefill ship-to from the selected customer only if
-                          // the form ship-to is currently blank — never overwrite
-                          // a user-entered override.
-                          const values = form.getValues();
-                          const shipIsBlank =
-                            !values.shipLine1 &&
-                            !values.shipLine2 &&
-                            !values.shipCity &&
-                            !values.shipRegion &&
-                            !values.shipPostcode &&
-                            !values.shipCountry;
-                          if (!shipIsBlank || !nextValue) return;
-                          const customer = customerMap.get(nextValue);
-                          if (!customer) return;
-                          const hasShipping =
-                            customer.shipLine1 ||
-                            customer.shipLine2 ||
-                            customer.shipCity ||
-                            customer.shipRegion ||
-                            customer.shipPostcode ||
-                            customer.shipCountry;
-                          const source = hasShipping
-                            ? {
-                                line1: customer.shipLine1,
-                                line2: customer.shipLine2,
-                                city: customer.shipCity,
-                                region: customer.shipRegion,
-                                postcode: customer.shipPostcode,
-                                country: customer.shipCountry,
-                              }
-                            : {
-                                line1: customer.billingLine1,
-                                line2: customer.billingLine2,
-                                city: customer.billingCity,
-                                region: customer.billingRegion,
-                                postcode: customer.billingPostcode,
-                                country: customer.billingCountry,
-                              };
-                          form.setValue("shipLine1", source.line1, { shouldDirty: true });
-                          form.setValue("shipLine2", source.line2, { shouldDirty: true });
-                          form.setValue("shipCity", source.city, { shouldDirty: true });
-                          form.setValue("shipRegion", source.region, { shouldDirty: true });
-                          form.setValue("shipPostcode", source.postcode, { shouldDirty: true });
-                          form.setValue("shipCountry", source.country, { shouldDirty: true });
+                          if (!nextValue) return;
+
+                          const nextShipAddress = getShipAddressFromCustomer(
+                            customerMap.get(nextValue)
+                          );
+                          if (!nextShipAddress) return;
+
+                          const currentShipAddress = getShipAddressFromValues(
+                            form.getValues()
+                          );
+                          const canReplaceShipAddress =
+                            isShipAddressBlank(currentShipAddress) ||
+                            shipAddressesEqual(
+                              currentShipAddress,
+                              lastAutoFilledShipAddressRef.current
+                            );
+
+                          if (!canReplaceShipAddress) {
+                            return;
+                          }
+
+                          setShipAddress(form.setValue, nextShipAddress);
+                          lastAutoFilledShipAddressRef.current = nextShipAddress;
                         }}
                         itemToStringLabel={(value) => customerMap.get(value)?.name ?? ""}
                       >

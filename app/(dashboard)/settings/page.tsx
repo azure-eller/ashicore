@@ -18,11 +18,9 @@ export default async function SettingsPage() {
   const context = await getAuthedMemberContext();
   const sections = getSettingsSections(context.assignedRoles);
   const showTeam = canManageTeam(context.assignedRoles);
-  const showIntegrations = hasModuleAccess(
-    context.assignedRoles,
-    "sales",
-    "operate"
-  );
+  const showIntegrations =
+    hasModuleAccess(context.assignedRoles, "sales", "operate") ||
+    hasModuleAccess(context.assignedRoles, "purchasing", "operate");
 
   const [accountData, teamData] = await Promise.all([
     getAccountPageData(),

@@ -24,7 +24,13 @@ function useImportMutation(endpoint: string) {
   });
 }
 
-export function XeroImportSection() {
+export function XeroImportSection({
+  canImportCustomers,
+  canImportSuppliers,
+}: {
+  canImportCustomers: boolean;
+  canImportSuppliers: boolean;
+}) {
   const customersMutation = useImportMutation("/api/xero/import/customers");
   const suppliersMutation = useImportMutation("/api/xero/import/suppliers");
   const [customerSummary, setCustomerSummary] = useState<ImportResult | null>(
@@ -33,6 +39,10 @@ export function XeroImportSection() {
   const [supplierSummary, setSupplierSummary] = useState<ImportResult | null>(
     null
   );
+
+  if (!canImportCustomers && !canImportSuppliers) {
+    return null;
+  }
 
   return (
     <div className="space-y-4 border-t pt-6">
@@ -45,46 +55,50 @@ export function XeroImportSection() {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <Button
-          variant="outline"
-          onClick={() =>
-            customersMutation.mutate(undefined, {
-              onSuccess: (data) => setCustomerSummary(data),
-            })
-          }
-          disabled={customersMutation.isPending}
-        >
-          {customersMutation.isPending
-            ? "Importing customers..."
-            : "Import customers"}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() =>
-            suppliersMutation.mutate(undefined, {
-              onSuccess: (data) => setSupplierSummary(data),
-            })
-          }
-          disabled={suppliersMutation.isPending}
-        >
-          {suppliersMutation.isPending
-            ? "Importing suppliers..."
-            : "Import suppliers"}
-        </Button>
+        {canImportCustomers && (
+          <Button
+            variant="outline"
+            onClick={() =>
+              customersMutation.mutate(undefined, {
+                onSuccess: (data) => setCustomerSummary(data),
+              })
+            }
+            disabled={customersMutation.isPending}
+          >
+            {customersMutation.isPending
+              ? "Importing customers..."
+              : "Import customers"}
+          </Button>
+        )}
+        {canImportSuppliers && (
+          <Button
+            variant="outline"
+            onClick={() =>
+              suppliersMutation.mutate(undefined, {
+                onSuccess: (data) => setSupplierSummary(data),
+              })
+            }
+            disabled={suppliersMutation.isPending}
+          >
+            {suppliersMutation.isPending
+              ? "Importing suppliers..."
+              : "Import suppliers"}
+          </Button>
+        )}
       </div>
 
-      {customerSummary && (
+      {canImportCustomers && customerSummary && (
         <ImportSummary label="Customers" summary={customerSummary} />
       )}
-      {supplierSummary && (
+      {canImportSuppliers && supplierSummary && (
         <ImportSummary label="Suppliers" summary={supplierSummary} />
       )}
-      {customersMutation.error && (
+      {canImportCustomers && customersMutation.error && (
         <p className="text-sm text-destructive">
           Customers: {(customersMutation.error as Error).message}
         </p>
       )}
-      {suppliersMutation.error && (
+      {canImportSuppliers && suppliersMutation.error && (
         <p className="text-sm text-destructive">
           Suppliers: {(suppliersMutation.error as Error).message}
         </p>

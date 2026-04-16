@@ -2467,11 +2467,16 @@ export async function retryXeroPushForSalesOrder(id: string) {
     const { pushSalesOrderToXero, markXeroPushFailed } = await import(
       "@/lib/xero/push-invoice"
     );
+    const { XeroError } = await import("@/lib/xero/errors");
 
     try {
       const result = await pushSalesOrderToXero(orgId, id);
       return { ok: true as const, result };
     } catch (error) {
+      if (error instanceof XeroError && (error.status === 404 || error.status === 409)) {
+        throw error;
+      }
+
       await markXeroPushFailed(orgId, id, error);
       throw error;
     }

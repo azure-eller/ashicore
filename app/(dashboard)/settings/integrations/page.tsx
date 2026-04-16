@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { redirect } from "next/navigation";
+import { getDefaultDashboardPath, hasModuleAccess } from "@/lib/authz";
+import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getXeroConnection } from "@/lib/dal/xero";
 import { XeroSection } from "./xero-section";
 
@@ -13,7 +15,22 @@ export default async function IntegrationsPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  await requireModuleWriteAccess("sales");
+  const context = await getAuthedMemberContext();
+  const canManageConnection = hasModuleAccess(
+    context.assignedRoles,
+    "sales",
+    "operate"
+  );
+  const canImportSuppliers = hasModuleAccess(
+    context.assignedRoles,
+    "purchasing",
+    "operate"
+  );
+
+  if (!canManageConnection && !canImportSuppliers) {
+    redirect(getDefaultDashboardPath(context.assignedRoles));
+  }
+
   const { error } = await searchParams;
   const connection = await getXeroConnection();
 
@@ -33,7 +50,13 @@ export default async function IntegrationsPage({
       </div>
 
       <div className="mt-8 flex flex-col gap-6">
-        <XeroSection connection={connection} error={error} />
+        <XeroSection
+          connection={connection}
+          error={error}
+          canManageConnection={canManageConnection}
+          canImportCustomers={canManageConnection}
+          canImportSuppliers={canImportSuppliers}
+        />
       </div>
     </div>
   );
