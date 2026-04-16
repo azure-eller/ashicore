@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -109,7 +108,6 @@ export function ItemForm({
   canManageBomLock = false,
   initialData,
 }: ItemFormProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const segment = ITEM_TYPE_SEGMENTS[itemType];
   const isEditing = Boolean(initialData);
@@ -295,8 +293,10 @@ export function ItemForm({
     },
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
-      router.push(isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`);
-      router.refresh();
+      const nextPath = isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`;
+      window.setTimeout(() => {
+        window.location.assign(nextPath);
+      }, 250);
     },
     onError: (error) => {
       setFormError(error.message);
