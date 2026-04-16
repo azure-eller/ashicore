@@ -229,6 +229,38 @@ export async function createUnit(data: {
 // Customer helpers
 // ---------------------------------------------------------------------------
 
+type CustomerAddressInput = {
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingRegion?: string | null;
+  billingPostcode?: string | null;
+  billingCountry?: string | null;
+  shipLine1?: string | null;
+  shipLine2?: string | null;
+  shipCity?: string | null;
+  shipRegion?: string | null;
+  shipPostcode?: string | null;
+  shipCountry?: string | null;
+};
+
+function customerAddressPayload(data: CustomerAddressInput) {
+  return {
+    billingLine1: data.billingLine1 ?? null,
+    billingLine2: data.billingLine2 ?? null,
+    billingCity: data.billingCity ?? null,
+    billingRegion: data.billingRegion ?? null,
+    billingPostcode: data.billingPostcode ?? null,
+    billingCountry: data.billingCountry ?? null,
+    shipLine1: data.shipLine1 ?? null,
+    shipLine2: data.shipLine2 ?? null,
+    shipCity: data.shipCity ?? null,
+    shipRegion: data.shipRegion ?? null,
+    shipPostcode: data.shipPostcode ?? null,
+    shipCountry: data.shipCountry ?? null,
+  };
+}
+
 /**
  * POST /api/customers
  */
@@ -237,9 +269,8 @@ export async function createCustomer(data: {
   customerCategoryId?: string | null;
   email?: string | null;
   phone?: string | null;
-  address?: string | null;
   notes?: string | null;
-}) {
+} & CustomerAddressInput) {
   const res = await testFetch("/api/customers", {
     method: "POST",
     body: JSON.stringify({
@@ -247,7 +278,7 @@ export async function createCustomer(data: {
       customerCategoryId: data.customerCategoryId ?? null,
       email: data.email ?? null,
       phone: data.phone ?? null,
-      address: data.address ?? null,
+      ...customerAddressPayload(data),
       notes: data.notes ?? null,
     }),
   });
@@ -260,9 +291,8 @@ export async function updateCustomer(id: string, data: {
   customerCategoryId?: string | null;
   email?: string | null;
   phone?: string | null;
-  address?: string | null;
   notes?: string | null;
-}) {
+} & CustomerAddressInput) {
   const res = await testFetch(`/api/customers/${id}`, {
     method: "PUT",
     body: JSON.stringify({
@@ -270,7 +300,7 @@ export async function updateCustomer(id: string, data: {
       customerCategoryId: data.customerCategoryId ?? null,
       email: data.email ?? null,
       phone: data.phone ?? null,
-      address: data.address ?? null,
+      ...customerAddressPayload(data),
       notes: data.notes ?? null,
     }),
   });
@@ -326,6 +356,15 @@ export async function createPricingSchedule(data: {
 // Supplier helpers
 // ---------------------------------------------------------------------------
 
+type SupplierAddressInput = {
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingRegion?: string | null;
+  billingPostcode?: string | null;
+  billingCountry?: string | null;
+};
+
 /**
  * POST /api/suppliers
  */
@@ -335,10 +374,9 @@ export async function createSupplier(data: {
   contactName?: string | null;
   email?: string | null;
   phone?: string | null;
-  address?: string | null;
   paymentTerms?: string | null;
   notes?: string | null;
-}) {
+} & SupplierAddressInput) {
   const res = await testFetch("/api/suppliers", {
     method: "POST",
     body: JSON.stringify({
@@ -347,7 +385,12 @@ export async function createSupplier(data: {
       contactName: data.contactName ?? null,
       email: data.email ?? null,
       phone: data.phone ?? null,
-      address: data.address ?? null,
+      billingLine1: data.billingLine1 ?? null,
+      billingLine2: data.billingLine2 ?? null,
+      billingCity: data.billingCity ?? null,
+      billingRegion: data.billingRegion ?? null,
+      billingPostcode: data.billingPostcode ?? null,
+      billingCountry: data.billingCountry ?? null,
       paymentTerms: data.paymentTerms ?? null,
       notes: data.notes ?? null,
     }),

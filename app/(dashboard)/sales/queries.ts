@@ -827,6 +827,12 @@ async function prepareOrderPayload(
   customerName: string;
   requestedDate: string | null;
   notes: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
   totalAmount: string;
   preparedLines: PreparedOrderLine[];
   affectedItemIds: string[];
@@ -890,6 +896,12 @@ async function prepareOrderPayload(
     customerName: customer.name,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
+    shipLine1: payload.shipLine1 ?? null,
+    shipLine2: payload.shipLine2 ?? null,
+    shipCity: payload.shipCity ?? null,
+    shipRegion: payload.shipRegion ?? null,
+    shipPostcode: payload.shipPostcode ?? null,
+    shipCountry: payload.shipCountry ?? null,
     totalAmount: normalizeMoney(totalAmount),
     preparedLines,
     affectedItemIds: preparedLines.map((line) => line.itemId),
@@ -1554,22 +1566,36 @@ export async function deletePricingSchedules(ids: string[]) {
   });
 }
 
+const customerRowSelect = {
+  id: customers.id,
+  name: customers.name,
+  customerCategoryId: customers.customerCategoryId,
+  customerCategoryName: customerCategories.name,
+  email: customers.email,
+  phone: customers.phone,
+  billingLine1: customers.billingLine1,
+  billingLine2: customers.billingLine2,
+  billingCity: customers.billingCity,
+  billingRegion: customers.billingRegion,
+  billingPostcode: customers.billingPostcode,
+  billingCountry: customers.billingCountry,
+  shipLine1: customers.shipLine1,
+  shipLine2: customers.shipLine2,
+  shipCity: customers.shipCity,
+  shipRegion: customers.shipRegion,
+  shipPostcode: customers.shipPostcode,
+  shipCountry: customers.shipCountry,
+  xeroContactId: customers.xeroContactId,
+  notes: customers.notes,
+  deletedAt: customers.deletedAt,
+  createdAt: customers.createdAt,
+  updatedAt: customers.updatedAt,
+} as const;
+
 export async function getCustomers(): Promise<CustomerRow[]> {
   return withAuthedOrgContext(async (tx) => {
     return tx
-      .select({
-        id: customers.id,
-        name: customers.name,
-        customerCategoryId: customers.customerCategoryId,
-        customerCategoryName: customerCategories.name,
-        email: customers.email,
-        phone: customers.phone,
-        address: customers.address,
-        notes: customers.notes,
-        deletedAt: customers.deletedAt,
-        createdAt: customers.createdAt,
-        updatedAt: customers.updatedAt,
-      })
+      .select(customerRowSelect)
       .from(customers)
       .leftJoin(
         customerCategories,
@@ -1591,19 +1617,7 @@ export async function getCustomer(
     }
 
     const [customer] = await tx
-      .select({
-        id: customers.id,
-        name: customers.name,
-        customerCategoryId: customers.customerCategoryId,
-        customerCategoryName: customerCategories.name,
-        email: customers.email,
-        phone: customers.phone,
-        address: customers.address,
-        notes: customers.notes,
-        deletedAt: customers.deletedAt,
-        createdAt: customers.createdAt,
-        updatedAt: customers.updatedAt,
-      })
+      .select(customerRowSelect)
       .from(customers)
       .leftJoin(
         customerCategories,
@@ -1828,7 +1842,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         customerName: salesOrders.customerName,
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
-        fulfilledAt: salesOrders.fulfilledAt,
+        shippedAt: salesOrders.shippedAt,
         totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -1879,7 +1893,18 @@ export async function getSalesOrder(
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
-        fulfilledAt: salesOrders.fulfilledAt,
+        shippedAt: salesOrders.shippedAt,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
+        xeroInvoiceId: salesOrders.xeroInvoiceId,
+        xeroInvoiceNumber: salesOrders.xeroInvoiceNumber,
+        xeroPushStatus: salesOrders.xeroPushStatus,
+        xeroPushError: salesOrders.xeroPushError,
+        xeroPushedAt: salesOrders.xeroPushedAt,
         totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -1977,6 +2002,7 @@ export async function getSalesOrder(
     return {
       ...order,
       status: order.status as SalesOrderDetail["status"],
+      xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
       lines: lines as SalesOrderDetailLine[],
       hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
       manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
@@ -1999,6 +2025,12 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
       })
       .from(salesOrders)
       .where(
@@ -2067,6 +2099,12 @@ export async function createSalesOrder(data: InsertSalesOrder) {
         status: data.status,
         requestedDate: prepared.requestedDate,
         notes: prepared.notes,
+        shipLine1: prepared.shipLine1,
+        shipLine2: prepared.shipLine2,
+        shipCity: prepared.shipCity,
+        shipRegion: prepared.shipRegion,
+        shipPostcode: prepared.shipPostcode,
+        shipCountry: prepared.shipCountry,
         totalAmount: prepared.totalAmount,
       })
       .returning({ id: salesOrders.id });
@@ -2116,8 +2154,8 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
       throw new SalesError("Cancelled orders cannot be changed.", 400);
     }
 
-    if (existingOrder.status === "fulfilled") {
-      throw new SalesError("Fulfilled orders cannot be changed.", 400);
+    if (existingOrder.status === "shipped") {
+      throw new SalesError("Shipped orders cannot be changed.", 400);
     }
 
     if (isCancelPayload(data)) {
@@ -2162,6 +2200,12 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
         status: data.status,
         requestedDate: prepared.requestedDate,
         notes: prepared.notes,
+        shipLine1: prepared.shipLine1,
+        shipLine2: prepared.shipLine2,
+        shipCity: prepared.shipCity,
+        shipRegion: prepared.shipRegion,
+        shipPostcode: prepared.shipPostcode,
+        shipCountry: prepared.shipCountry,
         totalAmount: prepared.totalAmount,
         updatedAt: new Date(),
       })
@@ -2176,8 +2220,72 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
   });
 }
 
-export async function fulfillSalesOrder(id: string) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+export type BolSalesOrderData = {
+  orderNumber: string;
+  customerName: string;
+  requestedDate: string | null;
+  shippedAt: Date | null;
+  notes: string | null;
+  status: string;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  lines: Array<{
+    itemName: string;
+    itemSku: string | null;
+    quantity: string;
+    unitName: string;
+  }>;
+};
+
+export async function getSalesOrderForBol(
+  id: string
+): Promise<BolSalesOrderData | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+        requestedDate: salesOrders.requestedDate,
+        shippedAt: salesOrders.shippedAt,
+        notes: salesOrders.notes,
+        status: salesOrders.status,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
+      })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)));
+
+    if (!order) return null;
+    if (order.status !== "shipped") return null;
+
+    const lines = await tx
+      .select({
+        itemName: salesOrderLines.itemName,
+        itemSku: salesOrderLines.itemSku,
+        quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+        unitName: salesOrderLines.unitName,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, id))
+      .orderBy(asc(salesOrderLines.sortOrder));
+
+    return {
+      ...order,
+      lines,
+    };
+  });
+}
+
+export async function shipSalesOrder(id: string) {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedSalesOrderInTx(tx, id);
 
     if (!order) {
@@ -2185,15 +2293,15 @@ export async function fulfillSalesOrder(id: string) {
     }
 
     if (order.status === "draft") {
-      throw new SalesError("Only confirmed orders can be fulfilled.", 400);
+      throw new SalesError("Only confirmed orders can be shipped.", 400);
     }
 
     if (order.status === "cancelled") {
-      throw new SalesError("Cancelled orders cannot be fulfilled.", 400);
+      throw new SalesError("Cancelled orders cannot be shipped.", 400);
     }
 
-    if (order.status === "fulfilled") {
-      throw new SalesError("Order is already fulfilled.", 400);
+    if (order.status === "shipped") {
+      throw new SalesError("Order is already shipped.", 400);
     }
 
     const lines = await getOrderLinesInTx(tx, id);
@@ -2208,14 +2316,14 @@ export async function fulfillSalesOrder(id: string) {
           userId,
           itemId: line.itemId,
           delta: -parseFloat(line.quantity),
-          movementType: "sales_fulfilled",
+          movementType: "sales_shipped",
           referenceType: "sales_order",
           referenceId: id,
         });
       } catch (error) {
         if (error instanceof InsufficientStockError) {
           throw new SalesError(
-            `Cannot fulfill order. Insufficient stock for ${line.itemName}.`,
+            `Cannot ship order. Insufficient stock for ${line.itemName}.`,
             409
           );
         }
@@ -2224,20 +2332,154 @@ export async function fulfillSalesOrder(id: string) {
       }
     }
 
-    const fulfilledAt = new Date();
-    const [fulfilled] = await tx
+    const [currentOrder] = await tx
+      .select({
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
+        customerId: salesOrders.customerId,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, id));
+
+    const orderHasShipAddress =
+      currentOrder &&
+      (currentOrder.shipLine1 != null ||
+        currentOrder.shipLine2 != null ||
+        currentOrder.shipCity != null ||
+        currentOrder.shipRegion != null ||
+        currentOrder.shipPostcode != null ||
+        currentOrder.shipCountry != null);
+
+    let shipLine1 = currentOrder?.shipLine1 ?? null;
+    let shipLine2 = currentOrder?.shipLine2 ?? null;
+    let shipCity = currentOrder?.shipCity ?? null;
+    let shipRegion = currentOrder?.shipRegion ?? null;
+    let shipPostcode = currentOrder?.shipPostcode ?? null;
+    let shipCountry = currentOrder?.shipCountry ?? null;
+
+    if (!orderHasShipAddress && currentOrder) {
+      const [customer] = await tx
+        .select({
+          shipLine1: customers.shipLine1,
+          shipLine2: customers.shipLine2,
+          shipCity: customers.shipCity,
+          shipRegion: customers.shipRegion,
+          shipPostcode: customers.shipPostcode,
+          shipCountry: customers.shipCountry,
+          billingLine1: customers.billingLine1,
+          billingLine2: customers.billingLine2,
+          billingCity: customers.billingCity,
+          billingRegion: customers.billingRegion,
+          billingPostcode: customers.billingPostcode,
+          billingCountry: customers.billingCountry,
+        })
+        .from(customers)
+        .where(eq(customers.id, currentOrder.customerId));
+
+      if (customer) {
+        const customerHasShip =
+          customer.shipLine1 != null ||
+          customer.shipLine2 != null ||
+          customer.shipCity != null ||
+          customer.shipRegion != null ||
+          customer.shipPostcode != null ||
+          customer.shipCountry != null;
+
+        if (customerHasShip) {
+          shipLine1 = customer.shipLine1;
+          shipLine2 = customer.shipLine2;
+          shipCity = customer.shipCity;
+          shipRegion = customer.shipRegion;
+          shipPostcode = customer.shipPostcode;
+          shipCountry = customer.shipCountry;
+        } else {
+          shipLine1 = customer.billingLine1;
+          shipLine2 = customer.billingLine2;
+          shipCity = customer.billingCity;
+          shipRegion = customer.billingRegion;
+          shipPostcode = customer.billingPostcode;
+          shipCountry = customer.billingCountry;
+        }
+      }
+    }
+
+    const shippedAt = new Date();
+    const [shipped] = await tx
       .update(salesOrders)
       .set({
-        status: "fulfilled",
-        fulfilledAt,
-        updatedAt: fulfilledAt,
+        status: "shipped",
+        shippedAt,
+        shipLine1,
+        shipLine2,
+        shipCity,
+        shipRegion,
+        shipPostcode,
+        shipCountry,
+        updatedAt: shippedAt,
       })
       .where(eq(salesOrders.id, id))
       .returning({ id: salesOrders.id });
 
     await recomputeCommittedQty(tx, affectedItemIds);
 
-    return fulfilled;
+    return { shipped, orgId };
+  });
+
+  if (!result || !result.shipped) {
+    return null;
+  }
+
+  // Stock tx has committed. Attempt the Xero push; a failure must NOT roll
+  // back the ship — the order is shipped regardless of accounting state.
+  const { pushSalesOrderToXero, markXeroPushFailed } = await import(
+    "@/lib/xero/push-invoice"
+  );
+  const { XeroError } = await import("@/lib/xero/errors");
+
+  try {
+    await pushSalesOrderToXero(result.orgId, id);
+  } catch (error) {
+    if (
+      error instanceof XeroError &&
+      (error.message.includes("not connected") ||
+        error.status === 409 ||
+        error.status === 500)
+    ) {
+      // Xero isn't set up for this org — leave push_status null rather than
+      // flagging a failure that the user can't act on.
+      if (!error.message.includes("not connected")) {
+        await markXeroPushFailed(result.orgId, id, error);
+      }
+    } else {
+      await markXeroPushFailed(result.orgId, id, error);
+    }
+  }
+
+  return result.shipped;
+}
+
+export async function retryXeroPushForSalesOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { pushSalesOrderToXero, markXeroPushFailed } = await import(
+      "@/lib/xero/push-invoice"
+    );
+    const { XeroError } = await import("@/lib/xero/errors");
+
+    try {
+      const result = await pushSalesOrderToXero(orgId, id);
+      return { ok: true as const, result };
+    } catch (error) {
+      if (error instanceof XeroError && (error.status === 404 || error.status === 409)) {
+        throw error;
+      }
+
+      await markXeroPushFailed(orgId, id, error);
+      throw error;
+    }
   });
 }
 

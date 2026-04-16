@@ -7,7 +7,13 @@ export type SupplierRow = {
   contactName: string | null;
   email: string | null;
   phone: string | null;
-  address: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
+  xeroContactId: string | null;
   paymentTerms: string | null;
   notes: string | null;
   deletedAt: Date | null;

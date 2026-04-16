@@ -83,6 +83,40 @@ export function roundQuantity(value: number): number {
  * Shows up to 2 items with optional quantities, then "+ N more".
  * e.g. "50 Widget A, 20 Widget B + 1 more"
  */
+export type AddressLike = {
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postcode?: string | null;
+  country?: string | null;
+};
+
+/**
+ * Format a structured address into lines suitable for <pre>/whitespace-pre-wrap display.
+ * Returns null if every field is blank.
+ */
+export function formatAddressLines(address: AddressLike): string[] {
+  const lines: string[] = [];
+
+  if (address.line1?.trim()) lines.push(address.line1.trim());
+  if (address.line2?.trim()) lines.push(address.line2.trim());
+
+  const cityLine = [address.city, address.region, address.postcode]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(", ");
+  if (cityLine) lines.push(cityLine);
+
+  if (address.country?.trim()) lines.push(address.country.trim());
+
+  return lines;
+}
+
+export function formatAddress(address: AddressLike): string {
+  return formatAddressLines(address).join("\n");
+}
+
 export function summarizeItems(
   lines: Array<{ itemName: string; quantity?: string | null }>
 ): string {
@@ -109,7 +143,7 @@ const MOVEMENT_TYPE_LABELS: Record<string, string> = {
   manufacturing_picked: "MO picked",
   manufacturing_consumed: "MO consumed",
   manufacturing_produced: "MO produced",
-  sales_fulfilled: "Sale",
+  sales_shipped: "Sale",
   stocktake_adjustment: "Stocktake",
 };
 

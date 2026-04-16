@@ -302,23 +302,31 @@ async function softDeleteSuppliersInTx(tx: Tx, supplierIds: string[]) {
     .returning({ id: suppliers.id });
 }
 
+const supplierRowSelect = {
+  id: suppliers.id,
+  name: suppliers.name,
+  code: suppliers.code,
+  contactName: suppliers.contactName,
+  email: suppliers.email,
+  phone: suppliers.phone,
+  billingLine1: suppliers.billingLine1,
+  billingLine2: suppliers.billingLine2,
+  billingCity: suppliers.billingCity,
+  billingRegion: suppliers.billingRegion,
+  billingPostcode: suppliers.billingPostcode,
+  billingCountry: suppliers.billingCountry,
+  xeroContactId: suppliers.xeroContactId,
+  paymentTerms: suppliers.paymentTerms,
+  notes: suppliers.notes,
+  deletedAt: suppliers.deletedAt,
+  createdAt: suppliers.createdAt,
+  updatedAt: suppliers.updatedAt,
+} as const;
+
 export async function getSuppliers(): Promise<SupplierRow[]> {
   return withAuthedOrgContext(async (tx) => {
     return tx
-      .select({
-        id: suppliers.id,
-        name: suppliers.name,
-        code: suppliers.code,
-        contactName: suppliers.contactName,
-        email: suppliers.email,
-        phone: suppliers.phone,
-        address: suppliers.address,
-        paymentTerms: suppliers.paymentTerms,
-        notes: suppliers.notes,
-        deletedAt: suppliers.deletedAt,
-        createdAt: suppliers.createdAt,
-        updatedAt: suppliers.updatedAt,
-      })
+      .select(supplierRowSelect)
       .from(suppliers)
       .where(isNull(suppliers.deletedAt))
       .orderBy(asc(suppliers.name));
@@ -337,20 +345,7 @@ export async function getSupplier(
     }
 
     const [supplier] = await tx
-      .select({
-        id: suppliers.id,
-        name: suppliers.name,
-        code: suppliers.code,
-        contactName: suppliers.contactName,
-        email: suppliers.email,
-        phone: suppliers.phone,
-        address: suppliers.address,
-        paymentTerms: suppliers.paymentTerms,
-        notes: suppliers.notes,
-        deletedAt: suppliers.deletedAt,
-        createdAt: suppliers.createdAt,
-        updatedAt: suppliers.updatedAt,
-      })
+      .select(supplierRowSelect)
       .from(suppliers)
       .where(and(...conditions));
 

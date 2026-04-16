@@ -6,7 +6,7 @@ import { isValidIsoDate, nullableString } from "./shared";
 export const SALES_ORDER_STATUSES = [
   "draft",
   "confirmed",
-  "fulfilled",
+  "shipped",
   "cancelled",
 ] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
@@ -109,12 +109,18 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     return isValidIsoDate(value);
   }, "Requested date must be a real date in YYYY-MM-DD format"),
   notes: nullableString,
+  shipLine1: nullableString,
+  shipLine2: nullableString,
+  shipCity: nullableString,
+  shipRegion: nullableString,
+  shipPostcode: nullableString,
+  shipCountry: nullableString,
 }).omit({
   id: true,
   organizationId: true,
   orderNumber: true,
   customerName: true,
-  fulfilledAt: true,
+  shippedAt: true,
   totalAmount: true,
   deletedAt: true,
   createdAt: true,
@@ -154,6 +160,12 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   status: "draft",
   requestedDate: null,
   notes: null,
+  shipLine1: null,
+  shipLine2: null,
+  shipCity: null,
+  shipRegion: null,
+  shipPostcode: null,
+  shipCountry: null,
   lines: [
     {
       itemId: "",

@@ -144,14 +144,36 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     },
   });
 
-  const fulfillMutation = useMutation({
+  const shipMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/sales-orders/${order.id}/fulfill`, {
+      const response = await fetch(`/api/sales-orders/${order.id}/ship`, {
         method: "POST",
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to fulfill order.");
+        throw new Error(body?.error ?? "Failed to ship order.");
+      }
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const xeroPushMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/sales-orders/${order.id}/xero-push`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to push invoice to Xero.");
       }
     },
     onMutate: () => {
@@ -172,9 +194,13 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
   const canConfirm = !isDeleted && order.status === "draft";
-  const canFulfill = !isDeleted && order.status === "confirmed";
+  const canShip = !isDeleted && order.status === "confirmed";
   const canCancel = !isDeleted && order.status === "confirmed";
   const canDelete = !isDeleted;
+  const canDownloadBol = order.status === "shipped";
+  const canRetryXeroPush =
+    order.status === "shipped" &&
+    (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
   const canCreateMOs = !isDeleted && order.status === "confirmed";
   const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
 
@@ -211,13 +237,36 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                 {confirmMutation.isPending ? "Confirming..." : "Confirm"}
               </Button>
             )}
-            {canFulfill && (
+            {canShip && (
               <Button
                 size="sm"
-                onClick={() => fulfillMutation.mutate()}
-                disabled={fulfillMutation.isPending}
+                onClick={() => shipMutation.mutate()}
+                disabled={shipMutation.isPending}
               >
-                {fulfillMutation.isPending ? "Fulfilling..." : "Fulfill"}
+                {shipMutation.isPending ? "Shipping..." : "Ship"}
+              </Button>
+            )}
+            {canDownloadBol && (
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={`/api/sales-orders/${order.id}/bol`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Download BOL
+                </a>
+              </Button>
+            )}
+            {canRetryXeroPush && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => xeroPushMutation.mutate()}
+                disabled={xeroPushMutation.isPending}
+              >
+                {xeroPushMutation.isPending
+                  ? "Pushing..."
+                  : "Retry Xero push"}
               </Button>
             )}
             {canCreateMOs &&
@@ -296,6 +345,18 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
           </div>
+          {order.xeroPushStatus && (
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">Xero Invoice</dt>
+              <dd className="mt-1 text-sm">
+                {order.xeroPushStatus === "pushed" && order.xeroInvoiceNumber
+                  ? `Pushed — ${order.xeroInvoiceNumber}`
+                  : order.xeroPushStatus === "failed"
+                    ? `Failed — ${order.xeroPushError ?? "unknown error"}`
+                    : "Pending"}
+              </dd>
+            </div>
+          )}
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>

@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import { formatDateTime } from "@/lib/format";
+import { formatAddress, formatDateTime } from "@/lib/format";
 import type { CustomerRow } from "./types";
 
 export function CustomerDetail({ customer }: { customer: CustomerRow }) {
@@ -111,10 +111,30 @@ export function CustomerDetail({ customer }: { customer: CustomerRow }) {
             <dt className="text-sm font-medium text-muted-foreground">Phone</dt>
             <dd className="mt-1 text-sm">{customer.phone ?? "\u2014"}</dd>
           </div>
-          <div className="sm:col-span-2">
-            <dt className="text-sm font-medium text-muted-foreground">Address</dt>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Billing Address</dt>
             <dd className="mt-1 whitespace-pre-wrap text-sm">
-              {customer.address ?? "\u2014"}
+              {formatAddress({
+                line1: customer.billingLine1,
+                line2: customer.billingLine2,
+                city: customer.billingCity,
+                region: customer.billingRegion,
+                postcode: customer.billingPostcode,
+                country: customer.billingCountry,
+              }) || "\u2014"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Shipping Address</dt>
+            <dd className="mt-1 whitespace-pre-wrap text-sm">
+              {formatAddress({
+                line1: customer.shipLine1,
+                line2: customer.shipLine2,
+                city: customer.shipCity,
+                region: customer.shipRegion,
+                postcode: customer.shipPostcode,
+                country: customer.shipCountry,
+              }) || "\u2014"}
             </dd>
           </div>
           <div>

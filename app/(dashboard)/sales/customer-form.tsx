@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -13,7 +13,9 @@ import {
   updateCustomerSchema,
 } from "@/lib/schemas/customers";
 import type { CustomerCategoryOption, CustomerRow } from "./types";
+import { AddressFields } from "@/components/address-fields";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -78,11 +80,107 @@ export function CustomerForm({
           customerCategoryId: initialData.customerCategoryId,
           email: initialData.email,
           phone: initialData.phone,
-          address: initialData.address,
+          billingLine1: initialData.billingLine1,
+          billingLine2: initialData.billingLine2,
+          billingCity: initialData.billingCity,
+          billingRegion: initialData.billingRegion,
+          billingPostcode: initialData.billingPostcode,
+          billingCountry: initialData.billingCountry,
+          shipLine1: initialData.shipLine1,
+          shipLine2: initialData.shipLine2,
+          shipCity: initialData.shipCity,
+          shipRegion: initialData.shipRegion,
+          shipPostcode: initialData.shipPostcode,
+          shipCountry: initialData.shipCountry,
           notes: initialData.notes,
         }
       : customerDefaultValues,
   });
+
+  const [shippingSameAsBilling, setShippingSameAsBilling] = useState(() => {
+    if (!initialData) return true;
+    const billing = [
+      initialData.billingLine1,
+      initialData.billingLine2,
+      initialData.billingCity,
+      initialData.billingRegion,
+      initialData.billingPostcode,
+      initialData.billingCountry,
+    ];
+    const shipping = [
+      initialData.shipLine1,
+      initialData.shipLine2,
+      initialData.shipCity,
+      initialData.shipRegion,
+      initialData.shipPostcode,
+      initialData.shipCountry,
+    ];
+    const allShippingBlank = shipping.every((value) => value == null || value === "");
+    if (allShippingBlank) return true;
+    return billing.every((value, index) => (value ?? "") === (shipping[index] ?? ""));
+  });
+  const billingAddress = useWatch({
+    control: form.control,
+    name: [
+      "billingLine1",
+      "billingLine2",
+      "billingCity",
+      "billingRegion",
+      "billingPostcode",
+      "billingCountry",
+    ],
+  });
+  const hasInitializedShippingSync = useRef(false);
+
+  useEffect(() => {
+    if (!shippingSameAsBilling) {
+      hasInitializedShippingSync.current = true;
+      return;
+    }
+
+    const [
+      billingLine1,
+      billingLine2,
+      billingCity,
+      billingRegion,
+      billingPostcode,
+      billingCountry,
+    ] = billingAddress;
+    const currentShipping = form.getValues([
+      "shipLine1",
+      "shipLine2",
+      "shipCity",
+      "shipRegion",
+      "shipPostcode",
+      "shipCountry",
+    ]);
+    const nextShipping = [
+      billingLine1 ?? null,
+      billingLine2 ?? null,
+      billingCity ?? null,
+      billingRegion ?? null,
+      billingPostcode ?? null,
+      billingCountry ?? null,
+    ];
+
+    if (
+      currentShipping.every(
+        (value, index) => (value ?? null) === (nextShipping[index] ?? null)
+      )
+    ) {
+      hasInitializedShippingSync.current = true;
+      return;
+    }
+
+    const shouldDirty = hasInitializedShippingSync.current;
+    form.setValue("shipLine1", billingLine1 ?? null, { shouldDirty });
+    form.setValue("shipLine2", billingLine2 ?? null, { shouldDirty });
+    form.setValue("shipCity", billingCity ?? null, { shouldDirty });
+    form.setValue("shipRegion", billingRegion ?? null, { shouldDirty });
+    form.setValue("shipPostcode", billingPostcode ?? null, { shouldDirty });
+    form.setValue("shipCountry", billingCountry ?? null, { shouldDirty });
+    hasInitializedShippingSync.current = true;
+  }, [billingAddress, form, shippingSameAsBilling]);
 
   const categoryMutation = useMutation({
     mutationFn: async () => {
@@ -321,24 +419,63 @@ export function CustomerForm({
                 />
               </div>
 
-              <Controller
-                control={form.control}
-                name="address"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Address</FieldLabel>
-                    <Textarea
-                      {...field}
-                      id={field.name}
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value)}
-                      aria-invalid={fieldState.invalid}
-                      rows={4}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
+            </FieldGroup>
+          </FieldSet>
+
+          <FieldSeparator />
+
+          <FieldSet className="max-w-4xl gap-5">
+            <FieldLegend>Billing Address</FieldLegend>
+            <FieldDescription>
+              Mailing address used for invoices and accounting sync.
+            </FieldDescription>
+            <AddressFields
+              control={form.control}
+              idPrefix="customer-billing"
+              names={{
+                line1: "billingLine1",
+                line2: "billingLine2",
+                city: "billingCity",
+                region: "billingRegion",
+                postcode: "billingPostcode",
+                country: "billingCountry",
+              }}
+            />
+          </FieldSet>
+
+          <FieldSeparator />
+
+          <FieldSet className="max-w-4xl gap-5">
+            <FieldLegend>Shipping Address</FieldLegend>
+            <FieldDescription>
+              Default ship-to address for sales orders. Each order can override it.
+            </FieldDescription>
+            <FieldGroup>
+              <Field>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={shippingSameAsBilling}
+                    onCheckedChange={(checked) => {
+                      setShippingSameAsBilling(checked === true);
+                    }}
+                  />
+                  Same as billing address
+                </label>
+              </Field>
+              {!shippingSameAsBilling && (
+                <AddressFields
+                  control={form.control}
+                  idPrefix="customer-shipping"
+                  names={{
+                    line1: "shipLine1",
+                    line2: "shipLine2",
+                    city: "shipCity",
+                    region: "shipRegion",
+                    postcode: "shipPostcode",
+                    country: "shipCountry",
+                  }}
+                />
+              )}
             </FieldGroup>
           </FieldSet>
 

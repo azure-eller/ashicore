@@ -1,5 +1,6 @@
+import Link from "next/link";
 import type { Metadata } from "next";
-import { canManageTeam } from "@/lib/authz";
+import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getSettingsSections } from "./sections";
@@ -7,6 +8,7 @@ import { SettingsNav } from "./settings-nav";
 import { AppearanceSection } from "./appearance-section";
 import { ProfileSection } from "./profile-section";
 import { TeamSection } from "./team-section";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -16,6 +18,9 @@ export default async function SettingsPage() {
   const context = await getAuthedMemberContext();
   const sections = getSettingsSections(context.assignedRoles);
   const showTeam = canManageTeam(context.assignedRoles);
+  const showIntegrations =
+    hasModuleAccess(context.assignedRoles, "sales", "operate") ||
+    hasModuleAccess(context.assignedRoles, "purchasing", "operate");
 
   const [accountData, teamData] = await Promise.all([
     getAccountPageData(),
@@ -37,6 +42,25 @@ export default async function SettingsPage() {
             <ProfileSection initialData={accountData} />
             <AppearanceSection />
             {teamData ? <TeamSection initialData={teamData} /> : null}
+            {showIntegrations && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Integrations</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <p>
+                    Connect Xero to push customers and invoices, and pull
+                    existing contacts.
+                  </p>
+                  <Link
+                    href="/settings/integrations"
+                    className="inline-flex text-sm font-medium text-foreground hover:underline"
+                  >
+                    Manage integrations &rarr;
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
 

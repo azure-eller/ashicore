@@ -377,9 +377,9 @@ if (item.itemType === "material") {
 return deriveBomIngredientCost(...)
 ```
 
-### Sales fulfillment
+### Sales shipping
 
-Sales fulfillment is one-shot: `confirmed -> fulfilled` consumes stock FIFO, writes `sales_fulfilled` stock movements, and recomputes `committedQty`. Fulfilled orders are historical and do not block customer/product soft delete.
+Sales shipping is one-shot: `confirmed -> shipped` consumes stock FIFO, writes `sales_shipped` stock movements, and recomputes `committedQty`. Shipped orders are historical and do not block customer/product soft delete.
 
 ### API error shape
 
