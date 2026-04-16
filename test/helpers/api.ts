@@ -195,6 +195,21 @@ export async function deleteItem(id: string) {
 }
 
 /**
+ * POST /api/items/:id/variants
+ */
+export async function createVariant(
+  id: string,
+  data: Record<string, unknown>
+) {
+  const res = await testFetch(`/api/items/${id}/variants`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+/**
  * POST /api/units
  */
 export async function createUnit(data: {
@@ -446,6 +461,34 @@ export async function updateSalesOrder(
       lines: data.lines,
       confirmOversell: data.confirmOversell ?? false,
     }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+/**
+ * POST /api/sales-orders/:id/confirm
+ */
+export async function confirmSalesOrder(
+  id: string,
+  options?: { confirmOversell?: boolean }
+) {
+  const res = await testFetch(`/api/sales-orders/${id}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({
+      confirmOversell: options?.confirmOversell ?? false,
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+/**
+ * POST /api/sales-orders/:id/fulfill
+ */
+export async function fulfillSalesOrder(id: string) {
+  const res = await testFetch(`/api/sales-orders/${id}/fulfill`, {
+    method: "POST",
   });
   const body = await res.json().catch(() => null);
   return { status: res.status, body };

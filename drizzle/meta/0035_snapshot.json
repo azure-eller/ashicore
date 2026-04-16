@@ -1,6 +1,6 @@
 {
-  "id": "78efea24-59d5-41f4-8e52-f3dca8f26dce",
-  "prevId": "5c970c14-0a05-4802-b336-71d18cc8c97d",
+  "id": "5c970c14-0a05-4802-b336-71d18cc8c97d",
+  "prevId": "aa44dcf8-b815-4410-b78f-aa33bcd06964",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -270,6 +270,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "sellable": {
+          "name": "sellable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -457,6 +463,14 @@
         "items_variant_axes_needs_master": {
           "name": "items_variant_axes_needs_master",
           "value": "variant_axes IS NULL OR is_master = true"
+        },
+        "items_master_sellable_must_be_null": {
+          "name": "items_master_sellable_must_be_null",
+          "value": "is_master = false OR sellable IS NULL"
+        },
+        "items_non_master_sellable_required": {
+          "name": "items_non_master_sellable_required",
+          "value": "is_master = true OR sellable IS NOT NULL"
         }
       },
       "isRLSEnabled": true
@@ -1728,75 +1742,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "billing_line1": {
-          "name": "billing_line1",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_line2": {
-          "name": "billing_line2",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_city": {
-          "name": "billing_city",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_region": {
-          "name": "billing_region",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_postcode": {
-          "name": "billing_postcode",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_country": {
-          "name": "billing_country",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ship_line1": {
-          "name": "ship_line1",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ship_line2": {
-          "name": "ship_line2",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ship_city": {
-          "name": "ship_city",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ship_region": {
-          "name": "ship_region",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ship_postcode": {
-          "name": "ship_postcode",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ship_country": {
-          "name": "ship_country",
-          "type": "varchar(120)",
+        "address": {
+          "name": "address",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -4157,39 +4105,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "billing_line1": {
-          "name": "billing_line1",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_line2": {
-          "name": "billing_line2",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_city": {
-          "name": "billing_city",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_region": {
-          "name": "billing_region",
-          "type": "varchar(120)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_postcode": {
-          "name": "billing_postcode",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billing_country": {
-          "name": "billing_country",
-          "type": "varchar(120)",
+        "address": {
+          "name": "address",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

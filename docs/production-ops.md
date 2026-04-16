@@ -43,6 +43,8 @@ Required env vars:
 
 In local and CI environments without Resend configured, the app writes transactional emails to `.tmp/email-outbox/` instead of sending them.
 
+Playwright also forces outbox mode with `.tmp/email-outbox-only` during `test/global-setup.ts`. This avoids linked-worktree cases where the dev server inherited repo-root Resend vars before the test process started.
+
 ## Vercel Auth Protection Checklist
 
 For launch, auth abuse protection is infra-owned rather than app-owned. Before launch, verify Vercel-side controls cover:

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { EMAIL_OUTBOX_DIR } from "../../lib/email/outbox";
 
 export type EmailOutboxEntry = {
   createdAt: string;
@@ -10,7 +11,10 @@ export type EmailOutboxEntry = {
   to: string;
 };
 
-const EMAIL_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "email-outbox");
+const FALLBACK_EMAIL_OUTBOX_DIR = path.resolve(__dirname, "../..", ".tmp", "email-outbox");
+const EMAIL_OUTBOX_DIRS = Array.from(
+  new Set([EMAIL_OUTBOX_DIR, FALLBACK_EMAIL_OUTBOX_DIR])
+);
 
 export async function waitForOutboxEmail({
   since,
@@ -27,7 +31,7 @@ export async function waitForOutboxEmail({
   const normalizedTo = to.toLowerCase();
 
   while (Date.now() < deadline) {
-    const entries = await readOutboxEmails().catch(() => []);
+    const entries = await readOutboxEmails();
     const match = entries
       .filter((entry) => entry.tag === tag)
       .filter((entry) => entry.to.toLowerCase() === normalizedTo)
@@ -40,7 +44,9 @@ export async function waitForOutboxEmail({
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
-  throw new Error(`Timed out waiting for ${tag} email to ${to}.`);
+  throw new Error(
+    `Timed out waiting for ${tag} email to ${to}. Checked: ${EMAIL_OUTBOX_DIRS.join(", ")}.`
+  );
 }
 
 export function extractFirstUrl(value: string) {
@@ -54,14 +60,20 @@ export function extractFirstUrl(value: string) {
 }
 
 async function readOutboxEmails() {
-  const fileNames = await fs.readdir(EMAIL_OUTBOX_DIR);
+  const emails: EmailOutboxEntry[] = [];
 
-  const emails = await Promise.all(
-    fileNames.map(async (fileName) => {
-      const content = await fs.readFile(path.join(EMAIL_OUTBOX_DIR, fileName), "utf8");
-      return JSON.parse(content) as EmailOutboxEntry;
-    })
-  );
+  for (const dir of EMAIL_OUTBOX_DIRS) {
+    const fileNames = await fs.readdir(dir).catch(() => []);
+
+    for (const fileName of fileNames) {
+      try {
+        const content = await fs.readFile(path.join(dir, fileName), "utf8");
+        emails.push(JSON.parse(content) as EmailOutboxEntry);
+      } catch {
+        // Ignore transient partial writes and keep polling.
+      }
+    }
+  }
 
   return emails.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }

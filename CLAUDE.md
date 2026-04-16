@@ -467,6 +467,15 @@ Invite, verification, and password-reset emails must use the configured canonica
 const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL
 ```
 
+### Playwright email outbox
+
+Playwright email assertions must force outbox mode with the runtime flag file, not only process env. The dev server may inherit repo-root Resend vars before tests start.
+
+```ts
+fs.writeFileSync(EMAIL_OUTBOX_MODE_FLAG, "1")
+if (!senderConfig || (await shouldWriteEmailOutbox())) await writeEmailOutbox(email)
+```
+
 ### Observability hygiene
 
 Sentry and API error logging must redact secrets and user-entered notes. Never capture passwords, tokens, cookies, raw request bodies, or customer notes/comments by default.

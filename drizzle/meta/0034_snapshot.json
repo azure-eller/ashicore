@@ -1,5 +1,5 @@
 {
-  "id": "5c970c14-0a05-4802-b336-71d18cc8c97d",
+  "id": "aa44dcf8-b815-4410-b78f-aa33bcd06964",
   "prevId": "4bdfb91b-ab0e-4b41-8588-4376041f6ac9",
   "version": "7",
   "dialect": "postgresql",
@@ -191,6 +191,12 @@
         "default_selling_price": {
           "name": "default_selling_price",
           "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sellable": {
+          "name": "sellable",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": false
         },
@@ -449,6 +455,14 @@
         "items_non_master_needs_unit": {
           "name": "items_non_master_needs_unit",
           "value": "is_master = true OR unit_definition_id IS NOT NULL"
+        },
+        "items_master_sellable_must_be_null": {
+          "name": "items_master_sellable_must_be_null",
+          "value": "is_master = false OR sellable IS NULL"
+        },
+        "items_non_master_sellable_required": {
+          "name": "items_non_master_sellable_required",
+          "value": "is_master = true OR sellable IS NOT NULL"
         },
         "items_variant_attrs_needs_parent": {
           "name": "items_variant_attrs_needs_parent",
@@ -2473,8 +2487,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "shipped_at": {
-          "name": "shipped_at",
+        "fulfilled_at": {
+          "name": "fulfilled_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false

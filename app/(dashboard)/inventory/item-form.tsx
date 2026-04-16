@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -83,6 +82,7 @@ const uomGroups = getUomOptions();
 type AvailableComponent = {
   id: string;
   name: string;
+  displayName: string;
   itemType: string;
   unit: string;
 };
@@ -108,7 +108,6 @@ export function ItemForm({
   canManageBomLock = false,
   initialData,
 }: ItemFormProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const segment = ITEM_TYPE_SEGMENTS[itemType];
   const isEditing = Boolean(initialData);
@@ -166,6 +165,7 @@ export function ItemForm({
           description: initialData.description,
           defaultPurchasePrice: initialData.defaultPurchasePrice,
           defaultSellingPrice: initialData.defaultSellingPrice,
+          sellable: initialData.sellable ?? true,
           manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
           expectedBatchYield: initialData.expectedBatchYield,
           bomLocked: initialData.bomLocked ?? false,
@@ -192,6 +192,7 @@ export function ItemForm({
             description: null,
             defaultPurchasePrice: null,
             defaultSellingPrice: null,
+            sellable: true,
             manufacturingMode: "discrete" as const,
             expectedBatchYield: null,
             bomLocked: false,
@@ -291,8 +292,11 @@ export function ItemForm({
       return res.json();
     },
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["items", itemType] });
-      router.push(isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`);
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      const nextPath = isEditing ? fallbackPath : `/inventory/${segment}/${result.id}`;
+      window.setTimeout(() => {
+        window.location.assign(nextPath);
+      }, 250);
     },
     onError: (error) => {
       setFormError(error.message);
@@ -651,6 +655,28 @@ export function ItemForm({
                       {fieldState.invalid && (
                         <FieldError errors={[fieldState.error]} />
                       )}
+                    </Field>
+                  )}
+                />
+              )}
+
+              {itemType === "product" && !isMaster && (
+                <Controller
+                  name="sellable"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Field orientation="horizontal">
+                      <Switch
+                        id={field.name}
+                        checked={field.value ?? true}
+                        onCheckedChange={field.onChange}
+                      />
+                      <div className="flex flex-col gap-1">
+                        <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
+                        <FieldDescription>
+                          Show this product in the main Products catalog.
+                        </FieldDescription>
+                      </div>
                     </Field>
                   )}
                 />

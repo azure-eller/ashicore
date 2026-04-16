@@ -48,6 +48,7 @@ export const items = inventorySchema
       // Pricing
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
       defaultSellingPrice: numeric("default_selling_price", { precision: 10, scale: 2 }),
+      sellable: boolean("sellable"),
 
       // Manufacturing
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
@@ -90,6 +91,8 @@ export const items = inventorySchema
       check("items_products_only_masters", sql`is_master = false OR item_type = 'product'`),
       check("items_variants_not_masters", sql`parent_id IS NULL OR is_master = false`),
       check("items_non_master_needs_unit", sql`is_master = true OR unit_definition_id IS NOT NULL`),
+      check("items_master_sellable_must_be_null", sql`is_master = false OR sellable IS NULL`),
+      check("items_non_master_sellable_required", sql`is_master = true OR sellable IS NOT NULL`),
       check("items_variant_attrs_needs_parent", sql`variant_attrs IS NULL OR parent_id IS NOT NULL`),
       check("items_variant_axes_needs_master", sql`variant_axes IS NULL OR is_master = true`),
       pgPolicy("items_org_isolation", {

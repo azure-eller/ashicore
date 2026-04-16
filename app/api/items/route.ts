@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getItems, createItemWithLot, createMasterProduct, deleteItems } from "@/app/(dashboard)/inventory/queries";
-import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
+import {
+  INVENTORY_PRODUCT_VIEWS,
+  ITEM_TYPES,
+  type InventoryProductView,
+  type ItemType,
+} from "@/app/(dashboard)/inventory/types";
 import { MissingStockCostError } from "@/lib/inventory/stock";
 import { insertItemSchema, insertMasterItemSchema } from "@/lib/schemas/items";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
@@ -15,11 +20,18 @@ export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);
   const { searchParams } = new URL(request.url);
   const raw = searchParams.get("itemType");
+  const rawView = searchParams.get("view");
   const itemType: ItemType | undefined =
     raw && (ITEM_TYPES as readonly string[]).includes(raw)
       ? (raw as ItemType)
       : undefined;
-  const data = await getItems(itemType ? { itemType } : undefined);
+  const view: InventoryProductView | undefined =
+    rawView && (INVENTORY_PRODUCT_VIEWS as readonly string[]).includes(rawView)
+      ? (rawView as InventoryProductView)
+      : undefined;
+  const data = await getItems(
+    itemType ? { itemType, view: itemType === "product" ? view : undefined } : undefined
+  );
   return NextResponse.json(data);
 });
 
