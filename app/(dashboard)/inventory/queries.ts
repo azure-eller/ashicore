@@ -245,9 +245,9 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
     .where(
       and(
         inArray(salesOrderLines.itemId, uniqueItemIds),
-        eq(salesOrders.status, "fulfilled"),
+        eq(salesOrders.status, "shipped"),
         isNull(salesOrders.deletedAt),
-        sql`${salesOrders.fulfilledAt} >= ${thirtyDaysAgo}`,
+        sql`${salesOrders.shippedAt} >= ${thirtyDaysAgo}`,
       ),
     )
     .groupBy(salesOrderLines.itemId);
