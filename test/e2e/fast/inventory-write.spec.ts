@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { test, expect } from "../fixtures";
+import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect } from "../fixtures";
 import {
   bomRevisionComponents,
   bomRevisions,
@@ -151,6 +151,13 @@ test.describe("Inventory write-path smoke", () => {
 
     await page.waitForURL(`**/inventory/products/${productId}`);
     await expect(page.getByRole("heading", { name: productName })).toBeVisible();
+    await expect
+      .poll(async () => {
+        const uiCount = await getInventoryTabCount(page, "Products");
+        const counts = await getExpectedInventoryTabCounts(db);
+        return uiCount - counts.products;
+      })
+      .toBe(0);
 
     const [product] = await db.select().from(items).where(eq(items.id, productId));
     expect(product.itemType).toBe("product");
@@ -180,7 +187,12 @@ test.describe("Inventory write-path smoke", () => {
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
 
     const bomRow = page.getByTestId("bom-row").first();
-    await bomRow.locator("input[inputmode='decimal']").fill("1.5");
+    const quantityInput = bomRow.locator("input[inputmode='decimal']").first();
+    await quantityInput.click();
+    await quantityInput.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
+    await quantityInput.fill("1.5");
+    await page.getByRole("heading", { name: "Edit Product" }).click();
+    await expect(page.getByLabel("Revision Note")).toBeVisible();
     await page.getByLabel("Revision Note").fill("Increase sand ratio");
 
     const updateResponsePromise = page.waitForResponse(

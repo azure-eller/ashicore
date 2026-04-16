@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -7,6 +9,7 @@ import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
+import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { SortableHeader } from "@/components/sortable-header";
 import {
   Tooltip,
@@ -19,11 +22,94 @@ import {
 } from "@/lib/tooltip-copy";
 import { formatQuantity } from "@/lib/format";
 import { calcStock } from "./types";
-import type { ItemRow, ItemType } from "./types";
+import type { InventoryProductView, ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
-export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
+type UsedInResponse = {
+  parents: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+  }>;
+};
+
+function UsedInPopover({
+  itemId,
+  usedInCount,
+  isMaster,
+}: {
+  itemId: string;
+  usedInCount: number;
+  isMaster: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery<UsedInResponse>({
+    queryKey: ["items", itemId, "used-in"],
+    queryFn: async () => {
+      const response = await fetch(`/api/items/${itemId}/used-in`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch parent products");
+      }
+
+      return response.json();
+    },
+    enabled: open && usedInCount > 0 && !isMaster,
+  });
+
+  if (isMaster) {
+    return "\u2014";
+  }
+
+  if (usedInCount === 0) {
+    return <span className="text-muted-foreground">0</span>;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="cursor-pointer text-left font-medium text-foreground underline decoration-dotted underline-offset-4 hover:text-primary"
+        >
+          {usedInCount}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-80 bg-popover text-popover-foreground"
+      >
+        <PopoverHeader>
+          <PopoverTitle>Used In</PopoverTitle>
+          <PopoverDescription>
+            Products that currently consume this item in their recipe.
+          </PopoverDescription>
+        </PopoverHeader>
+        <div className="mt-3 flex flex-col gap-2">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading parent products…</p>
+          ) : (
+            data?.parents.map((parent) => (
+              <Link
+                key={parent.id}
+                href={`/inventory/products/${parent.id}`}
+                className="text-sm font-medium hover:underline"
+              >
+                {parent.displayName}
+              </Link>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function getColumns(
+  itemType: ItemType,
+  view?: InventoryProductView,
+): ColumnDef<ItemRow>[] {
   const isProduct = itemType === "product";
+  const isSubAssemblies = view === "sub-assemblies";
 
   return [
     {
@@ -42,34 +128,33 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label={`Select ${row.getValue("name")}`}
+          aria-label={`Select ${row.original.displayName}`}
         />
       ),
       enableSorting: false,
       enableHiding: false,
     },
     {
-      accessorKey: "name",
+      accessorKey: "displayName",
       header: ({ column }) => <SortableHeader column={column} label="Name" />,
       cell: ({ row }) => {
-        const { isMaster, parentId, variantCount, variantAttrs } = row.original;
+        const { isMaster, parentId, variantCount, variantAttrs, sellable } = row.original;
         const isVariant = parentId != null;
         const isLow = !isMaster && calcStock(row.original) < 0;
 
-        if (row.depth > 0) {
-          // Variant sub-row: show only attr values (master name visible above)
-          const attrValues: string = variantAttrs
+        if (row.depth > 0 && !isSubAssemblies) {
+          const attrValues = variantAttrs
             ? Object.values(variantAttrs).join(" / ")
-            : (row.getValue("name") as string);
-          return (
-            <div className="pl-6 text-sm text-muted-foreground">{attrValues}</div>
-          );
+            : row.original.displayName;
+
+          return <div className="pl-6 text-sm text-muted-foreground">{attrValues}</div>;
         }
 
         return (
-          <div className={`flex items-center gap-1.5 ${isVariant ? "pl-7" : ""}`}>
-            {isMaster && (
+          <div className={`flex items-center gap-1.5 ${isVariant && !isSubAssemblies ? "pl-7" : ""}`}>
+            {isMaster && !isSubAssemblies ? (
               <button
+                type="button"
                 onClick={() => row.toggleExpanded()}
                 aria-label={row.getIsExpanded() ? "Collapse" : "Expand"}
                 className="p-0.5 text-muted-foreground hover:text-foreground"
@@ -79,8 +164,8 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
                   className="h-4 w-4"
                 />
               </button>
-            )}
-            {isLow && (
+            ) : null}
+            {isLow ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
@@ -92,18 +177,23 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
                   {CALCULATED_STOCK_ALERT_TOOLTIP}
                 </TooltipContent>
               </Tooltip>
-            )}
+            ) : null}
             <Link
               href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
               className="hover:underline"
             >
-              {row.getValue("name")}
+              {row.original.displayName}
             </Link>
-            {isMaster && variantCount > 0 && (
+            {isMaster && variantCount > 0 ? (
               <Badge variant="outline" className="text-xs">
                 {variantCount} variant{variantCount !== 1 ? "s" : ""}
               </Badge>
-            )}
+            ) : null}
+            {isSubAssemblies && sellable === false ? (
+              <Badge variant="outline" className="text-xs">
+                Not sellable
+              </Badge>
+            ) : null}
           </div>
         );
       },
@@ -162,8 +252,23 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
         );
       },
     },
-    // Potential column: only shown for products — how many units could be made from current ingredient stock
     ...(isProduct
+      ? [
+          {
+            id: "usedIn",
+            accessorFn: (row: ItemRow) => row.usedInCount,
+            header: "Used In",
+            cell: ({ row }) => (
+              <UsedInPopover
+                itemId={row.original.id}
+                usedInCount={row.original.usedInCount}
+                isMaster={row.original.isMaster}
+              />
+            ),
+          } satisfies ColumnDef<ItemRow>,
+        ]
+      : []),
+    ...(isProduct && !isSubAssemblies
       ? [
           {
             accessorKey: "potential",
@@ -196,6 +301,7 @@ export function getColumns(itemType: ItemType): ColumnDef<ItemRow>[] {
     {
       accessorKey: "unit",
       header: "Stocking Unit",
+      cell: ({ row }) => row.original.unit ?? "\u2014",
     },
     {
       accessorKey: "sku",

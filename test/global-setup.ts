@@ -10,6 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "../lib/email/outbox";
 import {
   TEST_STORAGE_STATE_PATH,
   type TestEnv,
@@ -24,8 +25,6 @@ const TEST_PASSWORD = "TestPassword123!";
 const TEST_NAME = "Test Agent";
 const TEST_ORG = "Test Org";
 const TEST_ORG_SLUG = "test-org";
-const EMAIL_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "email-outbox");
-
 async function authFetch(path: string, body: Record<string, unknown>) {
   return fetch(`${BASE_URL}${path}`, {
     method: "POST",
@@ -76,6 +75,8 @@ async function listOrganizations(cookies: string) {
 
 export default async function setup() {
   fs.rmSync(EMAIL_OUTBOX_DIR, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(EMAIL_OUTBOX_MODE_FLAG), { recursive: true });
+  fs.writeFileSync(EMAIL_OUTBOX_MODE_FLAG, "1");
 
   // Verify dev server is running
   try {

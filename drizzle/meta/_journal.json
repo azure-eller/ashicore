@@ -239,6 +239,13 @@
       "when": 1776136653677,
       "tag": "0033_superb_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1776305162905,
+      "tag": "0034_silent_celestials",
+      "breakpoints": true
     }
   ]
 }

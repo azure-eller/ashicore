@@ -1,4 +1,4 @@
-import { test, expect } from "../fixtures";
+import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect } from "../fixtures";
 import { and, eq, isNull } from "drizzle-orm";
 import { items } from "@/lib/db/schema";
 
@@ -19,7 +19,7 @@ test.describe("variant product family", () => {
     await page.getByLabel("Name").fill(masterName);
 
     // Enable variants — the Switch is inside a label that says "Has variants"
-    const variantsToggle = page.getByRole("switch");
+    const variantsToggle = page.getByRole("switch", { name: "Has variants" });
     await variantsToggle.click();
 
     // Wait for the Variant Axes section to appear
@@ -80,6 +80,13 @@ test.describe("variant product family", () => {
 
     // Should redirect back to master detail
     await page.waitForURL(new RegExp(`/inventory/products/${masterId}$`), { timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const uiCount = await getInventoryTabCount(page, "Products");
+        const counts = await getExpectedInventoryTabCounts(db);
+        return uiCount - counts.products;
+      })
+      .toBe(0);
 
     // Verify DB
     const variant = await db

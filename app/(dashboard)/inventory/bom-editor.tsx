@@ -24,6 +24,7 @@ import type {
 type AvailableComponent = {
   id: string;
   name: string;
+  displayName: string;
   itemType: string;
   unit: string;
 };
@@ -133,7 +134,7 @@ function BomRow({
                 items={componentIds}
                 value={f.value ?? ""}
                 onValueChange={(id) => f.onChange(id ?? "")}
-                itemToStringLabel={(id) => componentMap.get(id)?.name ?? ""}
+                itemToStringLabel={(id) => componentMap.get(id)?.displayName ?? ""}
               >
                 <ComboboxInput className="w-full" placeholder="Search items..." />
                 <ComboboxContent>
@@ -143,7 +144,7 @@ function BomRow({
                       const comp = componentMap.get(id);
                       return (
                         <ComboboxItem key={id} value={id}>
-                          <span>{comp?.name ?? id}</span>
+                          <span>{comp?.displayName ?? comp?.name ?? id}</span>
                           {comp && (
                             <Badge variant="outline" className="ml-auto text-xs">
                               {comp.itemType}
