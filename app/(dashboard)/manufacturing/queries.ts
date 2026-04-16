@@ -1008,6 +1008,10 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
+        salesCustomerName: manufacturingOrders.salesCustomerName,
+        requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
+          "requestedQuantity"
+        ),
         plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
           "plannedQuantity"
         ),
@@ -1296,6 +1300,9 @@ export async function getManufacturingOrder(
         numberOfBatches: manufacturingOrders.numberOfBatches,
         expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
           "expectedBatchYield"
+        ),
+        requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
+          "requestedQuantity"
         ),
         plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
           "plannedQuantity"

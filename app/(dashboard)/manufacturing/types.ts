@@ -100,6 +100,8 @@ export type ManufacturingOrderListRow = {
   productName: string;
   productSku: string | null;
   salesOrderNumber: string | null;
+  salesCustomerName: string | null;
+  requestedQuantity: string;
   plannedQuantity: string;
   actualQuantity: string | null;
   unitName: string;
@@ -170,6 +172,7 @@ export type ManufacturingOrderDetail = {
   manufacturingMode: string;
   numberOfBatches: number | null;
   expectedBatchYield: string | null;
+  requestedQuantity: string;
   plannedQuantity: string;
   actualQuantity: string | null;
   pickProgressStatus: ManufacturingPickProgressStatus;
