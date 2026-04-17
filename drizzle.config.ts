@@ -15,7 +15,7 @@ export default defineConfig({
   out: "./drizzle",
   schema: "./lib/db/schema/index.ts",
   dialect: "postgresql",
-  schemaFilter: ["inventory", "sales", "purchasing", "manufacturing", "system", "xero"],
+  schemaFilter: ["inventory", "sales", "purchasing", "manufacturing", "system", "xero", "agent"],
   dbCredentials: {
     url: databaseUrl,
   },

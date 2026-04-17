@@ -57,7 +57,7 @@ When you discover a new pattern or gotcha:
 - `DATABASE_URL_APP` (app_user) — app runtime, RLS enforced, no DDL
 
 New schemas: grant `app_user` USAGE + CRUD on tables + sequences (see `docs/database.md`).
-New tables: `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` + policy on `current_setting('app.current_org_id', true)`. Always use `FORCE` — without it the owner bypasses RLS.
+New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plus `ALTER TABLE ... FORCE ROW LEVEL SECURITY` in the migration SQL (Drizzle has no `.forceRLS()` helper). Without `FORCE`, the owner bypasses RLS.
 `system` schema keeps RLS off, but `app_user` still needs USAGE + CRUD on Better Auth tables.
 
 ## Critical Rules

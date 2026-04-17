@@ -10,3 +10,4 @@ export * from "./purchasing";
 export * from "./auth";
 export * from "./user-preferences";
 export * from "./xero";
+export * from "./agent";

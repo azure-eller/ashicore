@@ -7,10 +7,10 @@ import { AuthorizationError } from "@/lib/authz";
 
 export type RouteContext = { params: Promise<{ id: string }> };
 
-export function apiHandler(
-  fn: (request: Request, ...args: unknown[]) => Promise<NextResponse>
+export function apiHandler<TArgs extends unknown[]>(
+  fn: (request: Request, ...args: TArgs) => Promise<NextResponse>
 ) {
-  return async (request: Request, ...args: unknown[]) => {
+  return async (request: Request, ...args: TArgs) => {
     const requestId = request.headers.get("x-request-id") ?? randomUUID();
     const pathname = new URL(request.url).pathname;
 

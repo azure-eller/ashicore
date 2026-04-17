@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Field,
   FieldDescription,
@@ -31,6 +32,7 @@ export function LoginForm({
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [rememberMe, setRememberMe] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -45,7 +47,7 @@ export function LoginForm({
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const { error } = await authClient.signIn.email({ email, password })
+    const { error } = await authClient.signIn.email({ email, password, rememberMe })
     if (error) {
       setError(error.message ?? "Sign in failed")
       setLoading(false)
@@ -94,6 +96,16 @@ export function LoginForm({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
+              </Field>
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(value) => setRememberMe(value === true)}
+                />
+                <FieldLabel htmlFor="remember-me" className="font-normal">
+                  Remember me
+                </FieldLabel>
               </Field>
               {successMessage && (
                 <FieldDescription className="text-foreground">

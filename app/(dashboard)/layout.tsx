@@ -2,6 +2,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { Providers } from "@/app/providers";
 import { ReadabilityProvider } from "@/app/readability-provider";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { canWriteModule } from "@/lib/authz";
 import { getUserReadability } from "./settings/queries";
 import {
   SidebarInset,
@@ -22,6 +23,7 @@ export default async function DashboardLayout({
     email: context.email,
     avatar: context.avatar,
   };
+  const agentEnabled = canWriteModule(context.assignedRoles, "sales");
 
   return (
     <Providers>
@@ -31,6 +33,7 @@ export default async function DashboardLayout({
             user={user}
             assignedRoles={context.assignedRoles}
             organizationName={context.organizationName}
+            agentEnabled={agentEnabled}
           />
           <SidebarInset>{children}</SidebarInset>
         </SidebarProvider>

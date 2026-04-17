@@ -164,3 +164,33 @@ html.dark [data-sidebar-bar] {
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes agent-rainbow-wave {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.agent-rainbow-text {
+  background-image: linear-gradient(
+    90deg,
+    oklch(0.75 0.12 300),
+    oklch(0.82 0.14 250),
+    oklch(0.82 0.14 200),
+    oklch(0.85 0.14 150),
+    oklch(0.85 0.15 80),
+    oklch(0.8 0.18 30),
+    oklch(0.75 0.18 350),
+    oklch(0.75 0.12 300)
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: agent-rainbow-wave 8s linear infinite;
+}

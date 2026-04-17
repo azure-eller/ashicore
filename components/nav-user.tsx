@@ -33,12 +33,14 @@ import { useRouter } from "next/navigation"
 
 export function NavUser({
   user,
+  organizationName,
 }: {
   user: {
     name: string
     email: string
     avatar?: string
   }
+  organizationName?: string
 }) {
   const { isMobile } = useSidebar()
   const router = useRouter()
@@ -70,7 +72,9 @@ export function NavUser({
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs">{user.email}</span>
+                {organizationName ? (
+                  <span className="truncate text-xs text-sidebar-foreground/60">{organizationName}</span>
+                ) : null}
               </div>
               <HugeiconsIcon icon={UnfoldMoreIcon} strokeWidth={2} className="ml-auto size-4" />
             </SidebarMenuButton>

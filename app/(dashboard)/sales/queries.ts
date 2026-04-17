@@ -31,6 +31,7 @@ import {
   InsufficientStockError,
   lockItemsInTx,
 } from "@/lib/inventory/stock";
+import { invalidateOrgPromptSectionCache } from "@/lib/agent/core/promptSections";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -1186,7 +1187,7 @@ export async function getCustomerCategory(id: string) {
 }
 
 export async function createCustomerCategory(data: InsertCustomerCategory) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId) => {
     await ensureCustomerCategoryNameAvailableInTx(tx, data.name);
 
     const [maxSortOrderRow] = await tx
@@ -1206,12 +1207,15 @@ export async function createCustomerCategory(data: InsertCustomerCategory) {
       })
       .returning({ id: customerCategories.id, name: customerCategories.name });
 
-    return category;
+    return { category, orgId };
   });
+
+  invalidateOrgPromptSectionCache(result.orgId);
+  return result.category;
 }
 
 export async function updateCustomerCategory(id: string, data: UpdateCustomerCategory) {
-  return withAuthedOrgContext(async (tx) => {
+  const result = await withAuthedOrgContext(async (tx, orgId) => {
     await ensureCustomerCategoryNameAvailableInTx(tx, data.name, {
       excludeId: id,
     });
@@ -1231,8 +1235,11 @@ export async function updateCustomerCategory(id: string, data: UpdateCustomerCat
       )
       .returning({ id: customerCategories.id });
 
-    return category ?? null;
+    return { category: category ?? null, orgId };
   });
+
+  invalidateOrgPromptSectionCache(result.orgId);
+  return result.category;
 }
 
 async function ensureCustomerCategoriesDeletableInTx(
@@ -1302,19 +1309,31 @@ async function softDeleteCustomerCategoriesInTx(tx: Tx, categoryIds: string[]) {
 }
 
 export async function deleteCustomerCategory(id: string) {
-  return withAuthedOrgContext(async (tx) => {
+  const result = await withAuthedOrgContext(async (tx, orgId) => {
     const categoryIds = await ensureCustomerCategoriesDeletableInTx(tx, [id]);
     const [category] = await softDeleteCustomerCategoriesInTx(tx, categoryIds);
-    return { deleted: category != null };
+    return { deleted: category != null, orgId };
   });
+
+  if (result.deleted) {
+    invalidateOrgPromptSectionCache(result.orgId);
+  }
+
+  return { deleted: result.deleted };
 }
 
 export async function deleteCustomerCategories(ids: string[]) {
-  return withAuthedOrgContext(async (tx) => {
+  const result = await withAuthedOrgContext(async (tx, orgId) => {
     const categoryIds = await ensureCustomerCategoriesDeletableInTx(tx, ids);
     const deletedCategories = await softDeleteCustomerCategoriesInTx(tx, categoryIds);
-    return { deletedCount: deletedCategories.length };
+    return { deletedCount: deletedCategories.length, orgId };
   });
+
+  if (result.deletedCount > 0) {
+    invalidateOrgPromptSectionCache(result.orgId);
+  }
+
+  return { deletedCount: result.deletedCount };
 }
 
 export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {

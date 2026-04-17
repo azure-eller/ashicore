@@ -16,6 +16,7 @@
 /playwright-report/
 /test/.test-env.json
 /test/.auth/
+/.agent-uploads/
 
 # next.js
 /.next/

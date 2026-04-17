@@ -7,23 +7,20 @@ import {
 } from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { ThemeToggle } from "@/components/theme-toggle"
+import { AgentChatPanel } from "@/components/agent/agent-chat-panel"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Layers01Icon,
   PackageIcon,
-  LayoutBottomIcon,
   Store04Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
@@ -47,12 +44,14 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   }
   organizationName: string
   assignedRoles: string[]
+  agentEnabled?: boolean
 }
 
 export function AppSidebar({
   user,
   organizationName,
   assignedRoles,
+  agentEnabled = false,
   ...props
 }: AppSidebarProps) {
   const navMain = ([
@@ -134,40 +133,42 @@ export function AppSidebar({
     } : null,
   ] as Array<NavMainItem | null>).filter((item): item is NavMainItem => item !== null)
 
+  const [chatExpanded, setChatExpanded] = React.useState(false)
+
   return (
     <Sidebar collapsible="icon" variant="floating" {...props}>
-      <SidebarHeader className="group-data-[collapsible=icon]:hidden">
-        <div className="flex items-start gap-2">
-          <SidebarMenu className="flex-1">
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                size="lg"
-                className="pointer-events-none hover:bg-sidebar-accent/40 hover:text-sidebar-foreground active:bg-sidebar-accent/40 active:text-sidebar-foreground"
-              >
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <HugeiconsIcon icon={LayoutBottomIcon} strokeWidth={2} className="size-4" />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">{organizationName}</span>
-                  <span className="truncate text-xs text-muted-foreground">Single site</span>
-                </div>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-          <SidebarTrigger className="mt-1 size-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
-        </div>
-      </SidebarHeader>
-      <SidebarContent>
-        <NavMain items={navMain} />
-      </SidebarContent>
-      <SidebarFooter className="group-data-[collapsible=icon]:hidden">
+      <SidebarHeader>
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <NavUser user={user} />
+            <NavUser user={user} organizationName={organizationName} />
           </div>
-          <ThemeToggle className="h-8 w-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
+          <SidebarTrigger className="size-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden" />
         </div>
-      </SidebarFooter>
+      </SidebarHeader>
+      <SidebarContent className="gap-0 overflow-hidden">
+        <div
+          aria-hidden={chatExpanded}
+          className={cn(
+            "shrink-0 overflow-hidden transition-[max-height,opacity] duration-300 ease-out group-data-[collapsible=icon]:hidden",
+            chatExpanded
+              ? "pointer-events-none max-h-0 opacity-0"
+              : "max-h-[calc(100vh-10rem)] opacity-100"
+          )}
+        >
+          <ScrollArea className="min-h-0">
+            <NavMain items={navMain} />
+          </ScrollArea>
+        </div>
+
+        {agentEnabled ? (
+          <AgentChatPanel
+            className="flex-1 basis-0 min-h-0 group-data-[collapsible=icon]:hidden"
+            expanded={chatExpanded}
+            onComposerFocus={() => setChatExpanded(true)}
+            onComposerBlur={() => setChatExpanded(false)}
+          />
+        ) : null}
+      </SidebarContent>
       <SidebarRail />
     </Sidebar>
   )
