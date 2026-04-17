@@ -147,6 +147,8 @@ export type SalesOrderDetailLine = {
   id: string;
   itemId: string;
   itemName: string;
+  masterName: string;
+  attrs: string[];
   itemSku: string | null;
   unitName: string;
   quantity: string;

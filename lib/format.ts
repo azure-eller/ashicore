@@ -181,3 +181,30 @@ export function formatVariantDisplay(
   if (values.length === 0) return masterName;
   return `${masterName} / ${values.join(" / ")}`;
 }
+
+/**
+ * Resolve the structured display pieces for an item line.
+ *
+ *  - For a variant (parent present + variantAttrs): returns the master name
+ *    and the attribute values in axis order, ready to render as a label
+ *    with badge/pill secondary fields.
+ *  - For a standalone item or master: returns the item's own name with an
+ *    empty `attrs` list.
+ *
+ * This keeps the " / " concatenation convention confined to
+ * `formatVariantDisplay` — callers that want structured output should use
+ * this helper instead of splitting the concatenated string.
+ */
+export function resolveVariantDisplay(
+  itemName: string,
+  master: { name: string | null; variantAxes: string[] | null } | null,
+  variantAttrs: Record<string, string> | null,
+): { masterName: string; attrs: string[] } {
+  if (master?.name && master.variantAxes && variantAttrs) {
+    const attrs = master.variantAxes
+      .map((axis) => variantAttrs[axis])
+      .filter((v): v is string => Boolean(v));
+    return { masterName: master.name, attrs };
+  }
+  return { masterName: itemName, attrs: [] };
+}

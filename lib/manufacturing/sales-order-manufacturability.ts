@@ -1,4 +1,5 @@
-import { and, asc, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   items,
   manufacturingOrders,
@@ -6,6 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
+import { resolveVariantDisplay } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
@@ -23,6 +25,8 @@ export type SalesOrderManufacturingLineSummary = {
   salesOrderLineId: string;
   itemId: string;
   itemName: string;
+  masterName: string;
+  attrs: string[];
   itemSku: string | null;
   quantity: string;
   unitName: string;
@@ -129,13 +133,18 @@ export async function getSalesOrderManufacturingSummariesInTx(
   const itemIds = [...new Set(lines.map((line) => line.itemId))];
   const salesOrderLineIds = lines.map((line) => line.salesOrderLineId);
 
+  const masterItems = alias(items, "master_items");
   const itemRows = await tx
     .select({
       id: items.id,
       itemType: items.itemType,
       deletedAt: items.deletedAt,
+      variantAttrs: items.variantAttrs,
+      masterName: masterItems.name,
+      masterVariantAxes: masterItems.variantAxes,
     })
     .from(items)
+    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
     .where(inArray(items.id, itemIds));
 
   const itemById = new Map(
@@ -195,11 +204,21 @@ export async function getSalesOrderManufacturingSummariesInTx(
       return;
     }
 
+    const display = resolveVariantDisplay(
+      line.itemName,
+      item?.masterName == null
+        ? null
+        : { name: item.masterName, variantAxes: item.masterVariantAxes },
+      item?.variantAttrs ?? null
+    );
+
     bucket.lines.push({
       salesOrderId: line.salesOrderId,
       salesOrderLineId: line.salesOrderLineId,
       itemId: line.itemId,
       itemName: line.itemName,
+      masterName: display.masterName,
+      attrs: display.attrs,
       itemSku: line.itemSku,
       quantity: line.quantity,
       unitName: line.unitName,

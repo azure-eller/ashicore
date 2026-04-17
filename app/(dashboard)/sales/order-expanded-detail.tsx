@@ -81,7 +81,6 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
             ))
           ) : data?.lines.length ? (
             data.lines.map((line) => {
-              const [itemName, ...attrParts] = line.itemName.split(" / ");
               const lineQty = parseFloat(line.quantity);
               return (
                 <TableRow key={line.id}>
@@ -90,8 +89,8 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                   </TableCell>
                   <TableCell className="text-sm">
                     <span className="flex items-center gap-1.5 flex-wrap">
-                      <span>{itemName}</span>
-                      {attrParts.map((attr, i) => (
+                      <span>{line.masterName}</span>
+                      {line.attrs.map((attr, i) => (
                         <Badge
                           key={attr}
                           variant={BADGE_VARIANTS[i % BADGE_VARIANTS.length]}

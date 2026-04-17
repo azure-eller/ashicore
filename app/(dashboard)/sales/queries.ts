@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   formatVariantDisplay,
   formatQuantity,
   normalizeNumeric,
   normalizeMoney,
   parsePositive,
+  resolveVariantDisplay,
   roundQuantity,
   summarizeItems,
 } from "@/lib/format";
@@ -1917,7 +1919,8 @@ export async function getSalesOrder(
       return null;
     }
 
-    const lines = await tx
+    const masterItems = alias(items, "master_items");
+    const lineRows = await tx
       .select({
         id: salesOrderLines.id,
         itemId: salesOrderLines.itemId,
@@ -1937,6 +1940,9 @@ export async function getSalesOrder(
         sortOrder: salesOrderLines.sortOrder,
         createdAt: salesOrderLines.createdAt,
         updatedAt: salesOrderLines.updatedAt,
+        variantAttrs: items.variantAttrs,
+        masterName: masterItems.name,
+        masterVariantAxes: masterItems.variantAxes,
         calcStock: trimScaleNullable(
           sql<string | null>`(
             (SELECT COALESCE(SUM(l.quantity), 0) FROM inventory.lots l WHERE l.item_id = ${items.id})
@@ -1971,8 +1977,18 @@ export async function getSalesOrder(
       })
       .from(salesOrderLines)
       .leftJoin(items, eq(salesOrderLines.itemId, items.id))
+      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
+
+    const lines = lineRows.map(({ variantAttrs, masterName, masterVariantAxes, ...rest }) => {
+      const display = resolveVariantDisplay(
+        rest.itemName,
+        masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
+        variantAttrs
+      );
+      return { ...rest, masterName: display.masterName, attrs: display.attrs };
+    });
 
     const manufacturingSummary = (
       await getSalesOrderManufacturingSummariesInTx(tx, [id])
