@@ -1863,10 +1863,17 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
 
     return orderRows.map((order) => {
       const manufacturingSummary = manufacturingSummaries.get(order.id);
+      const summaryLines = manufacturingSummary?.lines ?? [];
       return {
         ...order,
         status: order.status as SalesOrderListRow["status"],
-        itemSummary: summarizeItems(manufacturingSummary?.lines ?? []),
+        itemSummary: summarizeItems(summaryLines),
+        lines: summaryLines.map((line) => ({
+          masterName: line.masterName,
+          attrs: line.attrs,
+          quantity: line.quantity,
+          unitName: line.unitName,
+        })),
         hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
         manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
         manufacturableDisabledReason:

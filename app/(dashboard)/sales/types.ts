@@ -126,6 +126,13 @@ export type SalesOrderItemOption = {
   safetyStock: string;
 };
 
+export type SalesOrderListLine = {
+  masterName: string;
+  attrs: string[];
+  quantity: string;
+  unitName: string;
+};
+
 export type SalesOrderListRow = {
   id: string;
   orderNumber: string;
@@ -135,6 +142,7 @@ export type SalesOrderListRow = {
   shippedAt: Date | null;
   totalAmount: string;
   itemSummary: string;
+  lines: SalesOrderListLine[];
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
