@@ -2,7 +2,7 @@ CREATE SCHEMA IF NOT EXISTS "sales";
 --> statement-breakpoint
 CREATE SEQUENCE "sales"."order_number_seq";
 --> statement-breakpoint
-CREATE TABLE "sales"."customers" (
+CREATE TABLE IF NOT EXISTS "sales"."customers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE "sales"."customers" (
 --> statement-breakpoint
 ALTER TABLE "sales"."customers" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "sales"."customers" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "sales"."sales_order_lines" (
+CREATE TABLE IF NOT EXISTS "sales"."sales_order_lines" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sales_order_id" uuid NOT NULL,
 	"item_id" uuid NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE "sales"."sales_order_lines" (
 --> statement-breakpoint
 ALTER TABLE "sales"."sales_order_lines" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "sales"."sales_order_lines" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "sales"."sales_orders" (
+CREATE TABLE IF NOT EXISTS "sales"."sales_orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
 	"order_number" varchar(32) NOT NULL,
@@ -50,22 +50,22 @@ CREATE TABLE "sales"."sales_orders" (
 );
 --> statement-breakpoint
 ALTER TABLE "sales"."sales_orders" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "sales"."sales_orders" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "sales"."sales_order_lines" ADD CONSTRAINT "sales_order_lines_sales_order_id_sales_orders_id_fk" FOREIGN KEY ("sales_order_id") REFERENCES "sales"."sales_orders"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "sales"."sales_order_lines" ADD CONSTRAINT "sales_order_lines_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sales"."sales_orders" FORCE ROW LEVEL SECURITY;--> statement-breakpoint ALTER TABLE "sales"."sales_order_lines" DROP CONSTRAINT IF EXISTS "sales_order_lines_sales_order_id_sales_orders_id_fk";--> statement-breakpoint
+ALTER TABLE "sales"."sales_order_lines" ADD CONSTRAINT "sales_order_lines_sales_order_id_sales_orders_id_fk" FOREIGN KEY ("sales_order_id") REFERENCES "sales"."sales_orders"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "sales"."sales_order_lines" DROP CONSTRAINT IF EXISTS "sales_order_lines_item_id_items_id_fk";--> statement-breakpoint
+ALTER TABLE "sales"."sales_order_lines" ADD CONSTRAINT "sales_order_lines_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "sales"."sales_orders" DROP CONSTRAINT IF EXISTS "sales_orders_customer_id_customers_id_fk";--> statement-breakpoint
 ALTER TABLE "sales"."sales_orders" ADD CONSTRAINT "sales_orders_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "sales"."customers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "sales_customers_org_id_idx" ON "sales"."customers" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "sales_customers_active_idx" ON "sales"."customers" USING btree ("organization_id") WHERE deleted_at IS NULL;--> statement-breakpoint
-CREATE INDEX "sales_customers_name_idx" ON "sales"."customers" USING btree ("name");--> statement-breakpoint
-CREATE INDEX "sales_order_lines_order_id_idx" ON "sales"."sales_order_lines" USING btree ("sales_order_id");--> statement-breakpoint
-CREATE INDEX "sales_order_lines_item_id_idx" ON "sales"."sales_order_lines" USING btree ("item_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "sales_order_lines_order_item_uidx" ON "sales"."sales_order_lines" USING btree ("sales_order_id","item_id");--> statement-breakpoint
-CREATE INDEX "sales_orders_org_id_idx" ON "sales"."sales_orders" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "sales_orders_active_idx" ON "sales"."sales_orders" USING btree ("organization_id") WHERE deleted_at IS NULL;--> statement-breakpoint
-CREATE INDEX "sales_orders_status_idx" ON "sales"."sales_orders" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "sales_orders_created_at_idx" ON "sales"."sales_orders" USING btree ("created_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "sales_orders_org_order_number_uidx" ON "sales"."sales_orders" USING btree ("organization_id","order_number");--> statement-breakpoint
-CREATE POLICY "sales_customers_org_isolation" ON "sales"."customers" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_customers_org_id_idx" ON "sales"."customers" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_customers_active_idx" ON "sales"."customers" USING btree ("organization_id") WHERE deleted_at IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_customers_name_idx" ON "sales"."customers" USING btree ("name");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_order_lines_order_id_idx" ON "sales"."sales_order_lines" USING btree ("sales_order_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_order_lines_item_id_idx" ON "sales"."sales_order_lines" USING btree ("item_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "sales_order_lines_order_item_uidx" ON "sales"."sales_order_lines" USING btree ("sales_order_id","item_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_org_id_idx" ON "sales"."sales_orders" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_active_idx" ON "sales"."sales_orders" USING btree ("organization_id") WHERE deleted_at IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_status_idx" ON "sales"."sales_orders" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_created_at_idx" ON "sales"."sales_orders" USING btree ("created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "sales_orders_org_order_number_uidx" ON "sales"."sales_orders" USING btree ("organization_id","order_number");--> statement-breakpoint DROP POLICY IF EXISTS "sales_customers_org_isolation" ON "sales"."customers";--> statement-breakpoint
+CREATE POLICY "sales_customers_org_isolation" ON "sales"."customers" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));--> statement-breakpoint DROP POLICY IF EXISTS "sales_order_lines_org_isolation" ON "sales"."sales_order_lines";--> statement-breakpoint
 CREATE POLICY "sales_order_lines_org_isolation" ON "sales"."sales_order_lines" AS PERMISSIVE FOR ALL TO public USING (sales_order_id IN (
           SELECT id
           FROM sales.sales_orders
@@ -74,7 +74,7 @@ CREATE POLICY "sales_order_lines_org_isolation" ON "sales"."sales_order_lines" A
           SELECT id
           FROM sales.sales_orders
           WHERE organization_id = current_setting('app.current_org_id', true)
-        ));--> statement-breakpoint
+        ));--> statement-breakpoint DROP POLICY IF EXISTS "sales_orders_org_isolation" ON "sales"."sales_orders";--> statement-breakpoint
 CREATE POLICY "sales_orders_org_isolation" ON "sales"."sales_orders" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));--> statement-breakpoint
 GRANT USAGE ON SCHEMA "sales" TO app_user;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "sales"."customers" TO app_user;--> statement-breakpoint

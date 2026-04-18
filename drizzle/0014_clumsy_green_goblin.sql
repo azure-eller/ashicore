@@ -2,7 +2,7 @@ CREATE SCHEMA IF NOT EXISTS "manufacturing";
 --> statement-breakpoint
 CREATE SEQUENCE "manufacturing"."order_number_seq";
 --> statement-breakpoint
-CREATE TABLE "manufacturing"."manufacturing_order_ingredients" (
+CREATE TABLE IF NOT EXISTS "manufacturing"."manufacturing_order_ingredients" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"manufacturing_order_id" uuid NOT NULL,
 	"item_id" uuid NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE "manufacturing"."manufacturing_order_ingredients" (
 --> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_order_ingredients" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_order_ingredients" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "manufacturing"."manufacturing_orders" (
+CREATE TABLE IF NOT EXISTS "manufacturing"."manufacturing_orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
 	"order_number" varchar(32) NOT NULL,
@@ -50,24 +50,24 @@ CREATE TABLE "manufacturing"."manufacturing_orders" (
 --> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_orders" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_orders" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "inventory"."stock_movements" ADD COLUMN "movement_type" varchar(32) DEFAULT 'manual_adjustment' NOT NULL;--> statement-breakpoint
-ALTER TABLE "inventory"."stock_movements" ADD COLUMN "reference_type" varchar(32);--> statement-breakpoint
-ALTER TABLE "inventory"."stock_movements" ADD COLUMN "reference_id" uuid;--> statement-breakpoint
-ALTER TABLE "manufacturing"."manufacturing_order_ingredients" ADD CONSTRAINT "manufacturing_order_ingredients_manufacturing_order_id_manufacturing_orders_id_fk" FOREIGN KEY ("manufacturing_order_id") REFERENCES "manufacturing"."manufacturing_orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "manufacturing"."manufacturing_order_ingredients" ADD CONSTRAINT "manufacturing_order_ingredients_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "manufacturing"."manufacturing_orders" ADD CONSTRAINT "manufacturing_orders_product_id_items_id_fk" FOREIGN KEY ("product_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "inventory"."stock_movements" ADD COLUMN IF NOT EXISTS "movement_type" varchar(32) DEFAULT 'manual_adjustment' NOT NULL;--> statement-breakpoint
+ALTER TABLE "inventory"."stock_movements" ADD COLUMN IF NOT EXISTS "reference_type" varchar(32);--> statement-breakpoint
+ALTER TABLE "inventory"."stock_movements" ADD COLUMN IF NOT EXISTS "reference_id" uuid;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_order_ingredients" DROP CONSTRAINT IF EXISTS "manufacturing_order_ingredients_manufacturing_order_id_manufacturing_orders_id_fk";--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_ingredients" ADD CONSTRAINT "manufacturing_order_ingredients_manufacturing_order_id_manufacturing_orders_id_fk" FOREIGN KEY ("manufacturing_order_id") REFERENCES "manufacturing"."manufacturing_orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_order_ingredients" DROP CONSTRAINT IF EXISTS "manufacturing_order_ingredients_item_id_items_id_fk";--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_ingredients" ADD CONSTRAINT "manufacturing_order_ingredients_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_orders" DROP CONSTRAINT IF EXISTS "manufacturing_orders_product_id_items_id_fk";--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_orders" ADD CONSTRAINT "manufacturing_orders_product_id_items_id_fk" FOREIGN KEY ("product_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_orders" DROP CONSTRAINT IF EXISTS "manufacturing_orders_sales_order_id_sales_orders_id_fk";--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_orders" ADD CONSTRAINT "manufacturing_orders_sales_order_id_sales_orders_id_fk" FOREIGN KEY ("sales_order_id") REFERENCES "sales"."sales_orders"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "manufacturing_order_ingredients_order_id_idx" ON "manufacturing"."manufacturing_order_ingredients" USING btree ("manufacturing_order_id");--> statement-breakpoint
-CREATE INDEX "manufacturing_order_ingredients_item_id_idx" ON "manufacturing"."manufacturing_order_ingredients" USING btree ("item_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "manufacturing_order_ingredients_order_item_uidx" ON "manufacturing"."manufacturing_order_ingredients" USING btree ("manufacturing_order_id","item_id");--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_org_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_active_idx" ON "manufacturing"."manufacturing_orders" USING btree ("organization_id") WHERE deleted_at IS NULL;--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_status_idx" ON "manufacturing"."manufacturing_orders" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_product_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("product_id");--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_sales_order_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("sales_order_id");--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_planned_date_idx" ON "manufacturing"."manufacturing_orders" USING btree ("planned_date");--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_created_at_idx" ON "manufacturing"."manufacturing_orders" USING btree ("created_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "manufacturing_orders_org_order_number_uidx" ON "manufacturing"."manufacturing_orders" USING btree ("organization_id","order_number");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_order_ingredients_order_id_idx" ON "manufacturing"."manufacturing_order_ingredients" USING btree ("manufacturing_order_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_order_ingredients_item_id_idx" ON "manufacturing"."manufacturing_order_ingredients" USING btree ("item_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "manufacturing_order_ingredients_order_item_uidx" ON "manufacturing"."manufacturing_order_ingredients" USING btree ("manufacturing_order_id","item_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_org_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_active_idx" ON "manufacturing"."manufacturing_orders" USING btree ("organization_id") WHERE deleted_at IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_status_idx" ON "manufacturing"."manufacturing_orders" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_product_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("product_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_sales_order_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("sales_order_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_planned_date_idx" ON "manufacturing"."manufacturing_orders" USING btree ("planned_date");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_created_at_idx" ON "manufacturing"."manufacturing_orders" USING btree ("created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "manufacturing_orders_org_order_number_uidx" ON "manufacturing"."manufacturing_orders" USING btree ("organization_id","order_number");--> statement-breakpoint DROP POLICY IF EXISTS "manufacturing_order_ingredients_org_isolation" ON "manufacturing"."manufacturing_order_ingredients";--> statement-breakpoint
 CREATE POLICY "manufacturing_order_ingredients_org_isolation" ON "manufacturing"."manufacturing_order_ingredients" AS PERMISSIVE FOR ALL TO public USING (manufacturing_order_id IN (
           SELECT id
           FROM manufacturing.manufacturing_orders
@@ -76,7 +76,7 @@ CREATE POLICY "manufacturing_order_ingredients_org_isolation" ON "manufacturing"
           SELECT id
           FROM manufacturing.manufacturing_orders
           WHERE organization_id = current_setting('app.current_org_id', true)
-        ));--> statement-breakpoint
+        ));--> statement-breakpoint DROP POLICY IF EXISTS "manufacturing_orders_org_isolation" ON "manufacturing"."manufacturing_orders";--> statement-breakpoint
 CREATE POLICY "manufacturing_orders_org_isolation" ON "manufacturing"."manufacturing_orders" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));--> statement-breakpoint
 GRANT USAGE ON SCHEMA "manufacturing" TO app_user;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "manufacturing"."manufacturing_orders" TO app_user;--> statement-breakpoint

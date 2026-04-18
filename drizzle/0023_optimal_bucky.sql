@@ -1,4 +1,4 @@
-CREATE TABLE "inventory"."bom_revision_components" (
+CREATE TABLE IF NOT EXISTS "inventory"."bom_revision_components" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"bom_revision_id" uuid NOT NULL,
 	"component_id" uuid NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE "inventory"."bom_revision_components" (
 --> statement-breakpoint
 ALTER TABLE "inventory"."bom_revision_components" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "inventory"."bom_revision_components" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "inventory"."bom_revisions" (
+CREATE TABLE IF NOT EXISTS "inventory"."bom_revisions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
 	"product_id" uuid NOT NULL,
@@ -29,19 +29,19 @@ CREATE TABLE "inventory"."bom_revisions" (
 --> statement-breakpoint
 ALTER TABLE "inventory"."bom_revisions" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "inventory"."bom_revisions" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "manufacturing"."manufacturing_orders" ADD COLUMN "bom_revision_id" uuid;--> statement-breakpoint
-ALTER TABLE "inventory"."bom_revision_components" ADD CONSTRAINT "bom_revision_components_bom_revision_id_bom_revisions_id_fk" FOREIGN KEY ("bom_revision_id") REFERENCES "inventory"."bom_revisions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "inventory"."bom_revision_components" ADD CONSTRAINT "bom_revision_components_component_id_items_id_fk" FOREIGN KEY ("component_id") REFERENCES "inventory"."items"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_orders" ADD COLUMN IF NOT EXISTS "bom_revision_id" uuid;--> statement-breakpoint ALTER TABLE "inventory"."bom_revision_components" DROP CONSTRAINT IF EXISTS "bom_revision_components_bom_revision_id_bom_revisions_id_fk";--> statement-breakpoint
+ALTER TABLE "inventory"."bom_revision_components" ADD CONSTRAINT "bom_revision_components_bom_revision_id_bom_revisions_id_fk" FOREIGN KEY ("bom_revision_id") REFERENCES "inventory"."bom_revisions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint ALTER TABLE "inventory"."bom_revision_components" DROP CONSTRAINT IF EXISTS "bom_revision_components_component_id_items_id_fk";--> statement-breakpoint
+ALTER TABLE "inventory"."bom_revision_components" ADD CONSTRAINT "bom_revision_components_component_id_items_id_fk" FOREIGN KEY ("component_id") REFERENCES "inventory"."items"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint ALTER TABLE "inventory"."bom_revisions" DROP CONSTRAINT IF EXISTS "bom_revisions_product_id_items_id_fk";--> statement-breakpoint
 ALTER TABLE "inventory"."bom_revisions" ADD CONSTRAINT "bom_revisions_product_id_items_id_fk" FOREIGN KEY ("product_id") REFERENCES "inventory"."items"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "bom_revision_components_revision_id_idx" ON "inventory"."bom_revision_components" USING btree ("bom_revision_id");--> statement-breakpoint
-CREATE INDEX "bom_revision_components_component_id_idx" ON "inventory"."bom_revision_components" USING btree ("component_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "bom_revision_components_revision_component_uidx" ON "inventory"."bom_revision_components" USING btree ("bom_revision_id","component_id");--> statement-breakpoint
-CREATE INDEX "bom_revisions_org_id_idx" ON "inventory"."bom_revisions" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "bom_revisions_product_id_idx" ON "inventory"."bom_revisions" USING btree ("product_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "bom_revisions_product_revision_uidx" ON "inventory"."bom_revisions" USING btree ("product_id","revision_number");--> statement-breakpoint
-CREATE UNIQUE INDEX "bom_revisions_product_current_uidx" ON "inventory"."bom_revisions" USING btree ("product_id") WHERE "inventory"."bom_revisions"."is_current" = true;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bom_revision_components_revision_id_idx" ON "inventory"."bom_revision_components" USING btree ("bom_revision_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bom_revision_components_component_id_idx" ON "inventory"."bom_revision_components" USING btree ("component_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bom_revision_components_revision_component_uidx" ON "inventory"."bom_revision_components" USING btree ("bom_revision_id","component_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bom_revisions_org_id_idx" ON "inventory"."bom_revisions" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "bom_revisions_product_id_idx" ON "inventory"."bom_revisions" USING btree ("product_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bom_revisions_product_revision_uidx" ON "inventory"."bom_revisions" USING btree ("product_id","revision_number");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "bom_revisions_product_current_uidx" ON "inventory"."bom_revisions" USING btree ("product_id") WHERE "inventory"."bom_revisions"."is_current" = true;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_orders" DROP CONSTRAINT IF EXISTS "manufacturing_orders_bom_revision_id_bom_revisions_id_fk";--> statement-breakpoint
 ALTER TABLE "manufacturing"."manufacturing_orders" ADD CONSTRAINT "manufacturing_orders_bom_revision_id_bom_revisions_id_fk" FOREIGN KEY ("bom_revision_id") REFERENCES "inventory"."bom_revisions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "manufacturing_orders_bom_revision_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("bom_revision_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "manufacturing_orders_bom_revision_id_idx" ON "manufacturing"."manufacturing_orders" USING btree ("bom_revision_id");--> statement-breakpoint DROP POLICY IF EXISTS "bom_revision_components_org_isolation" ON "inventory"."bom_revision_components";--> statement-breakpoint
 CREATE POLICY "bom_revision_components_org_isolation" ON "inventory"."bom_revision_components" AS PERMISSIVE FOR ALL TO public USING (bom_revision_id IN (
           SELECT id
           FROM inventory.bom_revisions
@@ -50,7 +50,7 @@ CREATE POLICY "bom_revision_components_org_isolation" ON "inventory"."bom_revisi
           SELECT id
           FROM inventory.bom_revisions
           WHERE organization_id = current_setting('app.current_org_id', true)
-        ));--> statement-breakpoint
+        ));--> statement-breakpoint DROP POLICY IF EXISTS "bom_revisions_org_isolation" ON "inventory"."bom_revisions";--> statement-breakpoint
 CREATE POLICY "bom_revisions_org_isolation" ON "inventory"."bom_revisions" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));
 --> statement-breakpoint
 GRANT USAGE ON SCHEMA "inventory" TO app_user;--> statement-breakpoint

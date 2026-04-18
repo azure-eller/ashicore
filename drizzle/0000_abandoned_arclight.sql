@@ -1,6 +1,6 @@
-CREATE SCHEMA "inventory";
+CREATE SCHEMA IF NOT EXISTS "inventory";
 --> statement-breakpoint
-CREATE TABLE "inventory"."unit_definitions" (
+CREATE TABLE IF NOT EXISTS "inventory"."unit_definitions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
 	"name" varchar(50) NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE "inventory"."unit_definitions" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "inventory"."items" (
+CREATE TABLE IF NOT EXISTS "inventory"."items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE "inventory"."items" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "inventory"."bom_components" (
+CREATE TABLE IF NOT EXISTS "inventory"."bom_components" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"parent_item_id" uuid NOT NULL,
 	"component_id" uuid NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE "inventory"."bom_components" (
 	CONSTRAINT "unique_bom_component" UNIQUE("parent_item_id","component_id"),
 	CONSTRAINT "no_self_reference" CHECK (parent_item_id != component_id)
 );
---> statement-breakpoint
-ALTER TABLE "inventory"."items" ADD CONSTRAINT "items_unit_definition_id_unit_definitions_id_fk" FOREIGN KEY ("unit_definition_id") REFERENCES "inventory"."unit_definitions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "inventory"."bom_components" ADD CONSTRAINT "bom_components_parent_item_id_items_id_fk" FOREIGN KEY ("parent_item_id") REFERENCES "inventory"."items"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+--> statement-breakpoint ALTER TABLE "inventory"."items" DROP CONSTRAINT IF EXISTS "items_unit_definition_id_unit_definitions_id_fk";--> statement-breakpoint
+ALTER TABLE "inventory"."items" ADD CONSTRAINT "items_unit_definition_id_unit_definitions_id_fk" FOREIGN KEY ("unit_definition_id") REFERENCES "inventory"."unit_definitions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "inventory"."bom_components" DROP CONSTRAINT IF EXISTS "bom_components_parent_item_id_items_id_fk";--> statement-breakpoint
+ALTER TABLE "inventory"."bom_components" ADD CONSTRAINT "bom_components_parent_item_id_items_id_fk" FOREIGN KEY ("parent_item_id") REFERENCES "inventory"."items"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint ALTER TABLE "inventory"."bom_components" DROP CONSTRAINT IF EXISTS "bom_components_component_id_items_id_fk";--> statement-breakpoint
 ALTER TABLE "inventory"."bom_components" ADD CONSTRAINT "bom_components_component_id_items_id_fk" FOREIGN KEY ("component_id") REFERENCES "inventory"."items"("id") ON DELETE restrict ON UPDATE no action;

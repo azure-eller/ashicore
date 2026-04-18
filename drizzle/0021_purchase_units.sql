@@ -1,6 +1,6 @@
 ALTER TABLE "inventory"."items"
-  ADD COLUMN "purchase_unit_definition_id" uuid,
-  ADD COLUMN "purchase_to_stock_factor" numeric(12, 4);
+  ADD COLUMN IF NOT EXISTS "purchase_unit_definition_id" uuid,
+  ADD COLUMN IF NOT EXISTS "purchase_to_stock_factor" numeric(12, 4);
 --> statement-breakpoint
 ALTER TABLE "inventory"."items"
   ADD CONSTRAINT "items_purchase_unit_definition_id_unit_definitions_id_fk"
@@ -13,11 +13,11 @@ ALTER TABLE "purchasing"."purchase_order_lines"
   RENAME COLUMN "unit_name" TO "purchase_unit_name";
 --> statement-breakpoint
 ALTER TABLE "purchasing"."purchase_order_lines"
-  ADD COLUMN "stocking_unit_name" varchar(50),
-  ADD COLUMN "purchase_to_stock_factor" numeric(12, 4),
-  ADD COLUMN "stock_quantity_ordered" numeric(12, 4),
-  ADD COLUMN "stock_quantity_received" numeric(12, 4),
-  ADD COLUMN "stock_unit_cost" numeric(10, 4);
+  ADD COLUMN IF NOT EXISTS "stocking_unit_name" varchar(50),
+  ADD COLUMN IF NOT EXISTS "purchase_to_stock_factor" numeric(12, 4),
+  ADD COLUMN IF NOT EXISTS "stock_quantity_ordered" numeric(12, 4),
+  ADD COLUMN IF NOT EXISTS "stock_quantity_received" numeric(12, 4),
+  ADD COLUMN IF NOT EXISTS "stock_unit_cost" numeric(10, 4);
 --> statement-breakpoint
 UPDATE "purchasing"."purchase_order_lines"
 SET

@@ -52,6 +52,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check migrations are idempotent (static)
+        run: pnpm db:check-migrations
+
       - name: Create app_user role
         run: psql "$DATABASE_URL" -c "CREATE ROLE app_user WITH LOGIN PASSWORD 'postgres';"
 

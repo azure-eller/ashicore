@@ -1,4 +1,4 @@
-CREATE TABLE "inventory"."lots" (
+CREATE TABLE IF NOT EXISTS "inventory"."lots" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
 	"item_id" uuid NOT NULL,
@@ -10,10 +10,10 @@ CREATE TABLE "inventory"."lots" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "inventory"."lots" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "inventory"."lots" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint ALTER TABLE "inventory"."lots" DROP CONSTRAINT IF EXISTS "lots_item_id_items_id_fk";--> statement-breakpoint
 ALTER TABLE "inventory"."lots" ADD CONSTRAINT "lots_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "lots_org_lot_number_uidx" ON "inventory"."lots" USING btree ("organization_id","lot_number");--> statement-breakpoint
-CREATE INDEX "lots_item_id_idx" ON "inventory"."lots" USING btree ("item_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "lots_org_lot_number_uidx" ON "inventory"."lots" USING btree ("organization_id","lot_number");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "lots_item_id_idx" ON "inventory"."lots" USING btree ("item_id");--> statement-breakpoint
 INSERT INTO "inventory"."lots" (id, organization_id, item_id, lot_number, quantity, cost_per_unit, received_at)
 SELECT
   gen_random_uuid(),
@@ -25,7 +25,7 @@ SELECT
   created_at
 FROM "inventory"."items"
 WHERE deleted_at IS NULL;--> statement-breakpoint
-ALTER TABLE "inventory"."items" DROP COLUMN "in_stock";--> statement-breakpoint
+ALTER TABLE "inventory"."items" DROP COLUMN IF EXISTS "in_stock";--> statement-breakpoint
 CREATE SEQUENCE "inventory"."lot_number_seq";--> statement-breakpoint
-SELECT setval('inventory.lot_number_seq', GREATEST(COALESCE((SELECT MAX(REPLACE(lot_number, 'LOT-', '')::bigint) FROM "inventory"."lots"), 0), 1));--> statement-breakpoint
+SELECT setval('inventory.lot_number_seq', GREATEST(COALESCE((SELECT MAX(REPLACE(lot_number, 'LOT-', '')::bigint) FROM "inventory"."lots"), 0), 1));--> statement-breakpoint DROP POLICY IF EXISTS "lots_org_isolation" ON "inventory"."lots";--> statement-breakpoint
 CREATE POLICY "lots_org_isolation" ON "inventory"."lots" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));

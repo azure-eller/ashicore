@@ -319,14 +319,14 @@ defaultValues: {
 
 ## Migrations
 
-Always generate then apply:
-
 ```bash
-pnpm drizzle-kit generate   # generates SQL migration file
+pnpm db:generate            # generates SQL migration file (wraps drizzle-kit + idempotency rewriter)
 pnpm drizzle-kit migrate    # applies pending migrations
 ```
 
-**Never use `drizzle push`** — it bypasses the migration file system and can cause drift.
+**Never use `drizzle push`** — it bypasses the migration file system and causes drift.
+
+**Never run `drizzle-kit generate` directly.** `pnpm db:generate` chains it with `scripts/make-migrations-idempotent.ts`, which adds `IF NOT EXISTS` / `DROP IF EXISTS` guards. Drizzle has no built-in flag for this. CI rejects non-idempotent migrations.
 
 When a module generates human-readable document numbers with `nextval()` in the DAL, patch the migration SQL to create and grant the backing sequence explicitly. Drizzle does not currently keep these sequence definitions in the schema files we use for sales/manufacturing/purchasing, so the SQL migration is the source of truth.
 

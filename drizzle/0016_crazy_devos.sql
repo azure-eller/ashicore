@@ -1,4 +1,4 @@
-CREATE TABLE "inventory"."stocktake_items" (
+CREATE TABLE IF NOT EXISTS "inventory"."stocktake_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"stocktake_id" uuid NOT NULL,
 	"item_id" uuid NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE "inventory"."stocktake_items" (
 --> statement-breakpoint
 ALTER TABLE "inventory"."stocktake_items" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "inventory"."stocktake_items" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE TABLE "inventory"."stocktakes" (
+CREATE TABLE IF NOT EXISTS "inventory"."stocktakes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -31,15 +31,15 @@ CREATE TABLE "inventory"."stocktakes" (
 );
 --> statement-breakpoint
 ALTER TABLE "inventory"."stocktakes" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "inventory"."stocktakes" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "inventory"."stocktake_items" ADD CONSTRAINT "stocktake_items_stocktake_id_stocktakes_id_fk" FOREIGN KEY ("stocktake_id") REFERENCES "inventory"."stocktakes"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "inventory"."stocktakes" FORCE ROW LEVEL SECURITY;--> statement-breakpoint ALTER TABLE "inventory"."stocktake_items" DROP CONSTRAINT IF EXISTS "stocktake_items_stocktake_id_stocktakes_id_fk";--> statement-breakpoint
+ALTER TABLE "inventory"."stocktake_items" ADD CONSTRAINT "stocktake_items_stocktake_id_stocktakes_id_fk" FOREIGN KEY ("stocktake_id") REFERENCES "inventory"."stocktakes"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "inventory"."stocktake_items" DROP CONSTRAINT IF EXISTS "stocktake_items_item_id_items_id_fk";--> statement-breakpoint
 ALTER TABLE "inventory"."stocktake_items" ADD CONSTRAINT "stocktake_items_item_id_items_id_fk" FOREIGN KEY ("item_id") REFERENCES "inventory"."items"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "stocktake_items_stocktake_id_idx" ON "inventory"."stocktake_items" USING btree ("stocktake_id");--> statement-breakpoint
-CREATE INDEX "stocktake_items_item_id_idx" ON "inventory"."stocktake_items" USING btree ("item_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "stocktake_items_stocktake_item_uidx" ON "inventory"."stocktake_items" USING btree ("stocktake_id","item_id");--> statement-breakpoint
-CREATE INDEX "stocktakes_org_id_idx" ON "inventory"."stocktakes" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "stocktakes_status_idx" ON "inventory"."stocktakes" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "stocktakes_created_at_idx" ON "inventory"."stocktakes" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "stocktake_items_stocktake_id_idx" ON "inventory"."stocktake_items" USING btree ("stocktake_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "stocktake_items_item_id_idx" ON "inventory"."stocktake_items" USING btree ("item_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "stocktake_items_stocktake_item_uidx" ON "inventory"."stocktake_items" USING btree ("stocktake_id","item_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "stocktakes_org_id_idx" ON "inventory"."stocktakes" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "stocktakes_status_idx" ON "inventory"."stocktakes" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "stocktakes_created_at_idx" ON "inventory"."stocktakes" USING btree ("created_at");--> statement-breakpoint DROP POLICY IF EXISTS "stocktake_items_org_isolation" ON "inventory"."stocktake_items";--> statement-breakpoint
 CREATE POLICY "stocktake_items_org_isolation" ON "inventory"."stocktake_items" AS PERMISSIVE FOR ALL TO public USING (stocktake_id IN (
           SELECT id
           FROM inventory.stocktakes
@@ -48,7 +48,7 @@ CREATE POLICY "stocktake_items_org_isolation" ON "inventory"."stocktake_items" A
           SELECT id
           FROM inventory.stocktakes
           WHERE organization_id = current_setting('app.current_org_id', true)
-        ));--> statement-breakpoint
+        ));--> statement-breakpoint DROP POLICY IF EXISTS "stocktakes_org_isolation" ON "inventory"."stocktakes";--> statement-breakpoint
 CREATE POLICY "stocktakes_org_isolation" ON "inventory"."stocktakes" AS PERMISSIVE FOR ALL TO public USING (organization_id = current_setting('app.current_org_id', true)) WITH CHECK (organization_id = current_setting('app.current_org_id', true));--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "inventory"."stocktakes" TO app_user;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "inventory"."stocktake_items" TO app_user;

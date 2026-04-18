@@ -10,6 +10,8 @@
     "db:local:start": "tsx scripts/local-db-cli.ts start",
     "db:local:stop": "tsx scripts/local-db-cli.ts stop",
     "db:local:setup": "tsx scripts/setup-local-db.ts",
+    "db:generate": "drizzle-kit generate && tsx scripts/make-migrations-idempotent.ts",
+    "db:check-migrations": "tsx scripts/make-migrations-idempotent.ts --check",
     "worktree:cleanup": "tsx scripts/cleanup-worktree.ts",
     "cleanup": "tsx scripts/cleanup-worktree.ts",
     "pull:google-sheet": "DOTENV_CONFIG_PATH=.env.local tsx -r dotenv/config scripts/pull-google-sheet.ts",

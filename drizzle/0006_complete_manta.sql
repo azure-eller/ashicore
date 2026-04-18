@@ -1,2 +1,2 @@
 DROP INDEX "inventory"."items_org_sku_uidx";--> statement-breakpoint
-CREATE UNIQUE INDEX "items_org_sku_uidx" ON "inventory"."items" USING btree ("organization_id","sku") WHERE sku IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "items_org_sku_uidx" ON "inventory"."items" USING btree ("organization_id","sku") WHERE sku IS NOT NULL AND deleted_at IS NULL;

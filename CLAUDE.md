@@ -21,7 +21,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm worktree:cleanup <branch>` — drop that worktree DB, remove the worktree, and stop shared Postgres when no linked worktrees remain
 - `pnpm db:local:start` — optional manual Postgres start
 - `pnpm db:local:stop` — optional manual Postgres stop
-- `pnpm drizzle-kit generate` — generate migration from schema changes
+- `pnpm db:generate` — generate migration (use this, not `drizzle-kit generate` directly)
 - `pnpm drizzle-kit migrate` — apply migrations
 
 ## Documentation Structure
@@ -66,7 +66,7 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - No hardcoded Tailwind colors — shadcn semantic tokens only
 - API routes for all mutations — no server actions
 - NEVER import db directly in pages, components, or API routes — use DAL
-- NEVER use `drizzle push` — always `generate` + `migrate`
+- NEVER use `drizzle push` — always `pnpm db:generate` + `pnpm drizzle-kit migrate` (CI rejects non-idempotent migrations)
 - Icons: HugeIcons only (`@hugeicons/core` / `@hugeicons/react`) — never Lucide
 - shadcn/ui style: `radix-nova` with `stone` base color. Check `components.json` for aliases.
 - Run `pnpm build` after changes to catch type errors
