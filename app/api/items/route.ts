@@ -6,10 +6,10 @@ import {
   type InventoryProductView,
   type ItemType,
 } from "@/app/(dashboard)/inventory/types";
-import { MissingStockCostError } from "@/lib/inventory/stock";
+import { MissingCostBasisError } from "@/lib/inventory/kernel";
 import { insertItemSchema, insertMasterItemSchema } from "@/lib/schemas/items";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import {
   assertLockedBomManagementAccess,
   assertModuleReadAccess,
@@ -53,11 +53,13 @@ export const POST = apiHandler(async (request) => {
   const body = await request.json();
 
   if (body.isMaster) {
+    const idempotencyKey = requireIdempotencyKey(request, "createMasterProduct");
     const data = insertMasterItemSchema.parse(body);
-    const item = await createMasterProduct(data);
+    const item = await createMasterProduct(data, { idempotencyKey });
     return NextResponse.json(item, { status: 201 });
   }
 
+  const idempotencyKey = requireIdempotencyKey(request, "createItemWithLot");
   const { stock, bom, revisionNote, ...data } = insertItemSchema.parse(body);
 
   if (data.itemType === "product" && data.bomLocked) {
@@ -65,14 +67,18 @@ export const POST = apiHandler(async (request) => {
   }
 
   try {
-    const item = await createItemWithLot(data, stock, bom, revisionNote);
+    const item = await createItemWithLot(data, stock, bom, revisionNote, {
+      idempotencyKey,
+    });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
-    if (error instanceof MissingStockCostError) {
+    if (error instanceof MissingCostBasisError) {
+      const field =
+        error.reason === "material_default_price" ? "defaultPurchasePrice" : "stock";
       return NextResponse.json(
         {
           errors: {
-            [error.field]: [error.message],
+            [field]: [error.message],
           },
         },
         { status: 400 }

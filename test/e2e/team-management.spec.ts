@@ -86,9 +86,20 @@ async function apiCall<T>(
 ): Promise<{ status: number; body: T | null }> {
   return page.evaluate(
     async ({ path, method, body }) => {
+      const resolvedMethod = method ?? "GET";
+      const headers: Record<string, string> = {};
+
+      if (body) {
+        headers["Content-Type"] = "application/json";
+      }
+
+      if (resolvedMethod !== "GET" && resolvedMethod !== "HEAD") {
+        headers["Idempotency-Key"] = `${resolvedMethod}:${path}:${crypto.randomUUID()}`;
+      }
+
       const response = await fetch(path, {
-        method: method ?? "GET",
-        headers: body ? { "Content-Type": "application/json" } : undefined,
+        method: resolvedMethod,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
       return {

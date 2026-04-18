@@ -18,6 +18,10 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
 - `pnpm test:sales` — run the fast sales write-path smoke flow
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
+- `pnpm diff:projections -- --org-id <org-id>` — diff ledger-derived inventory projections for one org
+- `pnpm verify:inventory-state` — diff projections for the current Playwright test org from `test/.test-env.json`
+- `pnpm verify:inventory-kernel` — fail if bridge-only stock helpers leak into new call sites
+- `pnpm verify:inventory` — run both inventory kernel grep guards and projection diff for the current test org
 - `pnpm worktree:cleanup <branch>` — drop that worktree DB, remove the worktree, and stop shared Postgres when no linked worktrees remain
 - `pnpm db:local:start` — optional manual Postgres start
 - `pnpm db:local:stop` — optional manual Postgres stop
@@ -71,6 +75,7 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - shadcn/ui style: `radix-nova` with `stone` base color. Check `components.json` for aliases.
 - Run `pnpm build` after changes to catch type errors
 - Run `pnpm test` after changes to catch regressions
+- Inventory-affecting changes must run `pnpm verify:inventory` after the relevant Playwright tests refresh `test/.test-env.json`
 
 ## Coding Patterns
 
@@ -663,6 +668,8 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - If you touch one domain deeply, run that domain's slow spec too: `pnpm test:e2e:<domain>:slow`
 - If you touch auth, invites, or team access, run `pnpm test:e2e:auth`
   This command includes both `auth-security.spec.ts` and `team-management.spec.ts`.
+- If you touch stock mutations, reservations, expected supply, inventory projections, or inventory-affecting API routes, run the affected slow spec(s) and then `pnpm verify:inventory`
+- `pnpm verify:inventory` is the standard inventory integrity workflow: grep guards + projection diff for the current Playwright test org
 - Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification
 - Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`
 - `test.describe.configure({ mode: "serial" })` for tests that depend on each other
@@ -688,8 +695,9 @@ A change is "done" when:
 1. `pnpm build` passes (no type errors)
 2. `pnpm test` passes (no regressions)
 3. `pnpm lint` passes
-4. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
-5. For UI changes: screenshot or description of what changed visually
+4. Inventory-affecting changes also pass `pnpm verify:inventory`
+5. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
+6. For UI changes: screenshot or description of what changed visually
 
 ## Multi-Agent Safety
 

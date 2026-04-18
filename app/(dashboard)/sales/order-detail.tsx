@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +58,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     mutationFn: async () => {
       const response = await fetch(`/api/sales-orders/${order.id}`, {
         method: "DELETE",
+        headers: createIdempotencyHeaders("sales-order-delete"),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -82,7 +84,9 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     mutationFn: async () => {
       const response = await fetch(`/api/sales-orders/${order.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("sales-order-cancel", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ status: "cancelled" }),
       });
       const body = await response.json().catch(() => null);
@@ -110,7 +114,9 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     mutationFn: async (confirmOversell: boolean) => {
       const response = await fetch(`/api/sales-orders/${order.id}/confirm`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("sales-order-confirm", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ confirmOversell }),
       });
       const body = await response.json().catch(() => null);
@@ -148,6 +154,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
     mutationFn: async () => {
       const response = await fetch(`/api/sales-orders/${order.id}/ship`, {
         method: "POST",
+        headers: createIdempotencyHeaders("sales-order-ship"),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {

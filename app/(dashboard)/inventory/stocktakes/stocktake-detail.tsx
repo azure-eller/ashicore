@@ -7,6 +7,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -209,7 +210,9 @@ export function StocktakeDetail({
     mutationFn: async (confirmStale = false) => {
       const response = await fetch(`/api/stocktakes/${stocktake.id}/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("stocktake-complete", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ confirmStale }),
       });
       const body = await response.json().catch(() => null);

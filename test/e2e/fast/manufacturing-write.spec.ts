@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
-  items,
+  inventoryEvents,
+  inventoryItemBalances,
   lots,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
-  stockMovements,
 } from "../../../lib/db/schema";
 import { createItem, getUnitId, testFetch } from "../../helpers/api";
 
@@ -126,7 +126,11 @@ test.describe("Manufacturing write-path smoke", () => {
     await expect(
       page.getByRole("heading", { name: "Edit Manufacturing Order" })
     ).toBeVisible();
-    await page.getByLabel("Notes").fill("Fast manufacturing updated");
+    const notesField = page.getByLabel("Notes");
+    await expect(notesField).toHaveValue("Fast manufacturing smoke test");
+    await notesField.click();
+    await notesField.press("Control+A");
+    await notesField.type("Fast manufacturing updated");
     const updateResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "PUT" &&
@@ -314,10 +318,13 @@ test.describe("Manufacturing write-path smoke", () => {
             const [currentOrder] = await db
               .select({
                 actualQuantity: manufacturingOrders.actualQuantity,
-                expectedQty: items.expectedQty,
+                expectedQty: inventoryItemBalances.expectedQty,
               })
               .from(manufacturingOrders)
-              .innerJoin(items, eq(items.id, manufacturingOrders.productId))
+              .innerJoin(
+                inventoryItemBalances,
+                eq(inventoryItemBalances.itemId, manufacturingOrders.productId)
+              )
               .where(eq(manufacturingOrders.id, batchOrderId));
 
             return {
@@ -369,16 +376,24 @@ test.describe("Manufacturing write-path smoke", () => {
 
     const movements = await db
       .select({
-        movementType: stockMovements.movementType,
+        eventType: inventoryEvents.eventType,
       })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, batchOrderId));
-    expect(movements).toHaveLength(9);
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, batchOrderId));
+    expect(movements).toHaveLength(13);
     expect(
-      movements.filter((movement) => movement.movementType === "manufacturing_picked")
+      movements.filter((movement) => movement.eventType === "expected_increase")
+    ).toHaveLength(1);
+    expect(
+      movements.filter(
+        (movement) => movement.eventType === "manufacturing_ingredient_consumption"
+      )
     ).toHaveLength(6);
     expect(
-      movements.filter((movement) => movement.movementType === "manufacturing_produced")
+      movements.filter((movement) => movement.eventType === "manufacturing_output")
+    ).toHaveLength(3);
+    expect(
+      movements.filter((movement) => movement.eventType === "expected_release")
     ).toHaveLength(3);
   });
 

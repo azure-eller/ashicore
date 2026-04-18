@@ -10,11 +10,17 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import { recomputeExpectedQty } from "@/lib/inventory/expected";
 import {
-  createPositiveLotAndMovementInTx,
   lockItemsInTx,
-} from "@/lib/inventory/stock";
+} from "@/lib/inventory/kernel/locking";
+import {
+  addExpectedFromPurchaseInTx,
+  beginInventoryOperationInTx,
+  deriveInventoryIdempotencyKey,
+  finishInventoryOperationInTx,
+  receivePurchaseStockInTx,
+  releaseExpectedFromPurchaseInTx,
+} from "@/lib/inventory/kernel";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -643,11 +649,30 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
   });
 }
 
-export async function submitPurchaseOrder(id: string) {
-  return withAuthedOrgContext(async (tx) => {
+export async function submitPurchaseOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "submitPurchaseOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
     }
 
@@ -666,17 +691,50 @@ export async function submitPurchaseOrder(id: string) {
       })
       .where(eq(purchaseOrders.id, id));
 
-    await recomputeExpectedQty(
-      tx,
-      lines.map((line) => line.itemId)
-    );
+    await addExpectedFromPurchaseInTx(tx, {
+      organizationId: orgId,
+      purchaseOrderId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "submit-order"
+      ),
+      lines: lines.map((line) => ({
+        purchaseOrderLineId: line.id,
+        itemId: line.itemId,
+        quantity: parseFloat(line.stockQuantityOrdered),
+      })),
+    });
 
-    return { id };
+    const result = { id };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
-export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrder) {
+export async function receivePurchaseOrder(
+  id: string,
+  data: ReceivePurchaseOrder,
+  options?: { idempotencyKey?: string }
+) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "receivePurchaseOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, data },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     // Lock the PO row first to prevent concurrent receipts from
     // reading stale quantityReceived values on the lines.
     const [order] = await tx
@@ -689,6 +747,11 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
       .for("update");
 
     if (!order) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
     }
 
@@ -772,17 +835,6 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
         continue;
       }
 
-      await createPositiveLotAndMovementInTx(tx, {
-        orgId,
-        itemId: currentLine.itemId,
-        quantity: entry.stockQuantityReceived,
-        userId,
-        costPerUnit: currentLine.stockUnitCost,
-        movementType: "purchase_received",
-        referenceType: "purchase_order",
-        referenceId: id,
-      });
-
       const newQuantityReceived =
         parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
       const newStockQuantityReceived =
@@ -808,6 +860,22 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
       });
     }
 
+    await receivePurchaseStockInTx(tx, {
+      organizationId: orgId,
+      purchaseOrderId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "receive-stock"
+      ),
+      lines: receiveEntries.map((entry) => ({
+        purchaseOrderLineId: entry.line.id,
+        itemId: entry.line.itemId,
+        quantity: entry.stockQuantityReceived,
+        unitCost: entry.line.stockUnitCost,
+      })),
+    });
+
     const allReceived = [...updatedLines.values()].every(
       (line) => parseFloat(line.quantityReceived) >= parseFloat(line.quantityOrdered)
     );
@@ -821,20 +889,42 @@ export async function receivePurchaseOrder(id: string, data: ReceivePurchaseOrde
       })
       .where(eq(purchaseOrders.id, id));
 
-    await recomputeExpectedQty(
-      tx,
-      existingLines.map((line) => line.itemId)
-    );
+    const result = { id };
 
-    return { id };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
-export async function cancelPurchaseOrder(id: string) {
-  return withAuthedOrgContext(async (tx) => {
+export async function cancelPurchaseOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "cancelPurchaseOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
     }
 
@@ -845,8 +935,6 @@ export async function cancelPurchaseOrder(id: string) {
       );
     }
 
-    const lines = await getPurchaseOrderLinesInTx(tx, id);
-
     await tx
       .update(purchaseOrders)
       .set({
@@ -856,12 +944,26 @@ export async function cancelPurchaseOrder(id: string) {
       })
       .where(eq(purchaseOrders.id, id));
 
-    await recomputeExpectedQty(
-      tx,
-      lines.map((line) => line.itemId)
-    );
+    await releaseExpectedFromPurchaseInTx(tx, {
+      organizationId: orgId,
+      purchaseOrderId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "cancel-order"
+      ),
+      reason: "cancelled",
+    });
 
-    return { id };
+    const result = { id };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 

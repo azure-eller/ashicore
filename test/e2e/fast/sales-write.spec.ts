@@ -1,6 +1,11 @@
 import { asc, eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
-import { items, salesOrderLines, salesOrders, customers as salesCustomers } from "../../../lib/db/schema";
+import {
+  inventoryItemBalances,
+  salesOrderLines,
+  salesOrders,
+  customers as salesCustomers,
+} from "../../../lib/db/schema";
 import { createItem, getUnitId } from "../../helpers/api";
 
 test.describe("Sales write-path smoke", () => {
@@ -90,14 +95,12 @@ test.describe("Sales write-path smoke", () => {
 
     const customerInput = page.getByPlaceholder("Search customers...");
     await customerInput.click();
-    await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
     await selectDate(page, page.getByLabel("Requested Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
-    await itemInput.pressSequentially(productName);
     await page.getByRole("option", { name: new RegExp(productName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
     await page.locator('input[placeholder="0.00"]').first().fill("34.99");
@@ -132,7 +135,10 @@ test.describe("Sales write-path smoke", () => {
     expect(line.quantity).toBe("3.0000");
     expect(line.unitPrice).toBe("34.99");
 
-    const [product] = await db.select().from(items).where(eq(items.id, productId));
-    expect(product.committedQty).toBe("0.0000");
+    const [productBalance] = await db
+      .select()
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
+    expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
   });
 });

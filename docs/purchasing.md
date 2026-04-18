@@ -17,7 +17,7 @@ Purchasing v1 includes:
 - supplier and material snapshots on saved orders
 - `draft`, `ordered`, `partial`, `received`, and `cancelled` statuses
 - partial receiving into lot-backed inventory
-- `items.expectedQty` updates from active ordered and partially received purchase orders
+- projection-backed expected supply from active ordered and partially received purchase orders
 
 Purchasing v1 does not include:
 
@@ -71,19 +71,22 @@ Receiving is lot-backed and positive-only:
 - each non-zero received line creates one new internal lot
 - lot quantity = received quantity
 - lot cost per unit = purchase-order line unit cost
-- one `purchase_received` stock movement is written per received lot
-- receiving recomputes `items.expectedQty` from the remaining unreceived quantity
+- one `purchase_receipt` inventory event is written per received lot
+- receiving also emits `expected_release` for the received remainder and flushes the item/expected projections in the same transaction
 
 Blank receive inputs are ignored. Received quantity must be greater than zero and no greater than the current line remainder.
 
-## Expected Quantity
+## Expected Supply Projection
 
-`items.expectedQty` is the shared inbound-supply cache:
+Expected supply is now modeled through the inventory kernel:
 
-- released manufacturing orders contribute finished-product planned quantity
-- ordered and partially received purchase orders contribute material remaining quantity
+- the ledger writes `expected_increase` and `expected_release` events
+- `inventory_expected_summary` tracks the open per-document expected rows
+- `inventory_item_balances.expectedQty` is the hot-path item projection
+- ordered and partially received purchase orders contribute the material remaining quantity
+- released manufacturing orders contribute the unfinished product output side
 
 Implementation rule:
 
-- always recompute affected item ids from the database after submit, receive, cancel, release, complete, or manufacturing cancellation
-- never increment/decrement expected quantity directly
+- purchasing DAL code must call kernel expected-supply operations for submit, edit, receive, and cancel
+- purchasing must never mutate expected quantity directly or bypass the kernel projections

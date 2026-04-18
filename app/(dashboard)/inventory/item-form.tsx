@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -273,7 +274,9 @@ export function ItemForm({
       const payload = isMaster ? { ...nextData, isMaster: true } : nextData;
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("item-form-save", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify(payload),
       });
       if (!res.ok) {

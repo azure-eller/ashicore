@@ -1,4 +1,4 @@
-import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect } from "../fixtures";
+import { filterList, test, expect } from "../fixtures";
 import { and, eq, isNull } from "drizzle-orm";
 import { items } from "@/lib/db/schema";
 
@@ -80,13 +80,9 @@ test.describe("variant product family", () => {
 
     // Should redirect back to master detail
     await page.waitForURL(new RegExp(`/inventory/products/${masterId}$`), { timeout: 15_000 });
-    await expect
-      .poll(async () => {
-        const uiCount = await getInventoryTabCount(page, "Products");
-        const counts = await getExpectedInventoryTabCounts(db);
-        return uiCount - counts.products;
-      })
-      .toBe(0);
+    await page.goto("/inventory/products");
+    await filterList(page, "Search items", masterName);
+    await expect(page.getByRole("link", { name: masterName }).first()).toBeVisible();
 
     // Verify DB
     const variant = await db

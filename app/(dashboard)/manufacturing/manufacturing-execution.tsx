@@ -4,6 +4,7 @@ import Link from "next/link";
 import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -115,7 +116,9 @@ export function ManufacturingExecution({
         `/api/manufacturing-orders/${execution.id}/batches/${execution.currentBatchId}/start`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: createIdempotencyHeaders("manufacturing-pick", {
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify({}),
         }
       );
@@ -139,7 +142,9 @@ export function ManufacturingExecution({
         `/api/manufacturing-orders/${execution.id}/ingredients/${ingredientId}/pick`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: createIdempotencyHeaders("manufacturing-pick", {
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify({}),
         }
       );
@@ -161,7 +166,9 @@ export function ManufacturingExecution({
     mutationFn: async (value: string) => {
       const response = await fetch(`/api/manufacturing-orders/${execution.id}/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("manufacturing-complete", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ actualQuantity: value }),
       });
       const body = await response.json().catch(() => null);
@@ -188,7 +195,9 @@ export function ManufacturingExecution({
         `/api/manufacturing-orders/${execution.id}/batches/${execution.currentBatchId}/complete`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: createIdempotencyHeaders("manufacturing-batch-complete", {
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify({ actualQuantity: value }),
         }
       );

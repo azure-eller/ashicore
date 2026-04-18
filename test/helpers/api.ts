@@ -1,5 +1,6 @@
 import http from "node:http";
 import https from "node:https";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { readTestEnv } from "./test-env";
 
 type TestEnv = ReturnType<typeof readTestEnv>;
@@ -130,6 +131,11 @@ export async function testFetch(
   options: RequestInit = {}
 ): Promise<TestResponse> {
   const base = getBaseUrl();
+  const method = (options.method ?? "GET").toUpperCase();
+  const requestHeaders =
+    method === "GET" || method === "HEAD"
+      ? new Headers(options.headers)
+      : createIdempotencyHeaders(`test:${method}:${path}`, options.headers);
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -140,7 +146,7 @@ export async function testFetch(
           "Content-Type": "application/json",
           Origin: base,
           Cookie: getSessionCookie(),
-          ...options.headers,
+          ...Object.fromEntries(requestHeaders.entries()),
         },
       });
     } catch (error) {
@@ -484,10 +490,10 @@ export async function confirmSalesOrder(
 }
 
 /**
- * POST /api/sales-orders/:id/fulfill
+ * POST /api/sales-orders/:id/ship
  */
 export async function fulfillSalesOrder(id: string) {
-  const res = await testFetch(`/api/sales-orders/${id}/fulfill`, {
+  const res = await testFetch(`/api/sales-orders/${id}/ship`, {
     method: "POST",
   });
   const body = await res.json().catch(() => null);

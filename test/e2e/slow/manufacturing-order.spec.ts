@@ -2,13 +2,14 @@ import { eq } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
-  items,
+  inventoryEvents,
+  inventoryItemBalances,
+  inventoryLotBalances,
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
   salesOrderLines,
   salesOrders,
-  stockMovements,
 } from "../../../lib/db/schema";
 import {
   createItem,
@@ -420,16 +421,14 @@ test.describe("Manufacturing order flow", () => {
 
     const [productRow] = await db
       .select({
-        id: items.id,
-        expectedQty: items.expectedQty,
-        committedQty: items.committedQty,
+        expectedQty: inventoryItemBalances.expectedQty,
+        committedQty: inventoryItemBalances.committedQty,
       })
-      .from(items)
-      .where(eq(items.id, productId));
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
 
-    expect(productRow).toBeTruthy();
-    expect(productRow.expectedQty).toBe("0.0000");
-    expect(productRow.committedQty).toBe("0.0000");
+    expect(productRow?.expectedQty ?? "0.0000").toBe("0.0000");
+    expect(productRow?.committedQty ?? "0.0000").toBe("0.0000");
   });
 
   test("blocks direct sales-linked creation through the manual manufacturing API", async () => {
@@ -842,10 +841,10 @@ test.describe("Manufacturing order flow", () => {
 
     const [productRow] = await db
       .select({
-        expectedQty: items.expectedQty,
+        expectedQty: inventoryItemBalances.expectedQty,
       })
-      .from(items)
-      .where(eq(items.id, productId));
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
 
     expect(productRow.expectedQty).toBe("6.0000");
 
@@ -882,19 +881,27 @@ test.describe("Manufacturing order flow", () => {
 
     const [productRow] = await db
       .select({
-        expectedQty: items.expectedQty,
+        expectedQty: inventoryItemBalances.expectedQty,
       })
-      .from(items)
-      .where(eq(items.id, productId));
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
 
     expect(productRow.expectedQty).toBe("0.0000");
 
     const referencedMovements = await db
       .select()
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, releasedOrderId));
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, releasedOrderId));
 
-    expect(referencedMovements).toHaveLength(0);
+    expect(
+      referencedMovements.filter((event) =>
+        [
+          "manufacturing_ingredient_consumption",
+          "manufacturing_output",
+          "unpick_restock",
+        ].includes(event.eventType)
+      )
+    ).toHaveLength(0);
 
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", cancelledOrder.orderNumber);
@@ -931,10 +938,10 @@ test.describe("Manufacturing order flow", () => {
 
     const [releasedProduct] = await db
       .select({
-        expectedQty: items.expectedQty,
+        expectedQty: inventoryItemBalances.expectedQty,
       })
-      .from(items)
-      .where(eq(items.id, productId));
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
     expect(releasedProduct.expectedQty).toBe("4.0000");
 
     await page.getByRole("link", { name: "Start Manufacturing" }).click();
@@ -999,7 +1006,15 @@ test.describe("Manufacturing order flow", () => {
     expect(completedByItemId.get(compostId)?.actualQuantity).toBe("4.0000");
     expect(completedByItemId.get(compostId)?.actualCostTotal).toBe("6.0000");
 
-    const sandLots = await db.select().from(lots).where(eq(lots.itemId, sandId));
+    const sandLots = await db
+      .select({
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+        costPerUnit: inventoryLotBalances.unitCost,
+      })
+      .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
+      .where(eq(lots.itemId, sandId));
     expect(sandLots).toHaveLength(2);
 
     const sandLotSummary = sandLots
@@ -1011,36 +1026,51 @@ test.describe("Manufacturing order flow", () => {
       .sort((a, b) => a.lotNumber.localeCompare(b.lotNumber));
 
     expect(sandLotSummary[0].quantity).toBe("2.0000");
-    expect(sandLotSummary[0].costPerUnit).toBe("2.0000");
+    expect(sandLotSummary[0].costPerUnit).toBe("2.000000");
     expect(sandLotSummary[1].quantity).toBe("10.0000");
-    expect(sandLotSummary[1].costPerUnit).toBe("3.0000");
+    expect(sandLotSummary[1].costPerUnit).toBe("3.000000");
 
     const compostLots = await db.select().from(lots).where(eq(lots.itemId, compostId));
     expect(compostLots).toHaveLength(1);
     expect(compostLots[0].quantity).toBe("6.0000");
 
-    const producedLots = await db.select().from(lots).where(eq(lots.itemId, productId));
+    const producedLots = await db
+      .select({
+        quantity: lots.quantity,
+        costPerUnit: inventoryLotBalances.unitCost,
+      })
+      .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
+      .where(eq(lots.itemId, productId));
     expect(producedLots).toHaveLength(1);
     expect(producedLots[0].quantity).toBe("6.0000");
-    expect(producedLots[0].costPerUnit).toBe("3.6667");
+    expect(producedLots[0].costPerUnit).toBe("3.666667");
 
     const movements = await db
       .select({
-        itemId: stockMovements.itemId,
-        lotId: stockMovements.lotId,
-        quantity: stockMovements.quantity,
-        movementType: stockMovements.movementType,
-        referenceType: stockMovements.referenceType,
+        itemId: inventoryEvents.itemId,
+        lotId: inventoryEvents.lotId,
+        quantity: inventoryEvents.quantity,
+        eventType: inventoryEvents.eventType,
+        referenceType: inventoryEvents.referenceType,
       })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, completionOrderId));
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, completionOrderId));
 
-    expect(movements).toHaveLength(3);
+    expect(movements).toHaveLength(5);
     expect(
-      movements.filter((movement) => movement.movementType === "manufacturing_picked")
+      movements.filter(
+        (movement) => movement.eventType === "manufacturing_ingredient_consumption"
+      )
     ).toHaveLength(2);
     expect(
-      movements.filter((movement) => movement.movementType === "manufacturing_produced")
+      movements.filter((movement) => movement.eventType === "manufacturing_output")
+    ).toHaveLength(1);
+    expect(
+      movements.filter((movement) => movement.eventType === "expected_increase")
+    ).toHaveLength(1);
+    expect(
+      movements.filter((movement) => movement.eventType === "expected_release")
     ).toHaveLength(1);
     expect(
       movements.every((movement) => movement.referenceType === "manufacturing_order")
@@ -1048,10 +1078,10 @@ test.describe("Manufacturing order flow", () => {
 
     const [completedProduct] = await db
       .select({
-        expectedQty: items.expectedQty,
+        expectedQty: inventoryItemBalances.expectedQty,
       })
-      .from(items)
-      .where(eq(items.id, productId));
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
     expect(completedProduct.expectedQty).toBe("0.0000");
 
     await page.goto("/manufacturing/orders");
@@ -1238,8 +1268,12 @@ test.describe("Manufacturing order flow", () => {
     );
 
     const finishedLots = await db
-      .select({ quantity: lots.quantity, costPerUnit: lots.costPerUnit })
+      .select({
+        quantity: lots.quantity,
+        costPerUnit: inventoryLotBalances.unitCost,
+      })
       .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
       .where(eq(lots.itemId, finishedId));
     expect(finishedLots).toHaveLength(1);
     expect(finishedLots[0].quantity).toBe("1.0000");
@@ -1247,25 +1281,25 @@ test.describe("Manufacturing order flow", () => {
 
     const movements = await db
       .select({
-        itemId: stockMovements.itemId,
-        movementType: stockMovements.movementType,
-        referenceType: stockMovements.referenceType,
+        itemId: inventoryEvents.itemId,
+        eventType: inventoryEvents.eventType,
+        referenceType: inventoryEvents.referenceType,
       })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, finishedOrderId));
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, finishedOrderId));
 
     expect(
       movements.some(
         (movement) =>
           movement.itemId === subassemblyId &&
-          movement.movementType === "manufacturing_picked"
+          movement.eventType === "manufacturing_ingredient_consumption"
       )
     ).toBe(true);
     expect(
       movements.some(
         (movement) =>
           movement.itemId === finishedId &&
-          movement.movementType === "manufacturing_produced"
+          movement.eventType === "manufacturing_output"
       )
     ).toBe(true);
     expect(

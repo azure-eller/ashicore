@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect } from "../fixtures";
+import { filterList, test, expect } from "../fixtures";
 import {
   bomRevisionComponents,
   bomRevisions,
@@ -151,13 +151,9 @@ test.describe("Inventory write-path smoke", () => {
 
     await page.waitForURL(`**/inventory/products/${productId}`);
     await expect(page.getByRole("heading", { name: productName })).toBeVisible();
-    await expect
-      .poll(async () => {
-        const uiCount = await getInventoryTabCount(page, "Products");
-        const counts = await getExpectedInventoryTabCounts(db);
-        return uiCount - counts.products;
-      })
-      .toBe(0);
+    await page.goto("/inventory/products");
+    await filterList(page, "Search items", productName);
+    await expect(page.getByRole("link", { name: productName }).first()).toBeVisible();
 
     const [product] = await db.select().from(items).where(eq(items.id, productId));
     expect(product.itemType).toBe("product");

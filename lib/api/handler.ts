@@ -4,8 +4,23 @@ import * as Sentry from "@sentry/nextjs";
 import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { AuthorizationError } from "@/lib/authz";
+import { DomainError } from "@/lib/errors/domain-error";
+import { MissingIdempotencyKeyError } from "@/lib/inventory/kernel";
 
 export type RouteContext = { params: Promise<{ id: string }> };
+
+export function requireIdempotencyKey(
+  request: Request,
+  operationName: string
+) {
+  const idempotencyKey = request.headers.get("Idempotency-Key");
+
+  if (!idempotencyKey) {
+    throw new MissingIdempotencyKeyError(operationName);
+  }
+
+  return idempotencyKey;
+}
 
 export function apiHandler<TArgs extends unknown[]>(
   fn: (request: Request, ...args: TArgs) => Promise<NextResponse>
@@ -26,6 +41,11 @@ export function apiHandler<TArgs extends unknown[]>(
           { error: error.message, requestId },
           { status: error.status }
         );
+        response.headers.set("x-request-id", requestId);
+        return response;
+      }
+      if (error instanceof DomainError) {
+        const response = error.toResponse();
         response.headers.set("x-request-id", requestId);
         return response;
       }

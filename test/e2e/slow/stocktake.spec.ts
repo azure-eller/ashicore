@@ -1,9 +1,10 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { test, expect, filterList, getIdFromUrl } from "../fixtures";
 import {
+  inventoryEvents,
+  inventoryLotBalances,
   items,
   lots,
-  stockMovements,
   stocktakeItems,
   stocktakes,
 } from "../../../lib/db/schema";
@@ -206,12 +207,12 @@ test.describe("Stocktake flow", () => {
 
     expect(draftStocktake.status).toBe("draft");
 
-    const relatedMovements = await db
-      .select({ id: stockMovements.id })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, noCostStocktakeId));
+    const relatedEvents = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${noCostStocktakeId}`);
 
-    expect(relatedMovements).toHaveLength(0);
+    expect(relatedEvents).toHaveLength(0);
 
     const cancelResponse = await testFetch(`/api/stocktakes/${noCostStocktakeId}/cancel`, {
       method: "POST",
@@ -590,12 +591,21 @@ test.describe("Stocktake flow", () => {
 
     expect(parseFloat(materialStock.total)).toBe(5);
 
-    const stocktakeMovements = await db
-      .select({ id: stockMovements.id })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, oneClickStocktakeId));
+    const stocktakeVerificationEvents = await db
+      .select({ eventType: inventoryEvents.eventType })
+      .from(inventoryEvents)
+      .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${oneClickStocktakeId}`);
 
-    expect(stocktakeMovements).toHaveLength(0);
+    expect(
+      stocktakeVerificationEvents.filter(
+        (event) => event.eventType === "stocktake_verification"
+      )
+    ).toHaveLength(1);
+    expect(
+      stocktakeVerificationEvents.filter((event) =>
+        ["stocktake_gain", "stocktake_loss"].includes(event.eventType)
+      )
+    ).toHaveLength(0);
 
     await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
     await expect(page.getByText(`1 / ${savedLines.length}`)).toBeVisible();
@@ -640,7 +650,7 @@ test.describe("Stocktake flow", () => {
           itemId: materialId,
           expectedQty: "5",
           currentQty: "7",
-          countedQty: "4.0000",
+          countedQty: "4",
         }),
       ])
     );
@@ -708,25 +718,25 @@ test.describe("Stocktake flow", () => {
     expect(parseFloat(materialStock.total)).toBe(4);
     expect(parseFloat(productStock.total)).toBe(0);
 
-    const stocktakeMovements = await db
+    const stocktakeEvents = await db
       .select({
-        quantity: stockMovements.quantity,
-        movementType: stockMovements.movementType,
-        referenceType: stockMovements.referenceType,
-        referenceId: stockMovements.referenceId,
+        quantity: inventoryEvents.quantity,
+        eventType: inventoryEvents.eventType,
+        referenceType: inventoryEvents.referenceType,
+        referenceId: inventoryEvents.referenceId,
       })
-      .from(stockMovements)
+      .from(inventoryEvents)
       .where(
         and(
-          eq(stockMovements.itemId, materialId),
-          eq(stockMovements.movementType, "stocktake_adjustment"),
-          eq(stockMovements.referenceId, stocktakeId)
+          eq(inventoryEvents.itemId, materialId),
+          eq(inventoryEvents.eventType, "stocktake_loss"),
+          sql`${inventoryEvents.metadata}->>'stocktakeId' = ${stocktakeId}`
         )
       );
 
-    expect(stocktakeMovements).toHaveLength(1);
-    expect(stocktakeMovements[0].referenceType).toBe("stocktake");
-    expect(parseFloat(stocktakeMovements[0].quantity)).toBe(-3);
+    expect(stocktakeEvents).toHaveLength(1);
+    expect(stocktakeEvents[0].referenceType).toBe("stocktake_line");
+    expect(parseFloat(stocktakeEvents[0].quantity)).toBe(3);
 
     const productRename = await updateItem(productId, {
       name: renamedProductName,
@@ -779,12 +789,12 @@ test.describe("Stocktake flow", () => {
 
     expect(parseFloat(productStock.total)).toBe(0);
 
-    const cancelledMovements = await db
-      .select({ id: stockMovements.id })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, productCategoryStocktakeId));
+    const cancelledEvents = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${productCategoryStocktakeId}`);
 
-    expect(cancelledMovements).toHaveLength(0);
+    expect(cancelledEvents).toHaveLength(0);
 
     await page.goto(`/inventory/stocktakes/${productCategoryStocktakeId}`);
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
@@ -816,15 +826,16 @@ test.describe("Stocktake flow", () => {
     const productLots = await db
       .select({
         quantity: lots.quantity,
-        costPerUnit: lots.costPerUnit,
+        costPerUnit: inventoryLotBalances.unitCost,
       })
       .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
       .where(eq(lots.itemId, productId))
       .orderBy(asc(lots.receivedAt), asc(lots.id));
 
     expect(productLots).toHaveLength(1);
     expect(productLots[0].quantity).toBe("2.0000");
-    expect(productLots[0].costPerUnit).toBe("5.0000");
+    expect(productLots[0].costPerUnit).toBe("5.000000");
   });
 
   test("creates product opening stock using BOM-derived cost", async ({ db }) => {
@@ -850,13 +861,14 @@ test.describe("Stocktake flow", () => {
     const productLots = await db
       .select({
         quantity: lots.quantity,
-        costPerUnit: lots.costPerUnit,
+        costPerUnit: inventoryLotBalances.unitCost,
       })
       .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
       .where(eq(lots.itemId, openingStockProductId));
 
     expect(productLots).toHaveLength(1);
     expect(productLots[0].quantity).toBe("1.0000");
-    expect(productLots[0].costPerUnit).toBe("5.0000");
+    expect(productLots[0].costPerUnit).toBe("5.000000");
   });
 });

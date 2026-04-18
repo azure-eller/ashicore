@@ -1,11 +1,12 @@
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel";
 import { loadWorktreeEnv } from "./load-worktree-env";
 
 loadWorktreeEnv();
 
 async function main() {
   const { db } = await import("@/lib/db");
-  const { organization, unitDefinitions, items, lots, stockMovements } = await import("@/lib/db/schema");
+  const { organization, unitDefinitions, items } = await import("@/lib/db/schema");
   // 1. Get the first org
   const orgs = await db.select().from(organization).limit(1);
   if (orgs.length === 0) {
@@ -132,7 +133,7 @@ async function main() {
     console.log(`  - ${item.name}`);
   }
 
-  // 4. Create default lots for each item
+  // 4. Seed opening balances through the inventory kernel
   const stockAmounts: Record<string, string> = {
     "Sphagnum Peat Moss": "48",
     "Perlite": "120",
@@ -143,49 +144,37 @@ async function main() {
     "Raised Bed Blend": "15",
     "Seed Starting Mix": "85",
   };
+  const openingUnitCosts: Record<string, string> = {
+    "Sphagnum Peat Moss": "8.5",
+    "Perlite": "2.75",
+    "Compost": "32",
+    "Pumice": "3.5",
+    "Worm Castings": "0.85",
+    "Premium Garden Mix": "14.5",
+    "Raised Bed Blend": "54",
+    "Seed Starting Mix": "7.25",
+  };
 
   let lotSeq = 1;
   for (const item of insertedItems) {
     const qty = stockAmounts[item.name];
-    if (qty) {
-      await db.insert(lots).values({
+    const unitCost = openingUnitCosts[item.name];
+    if (!qty || !unitCost) continue;
+
+    await withOrgContext(orgId, async (tx) => {
+      await seedOpeningBalanceInTx(tx, {
         organizationId: orgId,
         itemId: item.id,
-        lotNumber: `LOT-${String(lotSeq++).padStart(6, "0")}`,
-        quantity: qty,
-      }).onConflictDoNothing();
-    }
-  }
-  console.log(`Created ${lotSeq - 1} default lots`);
-
-  // 5. Create initial stock movements for seeded lots
-  const seededLots = await withOrgContext(orgId, async (tx) => {
-    return tx
-      .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity })
-      .from(lots);
-  });
-
-  const existingMovementLotIds = await withOrgContext(orgId, async (tx) => {
-    const rows = await tx
-      .select({ lotId: stockMovements.lotId })
-      .from(stockMovements);
-    return new Set(rows.map((r) => r.lotId));
-  });
-
-  for (const lot of seededLots) {
-    if (parseFloat(lot.quantity) > 0 && !existingMovementLotIds.has(lot.id)) {
-      await withOrgContext(orgId, async (tx) => {
-        await tx.insert(stockMovements).values({
-          organizationId: orgId,
-          itemId: lot.itemId,
-          lotId: lot.id,
-          quantity: lot.quantity,
-          createdBy: "seed",
-        });
+        quantity: Number(qty),
+        unitCost,
+        actorUserId: "seed",
+        idempotencyKey: `seed-opening:${item.id}`,
+        lotNumber: `LOT-${String(lotSeq).padStart(6, "0")}`,
       });
-    }
+    });
+    lotSeq += 1;
   }
-  console.log(`Created ${seededLots.filter(l => parseFloat(l.quantity) > 0).length} initial stock movements`);
+  console.log(`Seeded ${lotSeq - 1} opening balance lots`);
 
   console.log("Seed complete.");
 }

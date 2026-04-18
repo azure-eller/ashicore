@@ -2,11 +2,13 @@ import { and, asc, eq } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
+  inventoryEvents,
+  inventoryItemBalances,
+  inventoryLotBalances,
   items,
   lots,
   purchaseOrderLines,
   purchaseOrders,
-  stockMovements,
   suppliers as purchasingSuppliers,
 } from "../../../lib/db/schema";
 import {
@@ -284,11 +286,17 @@ test.describe("Purchasing flow", () => {
     expect(order.status).toBe("ordered");
     expect(order.orderedAt).not.toBeNull();
 
-    const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
-    const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
+    const [barkItem] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, barkId));
+    const [sandItem] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, sandId));
 
-    expect(barkItem.expectedQty).toBe("10.0000");
-    expect(sandItem.expectedQty).toBe("6.0000");
+    expect(barkItem?.expectedQty ?? "0.0000").toBe("10.0000");
+    expect(sandItem?.expectedQty ?? "0.0000").toBe("6.0000");
 
     const supplierDelete = await testFetch(`/api/suppliers/${supplierId}`, {
       method: "DELETE",
@@ -355,24 +363,34 @@ test.describe("Purchasing flow", () => {
     const barkLots = await db.select().from(lots).where(eq(lots.itemId, barkId));
     expect(barkLots).toHaveLength(1);
     expect(barkLots[0].quantity).toBe("4.0000");
-    expect(barkLots[0].costPerUnit).toBe("2.0000");
+    const [barkLotBalance] = await db
+      .select({ unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, barkLots[0].id));
+    expect(barkLotBalance.unitCost).toBe("2.000000");
 
     const barkMovements = await db
       .select()
-      .from(stockMovements)
+      .from(inventoryEvents)
       .where(
         and(
-          eq(stockMovements.itemId, barkId),
-          eq(stockMovements.referenceId, purchaseOrderId),
-          eq(stockMovements.movementType, "purchase_received")
+          eq(inventoryEvents.itemId, barkId),
+          eq(inventoryEvents.referenceId, purchaseOrderId),
+          eq(inventoryEvents.eventType, "purchase_receipt")
         )
       );
 
     expect(barkMovements).toHaveLength(1);
     expect(barkMovements[0].referenceType).toBe("purchase_order");
 
-    const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
-    const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
+    const [barkItem] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, barkId));
+    const [sandItem] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, sandId));
 
     expect(barkItem.expectedQty).toBe("6.0000");
     expect(sandItem.expectedQty).toBe("6.0000");
@@ -436,18 +454,24 @@ test.describe("Purchasing flow", () => {
 
     const receiveMovements = await db
       .select()
-      .from(stockMovements)
+      .from(inventoryEvents)
       .where(
         and(
-          eq(stockMovements.referenceId, purchaseOrderId),
-          eq(stockMovements.movementType, "purchase_received")
+          eq(inventoryEvents.referenceId, purchaseOrderId),
+          eq(inventoryEvents.eventType, "purchase_receipt")
         )
       );
 
     expect(receiveMovements).toHaveLength(3);
 
-    const [barkItem] = await db.select().from(items).where(eq(items.id, barkId));
-    const [sandItem] = await db.select().from(items).where(eq(items.id, sandId));
+    const [barkItem] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, barkId));
+    const [sandItem] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, sandId));
 
     expect(barkItem.expectedQty).toBe("0.0000");
     expect(sandItem.expectedQty).toBe("0.0000");

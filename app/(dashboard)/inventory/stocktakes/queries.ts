@@ -2,7 +2,6 @@ import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   items,
-  lots,
   stocktakeItems,
   stocktakes,
   unitDefinitions,
@@ -11,11 +10,14 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
-  applyStockDeltaInTx,
-  getCurrentStockInTx,
+  beginInventoryOperationInTx,
+  deriveInventoryIdempotencyKey,
+  finishInventoryOperationInTx,
+  getCurrentOnHandQtyInTx,
   lockItemsInTx,
-  MissingStockCostError,
-} from "@/lib/inventory/stock";
+  projectedOnHandQty,
+  reconcileStocktakeCountInTx,
+} from "@/lib/inventory/kernel";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -161,11 +163,7 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
-      currentQty: trimScale(sql`(
-        SELECT COALESCE(SUM(${lots.quantity}), 0)
-        FROM ${lots}
-        WHERE ${lots.itemId} = ${items.id}
-      )`).as("currentQty"),
+      currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -452,11 +450,31 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
   });
 }
 
-export async function completeStocktake(id: string, confirmStale: CompleteStocktake["confirmStale"]) {
+export async function completeStocktake(
+  id: string,
+  confirmStale: CompleteStocktake["confirmStale"],
+  options?: { idempotencyKey?: string }
+) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "completeStocktake",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, confirmStale },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const stocktake = await getLockedStocktakeInTx(tx, id);
 
     if (!stocktake) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
     }
 
@@ -480,9 +498,7 @@ export async function completeStocktake(id: string, confirmStale: CompleteStockt
     const currentQtyByItemId = new Map<string, string>();
 
     for (const line of countedLines) {
-      const currentQty = normalizeNumeric(
-        await getCurrentStockInTx(tx, line.itemId)
-      );
+      const currentQty = normalizeNumeric(await getCurrentOnHandQtyInTx(tx, line.itemId));
       currentQtyByItemId.set(line.itemId, currentQty);
 
       if (currentQty !== normalizeNumeric(parseFloat(line.expectedQty))) {
@@ -504,40 +520,38 @@ export async function completeStocktake(id: string, confirmStale: CompleteStockt
       });
     }
 
-    try {
-      for (const line of countedLines) {
+    await reconcileStocktakeCountInTx(tx, {
+      organizationId: orgId,
+      stocktakeId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "complete-stocktake"
+      ),
+      lines: countedLines.map((line) => {
         const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
-        const delta = Number(line.countedQty) - Number(currentQty);
-        const normalizedVariance = getVariance(line.expectedQty, line.countedQty);
-        const normalizedDelta = normalizeNumeric(delta);
+        return {
+          stocktakeLineId: line.id,
+          itemId: line.itemId,
+          variance: Number(line.countedQty) - Number(currentQty),
+        };
+      }),
+    });
 
-        if (delta !== 0) {
-          await applyStockDeltaInTx(tx, {
-            orgId,
-            userId,
-            itemId: line.itemId,
-            delta,
-            movementType: "stocktake_adjustment",
-            referenceType: "stocktake",
-            referenceId: id,
-          });
-        }
+    for (const line of countedLines) {
+      const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
+      const delta = Number(line.countedQty) - Number(currentQty);
+      const normalizedVariance = getVariance(line.expectedQty, line.countedQty);
+      const normalizedDelta = normalizeNumeric(delta);
 
-        await tx
-          .update(stocktakeItems)
-          .set({
-            varianceQty: normalizedVariance,
-            appliedDeltaQty: normalizedDelta,
-            updatedAt: new Date(),
-          })
-          .where(eq(stocktakeItems.id, line.id));
-      }
-    } catch (error) {
-      if (error instanceof MissingStockCostError) {
-        throw new StocktakeError(error.message, 400);
-      }
-
-      throw error;
+      await tx
+        .update(stocktakeItems)
+        .set({
+          varianceQty: normalizedVariance,
+          appliedDeltaQty: normalizedDelta,
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeItems.id, line.id));
     }
 
     await tx
@@ -549,7 +563,15 @@ export async function completeStocktake(id: string, confirmStale: CompleteStockt
       })
       .where(eq(stocktakes.id, id));
 
-    return { id };
+    const result = { id };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 

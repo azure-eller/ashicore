@@ -15,7 +15,6 @@ import {
   customerCategories,
   customers,
   items,
-  lots,
   manufacturingOrders,
   pricingScheduleBreaks,
   pricingSchedules,
@@ -27,10 +26,22 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
-  applyStockDeltaInTx,
+  beginInventoryOperationInTx,
+  consumeForShipmentInTx,
+  deriveInventoryIdempotencyKey,
+  finishInventoryOperationInTx,
+  getSalesLineQuantitiesForReservationInTx,
   InsufficientStockError,
   lockItemsInTx,
-} from "@/lib/inventory/stock";
+  releaseReservationForSalesLineInTx,
+  projectedCommittedQty,
+  projectedCommittedQtyExpr,
+  projectedExpectedQty,
+  projectedExpectedQtyExpr,
+  projectedOnHandQty,
+  projectedOnHandQtyExpr,
+  reserveForSalesInTx,
+} from "@/lib/inventory/kernel";
 import { invalidateOrgPromptSectionCache } from "@/lib/agent/core/promptSections";
 import {
   DomainError,
@@ -70,11 +81,15 @@ import type {
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 
-const stockSubquery = trimScale(sql`(
-  SELECT COALESCE(SUM(${lots.quantity}), 0)
-  FROM ${lots}
-  WHERE ${lots.itemId} = ${items.id}
-)`).as("stock");
+const stockSubquery = projectedOnHandQty(items.organizationId, items.id).as("stock");
+const committedQtySubquery = projectedCommittedQty(
+  items.organizationId,
+  items.id
+).as("committedQty");
+const expectedQtySubquery = projectedExpectedQty(
+  items.organizationId,
+  items.id
+).as("expectedQty");
 
 type PreparedOrderLineBase = {
   itemId: string;
@@ -665,44 +680,6 @@ async function prepareDraftOrdersForConfirmationInTx(
   return { orders: preparedOrders, itemsById };
 }
 
-async function recomputeCommittedQty(tx: Tx, itemIds: string[]) {
-  const uniqueItemIds = [...new Set(itemIds)];
-
-  if (uniqueItemIds.length === 0) {
-    return;
-  }
-
-  await lockItemsInTx(tx, uniqueItemIds);
-
-  const totals = await tx
-    .select({
-      itemId: salesOrderLines.itemId,
-      total: trimScale(sql`COALESCE(SUM(${salesOrderLines.quantity}), 0)`).as("total"),
-    })
-    .from(salesOrderLines)
-    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-    .where(
-      and(
-        inArray(salesOrderLines.itemId, uniqueItemIds),
-        isNull(salesOrders.deletedAt),
-        eq(salesOrders.status, "confirmed")
-      )
-    )
-    .groupBy(salesOrderLines.itemId);
-
-  const totalsByItem = new Map(totals.map((row) => [row.itemId, row.total]));
-
-  for (const itemId of uniqueItemIds) {
-    await tx
-      .update(items)
-      .set({
-        committedQty: totalsByItem.get(itemId) ?? "0",
-        updatedAt: new Date(),
-      })
-      .where(eq(items.id, itemId));
-  }
-}
-
 async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
   const [customer] = await tx
     .select({
@@ -748,8 +725,8 @@ async function getValidatedSalesItemsInTx(
         "defaultSellingPrice"
       ),
       stock: stockSubquery,
-      committedQty: trimScale(items.committedQty).as("committedQty"),
-      expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+      committedQty: committedQtySubquery,
+      expectedQty: expectedQtySubquery,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
     })
     .from(items)
@@ -1782,8 +1759,8 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           "defaultSellingPrice"
         ),
         stock: stockSubquery,
-        committedQty: trimScale(items.committedQty).as("committedQty"),
-        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        committedQty: committedQtySubquery,
+        expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
       })
       .from(items)
@@ -1971,8 +1948,10 @@ export async function getSalesOrder(
         masterVariantAxes: masterItems.variantAxes,
         calcStock: trimScaleNullable(
           sql<string | null>`(
-            (SELECT COALESCE(SUM(l.quantity), 0) FROM inventory.lots l WHERE l.item_id = ${items.id})
-            - ${items.committedQty} + ${items.expectedQty} - ${items.safetyStock}
+            ${projectedOnHandQtyExpr(items.organizationId, items.id)}
+            - ${projectedCommittedQtyExpr(items.organizationId, items.id)}
+            + ${projectedExpectedQtyExpr(items.organizationId, items.id)}
+            - ${items.safetyStock}
           )`
         ).as("calcStock"),
         potential: trimScaleNullable(
@@ -1984,8 +1963,11 @@ export async function getSalesOrder(
                 (
                   SELECT MIN(
                     (
-                      COALESCE((SELECT SUM(l.quantity) FROM inventory.lots l WHERE l.item_id = bc.component_id), 0)
-                      - COALESCE((SELECT ci.committed_qty FROM inventory.items ci WHERE ci.id = bc.component_id), 0)
+                      ${projectedOnHandQtyExpr(items.organizationId, sql`bc.component_id`)}
+                      - ${projectedCommittedQtyExpr(
+                        items.organizationId,
+                        sql`bc.component_id`
+                      )}
                     )
                     / NULLIF(bc.quantity, 0)
                   )
@@ -2107,8 +2089,22 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
   });
 }
 
-export async function createSalesOrder(data: InsertSalesOrder) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+export async function createSalesOrder(
+  data: InsertSalesOrder,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
+      organizationId: orgId,
+      operationName: "createSalesOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: data,
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const shouldCheckOversell =
       data.status === "confirmed" && data.confirmOversell !== true;
     const prepared = await prepareOrderPayload(tx, data, {
@@ -2151,29 +2147,73 @@ export async function createSalesOrder(data: InsertSalesOrder) {
       })
       .returning({ id: salesOrders.id });
 
-    await tx.insert(salesOrderLines).values(
+    const insertedLines = await tx.insert(salesOrderLines).values(
       prepared.preparedLines.map((line) => ({
         salesOrderId: order.id,
         ...line,
       }))
-    );
+    ).returning({
+      salesOrderLineId: salesOrderLines.id,
+      itemId: salesOrderLines.itemId,
+      quantity: salesOrderLines.quantity,
+    });
 
-    await recomputeCommittedQty(tx, prepared.affectedItemIds);
+    if (data.status === "confirmed") {
+      await reserveForSalesInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: order.id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "create-confirmed-order"
+        ),
+        lines: insertedLines.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+    }
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: order,
+    });
 
     return order;
   });
 }
 
-export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
-  return withAuthedOrgContext(async (tx) => {
+export async function updateSalesOrder(
+  id: string,
+  data: UpdateSalesOrder,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "updateSalesOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, data },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const existingOrder = await getLockedSalesOrderInTx(tx, id);
 
     if (!existingOrder) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
     }
 
     const existingLines = await getOrderLinesInTx(tx, id);
-    const existingItemIds = existingLines.map((line) => line.itemId);
 
     if (existingOrder.status === "confirmed") {
       if (!isCancelPayload(data)) {
@@ -2188,8 +2228,24 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
         })
         .where(eq(salesOrders.id, id));
 
-      await recomputeCommittedQty(tx, existingItemIds);
-      return { id };
+      await releaseReservationForSalesLineInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "cancel-confirmed-order"
+        ),
+        reason: "cancelled",
+        salesOrderLineIds: existingLines.map((line) => line.id),
+      });
+      const result = { id };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     if (existingOrder.status === "cancelled") {
@@ -2227,12 +2283,16 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
 
     await tx.delete(salesOrderLines).where(eq(salesOrderLines.salesOrderId, id));
 
-    await tx.insert(salesOrderLines).values(
+    const insertedLines = await tx.insert(salesOrderLines).values(
       prepared.preparedLines.map((line) => ({
         salesOrderId: id,
         ...line,
       }))
-    );
+    ).returning({
+      salesOrderLineId: salesOrderLines.id,
+      itemId: salesOrderLines.itemId,
+      quantity: salesOrderLines.quantity,
+    });
 
     await tx
       .update(salesOrders)
@@ -2253,12 +2313,32 @@ export async function updateSalesOrder(id: string, data: UpdateSalesOrder) {
       })
       .where(eq(salesOrders.id, id));
 
-    await recomputeCommittedQty(tx, [
-      ...existingItemIds,
-      ...prepared.affectedItemIds,
-    ]);
+    if (data.status === "confirmed") {
+      await reserveForSalesInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "update-to-confirmed"
+        ),
+        lines: insertedLines.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+    }
 
-    return { id };
+    const result = { id };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
@@ -2326,12 +2406,39 @@ export async function getSalesOrderForBol(
   });
 }
 
-export async function shipSalesOrder(id: string) {
+export async function shipSalesOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "shipSalesOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id },
+    });
+
+    if (replay.replayed) {
+      return {
+        replayed: true as const,
+        shipped: replay.result,
+        orgId,
+      };
+    }
+
     const order = await getLockedSalesOrderInTx(tx, id);
 
     if (!order) {
-      return null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return {
+        replayed: false as const,
+        shipped: null,
+        orgId,
+      };
     }
 
     if (order.status === "draft") {
@@ -2347,31 +2454,33 @@ export async function shipSalesOrder(id: string) {
     }
 
     const lines = await getOrderLinesInTx(tx, id);
-    const affectedItemIds = lines.map((line) => line.itemId);
 
-    await lockItemsInTx(tx, affectedItemIds);
-
-    for (const line of lines) {
-      try {
-        await applyStockDeltaInTx(tx, {
-          orgId,
-          userId,
+    try {
+      await consumeForShipmentInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "ship-order"
+        ),
+        shippedAt: new Date(),
+        lines: lines.map((line) => ({
+          salesOrderLineId: line.id,
           itemId: line.itemId,
-          delta: -parseFloat(line.quantity),
-          movementType: "sales_shipped",
-          referenceType: "sales_order",
-          referenceId: id,
-        });
-      } catch (error) {
-        if (error instanceof InsufficientStockError) {
-          throw new SalesError(
-            `Cannot ship order. Insufficient stock for ${line.itemName}.`,
-            409
-          );
-        }
-
-        throw error;
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+    } catch (error) {
+      if (error instanceof InsufficientStockError) {
+        const blockingLine = lines.find((line) => line.itemId === error.itemId);
+        throw new SalesError(
+          `Cannot ship order. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
+          409
+        );
       }
+
+      throw error;
     }
 
     const [currentOrder] = await tx
@@ -2466,13 +2575,25 @@ export async function shipSalesOrder(id: string) {
       .where(eq(salesOrders.id, id))
       .returning({ id: salesOrders.id });
 
-    await recomputeCommittedQty(tx, affectedItemIds);
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: shipped,
+    });
 
-    return { shipped, orgId };
+    return {
+      replayed: false as const,
+      shipped,
+      orgId,
+    };
   });
 
   if (!result || !result.shipped) {
     return null;
+  }
+
+  if (result.replayed) {
+    return result.shipped;
   }
 
   // Stock tx has committed. Attempt the Xero push; a failure must NOT roll
@@ -2527,9 +2648,21 @@ export async function retryXeroPushForSalesOrder(id: string) {
 
 export async function confirmSalesOrder(
   id: string,
-  confirmOversell = false
+  confirmOversell = false,
+  options?: { idempotencyKey?: string }
 ): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "confirmSalesOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, confirmOversell },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(
       tx,
       [id],
@@ -2557,16 +2690,50 @@ export async function confirmSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
-    await recomputeCommittedQty(tx, order.affectedItemIds);
+    const lineRows = await getSalesLineQuantitiesForReservationInTx(tx, id);
+    await reserveForSalesInTx(tx, {
+      organizationId: orgId,
+      salesOrderId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "confirm-order"
+      ),
+      lines: lineRows.map((line) => ({
+        salesOrderLineId: line.salesOrderLineId,
+        itemId: line.itemId,
+        quantity: parseFloat(line.quantity),
+      })),
+    });
 
-    return { id };
+    const result = { id };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
 export async function bulkConfirmSalesOrders(
-  payload: BulkConfirmSalesOrders
+  payload: BulkConfirmSalesOrders,
+  options?: { idempotencyKey?: string }
 ): Promise<{ confirmedCount: number }> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ confirmedCount: number }>(tx, {
+      organizationId: orgId,
+      operationName: "bulkConfirmSalesOrders",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload,
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(
       tx,
       payload.ids,
@@ -2574,7 +2741,13 @@ export async function bulkConfirmSalesOrders(
     );
 
     if (orders.length === 0) {
-      return { confirmedCount: 0 };
+      const result = { confirmedCount: 0 };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     if (!payload.confirmOversell) {
@@ -2599,21 +2772,62 @@ export async function bulkConfirmSalesOrders(
       })
       .where(inArray(salesOrders.id, orderIds));
 
-    await recomputeCommittedQty(
-      tx,
-      orders.flatMap((order) => order.affectedItemIds)
-    );
+    for (const order of orders) {
+      const lineRows = await getSalesLineQuantitiesForReservationInTx(tx, order.id);
+      await reserveForSalesInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: order.id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          `bulk-confirm:${order.id}`
+        ),
+        lines: lineRows.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+    }
 
-    return { confirmedCount: orderIds.length };
+    const result = { confirmedCount: orderIds.length };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
-export async function deleteSalesOrder(id: string) {
-  return withAuthedOrgContext(async (tx) => {
+export async function deleteSalesOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ deleted: boolean }>(tx, {
+      organizationId: orgId,
+      operationName: "deleteSalesOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const order = await getLockedSalesOrderInTx(tx, id);
 
     if (!order) {
-      return { deleted: false };
+      const result = { deleted: false };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     const existingLines = await getOrderLinesInTx(tx, id);
@@ -2627,17 +2841,46 @@ export async function deleteSalesOrder(id: string) {
       })
       .where(eq(salesOrders.id, id));
 
-    await recomputeCommittedQty(
-      tx,
-      existingLines.map((line) => line.itemId)
-    );
+    await releaseReservationForSalesLineInTx(tx, {
+      organizationId: orgId,
+      salesOrderId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "delete-order"
+      ),
+      reason: "deleted",
+      salesOrderLineIds: existingLines.map((line) => line.id),
+    });
 
-    return { deleted: true };
+    const result = { deleted: true };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
-export async function deleteSalesOrders(ids: string[]) {
-  return withAuthedOrgContext(async (tx) => {
+export async function deleteSalesOrders(
+  ids: string[],
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ deletedCount: number }>(tx, {
+      organizationId: orgId,
+      operationName: "deleteSalesOrders",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { ids: [...new Set(ids)].sort() },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const uniqueIds = [...new Set(ids)];
 
     const orders = await tx
@@ -2652,17 +2895,21 @@ export async function deleteSalesOrders(ids: string[]) {
       .for("update");
 
     if (orders.length === 0) {
-      return { deletedCount: 0 };
+      const result = { deletedCount: 0 };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     const orderIds = orders.map((o) => o.id);
 
     const lines = await tx
-      .select({ itemId: salesOrderLines.itemId })
+      .select({ id: salesOrderLines.id })
       .from(salesOrderLines)
       .where(inArray(salesOrderLines.salesOrderId, orderIds));
-
-    const affectedItemIds = lines.map((l) => l.itemId);
     const deletedAt = new Date();
 
     await tx
@@ -2670,8 +2917,26 @@ export async function deleteSalesOrders(ids: string[]) {
       .set({ deletedAt, updatedAt: deletedAt })
       .where(inArray(salesOrders.id, orderIds));
 
-    await recomputeCommittedQty(tx, affectedItemIds);
+    await releaseReservationForSalesLineInTx(tx, {
+      organizationId: orgId,
+      salesOrderId: orderIds.join(","),
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "bulk-delete-orders"
+      ),
+      reason: "deleted",
+      salesOrderLineIds: lines.map((line) => line.id),
+    });
 
-    return { deletedCount: orders.length };
+    const result = { deletedCount: orders.length };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }

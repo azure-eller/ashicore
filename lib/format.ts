@@ -45,13 +45,17 @@ export function formatQuantity(value: string | null | undefined): string {
   return parseFloat(value).toString();
 }
 
+export function normalizeNumericScale(value: number, scale: number): string {
+  return value.toFixed(scale).replace(/\.?0+$/, "");
+}
+
 /**
  * Normalize a number for Postgres numeric storage.
  * Strips trailing zeros: 1.5 → "1.5", 10 → "10", 0 → "0".
  * Use for ALL numeric writes — quantities, costs, amounts, prices.
  */
 export function normalizeNumeric(value: number): string {
-  return value.toFixed(4).replace(/\.?0+$/, "");
+  return normalizeNumericScale(value, 4);
 }
 
 /**

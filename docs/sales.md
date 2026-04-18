@@ -16,15 +16,14 @@ Sales v1 includes:
 - multi-line sales orders
 - customer and product snapshots on saved orders
 - `draft`, `confirmed`, `shipped`, and `cancelled` statuses
-- `items.committedQty` updates from non-deleted confirmed orders with non-deleted lines
+- projection-backed committed supply from non-deleted confirmed orders with non-deleted lines
 - oversell warnings on confirm-entry actions only
 - whole-order shipping for confirmed orders
 - FIFO stock deduction during shipping
-- `sales_shipped` stock movements for audit history
+- `sales_consumption` ledger events for per-lot audit history
 
 Sales v1 does not include:
 
-- manufacturing links
 - pricing rules
 - partial shipments
 - per-line shipped quantities
@@ -96,25 +95,29 @@ Historical rules:
 - only `confirmed` orders may be shipped
 - shipping consumes live lot-backed stock FIFO at the moment of shipping
 - shipping hard-blocks on insufficient stock; there is no override path
-- successful shipping writes `inventory.stock_movements` with:
-  - `movementType = sales_shipped`
-  - `referenceType = sales_order`
-  - `referenceId = <sales order id>`
+- successful shipping writes one `sales_consumption` inventory event per consumed lot
+- shipping also emits `reservation_release` for each shipped line and flushes item/reservation projections in the same transaction
 - successful shipping sets:
   - `status = shipped`
   - `shippedAt = now()`
 
-## Committed Quantity
+## Committed Supply Projection
 
-Only this contributes to `items.committedQty`:
+Only this contributes to committed supply:
 
 - non-deleted orders
 - status = `confirmed`
 - non-deleted lines
 
-`shipped` orders do not contribute to committed quantity.
+`shipped` orders do not contribute to committed supply.
+
+The kernel model is:
+
+- `reservation_increase` and `reservation_release` ledger events
+- `inventory_reservations_summary` for open per-line reservations
+- `inventory_item_balances.committedQty` for hot-path availability reads
 
 Implementation rule:
 
-- always recompute affected product ids from the database after allowed state-changing writes
-- never increment/decrement committed qty directly
+- sales DAL code must call the kernel reservation operations for confirm, edit-confirmed, cancel, ship, and delete paths
+- sales must never mutate committed quantity directly or bypass the kernel projections

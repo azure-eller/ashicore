@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -19,6 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -221,7 +222,9 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     mutationFn: async (ids: string[]) => {
       const response = await fetch("/api/sales-orders", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("sales-orders-delete", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ ids }),
       });
 
@@ -257,7 +260,9 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     }) => {
       const response = await fetch("/api/sales-orders/bulk-confirm", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("sales-orders-bulk-confirm", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ ids, confirmOversell }),
       });
       const body = await response.json().catch(() => null);
@@ -439,9 +444,8 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             <TableBody>
               {table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <>
+                  <Fragment key={row.id}>
                     <TableRow
-                      key={row.id}
                       data-state={row.getIsSelected() && "selected"}
                     >
                       {row.getVisibleCells().map((cell) => (
@@ -457,7 +461,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </Fragment>
                 ))
               ) : (
                 <TableRow>

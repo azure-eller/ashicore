@@ -42,8 +42,6 @@ export const items = inventorySchema
 
       // Stock
       safetyStock: numeric("safety_stock", { precision: 12, scale: 4 }).notNull().default("0"),
-      committedQty: numeric("committed_qty", { precision: 12, scale: 4 }).notNull().default("0"),
-      expectedQty: numeric("expected_qty", { precision: 12, scale: 4 }).notNull().default("0"),
 
       // Pricing
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),

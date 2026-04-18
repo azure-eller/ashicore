@@ -42,6 +42,7 @@ export function SupplierFieldGroups({
                   <Input
                     {...field}
                     id={field.name}
+                    value={field.value ?? ""}
                     aria-invalid={fieldState.invalid}
                     autoComplete="off"
                   />

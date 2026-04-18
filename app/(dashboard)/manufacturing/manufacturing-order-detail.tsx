@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -90,6 +91,7 @@ export function ManufacturingOrderDetail({
     mutationFn: async () => {
       const response = await fetch(`/api/manufacturing-orders/${order.id}/cancel`, {
         method: "POST",
+        headers: createIdempotencyHeaders("manufacturing-order-cancel"),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -113,7 +115,9 @@ export function ManufacturingOrderDetail({
     mutationFn: async (confirmShortage?: boolean) => {
       const response = await fetch(`/api/manufacturing-orders/${order.id}/release`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("manufacturing-order-release", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({ confirmShortage: confirmShortage ?? false }),
       });
       const body = await response.json().catch(() => null);

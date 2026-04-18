@@ -5,6 +5,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle
 import {
   bomRevisionComponents,
   bomRevisions,
+  inventoryEvents,
   items,
   lots,
   manufacturingOrderIngredients,
@@ -15,7 +16,6 @@ import {
   salesOrders,
   stocktakeItems,
   stocktakes,
-  stockMovements,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -30,11 +30,22 @@ import {
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
-  applyStockDeltaInTx,
-  createPositiveLotAndMovementInTx,
-  getCurrentStockInTx,
+  beginInventoryOperationInTx,
+  deriveInventoryIdempotencyKey,
+  finishInventoryOperationInTx,
+  getCurrentOnHandQtyInTx,
   lockItemsInTx,
-} from "@/lib/inventory/stock";
+  manualDecreaseStockInTx,
+  manualIncreaseStockInTx,
+  projectedCommittedQty,
+  projectedCommittedQtyExpr,
+  projectedExpectedQty,
+  projectedLotQuantity,
+  projectedLotUnitCost,
+  projectedOnHandQty,
+  projectedOnHandQtyExpr,
+  recordCostBasisChangeInTx,
+} from "@/lib/inventory/kernel";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
@@ -51,11 +62,15 @@ export class InventoryError extends DomainError {
   }
 }
 
-const stockSubquery = trimScale(sql`(
-  SELECT COALESCE(SUM(${lots.quantity}), 0)
-  FROM ${lots}
-  WHERE ${lots.itemId} = ${items.id}
-)`).as("stock");
+const stockSubquery = projectedOnHandQty(items.organizationId, items.id).as("stock");
+const committedQtySubquery = projectedCommittedQty(
+  items.organizationId,
+  items.id
+).as("committedQty");
+const expectedQtySubquery = projectedExpectedQty(
+  items.organizationId,
+  items.id
+).as("expectedQty");
 
 // Potential: how many finished units could be produced from current available ingredient stock.
 // For discrete products: floor(min(component_available / bom_qty))
@@ -69,8 +84,8 @@ const potentialSubquery = sql<string | null>`(
       (
         SELECT MIN(
           (
-            COALESCE((SELECT SUM(${lots.quantity}) FROM ${lots} WHERE ${lots.itemId} = bc.component_id), 0)
-            - COALESCE((SELECT ci.committed_qty FROM inventory.items ci WHERE ci.id = bc.component_id), 0)
+            ${projectedOnHandQtyExpr(items.organizationId, sql`bc.component_id`)}
+            - ${projectedCommittedQtyExpr(items.organizationId, sql`bc.component_id`)}
           )
           / NULLIF(bc.quantity, 0)
         )
@@ -355,8 +370,8 @@ export async function getItems(filters?: {
           sku: items.sku,
           itemType: items.itemType,
           stock: stockSubquery,
-          committedQty: trimScale(items.committedQty).as("committedQty"),
-          expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+          committedQty: committedQtySubquery,
+          expectedQty: expectedQtySubquery,
           safetyStock: trimScale(items.safetyStock).as("safetyStock"),
           unit: unitDefinitions.name,
           unitSize: unitDefinitions.size,
@@ -415,8 +430,8 @@ export async function getItems(filters?: {
           sku: items.sku,
           itemType: items.itemType,
           stock: stockSubquery,
-          committedQty: trimScale(items.committedQty).as("committedQty"),
-          expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+          committedQty: committedQtySubquery,
+          expectedQty: expectedQtySubquery,
           safetyStock: trimScale(items.safetyStock).as("safetyStock"),
           unit: unitDefinitions.name,
           unitSize: unitDefinitions.size,
@@ -532,8 +547,8 @@ export async function getItems(filters?: {
         isMaster: items.isMaster,
         parentId: items.parentId,
         stock: stockSubquery,
-        committedQty: trimScale(items.committedQty).as("committedQty"),
-        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        committedQty: committedQtySubquery,
+        expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
         unit: unitDefinitions.name,
@@ -566,8 +581,8 @@ export async function getItems(filters?: {
             isMaster: items.isMaster,
             parentId: items.parentId,
             stock: stockSubquery,
-            committedQty: trimScale(items.committedQty).as("committedQty"),
-            expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+            committedQty: committedQtySubquery,
+            expectedQty: expectedQtySubquery,
             safetyStock: trimScale(items.safetyStock).as("safetyStock"),
             defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
             unit: unitDefinitions.name,
@@ -849,8 +864,8 @@ export async function getItem(id: string) {
         bomLockedAt: items.bomLockedAt,
         bomLockedByUserId: items.bomLockedByUserId,
         stock: stockSubquery,
-        committedQty: trimScale(items.committedQty).as("committedQty"),
-        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        committedQty: committedQtySubquery,
+        expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         unitName: unitDefinitions.name,
         unitSize: trimScale(unitDefinitions.size).as("unitSize"),
@@ -1223,8 +1238,8 @@ export async function getLots(itemId: string) {
       .select({
         id: lots.id,
         lotNumber: lots.lotNumber,
-        quantity: trimScale(lots.quantity).as("quantity"),
-        costPerUnit: trimScaleNullable(lots.costPerUnit).as("costPerUnit"),
+        quantity: projectedLotQuantity(lots.organizationId, lots.id).as("quantity"),
+        costPerUnit: projectedLotUnitCost(lots.organizationId, lots.id).as("costPerUnit"),
         receivedAt: lots.receivedAt,
       })
       .from(lots)
@@ -1237,19 +1252,51 @@ export async function getStockMovements(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
     return tx
       .select({
-        id: stockMovements.id,
-        quantity: trimScale(stockMovements.quantity).as("quantity"),
-        movementType: stockMovements.movementType,
-        referenceType: stockMovements.referenceType,
-        referenceId: stockMovements.referenceId,
-        createdBy: stockMovements.createdBy,
-        createdAt: stockMovements.createdAt,
+        id: inventoryEvents.id,
+        quantity: trimScale(inventoryEvents.quantity).as("quantity"),
+        movementType: sql<string>`CASE
+          WHEN ${inventoryEvents.eventType} = 'purchase_receipt' THEN 'purchase_received'
+          WHEN ${inventoryEvents.eventType} = 'manufacturing_output' THEN 'manufacturing_produced'
+          WHEN ${inventoryEvents.eventType} = 'sales_consumption' THEN 'sales_shipped'
+          WHEN ${inventoryEvents.eventType} = 'manufacturing_ingredient_consumption' THEN 'manufacturing_picked'
+          WHEN ${inventoryEvents.eventType} IN ('stocktake_gain', 'stocktake_loss', 'stocktake_verification') THEN 'stocktake_adjustment'
+          ELSE 'manual_adjustment'
+        END`.as("movementType"),
+        referenceType: sql<string | null>`CASE
+          WHEN ${inventoryEvents.referenceType} = 'stocktake_line'
+            THEN 'stocktake'
+          ELSE ${inventoryEvents.referenceType}
+        END`.as("referenceType"),
+        referenceId: sql<string | null>`CASE
+          WHEN ${inventoryEvents.referenceType} = 'stocktake_line'
+            THEN COALESCE(${inventoryEvents.metadata}->>'stocktakeId', ${inventoryEvents.referenceId}::text)
+          ELSE ${inventoryEvents.referenceId}::text
+        END`.as("referenceId"),
+        createdBy: inventoryEvents.actorUserId,
+        createdAt: inventoryEvents.occurredAt,
         lotNumber: lots.lotNumber,
       })
-      .from(stockMovements)
-      .leftJoin(lots, eq(stockMovements.lotId, lots.id))
-      .where(eq(stockMovements.itemId, itemId))
-      .orderBy(desc(stockMovements.createdAt));
+      .from(inventoryEvents)
+      .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          inArray(inventoryEvents.eventType, [
+            "opening_balance",
+            "purchase_receipt",
+            "manufacturing_output",
+            "manual_adjustment_increase",
+            "stocktake_gain",
+            "manual_adjustment_decrease",
+            "stocktake_loss",
+            "sales_consumption",
+            "manufacturing_ingredient_consumption",
+            "unpick_restock",
+            "stocktake_verification",
+          ])
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt));
   });
 }
 
@@ -1261,20 +1308,43 @@ export async function updateItem(
   stock?: number,
   bom?: Array<{ componentId: string; quantity: string }>,
   revisionNote?: string | null,
+  options?: { idempotencyKey?: string },
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "updateItem",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, itemData, stock, bom, revisionNote },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const [existingItem] = await tx
       .select({
         id: items.id,
+        defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
+          "defaultPurchasePrice"
+        ),
+        bomLocked: items.bomLocked,
       })
       .from(items)
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .for("update");
 
-    if (!existingItem) return null;
+    if (!existingItem) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
 
     const delta =
-      stock != null ? stock - (await getCurrentStockInTx(tx, id)) : null;
+      stock != null ? stock - (await getCurrentOnHandQtyInTx(tx, id)) : null;
     const currentBom = bom !== undefined ? await getCurrentBomComponentsInTx(tx, id) : [];
 
     const [item] = await tx
@@ -1300,18 +1370,75 @@ export async function updateItem(
           note: revisionNote,
           bom,
         });
+
+        await recordCostBasisChangeInTx(tx, {
+          organizationId: orgId,
+          itemId: id,
+          actorUserId: userId,
+          eventSubtype: "bom_edited",
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "bom-edited"
+          ),
+          metadata: {
+            revisionNote: revisionNote ?? null,
+            componentCount: bom.length,
+          },
+        });
       }
     }
 
     if (delta != null && delta !== 0) {
-      await applyStockDeltaInTx(tx, {
-        orgId,
-        userId,
+      if (delta > 0) {
+        await manualIncreaseStockInTx(tx, {
+          organizationId: orgId,
+          itemId: id,
+          quantity: delta,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "stock-increase"
+          ),
+        });
+      } else {
+        await manualDecreaseStockInTx(tx, {
+          organizationId: orgId,
+          itemId: id,
+          quantity: Math.abs(delta),
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "stock-decrease"
+          ),
+        });
+      }
+    }
+
+    if (
+      itemData.defaultPurchasePrice !== undefined &&
+      itemData.defaultPurchasePrice !== existingItem.defaultPurchasePrice
+    ) {
+      await recordCostBasisChangeInTx(tx, {
+        organizationId: orgId,
         itemId: id,
-        delta,
-        movementType: "manual_adjustment",
+        actorUserId: userId,
+        eventSubtype: "default_purchase_price",
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "default-purchase-price"
+        ),
+        metadata: {
+          before: existingItem.defaultPurchasePrice,
+          after: itemData.defaultPurchasePrice,
+        },
       });
     }
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: item,
+    });
 
     return item;
   });
@@ -1322,8 +1449,20 @@ export async function createItemWithLot(
   stock: string,
   bom?: Array<{ componentId: string; quantity: string }>,
   revisionNote?: string | null,
+  options?: { idempotencyKey?: string },
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
+      organizationId: orgId,
+      operationName: "createItemWithLot",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { data, stock, bom, revisionNote },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const [item] = await tx
       .insert(items)
       .values({ ...data, organizationId: orgId })
@@ -1340,14 +1479,23 @@ export async function createItemWithLot(
     }
 
     if (parseFloat(stock) > 0) {
-      await createPositiveLotAndMovementInTx(tx, {
-        orgId,
+      await manualIncreaseStockInTx(tx, {
+        organizationId: orgId,
         itemId: item.id,
         quantity: parseFloat(stock),
-        userId,
-        movementType: "manual_adjustment",
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "opening-stock"
+        ),
       });
     }
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: item,
+    });
 
     return item;
   });
@@ -1355,19 +1503,39 @@ export async function createItemWithLot(
 
 export async function setBomLock(
   id: string,
-  locked: boolean
+  locked: boolean,
+  options?: { idempotencyKey?: string }
 ): Promise<{ id: string; bomLocked: boolean } | null> {
-  return withAuthedOrgContext(async (tx, _orgId, userId) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<
+      { id: string; bomLocked: boolean } | null
+    >(tx, {
+      organizationId: orgId,
+      operationName: "setBomLock",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, locked },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const [existingItem] = await tx
       .select({
         id: items.id,
         itemType: items.itemType,
+        bomLocked: items.bomLocked,
       })
       .from(items)
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .for("update");
 
     if (!existingItem || existingItem.itemType !== "product") {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
     }
 
@@ -1385,7 +1553,32 @@ export async function setBomLock(
         bomLocked: items.bomLocked,
       });
 
-    return item ?? null;
+    if (item && item.bomLocked !== existingItem.bomLocked) {
+      await recordCostBasisChangeInTx(tx, {
+        organizationId: orgId,
+        itemId: id,
+        actorUserId: userId,
+        eventSubtype: locked ? "bom_locked" : "bom_unlocked",
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          locked ? "bom-lock" : "bom-unlock"
+        ),
+        metadata: {
+          before: existingItem.bomLocked,
+          after: item.bomLocked,
+        },
+      });
+    }
+
+    const result = item ?? null;
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
@@ -1595,8 +1788,20 @@ export async function getAvailableComponents(excludeItemId?: string) {
 
 export async function createMasterProduct(
   data: InsertMasterItem,
+  options?: { idempotencyKey?: string },
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
+      organizationId: orgId,
+      operationName: "createMasterProduct",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: data,
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const [item] = await tx
       .insert(items)
       .values({
@@ -1606,6 +1811,12 @@ export async function createMasterProduct(
         isMaster: true,
       })
       .returning({ id: items.id });
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: item,
+    });
 
     return item;
   });
@@ -1703,8 +1914,8 @@ export async function getVariants(parentId: string) {
         name: items.name,
         sku: items.sku,
         stock: stockSubquery,
-        committedQty: trimScale(items.committedQty).as("committedQty"),
-        expectedQty: trimScale(items.expectedQty).as("expectedQty"),
+        committedQty: committedQtySubquery,
+        expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
         unit: unitDefinitions.name,

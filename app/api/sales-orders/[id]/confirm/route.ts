@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { confirmSalesOrderSchema } from "@/lib/schemas/sales-orders";
 import {
@@ -10,11 +10,14 @@ import {
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   await assertModuleWriteAccess("sales", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "confirmSalesOrder");
   const body = await request.json().catch(() => ({}));
   const data = confirmSalesOrderSchema.parse(body);
 
   try {
-    const order = await confirmSalesOrder(id, data.confirmOversell === true);
+    const order = await confirmSalesOrder(id, data.confirmOversell === true, {
+      idempotencyKey,
+    });
 
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });

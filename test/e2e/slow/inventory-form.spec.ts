@@ -35,11 +35,11 @@ test.describe("Inventory creation flow", () => {
     await page.waitForURL("**/inventory/products");
     await expect(page.getByText("Inventory")).toBeVisible();
     await expect(page.getByText("Test Org")).toBeVisible();
-    await expect(page.getByText("Single site")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Toggle theme" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "ERP Agent message" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Notifications" })).toHaveCount(0);
     await expect(page.getByText("Add Location")).toHaveCount(0);
     await expect(page.getByText("Assign reviewer")).toHaveCount(0);
+    await expect(page.getByText("Single site")).toHaveCount(0);
   });
 
   /* ── 1. Material with every field ────────────────────────────── */
@@ -92,12 +92,14 @@ test.describe("Inventory creation flow", () => {
         response.request().method() === "POST" &&
         response.url().endsWith("/api/items")
     );
-    await page.getByRole("button", { name: "Create Material" }).click();
+    await Promise.all([
+      page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Material" }).click(),
+    ]);
     const fullMaterialCreateBody = await (
       await fullMaterialCreateResponse
     ).json();
     fullMaterialId = fullMaterialCreateBody.id;
-    await page.goto(`/inventory/materials/${fullMaterialId}`);
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
@@ -201,12 +203,14 @@ test.describe("Inventory creation flow", () => {
         response.request().method() === "POST" &&
         response.url().endsWith("/api/items")
     );
-    await page.getByRole("button", { name: "Create Material" }).click();
+    await Promise.all([
+      page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Material" }).click(),
+    ]);
     const minimalMaterialCreateBody = await (
       await minimalMaterialCreateResponse
     ).json();
     minimalMaterialId = minimalMaterialCreateBody.id;
-    await page.goto(`/inventory/materials/${minimalMaterialId}`);
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
@@ -255,12 +259,14 @@ test.describe("Inventory creation flow", () => {
         response.request().method() === "POST" &&
         response.url().endsWith("/api/items")
     );
-    await page.getByRole("button", { name: "Create Material" }).click();
+    await Promise.all([
+      page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Material" }).click(),
+    ]);
     const lowStockMaterialCreateBody = await (
       await lowStockMaterialCreateResponse
     ).json();
     lowStockMaterialId = lowStockMaterialCreateBody.id;
-    await page.goto(`/inventory/materials/${lowStockMaterialId}`);
 
     const rows = await db.select().from(items).where(eq(items.name, lowStockMaterialName));
     expect(rows).toHaveLength(1);
@@ -287,20 +293,14 @@ test.describe("Inventory creation flow", () => {
       /sorted ascending/
     );
 
-    const firstRow = page.getByTestId("bom-row").first();
-    const firstRowLink = firstRow.getByRole("link");
-    await expect(firstRowLink).toContainText(lowStockMaterialName);
+    const firstRow = page.locator("tbody tr").first();
+    await expect(firstRow).toContainText(lowStockMaterialName);
 
     const lowStockLink = page.getByRole("link", {
       name: new RegExp(lowStockMaterialName),
     });
-    await page.mouse.move(0, 0);
-    await lowStockLink.focus();
-    await expect(
-      page.getByText(
-        "Calculated stock is below zero, so this item is below its safety stock threshold."
-      )
-    ).toBeVisible();
+    const lowStockIndicator = firstRow.getByLabel("Below safety stock");
+    await expect(lowStockIndicator).toBeVisible();
 
     await lowStockLink.click();
     await page.waitForURL(`**/inventory/materials/${lowStockMaterialId}`);
@@ -366,12 +366,14 @@ test.describe("Inventory creation flow", () => {
         response.request().method() === "POST" &&
         response.url().endsWith("/api/items")
     );
-    await page.getByRole("button", { name: "Create Product" }).click();
+    await Promise.all([
+      page.waitForURL(/\/inventory\/products\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Product" }).click(),
+    ]);
     const simpleProductCreateBody = await (
       await simpleProductCreateResponse
     ).json();
     simpleProductId = simpleProductCreateBody.id;
-    await page.goto(`/inventory/products/${simpleProductId}`);
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: simpleProductName })).toBeVisible();
@@ -465,12 +467,14 @@ test.describe("Inventory creation flow", () => {
         response.request().method() === "POST" &&
         response.url().endsWith("/api/items")
     );
-    await page.getByRole("button", { name: "Create Product" }).click();
+    await Promise.all([
+      page.waitForURL(/\/inventory\/products\/[0-9a-f-]+$/),
+      page.getByRole("button", { name: "Create Product" }).click(),
+    ]);
     const sellableProductCreateBody = await (
       await sellableProductCreateResponse
     ).json();
     sellableProductId = sellableProductCreateBody.id;
-    await page.goto(`/inventory/products/${sellableProductId}`);
 
     // UI — verify the detail page and BOM table
     await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { completeManufacturingBatchSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -9,6 +9,7 @@ import {
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "completeManufacturingBatch");
   const { id, batchId } = await (
     ctx as { params: Promise<{ id: string; batchId: string }> }
   ).params;
@@ -16,7 +17,9 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const data = completeManufacturingBatchSchema.parse(body);
 
   try {
-    const result = await completeManufacturingBatch(id, batchId, data);
+    const result = await completeManufacturingBatch(id, batchId, data, {
+      idempotencyKey,
+    });
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();

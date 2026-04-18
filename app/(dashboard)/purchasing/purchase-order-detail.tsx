@@ -7,6 +7,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +97,7 @@ export function PurchaseOrderDetail({
     mutationFn: async () => {
       const response = await fetch(`/api/purchase-orders/${order.id}/submit`, {
         method: "POST",
+        headers: createIdempotencyHeaders("purchase-order-submit"),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -118,7 +120,9 @@ export function PurchaseOrderDetail({
     mutationFn: async (values: ReceiveFormValues) => {
       const response = await fetch(`/api/purchase-orders/${order.id}/receive`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: createIdempotencyHeaders("purchase-order-receive", {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify(values),
       });
       const body = await response.json().catch(() => null);
@@ -157,6 +161,7 @@ export function PurchaseOrderDetail({
     mutationFn: async () => {
       const response = await fetch(`/api/purchase-orders/${order.id}/cancel`, {
         method: "POST",
+        headers: createIdempotencyHeaders("purchase-order-cancel"),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {

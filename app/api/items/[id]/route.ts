@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import {
   assertLockedBomManagementAccess,
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
-import { InsufficientStockError, MissingStockCostError } from "@/lib/inventory/stock";
+import { InsufficientStockError, MissingCostBasisError } from "@/lib/inventory/kernel";
 import { updateItemSchema } from "@/lib/schemas/items";
 import { deleteItem, getItem, updateItem } from "@/app/(dashboard)/inventory/queries";
 
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "updateItem");
   const { id } = await (ctx as RouteContext).params;
   const existingItem = await getItem(id);
 
@@ -57,6 +58,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
       stock != null ? parseFloat(stock) : undefined,
       bom,
       revisionNote,
+      { idempotencyKey }
     );
     if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -69,9 +71,11 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
         { status: 400 }
       );
     }
-    if (error instanceof MissingStockCostError) {
+    if (error instanceof MissingCostBasisError) {
+      const field =
+        error.reason === "material_default_price" ? "defaultPurchasePrice" : "stock";
       return NextResponse.json(
-        { errors: { [error.field]: [error.message] } },
+        { errors: { [field]: [error.message] } },
         { status: 400 }
       );
     }

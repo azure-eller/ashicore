@@ -36,6 +36,7 @@ Snapshot rows must keep:
 - `expectedQty` as the stock snapshot when the stocktake is created
 
 This lets completed stocktakes stay readable after later item renames or soft deletes.
+The live inventory truth remains the ledger and projections; `stocktake_items.expectedQty` is only the draft snapshot baseline.
 
 ## Workflow
 
@@ -82,17 +83,18 @@ This keeps stocktakes safe when purchasing, manufacturing, or manual adjustments
 
 ## Inventory Integration
 
-Stocktake completion reuses the shared stock helper layer:
+Stocktake completion reuses the inventory kernel:
 
 - positive deltas create lots
 - negative deltas FIFO-consume lots
-- every applied change writes a stock movement with:
-  - `movementType = stocktake_adjustment`
-  - `referenceType = stocktake`
-  - `referenceId = <stocktake id>`
+- positive variance writes `stocktake_gain`
+- negative variance writes `stocktake_loss` per consumed lot
+- zero variance writes `stocktake_verification` so the ledger can answer "when was this item last physically verified?"
 - positive deltas must resolve to a non-null `costPerUnit`
   - materials use the item's current `defaultPurchasePrice`
   - products derive cost from active BOM ingredients
   - if there is no cost basis, fail completion instead of creating a null-cost lot
+
+Hot-path reads after completion come from `inventory_item_balances` and `inventory_lot_balances`, not by replaying the stocktake rows themselves.
 
 Draft stocktakes block item soft deletion. Completed and cancelled stocktakes do not.

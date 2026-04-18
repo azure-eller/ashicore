@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import { PurchasingError, receivePurchaseOrder } from "@/app/(dashboard)/purchasing/queries";
@@ -7,12 +7,13 @@ import { PurchasingError, receivePurchaseOrder } from "@/app/(dashboard)/purchas
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "receivePurchaseOrder");
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
   const data = receivePurchaseOrderSchema.parse(body);
 
   try {
-    const order = await receivePurchaseOrder(id, data);
+    const order = await receivePurchaseOrder(id, data, { idempotencyKey });
 
     if (!order) {
       return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });

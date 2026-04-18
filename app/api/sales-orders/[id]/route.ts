@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateSalesOrderSchema } from "@/lib/schemas/sales-orders";
 import {
@@ -24,12 +24,13 @@ export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "updateSalesOrder");
   const { id } = await (ctx as RouteContext).params;
   const body = await request.json();
   const data = updateSalesOrderSchema.parse(body);
 
   try {
-    const order = await updateSalesOrder(id, data);
+    const order = await updateSalesOrder(id, data, { idempotencyKey });
 
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -42,10 +43,11 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   }
 });
 
-export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
-  await assertModuleWriteAccess("sales", _request.headers);
+export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("sales", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "deleteSalesOrder");
   const { id } = await (ctx as RouteContext).params;
-  const result = await deleteSalesOrder(id);
+  const result = await deleteSalesOrder(id, { idempotencyKey });
 
   if (!result.deleted) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });

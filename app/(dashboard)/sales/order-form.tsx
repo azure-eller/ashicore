@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   Controller,
   useFieldArray,
@@ -392,7 +393,9 @@ export function OrderForm({
         initialData ? `/api/sales-orders/${initialData.id}` : "/api/sales-orders",
         {
           method: initialData ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: createIdempotencyHeaders("sales-order-save", {
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify(values),
         }
       );

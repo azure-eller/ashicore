@@ -281,6 +281,20 @@
       "when": 1776392668975,
       "tag": "0039_chief_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1776535836848,
+      "tag": "0040_inventory_ledger_rebased",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1776535884832,
+      "tag": "0041_append_only_inventory_events",
+      "breakpoints": true
     }
   ]
 }

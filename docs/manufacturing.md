@@ -24,13 +24,12 @@ Manufacturing v1 now covers both planning and simple execution:
 Still excluded in v1:
 
 - partial ingredient picks
-- reverse picks / unpick
 - manual lot selection
-- reservations
-- negative stock
 - work centers, operations, labor, or overhead costing
 - child manufacturing orders
 - auto-created orders from sales without an explicit user action
+
+The inventory kernel now provides reservation and unpick semantics for manufacturing, but the UI still keeps execution flows narrow and guided.
 
 ## Workflow
 
@@ -105,12 +104,17 @@ Release behavior differs by manufacturing mode:
 - discrete: the existing ingredient snapshot rows remain the execution rows
 - batch: release creates `manufacturing_order_batches` rows and replaces the template ingredient rows with one set of batch-specific ingredient rows per batch
 
-Only released, non-deleted manufacturing orders contribute to `items.expectedQty`.
+Only released, non-deleted manufacturing orders contribute to expected supply projections.
 
-For batch-mode orders, expected quantity is remaining unfinished output only:
+On release, manufacturing now does two inventory-side things through the kernel:
+
+- emits `expected_increase` for the finished-product output side
+- emits `reservation_increase` for the ingredient side
+
+For batch-mode orders, expected supply is remaining unfinished output only:
 
 - released order contribution = `plannedQuantity - completed actual quantity`
-- each completed batch reduces expected quantity immediately
+- each completed batch reduces expected supply immediately
 
 ## Picking Behavior
 
@@ -122,7 +126,8 @@ When a worker picks an ingredient:
 - lock affected `inventory.items` rows
 - lock FIFO candidate `inventory.lots` rows
 - deduct the remaining quantity immediately
-- write `inventory.stock_movements` with `movementType = manufacturing_picked`
+- write one `manufacturing_ingredient_consumption` event per consumed lot
+- emit `reservation_release` for the picked ingredient quantity
 - persist the lot allocations in `manufacturing_pick_allocations`
 - update ingredient `pickedQuantity`, `pickStatus`, and `pickedAt`
 
@@ -149,7 +154,8 @@ Discrete completion is still one-shot, but it is now pick-gated:
 - completion uses persisted pick allocations for quantity and cost
 - completion must not deduct ingredient stock a second time
 - one finished-product lot is created
-- one `manufacturing_produced` movement is written
+- one `manufacturing_output` event is written
+- completion releases the output-side expected supply
 - the order stores `actualQuantity`, `actualMaterialCost`, and `actualCostPerUnit`
 
 Discrete completion should hard-block with a domain error if any ingredient remains unpicked.
@@ -168,7 +174,7 @@ Each completed batch:
 - uses only that batch’s pick allocations
 - writes ingredient actuals/costs for that batch’s ingredient rows
 - creates one finished-product lot
-- writes one `manufacturing_produced` movement
+- writes one `manufacturing_output` event
 - stores the batch’s actual quantity
 
 The parent order:
@@ -192,13 +198,18 @@ Labor and overhead remain excluded.
 
 ## Cancellation Behavior
 
-Cancellation stays intentionally strict in v1:
+Cancellation is inventory-aware:
 
 - `draft` orders may be cancelled normally
-- released discrete orders may be cancelled only before any picking begins
+- released discrete orders may be cancelled; picked ingredient quantities are unpicked back to their original lots through `unpick_restock`
 - released batch orders may be cancelled only before any batch starts
 
-Once picking or batch execution has started, cancellation should fail. Reverse-pick / unwind is a future feature.
+Released cancellation also:
+
+- releases any remaining ingredient reservations
+- releases the output-side expected supply
+
+Started batch orders still cannot be cancelled in v1.
 
 ## Sales Traceability
 

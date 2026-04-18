@@ -120,13 +120,14 @@ Release behavior:
 - discrete orders keep the template ingredient rows as the execution rows
 - batch-mode orders create batch rows and replace the template ingredient rows with one set of batch-specific ingredient rows per batch
 
-Released manufacturing orders are a source for `items.expectedQty`, but batch-mode orders contribute only unfinished planned output. Recompute from the database after every release, pick-triggered execution change, completion, or cancellation; never apply deltas directly.
+Released manufacturing orders contribute to the expected-supply projection, but batch-mode orders contribute only unfinished planned output.
 
 Inventory effects are now split between pick and produce:
 
-- `movementType = manufacturing_picked` for ingredient deductions at pick time
-- `movementType = manufacturing_produced` for the finished-product lot
-- `referenceType = manufacturing_order` and `referenceId = <mo id>` for traceability
+- `manufacturing_ingredient_consumption` events for ingredient deductions at pick time
+- `manufacturing_output` for the finished-product lot
+- `reservation_increase` / `reservation_release` for ingredient reservations
+- `expected_increase` / `expected_release` for output-side expected supply
 
 Discrete completion must reuse persisted pick allocations and must not deduct ingredient stock a second time. Batch-mode completion uses the batch’s pick allocations and creates one finished lot per completed batch.
 
@@ -134,11 +135,11 @@ Discrete completion must reuse persisted pick allocations and must not deduct in
 
 Use Postgres row locks to serialize stock-facing writes for the same item.
 
-- Lock affected `inventory.items` rows in a stable sorted order before mutating lot stock, `items.committedQty`, or `items.expectedQty`.
+- Lock affected `inventory.items` rows in a stable sorted order before mutating lot stock or inventory projections.
 - Lock workflow rows with `FOR UPDATE` before decisions that depend on current state, such as order status transitions or absolute stock-target edits.
 - FIFO consumption must lock candidate `inventory.lots` rows with `FOR UPDATE` before reading balances.
 - Warning and shortage checks must read after those locks are acquired.
-- Keep recompute helpers database-derived. Lock first, then aggregate, then write the cached field.
+- Keep inventory writes inside the kernel transaction. Lock first, write ledger events, then flush projection deltas.
 - Keep the existing transaction wrapper. We do not use `SERIALIZABLE`, advisory locks, or trigger-based cache maintenance in v1.
 
 This prevents read-modify-write races like:
@@ -177,6 +178,35 @@ await tx
   .where(and(eq(lots.id, lotId), sql`${lots.quantity} >= ${deduct}`))
 ```
 
+## Inventory Kernel Verification Workflow
+
+For any change that touches:
+
+- stock mutations
+- reservations / committed supply
+- expected supply
+- inventory ledger / projections
+- inventory-affecting API routes or DAL functions
+
+use this workflow before calling the change done:
+
+1. Run the normal fast lane: `pnpm test`
+2. Run the affected slow domain specs:
+   - inventory: `pnpm test:e2e:inventory:slow`
+   - purchasing: `pnpm test:e2e:purchasing:slow`
+   - manufacturing: `pnpm test:e2e:manufacturing:slow`
+   - sales: `pnpm test:e2e:sales:slow`
+   - stocktake: `pnpm test:e2e:stocktake:slow`
+   - cross-domain inventory work: `pnpm test:e2e:slow`
+3. Run `pnpm verify:inventory`
+
+`pnpm verify:inventory` is the standard post-test inventory integrity check:
+
+- `pnpm verify:inventory-kernel` makes sure old direct stock helpers and removed truth fields do not leak back into active code
+- `pnpm verify:inventory-state` diffs ledger-derived balances against stored projections for the current Playwright test org from `test/.test-env.json`
+
+Run `pnpm verify:inventory` after the tests you want to validate. It depends on the latest Playwright global setup having refreshed `test/.test-env.json`.
+
 ## Purchasing
 
 Purchasing uses the same header/line snapshot pattern as sales and manufacturing:
@@ -188,16 +218,16 @@ Purchasing uses the same header/line snapshot pattern as sales and manufacturing
 Status and inventory rules:
 
 - `draft` orders are editable and do not affect inventory aggregates
-- `ordered` and `partial` orders contribute remaining quantity to `items.expectedQty`
+- `ordered` and `partial` orders contribute remaining quantity to the expected-supply projection
 - `received` and `cancelled` orders are terminal historical states
-- receiving creates positive lots and `inventory.stock_movements` rows with `movementType = purchase_received`, `referenceType = purchase_order`, and `referenceId = <po id>`
+- receiving creates positive lots plus `purchase_receipt` and matching `expected_release` events
 
-`items.expectedQty` is shared inbound supply:
+Expected supply is shared inbound supply:
 
 - released manufacturing orders contribute finished-product planned quantity
 - ordered and partially received purchase orders contribute material remaining quantity
-- always recompute from the database after submit, receive, cancel, release, complete, or manufacturing cancellation
-- never increment/decrement `expectedQty` directly
+- these paths must go through the kernel expected-supply operations
+- never increment/decrement expected supply directly outside the kernel
 
 ## Stocktakes
 
@@ -210,7 +240,7 @@ Workflow rules:
 
 - `draft` stocktakes are editable and block item soft deletes
 - saving counts updates snapshot rows only; it must not mutate live stock
-- completing a stocktake applies deltas from current live stock to counted truth and writes `stocktake_adjustment` movements with `referenceType = stocktake`
+- completing a stocktake applies deltas from current live stock to counted truth and writes `stocktake_gain`, `stocktake_loss`, or `stocktake_verification` events
 - if current live stock differs from the original snapshot `expectedQty`, completion returns `409` until the caller confirms the stale apply
 - `cancelled` stocktakes keep history and do not mutate stock
 
@@ -224,6 +254,26 @@ Positive stock writes must always have a lot cost:
 - if no cost basis exists, fail the write instead of creating a null-cost lot
 
 This keeps future FIFO allocations from being consumed at zero cost.
+
+## Inventory Ledger and Projections
+
+Inventory truth now lives in:
+
+- `inventory.inventory_events` — append-only ledger
+- `inventory.inventory_lot_balances` — hot-path lot projection
+- `inventory.inventory_item_balances` — hot-path item projection
+- `inventory.inventory_reservations_summary` — open reservation rows
+- `inventory.inventory_expected_summary` — open expected-supply rows
+
+The kernel is the only write path for stock, reservations, expected supply, and cost-bearing inventory events.
+
+Active code must not:
+
+- write `lots.quantity` directly
+- maintain item-level committed/expected counters directly
+- write ledger events or projections outside `lib/inventory/kernel/**`
+
+Use projections for UI availability reads and workflow decisions. Use ledger queries for audit history and reconciliation.
 
 ## Numeric Fields
 
@@ -242,10 +292,11 @@ For API-backed reads, do not expose fixed-scale strings like `"5.0000"` from DAL
 
 ```ts
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { inventoryLotBalances } from "@/lib/db/schema";
 
-quantity: trimScale(lots.quantity).as("quantity"),
-costPerUnit: trimScaleNullable(lots.costPerUnit).as("costPerUnit"),
-stock: trimScale(sql`COALESCE(SUM(${lots.quantity}), 0)`).as("stock"),
+quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+unitCost: trimScaleNullable(inventoryLotBalances.unitCost).as("unitCost"),
+stock: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as("stock"),
 ```
 
 Use this for:
@@ -255,6 +306,18 @@ Use this for:
 - aggregate/subquery numeric expressions returned to the app/API
 
 Keep write normalization unchanged. Stored `numeric` values stay exact; read-time trimming only changes the serialized string form.
+
+## Inventory Event Retention
+
+`inventory.inventory_events` stays unpartitioned in v1.
+
+Planning rule:
+
+- treat it as the long-term audit table
+- when row count or retention needs make it necessary, partition by `occurred_at`
+- do not add ad hoc archive tables for post-cutover inventory truth
+
+Pre-cutover history can stay in `inventory.stock_movements_archive`, but all new inventory truth belongs in `inventory.inventory_events`.
 
 ## Count-Based Units
 

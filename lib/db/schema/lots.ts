@@ -25,7 +25,6 @@ export const lots = inventorySchema
       quantity: numeric("quantity", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
-      costPerUnit: numeric("cost_per_unit", { precision: 10, scale: 4 }),
       receivedAt: timestamp("received_at").notNull().defaultNow(),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),

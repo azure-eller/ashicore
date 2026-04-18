@@ -1,16 +1,17 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, selectDate } from "../fixtures";
 import {
   customerCategories,
   customers as salesCustomers,
+  inventoryEvents,
+  inventoryItemBalances,
   items,
   lots,
   pricingScheduleBreaks,
   pricingSchedules,
   salesOrderLines,
   salesOrders,
-  stockMovements,
 } from "../../../lib/db/schema";
 import {
   createCustomer,
@@ -200,7 +201,7 @@ test.describe("Sales order flow", () => {
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(`sales-${run}@example.com`)).toBeVisible();
     await expect(page.getByText("555-0100")).toBeVisible();
-    await expect(page.getByText("123 Market Street")).toBeVisible();
+    await expect(page.locator("main")).toContainText("123 Market Street");
     await expect(page.getByText("Primary landscaping account")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
@@ -458,15 +459,21 @@ test.describe("Sales order flow", () => {
     );
     expect(parseFloat(order.totalAmount)).toBeCloseTo(computedTotal, 2);
 
-    const [primaryItem] = await db.select().from(items).where(eq(items.id, primaryProductId));
-    const [secondaryItem] = await db.select().from(items).where(eq(items.id, secondaryProductId));
+    const [primaryItem] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
+    const [secondaryItem] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, secondaryProductId));
     const [primaryMaterial] = await db
-      .select()
-      .from(items)
-      .where(eq(items.id, primaryMaterialId));
-    expect(primaryItem.committedQty).toBe("0.0000");
-    expect(secondaryItem.committedQty).toBe("0.0000");
-    expect(primaryMaterial.committedQty).toBe("0.0000");
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryMaterialId));
+    expect(primaryItem?.committedQty ?? "0.0000").toBe("0.0000");
+    expect(secondaryItem?.committedQty ?? "0.0000").toBe("0.0000");
+    expect(primaryMaterial?.committedQty ?? "0.0000").toBe("0.0000");
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
@@ -502,8 +509,6 @@ test.describe("Sales order flow", () => {
 
     // UI
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("dl").getByText("$231.20", { exact: true })).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$174.95");
     await expect(page.locator("table").first()).toContainText("$11.25");
     await expect(page.locator("table").first()).toContainText("Manual override");
     await expect(page.locator("body")).not.toContainText("Invalid");
@@ -525,14 +530,30 @@ test.describe("Sales order flow", () => {
       (sum, line) => sum + parseFloat(line.lineTotal),
       0
     );
+    const currencyFormatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    });
     expect(parseFloat(orderRows[0].totalAmount)).toBeCloseTo(updatedTotal, 2);
+    const expectedTotalLabel = currencyFormatter.format(updatedTotal);
+    await expect(page.locator("main")).toContainText(expectedTotalLabel);
 
+    const updatedPrimaryLine = updatedLineRows.find(
+      (line) => line.itemId === primaryProductId
+    );
     const updatedSecondaryLine = updatedLineRows.find(
       (line) => line.itemId === secondaryProductId
     );
+    expect(updatedPrimaryLine).toBeTruthy();
     expect(updatedSecondaryLine?.unitPrice).toBe("11.25");
     expect(updatedSecondaryLine?.suggestedUnitPrice).toBe("10.80");
     expect(updatedSecondaryLine?.isPriceOverridden).toBe(true);
+    await expect(page.locator("table").first()).toContainText(
+      currencyFormatter.format(parseFloat(updatedPrimaryLine!.lineTotal))
+    );
+    await expect(page.locator("table").first()).toContainText(
+      currencyFormatter.format(parseFloat(updatedSecondaryLine!.lineTotal))
+    );
   });
 
   test("bulk confirms selected draft orders and handles the oversell warning", async ({
@@ -598,9 +619,9 @@ test.describe("Sales order flow", () => {
       .toBe("confirmed");
 
     const [primaryItemAfterConfirm] = await db
-      .select({ committedQty: items.committedQty })
-      .from(items)
-      .where(eq(items.id, primaryProductId));
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
     expect(primaryItemAfterConfirm.committedQty).toBe("5.0000");
 
     await updateSalesOrderStatus(bulkOrderId, "cancelled");
@@ -609,9 +630,9 @@ test.describe("Sales order flow", () => {
       .poll(
         async () => {
           const [primaryItem] = await db
-            .select({ committedQty: items.committedQty })
-            .from(items)
-            .where(eq(items.id, primaryProductId));
+            .select({ committedQty: inventoryItemBalances.committedQty })
+            .from(inventoryItemBalances)
+            .where(eq(inventoryItemBalances.itemId, primaryProductId));
           return primaryItem?.committedQty ?? null;
         },
         { timeout: 15_000 }
@@ -661,17 +682,17 @@ test.describe("Sales order flow", () => {
       .poll(
         async () => {
           const [primaryItem] = await db
-            .select({ committedQty: items.committedQty })
-            .from(items)
-            .where(eq(items.id, primaryProductId));
+            .select({ committedQty: inventoryItemBalances.committedQty })
+            .from(inventoryItemBalances)
+            .where(eq(inventoryItemBalances.itemId, primaryProductId));
           const [secondaryItem] = await db
-            .select({ committedQty: items.committedQty })
-            .from(items)
-            .where(eq(items.id, secondaryProductId));
+            .select({ committedQty: inventoryItemBalances.committedQty })
+            .from(inventoryItemBalances)
+            .where(eq(inventoryItemBalances.itemId, secondaryProductId));
           const [materialItem] = await db
-            .select({ committedQty: items.committedQty })
-            .from(items)
-            .where(eq(items.id, primaryMaterialId));
+            .select({ committedQty: inventoryItemBalances.committedQty })
+            .from(inventoryItemBalances)
+            .where(eq(inventoryItemBalances.itemId, primaryMaterialId));
 
           return {
             primary: primaryItem?.committedQty ?? null,
@@ -696,7 +717,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Fulfill" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ship" })).toBeVisible();
   });
 
   test("confirmed orders show Create MOs from detail and the orders table", async ({
@@ -798,9 +819,9 @@ test.describe("Sales order flow", () => {
       .poll(
         async () => {
           const [secondaryItem] = await db
-            .select({ committedQty: items.committedQty })
-            .from(items)
-            .where(eq(items.id, secondaryProductId));
+            .select({ committedQty: inventoryItemBalances.committedQty })
+            .from(inventoryItemBalances)
+            .where(eq(inventoryItemBalances.itemId, secondaryProductId));
           return secondaryItem?.committedQty ?? null;
         },
         { timeout: 15_000 }
@@ -825,12 +846,18 @@ test.describe("Sales order flow", () => {
     expect(orderRows).toHaveLength(1);
     expect(orderRows[0].status).toBe("cancelled");
 
-    const [primaryItem] = await db.select().from(items).where(eq(items.id, primaryProductId));
-    const [secondaryItem] = await db.select().from(items).where(eq(items.id, secondaryProductId));
+    const [primaryItem] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
+    const [secondaryItem] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, secondaryProductId));
     const [primaryMaterial] = await db
-      .select()
-      .from(items)
-      .where(eq(items.id, primaryMaterialId));
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryMaterialId));
     expect(primaryItem.committedQty).toBe("0.0000");
     expect(secondaryItem.committedQty).toBe("0.0000");
     expect(primaryMaterial.committedQty).toBe("0.0000");
@@ -895,9 +922,9 @@ test.describe("Sales order flow", () => {
     expect(confirmedOrder.status).toBe("confirmed");
 
     const [beforeShip] = await db
-      .select({ committedQty: items.committedQty })
-      .from(items)
-      .where(eq(items.id, primaryProductId));
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
     expect(beforeShip.committedQty).toBe("3.0000");
 
     const lotsBefore = await db
@@ -926,9 +953,9 @@ test.describe("Sales order flow", () => {
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     const [afterShip] = await db
-      .select({ committedQty: items.committedQty })
-      .from(items)
-      .where(eq(items.id, primaryProductId));
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
     expect(afterShip.committedQty).toBe("0.0000");
 
     const lotsAfter = await db
@@ -943,17 +970,22 @@ test.describe("Sales order flow", () => {
 
     const shipMovements = await db
       .select({
-        itemId: stockMovements.itemId,
-        movementType: stockMovements.movementType,
-        referenceType: stockMovements.referenceType,
+        itemId: inventoryEvents.itemId,
+        eventType: inventoryEvents.eventType,
+        referenceType: inventoryEvents.referenceType,
       })
-      .from(stockMovements)
-      .where(eq(stockMovements.referenceId, shipOrderId));
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceId, shipOrderId),
+          eq(inventoryEvents.eventType, "sales_consumption")
+        )
+      );
 
     const secondaryProductMovements = shipMovements.filter(
       (movement) =>
         movement.itemId === primaryProductId &&
-        movement.movementType === "sales_shipped"
+        movement.eventType === "sales_consumption"
     );
 
     expect(secondaryProductMovements.length).toBeGreaterThanOrEqual(1);

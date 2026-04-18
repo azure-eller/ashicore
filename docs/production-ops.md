@@ -89,3 +89,29 @@ Do not capture by default:
 - customer notes/comments unless intentionally scrubbed
 
 Use request IDs in API error responses and logs so failures can be matched across user reports, logs, and Sentry events.
+
+## Inventory Reconciliation Cron
+
+Inventory integrity now has a scheduled production backstop.
+
+Route:
+
+- `GET /api/internal/inventory-reconciliation`
+
+Auth:
+
+- set `CRON_SECRET` on Vercel to let the built-in cron call the route with `Authorization: Bearer <CRON_SECRET>`
+- or set `INVENTORY_RECONCILIATION_SECRET` and have an external scheduler call the same route with the same bearer token
+
+Schedule:
+
+- `vercel.json` runs the route hourly with `0 * * * *`
+
+Behavior:
+
+- the route walks every organization in `system.organization`
+- for each org, it recomputes item, lot, reservation, and expected projections from `inventory.inventory_events`
+- if any org has drift, the route throws
+- `apiHandler` sends the exception to Sentry and returns a non-2xx response so the cron run is visibly failed
+
+Use this as a production backstop, not as the primary correctness check. The primary workflow for code changes is still Playwright plus `pnpm verify:inventory` in the worktree.

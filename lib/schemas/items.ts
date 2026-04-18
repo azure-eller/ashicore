@@ -47,8 +47,6 @@ const rawBaseItemSchema = createInsertSchema(items, {
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
-  committedQty: true,
-  expectedQty: true,
 }).extend({
   stock: z.string().default("0").refine(
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
