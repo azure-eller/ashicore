@@ -1150,6 +1150,7 @@ export async function getCustomerCategory(id: string) {
         id: customerCategories.id,
         name: customerCategories.name,
         description: customerCategories.description,
+        updatedAt: customerCategories.updatedAt,
       })
       .from(customerCategories)
       .where(

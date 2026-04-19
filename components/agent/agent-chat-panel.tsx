@@ -188,6 +188,16 @@ function summarizeToolResultContent(content: unknown) {
   }
 
   if (content && typeof content === "object") {
+    if (
+      "error" in content &&
+      content.error &&
+      typeof content.error === "object" &&
+      "message" in content.error &&
+      typeof content.error.message === "string"
+    ) {
+      return content.error.message;
+    }
+
     if ("error" in content && typeof content.error === "string") {
       return content.error;
     }

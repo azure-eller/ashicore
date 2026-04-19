@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import type {
+  AgentPendingPermissionPayload,
   AgentPendingRequestRecord,
   AgentPendingRequestResponse,
   AgentQuestion,
@@ -62,16 +63,58 @@ export function PendingRequestCard({
   );
 
   if (pendingRequest.kind === "permission") {
+    const permissionPayload = pendingRequest.payload as AgentPendingPermissionPayload;
+    const preview = permissionPayload.preview;
+
     return (
       <Card className="border-dashed bg-card/80">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Approval Needed</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">{pendingRequest.payload.summary}</p>
+          <p className="text-sm text-muted-foreground">{permissionPayload.summary}</p>
+          {preview?.fields && preview.fields.length > 0 ? (
+            <div className="rounded-xl border border-border/60 bg-muted/40 p-4">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {preview.kind === "diff"
+                  ? "Field Changes"
+                  : preview.kind === "create"
+                    ? "Created Fields"
+                    : "Preview"}
+              </p>
+              <div className="space-y-2">
+                {preview.fields.map((field) => (
+                  <div
+                    key={field.name}
+                    className="grid gap-2 rounded-lg border border-border/50 bg-background/70 p-3 text-xs md:grid-cols-[minmax(0,120px)_minmax(0,1fr)_minmax(0,1fr)]"
+                  >
+                    <div className="font-medium text-foreground">{field.name}</div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Before
+                      </div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+                        {JSON.stringify(field.before, null, 2)}
+                      </pre>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        After
+                      </div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+                        {JSON.stringify(field.after, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="flex gap-3">
             <Button disabled={isSubmitting} onClick={() => onResolve({ approved: true })}>
-              {isSubmitting ? "Submitting…" : "Approve"}
+                {isSubmitting
+                  ? "Submitting…"
+                  : permissionPayload.confirmationLabel ?? "Approve"}
             </Button>
             <Button
               variant="outline"

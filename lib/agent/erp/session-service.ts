@@ -12,9 +12,8 @@ import type { AgentMessage } from "@/lib/agent/core/messages";
 import type { AgentActor, ToolUseContext } from "@/lib/agent/core/Tool";
 import { invalidateSessionPromptSectionCache } from "@/lib/agent/core/promptSections";
 import { buildAgentPromptSections } from "@/lib/agent/erp/context";
-import { erpAgentTools } from "@/lib/agent/erp/tools";
+import { erpAgentTools, getVisibleErpAgentTools } from "@/lib/agent/erp/tools";
 import type {
-  AgentPendingQuestionPayload,
   AgentPendingRequestPayload,
   AgentPendingRequestRecord,
   AgentPendingRequestResponse,
@@ -130,26 +129,17 @@ function toPendingPayload(result: Extract<ToolExecutionResult, { type: "pending"
     return {
       toolUseId: result.toolCallId,
       input: result.input,
-      summary: result.message,
-      questions:
-        typeof result.payload === "object" &&
-        result.payload != null &&
-        "questions" in result.payload
-          ? ((result.payload as { questions: AgentPendingQuestionPayload["questions"] }).questions ?? [])
-          : [],
+      summary: result.payload.summary,
+      questions: result.payload.questions,
     };
   }
 
   return {
     toolUseId: result.toolCallId,
     input: result.input,
-    summary: result.message,
-    confirmationLabel:
-      typeof result.payload === "object" &&
-      result.payload != null &&
-      "summary" in result.payload
-        ? "Confirm import"
-        : undefined,
+    summary: result.payload.summary,
+    confirmationLabel: result.payload.confirmationLabel,
+    preview: result.payload.preview,
   };
 }
 
@@ -228,6 +218,7 @@ function buildToolUseContext(args: {
   sessionId: string;
   turnId: string;
   uploads: AgentUploadRecord[];
+  transcript: AgentMessage[];
   signal: AbortSignal;
 }) {
   const uploadStore = getUploadStore();
@@ -236,7 +227,8 @@ function buildToolUseContext(args: {
     actor: args.actor,
     sessionId: args.sessionId,
     turnId: args.turnId,
-    signal: args.signal,
+    transcript: args.transcript,
+    abortSignal: args.signal,
     uploads: args.uploads.map((upload) => ({
       id: upload.id,
       storageKey: upload.storageKey,
@@ -556,6 +548,7 @@ async function executeApprovedPendingTool(args: {
   turnId: string;
   pendingRequest: AgentPendingRequestRecord;
   uploads: AgentUploadRecord[];
+  transcript: AgentMessage[];
   signal: AbortSignal;
 }) {
   const tool = erpAgentTools.find((candidate) => candidate.name === args.pendingRequest.toolName);
@@ -568,6 +561,7 @@ async function executeApprovedPendingTool(args: {
     sessionId: args.sessionId,
     turnId: args.turnId,
     uploads: args.uploads,
+    transcript: args.transcript,
     signal: args.signal,
   });
 
@@ -666,6 +660,7 @@ export async function* runAgentTurn(args: {
           turnId: turn.id,
           pendingRequest: snapshot.pendingRequest,
           uploads: snapshot.uploads,
+          transcript: currentMessages,
           signal: args.signal,
         });
 
@@ -698,6 +693,10 @@ export async function* runAgentTurn(args: {
               },
             ],
           });
+
+          if (resumedTool.newMessages && resumedTool.newMessages.length > 0) {
+            currentMessages.push(...resumedTool.newMessages);
+          }
         }
       } else {
         currentMessages.push(
@@ -709,7 +708,10 @@ export async function* runAgentTurn(args: {
               isError: true,
               content: {
                 toolName: snapshot.pendingRequest.toolName,
-                error: "User denied the requested action.",
+                error: {
+                  code: "user_denied",
+                  message: "User denied the requested action.",
+                },
               },
             },
           })
@@ -750,6 +752,7 @@ export async function* runAgentTurn(args: {
       sessionId: args.sessionId,
       turnId: turn.id,
       uploads: snapshot.uploads,
+      transcript: currentMessages,
       signal: args.signal,
     });
     const audit = buildToolAuditHooks({
@@ -763,11 +766,12 @@ export async function* runAgentTurn(args: {
       uploads: snapshot.uploads,
     });
     const engine = new QueryEngine(provider, model);
+    const visibleTools = getVisibleErpAgentTools(args.actor);
     const stream = engine.run({
       systemSections: promptSections,
       uploads: snapshot.uploads,
       messages: currentMessages,
-      tools: [...erpAgentTools],
+      tools: visibleTools,
       ctx,
       audit,
     });

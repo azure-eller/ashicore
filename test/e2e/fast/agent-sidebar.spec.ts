@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { type Page } from "@playwright/test";
 import { test, expect } from "../fixtures";
-import { agentSessions, agentUploads } from "../../../lib/db/schema";
+import { agentSessions } from "../../../lib/db/schema";
 
 // The sidebar chat panel collapses its header and transcript when the composer
 // is unfocused (pointer-events-none, opacity 0). Only the composer textarea
@@ -17,15 +17,7 @@ test.describe("Agent sidebar smoke", () => {
     db,
   }) => {
     const ts = Date.now();
-    const filename = `customer-import-${ts}.csv`;
-    const uploadBuffer = Buffer.from(
-      [
-        "Name,Email,Phone,Category",
-        `Acme Garden ${ts},acme-${ts}@example.com,555-0400,Wholesale`,
-        `Bloom Supply ${ts},bloom-${ts}@example.com,555-0401,Retail`,
-      ].join("\n"),
-      "utf8"
-    );
+    const prompt = `find acme-${ts}`;
 
     const createSessionResponsePromise = page.waitForResponse(
       (response) =>
@@ -42,7 +34,6 @@ test.describe("Agent sidebar smoke", () => {
     expect(createSessionResponse.status()).toBe(201);
 
     const sidebar = page.locator("[data-agent-sidebar-root]");
-    const uploadedFileLabel = sidebar.locator("p").filter({ hasText: filename }).first();
     await expect(sidebar).toHaveAttribute("data-agent-session-id", /.+/);
     const sessionId = await sidebar.getAttribute("data-agent-session-id");
     expect(sessionId).toBeTruthy();
@@ -54,74 +45,34 @@ test.describe("Agent sidebar smoke", () => {
     expect(session.status).toBe("idle");
     expect(session.createdByUserId).toBeTruthy();
 
-    const uploadResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith(`/api/agent/sessions/${sessionId}/uploads`)
-    );
-
-    await page.locator("[data-agent-upload-input]").setInputFiles({
-      name: filename,
-      mimeType: "text/csv",
-      buffer: uploadBuffer,
-    });
-
-    const uploadResponse = await uploadResponsePromise;
-    expect(uploadResponse.status()).toBe(201);
-
-    await expect(uploadedFileLabel).toBeVisible();
-    await expect(page.getByText("text/csv • 2 rows • 4 columns")).toBeVisible();
-
     const turnResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         response.url().endsWith(`/api/agent/sessions/${sessionId}/turns`)
     );
 
-    await page.getByRole("textbox", { name: "ERP Agent message" }).fill("Does this data look good?");
+    await page.getByRole("textbox", { name: "ERP Agent message" }).fill(prompt);
     await page.getByRole("textbox", { name: "ERP Agent message" }).press("Enter");
 
-    await expect(sidebar.getByText("Does this data look good?")).toBeVisible();
+    await expect(sidebar.getByText(prompt)).toBeVisible();
 
     const turnResponse = await turnResponsePromise;
     expect(turnResponse.ok()).toBe(true);
-
-    await expect(
-      page.getByText("I reviewed the uploaded table and summarized the main columns and row count.")
-    ).toBeVisible();
-
-    const uploads = await db
-      .select()
-      .from(agentUploads)
-      .where(eq(agentUploads.sessionId, sessionId!));
-    expect(uploads).toHaveLength(1);
-    expect(uploads[0]?.sourceFilename).toBe(filename);
-    expect(uploads[0]?.normalizedKind).toBe("tabular_csv");
-
-    const manifest = uploads[0]?.manifest as {
-      table?: {
-        rowCount: number;
-        headers: string[];
-      };
-    };
-
-    expect(manifest.table?.rowCount).toBe(2);
-    expect(manifest.table?.headers).toEqual(["Name", "Email", "Phone", "Category"]);
 
     await page.goto("/sales/orders");
     await expandPanel(page);
     await expect(page.getByRole("heading", { name: "ERP Agent" })).toBeVisible();
     await expect(sidebar).toHaveAttribute("data-agent-session-id", sessionId!);
-    await expect(uploadedFileLabel).toBeVisible();
+    await expect(sidebar.getByText(prompt)).toBeVisible();
 
     await page.reload();
     await expandPanel(page);
     await expect(page.getByRole("heading", { name: "ERP Agent" })).toBeVisible();
     await expect(sidebar).toHaveAttribute("data-agent-session-id", sessionId!);
-    await expect(uploadedFileLabel).toBeVisible();
+    await expect(sidebar.getByText(prompt)).toBeVisible();
   });
 
-  test("renders AskUserQuestion previews in the sidebar clarification card", async ({ page }) => {
+  test("renders approval previews in the sidebar permission card", async ({ page }) => {
     await page.goto("/sales/customers?agentProvider=fake");
     await expandPanel(page);
     await expect(page.getByRole("heading", { name: "ERP Agent" })).toBeVisible();
@@ -138,7 +89,7 @@ test.describe("Agent sidebar smoke", () => {
           "Content-Type": "application/json",
           "X-Agent-Provider": "fake",
         },
-        body: JSON.stringify({ text: "clarify this ambiguous mapping" }),
+        body: JSON.stringify({ text: "create customer" }),
       });
 
       return {
@@ -148,19 +99,27 @@ test.describe("Agent sidebar smoke", () => {
     }, sessionId);
 
     expect(response.ok).toBe(true);
+    expect(response.body).toContain("event: pending_request");
 
-    await page.reload();
-    await expandPanel(page);
+    const snapshot = await page.evaluate(async (targetSessionId) => {
+      const sessionResponse = await fetch(`/api/agent/sessions/${targetSessionId}`, {
+        cache: "no-store",
+      });
 
-    await expect(page.getByText("Clarification Needed")).toBeVisible();
-    await expect(
-      page.getByText("Column 'customer_name' should map to which ERP field?")
-    ).toBeVisible();
-    await expect(page.getByText("Preview")).toBeVisible();
-    await expect(page.getByText("name -> customer.name")).toBeVisible();
+      return sessionResponse.json();
+    }, sessionId);
 
-    await page.getByRole("radio", { name: /Category/ }).click();
-    await expect(page.getByText("customer_name -> customer.category")).toBeVisible();
+    expect(snapshot.pendingRequest?.kind).toBe("permission");
+    expect(snapshot.pendingRequest?.payload?.summary).toBe("Create a new customer.");
+    expect(snapshot.pendingRequest?.payload?.preview?.kind).toBe("create");
+    expect(snapshot.pendingRequest?.payload?.preview?.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "name",
+          after: "Fake Customer",
+        }),
+      ])
+    );
   });
 
   test("starts a fresh thread from the New chat button and keeps the prior session in DB", async ({

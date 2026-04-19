@@ -131,6 +131,7 @@ export const askUserQuestionTool = buildTool({
       kind: "question",
       message: "Need clarification from the user before continuing.",
       payload: {
+        summary: "Need clarification from the user before continuing.",
         questions: input.questions,
       },
     };

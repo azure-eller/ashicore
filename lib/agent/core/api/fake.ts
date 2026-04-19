@@ -27,6 +27,14 @@ function findLatestToolResult(request: ProviderRequest, toolName: string) {
   return null;
 }
 
+function getLatestUserText(request: ProviderRequest) {
+  const latestUserMessage = [...request.transcript]
+    .reverse()
+    .find((message) => message.role === "user" && getMessageText(message).trim().length > 0);
+
+  return latestUserMessage ? getMessageText(latestUserMessage).toLowerCase() : "";
+}
+
 export class FakeAgentProvider implements AgentProvider {
   async *stream(request: ProviderRequest): AsyncGenerator<ProviderStreamEvent, ProviderRunResult, void> {
     await buildAnthropicRequestShape({
@@ -37,120 +45,177 @@ export class FakeAgentProvider implements AgentProvider {
     if (request.tools.length === 0) {
       yield {
         type: "text_delta",
-        text: [
-          "<summary>",
-          "- The user is working on customer onboarding.",
-          "- Preserve any confirmed mappings, uploads, and pending approvals from earlier turns.",
-          "</summary>",
-        ].join("\n"),
+        text: "No ERP tools are currently available for this user.",
       };
       return { stopReason: "end_turn" };
     }
 
-    const latestUserMessage = [...request.transcript]
-      .reverse()
-      .find((message) => message.role === "user" && getMessageText(message).trim().length > 0);
-    const latestText = latestUserMessage ? getMessageText(latestUserMessage).toLowerCase() : "";
+    const latestText = getLatestUserText(request);
+    const latestGet = findLatestToolResult(request, "erp.get");
+    const latestSearch = findLatestToolResult(request, "erp.search");
+    const latestList = findLatestToolResult(request, "erp.list");
+
+    if (latestText.includes("list") && latestText.includes("order")) {
+      if (latestList) {
+        yield {
+          type: "text_delta",
+          text: "I listed the matching orders.",
+        };
+        return { stopReason: "end_turn" };
+      }
+
+      yield {
+        type: "tool_use",
+        id: randomUUID(),
+        name: "erp.list",
+        input: {
+          entityType: latestText.includes("purchase") ? "purchase_order" : "sales_order",
+          limit: 25,
+          offset: 0,
+        },
+      };
+      return { stopReason: "tool_use" };
+    }
 
     if (
-      latestText.includes("summary") ||
-      latestText.includes("summarize") ||
-      latestText.includes("review") ||
-      latestText.includes("inspect") ||
-      latestText.includes("look good") ||
-      latestText.includes("looks good") ||
-      latestText.includes("check the data") ||
-      latestText.includes("does this data")
+      latestText.includes("find") ||
+      latestText.includes("search") ||
+      latestText.includes("look up")
     ) {
-      if (!findLatestToolResult(request, "DescribeTableUpload")) {
+      if (latestSearch) {
+        yield {
+          type: "text_delta",
+          text: "I found matching ERP records.",
+        };
+        return { stopReason: "end_turn" };
+      }
+
+      yield {
+        type: "tool_use",
+        id: randomUUID(),
+        name: "erp.search",
+        input: {
+          query: latestText.replace(/\b(find|search|look up|for|the)\b/g, " ").trim() || latestText,
+          limit: 10,
+          offset: 0,
+        },
+      };
+      return { stopReason: "tool_use" };
+    }
+
+    if (latestText.includes("show") || latestText.includes("open") || latestText.includes("inspect")) {
+      if (latestGet) {
+        yield {
+          type: "text_delta",
+          text: "I loaded the requested ERP record.",
+        };
+        return { stopReason: "end_turn" };
+      }
+
+      const searchOutput =
+        latestSearch &&
+        "output" in latestSearch &&
+        latestSearch.output &&
+        typeof latestSearch.output === "object"
+          ? (latestSearch.output as Record<string, unknown>)
+          : null;
+      const firstItem =
+        searchOutput &&
+        "items" in searchOutput &&
+        Array.isArray(searchOutput.items) &&
+        searchOutput.items.length > 0 &&
+        typeof searchOutput.items[0] === "object"
+          ? (searchOutput.items[0] as Record<string, unknown>)
+          : null;
+
+      if (firstItem && typeof firstItem.entityType === "string" && typeof firstItem.id === "string") {
         yield {
           type: "tool_use",
           id: randomUUID(),
-          name: "DescribeTableUpload",
+          name: "erp.get",
           input: {
-            uploadId: request.attachmentMessages.length > 0 ? undefined : undefined,
+            entityType: firstItem.entityType,
+            id: firstItem.id,
           },
         };
         return { stopReason: "tool_use" };
       }
-
-      yield {
-        type: "text_delta",
-        text: "I reviewed the uploaded table and summarized the main columns and row count.",
-      };
-      return { stopReason: "end_turn" };
     }
 
-    if (latestText.includes("clarify") || latestText.includes("ambiguous")) {
+    if (latestText.includes("create customer")) {
       yield {
         type: "tool_use",
         id: randomUUID(),
-        name: "AskUserQuestion",
+        name: "erp.create",
         input: {
-          questions: [
-            {
-              header: "name col",
-              question: "Column 'customer_name' should map to which ERP field?",
-              options: [
-                {
-                  label: "Customer Name (Recommended)",
-                  description: "Maps directly to the customer name field.",
-                  preview: [
-                    "name -> customer.name",
-                    "email -> customer.email",
-                    "phone -> customer.phone",
-                  ].join("\n"),
-                },
-                {
-                  label: "Category",
-                  description: "Use only if the file stores segmentation here.",
-                  preview: [
-                    "customer_name -> customer.category",
-                    "category -> customer.name",
-                    "This likely swaps the intended fields.",
-                  ].join("\n"),
-                },
-              ],
-            },
-          ],
-        },
-      };
-      return { stopReason: "tool_use" };
-    }
-
-    const stagedImport = findLatestToolResult(request, "StageCustomerImport");
-    if (latestText.includes("import") && stagedImport == null) {
-      yield {
-        type: "tool_use",
-        id: randomUUID(),
-        name: "StageCustomerImport",
-        input: {
-          uploadId: undefined,
-          mapping: {
-            name: { source: "column", column: "Name" },
-            email: { source: "column", column: "Email" },
-            phone: { source: "column", column: "Phone" },
+          entityType: "customer",
+          values: {
+            name: "Fake Customer",
+            customerCategoryId: null,
+            email: null,
+            phone: null,
+            billingLine1: null,
+            billingLine2: null,
+            billingCity: null,
+            billingRegion: null,
+            billingPostcode: null,
+            billingCountry: null,
+            shipLine1: null,
+            shipLine2: null,
+            shipCity: null,
+            shipRegion: null,
+            shipPostcode: null,
+            shipCountry: null,
+            notes: null,
           },
         },
       };
       return { stopReason: "tool_use" };
     }
 
-    if (stagedImport && latestText.includes("import")) {
-      yield {
-        type: "tool_use",
-        id: randomUUID(),
-        name: "CommitCustomerImport",
-        input: {
-          stagedImportId: stagedImport.stagedImportId,
-        },
-      };
-      return { stopReason: "tool_use" };
+    if (latestText.includes("update") && latestGet) {
+      const output =
+        "output" in latestGet && latestGet.output && typeof latestGet.output === "object"
+          ? (latestGet.output as Record<string, unknown>)
+          : null;
+      const record =
+        output &&
+        "record" in output &&
+        output.record &&
+        typeof output.record === "object"
+          ? (output.record as Record<string, unknown>)
+          : null;
+
+      if (
+        output &&
+        typeof output.entityType === "string" &&
+        record &&
+        typeof record.id === "string"
+      ) {
+        const fields =
+          "fields" in record && record.fields && typeof record.fields === "object"
+            ? (record.fields as Record<string, unknown>)
+            : {};
+
+        yield {
+          type: "tool_use",
+          id: randomUUID(),
+          name: "erp.update",
+          input: {
+            entityType: output.entityType,
+            id: record.id,
+            values: {
+              ...fields,
+            },
+          },
+        };
+        return { stopReason: "tool_use" };
+      }
     }
 
     yield {
       type: "text_delta",
-      text: "I’m ready. Upload an export, spreadsheet, PDF, or image, then ask me to review the current session data.",
+      text: "I’m ready. Ask me to search, list, inspect, create, or update ERP records.",
     };
     return { stopReason: "end_turn" };
   }

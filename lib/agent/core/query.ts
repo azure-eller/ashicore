@@ -41,7 +41,7 @@ export async function* query(args: {
   maxTurns?: number;
 }): AsyncGenerator<QueryEvent, QueryOutcome, void> {
   const maxTurns = args.maxTurns ?? 8;
-  const workingMessages = [...args.messages];
+  const workingMessages = args.ctx.transcript;
 
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const assistantMessage = createAgentMessage({
@@ -60,7 +60,7 @@ export async function* query(args: {
       attachmentMessages: args.attachmentMessages,
       transcript: workingMessages,
       tools: args.tools,
-      signal: args.ctx.signal,
+      signal: args.ctx.abortSignal,
       fileStore: args.ctx.fileStore,
     });
 
@@ -159,6 +159,10 @@ export async function* query(args: {
           },
         ],
       });
+
+      if (result.newMessages && result.newMessages.length > 0) {
+        workingMessages.push(...result.newMessages);
+      }
     }
   }
 

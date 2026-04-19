@@ -1,6 +1,30 @@
 import type { AnyAgentTool, ToolUseContext } from "@/lib/agent/core/Tool";
 import { executeToolUse, type ToolAuditHooks, type ToolExecutionResult } from "@/lib/agent/core/toolExecution";
 
+function buildUnknownToolResult(toolCall: ToolCallRequest) {
+  return {
+    type: "result",
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    input: toolCall.input,
+    output: {
+      error: {
+        code: "validation_error",
+        message: `Unknown tool '${toolCall.name}'.`,
+      },
+    },
+    inlineOutput: {
+      error: {
+        code: "validation_error",
+        message: `Unknown tool '${toolCall.name}'.`,
+      },
+    },
+    summary: `Unknown tool '${toolCall.name}'.`,
+    artifactKey: null,
+    isError: true,
+  } satisfies ToolExecutionResult;
+}
+
 export type ToolCallRequest = {
   id: string;
   name: string;
@@ -48,17 +72,7 @@ export async function runToolCalls(args: {
         batch.calls.map(async (toolCall) => {
           const tool = toolsByName.get(toolCall.name);
           if (!tool) {
-            return {
-              type: "result",
-              toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              input: toolCall.input,
-              output: { error: `Unknown tool '${toolCall.name}'.`, toolName: toolCall.name },
-              inlineOutput: { error: `Unknown tool '${toolCall.name}'.`, toolName: toolCall.name },
-              summary: `Unknown tool '${toolCall.name}'.`,
-              artifactKey: null,
-              isError: true,
-            } satisfies ToolExecutionResult;
+            return buildUnknownToolResult(toolCall);
           }
 
           return executeToolUse({
@@ -80,17 +94,7 @@ export async function runToolCalls(args: {
     for (const toolCall of batch.calls) {
       const tool = toolsByName.get(toolCall.name);
       if (!tool) {
-        results.push({
-          type: "result",
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          input: toolCall.input,
-          output: { error: `Unknown tool '${toolCall.name}'.`, toolName: toolCall.name },
-          inlineOutput: { error: `Unknown tool '${toolCall.name}'.`, toolName: toolCall.name },
-          summary: `Unknown tool '${toolCall.name}'.`,
-          artifactKey: null,
-          isError: true,
-        });
+        results.push(buildUnknownToolResult(toolCall));
         continue;
       }
 

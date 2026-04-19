@@ -10,7 +10,13 @@ export function zodToJsonSchema(schema: ZodType) {
     return cached;
   }
 
-  const converted = toJSONSchema(schema) as JsonSchema;
+  // Provider tool schemas only need the accepted input shape. Many app schemas
+  // use transforms for normalization, which are valid at runtime but not fully
+  // representable in JSON Schema.
+  const converted = toJSONSchema(schema, {
+    io: "input",
+    unrepresentable: "any",
+  }) as JsonSchema;
   schemaCache.set(schema, converted);
 
   return converted;

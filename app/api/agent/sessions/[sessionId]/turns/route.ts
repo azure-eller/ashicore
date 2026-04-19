@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertAgentApiAccess } from "@/lib/agent/erp/access";
 import { createAgentTurnRequestSchema } from "@/lib/agent/erp/types";
 import { runAgentTurn } from "@/lib/agent/erp/session-service";
 
@@ -22,7 +22,7 @@ function encodeSseEvent(event: string, payload: unknown) {
 }
 
 export const POST = apiHandler(async (request, context: RouteContext) => {
-  const actor = await assertModuleWriteAccess("sales", request.headers);
+  const actor = await assertAgentApiAccess(request.headers);
   const { sessionId } = await context.params;
   const body = createAgentTurnRequestSchema.parse(await request.json());
   const abortController = new AbortController();
@@ -33,6 +33,34 @@ export const POST = apiHandler(async (request, context: RouteContext) => {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let streamClosed = false;
+      const closeStream = () => {
+        if (streamClosed) {
+          return;
+        }
+
+        streamClosed = true;
+        try {
+          controller.close();
+        } catch {
+          // Ignore closed-stream races from client disconnects.
+        }
+      };
+      const enqueueEvent = (event: string, payload: unknown) => {
+        if (streamClosed || abortController.signal.aborted) {
+          return false;
+        }
+
+        try {
+          controller.enqueue(encodeSseEvent(event, payload));
+          return true;
+        } catch {
+          streamClosed = true;
+          abortController.abort();
+          return false;
+        }
+      };
+
       try {
         for await (const event of runAgentTurn({
           sessionId,
@@ -45,18 +73,21 @@ export const POST = apiHandler(async (request, context: RouteContext) => {
           signal: abortController.signal,
           providerOverride: getRequestedAgentProvider(request.headers),
         })) {
-          controller.enqueue(encodeSseEvent(event.event, event.payload));
+          if (!enqueueEvent(event.event, event.payload)) {
+            break;
+          }
         }
       } catch (error) {
         console.error("Agent turn failed:", error);
-        controller.enqueue(
-          encodeSseEvent("error", {
+        enqueueEvent("error", {
             message: "The agent turn failed. Please try again.",
-          })
-        );
+        });
       } finally {
-        controller.close();
+        closeStream();
       }
+    },
+    cancel() {
+      abortController.abort();
     },
   });
 

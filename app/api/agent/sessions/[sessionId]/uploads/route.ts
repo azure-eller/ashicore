@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { assertAgentApiAccess } from "@/lib/agent/erp/access";
 import { createAgentUploads } from "@/lib/agent/erp/session-service";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ type RouteContext = {
 };
 
 export const POST = apiHandler(async (request, context: RouteContext) => {
-  const actor = await assertModuleWriteAccess("sales", request.headers);
+  const actor = await assertAgentApiAccess(request.headers);
   const { sessionId } = await context.params;
   const formData = await request.formData();
   const files = formData

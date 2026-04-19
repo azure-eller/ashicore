@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { AgentMessage } from "@/lib/agent/core/messages";
+import type {
+  ToolPermissionPreview,
+  ToolQuestionPayload,
+} from "@/lib/agent/core/Tool";
 
 export type AgentSessionStatus =
   | "idle"
@@ -111,8 +115,8 @@ export type AgentTurnRecord = {
 export type AgentPendingQuestionPayload = {
   toolUseId: string;
   input: unknown;
-  questions: AgentQuestion[];
   summary: string;
+  questions: ToolQuestionPayload["questions"];
 };
 
 export type AgentPendingPermissionPayload = {
@@ -120,6 +124,7 @@ export type AgentPendingPermissionPayload = {
   input: unknown;
   summary: string;
   confirmationLabel?: string;
+  preview?: ToolPermissionPreview;
 };
 
 export type AgentPendingRequestPayload =
