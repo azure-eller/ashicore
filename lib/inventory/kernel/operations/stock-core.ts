@@ -29,13 +29,17 @@ type PositiveStockEventType =
   | "purchase_receipt"
   | "manufacturing_output"
   | "manual_adjustment_increase"
-  | "stocktake_gain";
+  | "stocktake_gain"
+  | "manufacturing_variance_gain";
 
 type NegativeStockEventType =
   | "manual_adjustment_decrease"
   | "stocktake_loss"
   | "sales_consumption"
-  | "manufacturing_ingredient_consumption";
+  | "manufacturing_ingredient_consumption"
+  | "manufacturing_variance_loss";
+
+type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 
 export type FifoAllocation = {
   lotId: string;
@@ -431,6 +435,8 @@ export async function restockExistingLotInTx(
     lotId: string;
     quantity: number;
     unitCost: string;
+    eventType?: RestockEventType;
+    eventSubtype?: string | null;
     referenceType?: string | null;
     referenceId?: string | null;
     actorUserId?: string | null;
@@ -454,7 +460,8 @@ export async function restockExistingLotInTx(
     {
       organizationId: params.organizationId,
       locationId: params.locationId,
-      eventType: "unpick_restock",
+      eventType: params.eventType ?? "unpick_restock",
+      eventSubtype: params.eventSubtype ?? null,
       itemId: params.itemId,
       lotId: params.lotId,
       quantity: normalizeNumeric(params.quantity),

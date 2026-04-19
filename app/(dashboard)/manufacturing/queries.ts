@@ -37,6 +37,7 @@ import {
   pickManufacturingIngredientInTx,
   produceManufacturedStockInTx,
   projectedLotUnitCost,
+  reconcileIngredientActualsInTx,
   reserveIngredientsForManufacturingInTx,
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
@@ -155,6 +156,43 @@ type LockedBatchStateRow = {
 
 function normalizeQuantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function buildIngredientActualsMap(
+  submitted: CompleteManufacturingOrder["ingredientActuals"] | undefined,
+  ingredientRows: Array<{ id: string; itemName: string }>
+) {
+  const map = new Map<string, number>();
+  if (!submitted || submitted.length === 0) {
+    return map;
+  }
+
+  const ingredientIds = new Set(ingredientRows.map((row) => row.id));
+  for (const entry of submitted) {
+    if (!ingredientIds.has(entry.ingredientId)) {
+      throw new ManufacturingError(
+        "Unknown ingredient in actuals payload.",
+        400,
+        { errors: { ingredientActuals: ["Unknown ingredient."] } }
+      );
+    }
+    map.set(entry.ingredientId, parseFloat(entry.actualConsumedQuantity));
+  }
+
+  const missing = ingredientRows.filter((ingredient) => !map.has(ingredient.id));
+  if (missing.length > 0) {
+    throw new ManufacturingError(
+      `Missing actuals for ${missing.map((ingredient) => ingredient.itemName).join(", ")}.`,
+      400,
+      {
+        errors: {
+          ingredientActuals: missing.map((ingredient) => ingredient.itemName),
+        },
+      }
+    );
+  }
+
+  return map;
 }
 
 function normalizeQuantityNumber(value: number) {
@@ -1950,22 +1988,65 @@ export async function completeManufacturingOrder(
       ingredientRows.map((ingredient) => ingredient.id)
     );
 
+    const actualsMap = buildIngredientActualsMap(
+      payload.ingredientActuals,
+      ingredientRows
+    );
+
     let totalMaterialCost = 0;
+    const produceIngredientRows: Array<{
+      ingredientId: string;
+      actualQuantity: number;
+      actualCostTotal: number;
+    }> = [];
 
     for (const ingredient of ingredientRows) {
-      const totals = allocationTotals.get(ingredient.id) ?? { quantity: 0, cost: 0 };
-      const actualNeeded = parseFloat(ingredient.pickedQuantity);
-      const actualCostTotal = totals.cost;
-      totalMaterialCost += actualCostTotal;
+      const pickedQty = parseFloat(ingredient.pickedQuantity);
+      const suppliedActual = actualsMap.get(ingredient.id);
+      let effectiveQuantity: number;
+      let effectiveCost: number;
+
+      if (suppliedActual != null) {
+        const reconciled = await reconcileIngredientActualsInTx(tx, {
+          organizationId: orgId,
+          ingredient: {
+            id: ingredient.id,
+            itemId: ingredient.itemId,
+            pickedQuantity: pickedQty,
+          },
+          actualConsumedQuantity: suppliedActual,
+          referenceType: "manufacturing_order",
+          referenceId: id,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            `variance:${ingredient.id}`
+          ),
+        });
+        effectiveQuantity = reconciled.newTotalQuantity;
+        effectiveCost = reconciled.newTotalCost;
+      } else {
+        const totals = allocationTotals.get(ingredient.id) ?? { quantity: 0, cost: 0 };
+        effectiveQuantity = pickedQty;
+        effectiveCost = totals.cost;
+      }
+
+      totalMaterialCost += effectiveCost;
 
       await tx
         .update(manufacturingOrderIngredients)
         .set({
-          actualQuantity: normalizeQuantityString(actualNeeded),
-          actualCostTotal: normalizeQuantityString(actualCostTotal),
+          actualQuantity: normalizeQuantityString(effectiveQuantity),
+          actualCostTotal: normalizeQuantityString(effectiveCost),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrderIngredients.id, ingredient.id));
+
+      produceIngredientRows.push({
+        ingredientId: ingredient.id,
+        actualQuantity: effectiveQuantity,
+        actualCostTotal: effectiveCost,
+      });
     }
 
     const actualCostPerUnit = totalMaterialCost / actualQuantity;
@@ -1981,14 +2062,7 @@ export async function completeManufacturingOrder(
         "complete-output"
       ),
       expectedReleaseQuantity: null,
-      ingredientRows: ingredientRows.map((ingredient) => {
-        const totals = allocationTotals.get(ingredient.id) ?? { quantity: 0, cost: 0 };
-        return {
-          ingredientId: ingredient.id,
-          actualQuantity: parseFloat(ingredient.pickedQuantity),
-          actualCostTotal: totals.cost,
-        };
-      }),
+      ingredientRows: produceIngredientRows,
     });
 
     const [completed] = await tx
@@ -2133,18 +2207,62 @@ export async function completeManufacturingBatch(
       ingredientRows.map((ingredient) => ingredient.id)
     );
 
+    const actualsMap = buildIngredientActualsMap(
+      payload.ingredientActuals,
+      ingredientRows
+    );
+
+    const produceIngredientRows: Array<{
+      ingredientId: string;
+      actualQuantity: number;
+      actualCostTotal: number;
+    }> = [];
+
     for (const ingredient of ingredientRows) {
-      const totals = allocationTotals.get(ingredient.id) ?? { quantity: 0, cost: 0 };
+      const pickedQty = parseFloat(ingredient.pickedQuantity);
+      const suppliedActual = actualsMap.get(ingredient.id);
+      let effectiveQuantity: number;
+      let effectiveCost: number;
+
+      if (suppliedActual != null) {
+        const reconciled = await reconcileIngredientActualsInTx(tx, {
+          organizationId: orgId,
+          ingredient: {
+            id: ingredient.id,
+            itemId: ingredient.itemId,
+            pickedQuantity: pickedQty,
+          },
+          actualConsumedQuantity: suppliedActual,
+          referenceType: "manufacturing_batch",
+          referenceId: batchId,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            `batch-variance:${batchId}:${ingredient.id}`
+          ),
+        });
+        effectiveQuantity = reconciled.newTotalQuantity;
+        effectiveCost = reconciled.newTotalCost;
+      } else {
+        const totals = allocationTotals.get(ingredient.id) ?? { quantity: 0, cost: 0 };
+        effectiveQuantity = pickedQty;
+        effectiveCost = totals.cost;
+      }
 
       await tx
         .update(manufacturingOrderIngredients)
         .set({
-          actualQuantity: ingredient.pickedQuantity,
-          actualCostTotal:
-            totals.cost > 0 ? normalizeQuantityString(totals.cost) : normalizeQuantityString(0),
+          actualQuantity: normalizeQuantityString(effectiveQuantity),
+          actualCostTotal: normalizeQuantityString(effectiveCost),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrderIngredients.id, ingredient.id));
+
+      produceIngredientRows.push({
+        ingredientId: ingredient.id,
+        actualQuantity: effectiveQuantity,
+        actualCostTotal: effectiveCost,
+      });
     }
 
     const produced = await produceManufacturedStockInTx(tx, {
@@ -2158,14 +2276,7 @@ export async function completeManufacturingBatch(
         `complete-batch:${batchId}`
       ),
       expectedReleaseQuantity: completesOrder ? null : actualQuantity,
-      ingredientRows: ingredientRows.map((ingredient) => {
-        const totals = allocationTotals.get(ingredient.id) ?? { quantity: 0, cost: 0 };
-        return {
-          ingredientId: ingredient.id,
-          actualQuantity: parseFloat(ingredient.pickedQuantity),
-          actualCostTotal: totals.cost,
-        };
-      }),
+      ingredientRows: produceIngredientRows,
     });
 
     await tx

@@ -16,6 +16,7 @@ const STOCK_INCREASE_TYPES = new Set([
   "manufacturing_output",
   "manual_adjustment_increase",
   "stocktake_gain",
+  "manufacturing_variance_gain",
   "unpick_restock",
 ]);
 
@@ -24,6 +25,7 @@ const STOCK_DECREASE_TYPES = new Set([
   "stocktake_loss",
   "sales_consumption",
   "manufacturing_ingredient_consumption",
+  "manufacturing_variance_loss",
 ]);
 
 const RESERVATION_INCREASE_TYPES = new Set(["reservation_increase"]);

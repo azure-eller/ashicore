@@ -132,6 +132,7 @@ export function ledgerLotUnitCostByOrigin(
         'manufacturing_output',
         'manual_adjustment_increase',
         'stocktake_gain',
+        'manufacturing_variance_gain',
         'unpick_restock'
       )
     ORDER BY ${inventoryEvents.occurredAt} ASC, ${inventoryEvents.id} ASC

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   inventoryExpectedSummary,
   inventoryReservationsSummary,
@@ -670,4 +670,138 @@ export async function getManufacturingIngredientReservationRowsInTx(
     })
     .from(manufacturingOrderIngredients)
     .where(eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId));
+}
+
+const VARIANCE_EPSILON = 0.0001;
+
+export async function reconcileIngredientActualsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    ingredient: {
+      id: string;
+      itemId: string;
+      pickedQuantity: number;
+    };
+    actualConsumedQuantity: number;
+    referenceType: string;
+    referenceId: string;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+  }
+): Promise<{ newTotalQuantity: number; newTotalCost: number }> {
+  const delta = params.actualConsumedQuantity - params.ingredient.pickedQuantity;
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+
+  if (delta > VARIANCE_EPSILON) {
+    const consumed = await consumeStockFifoInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: location.id,
+      itemId: params.ingredient.itemId,
+      quantity: delta,
+      eventType: "manufacturing_variance_loss",
+      eventSubtype: "manufacturing_actuals",
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: params.idempotencyKey ?? null,
+      metadata: { manufacturingOrderIngredientId: params.ingredient.id },
+    });
+
+    if (consumed.allocations.length > 0) {
+      await tx.insert(manufacturingPickAllocations).values(
+        consumed.allocations.map((allocation) => ({
+          manufacturingOrderIngredientId: params.ingredient.id,
+          lotId: allocation.lotId,
+          quantityUsed: normalizeNumericScale(allocation.quantity, 4),
+          costPerUnit: normalizeNumericScale(allocation.unitCost, 4),
+          createdBy: params.actorUserId ?? "system",
+        }))
+      );
+    }
+  } else if (delta < -VARIANCE_EPSILON) {
+    let remaining = -delta;
+    const allocations = await tx
+      .select({
+        id: manufacturingPickAllocations.id,
+        lotId: manufacturingPickAllocations.lotId,
+        quantityUsed: manufacturingPickAllocations.quantityUsed,
+        costPerUnit: manufacturingPickAllocations.costPerUnit,
+      })
+      .from(manufacturingPickAllocations)
+      .where(
+        eq(
+          manufacturingPickAllocations.manufacturingOrderIngredientId,
+          params.ingredient.id
+        )
+      )
+      .orderBy(
+        desc(manufacturingPickAllocations.createdAt),
+        desc(manufacturingPickAllocations.id)
+      )
+      .for("update", { of: manufacturingPickAllocations });
+
+    let restockIndex = 0;
+    for (const allocation of allocations) {
+      if (remaining <= VARIANCE_EPSILON) break;
+      const allocQty = parseFloat(allocation.quantityUsed);
+      const returnQty = Math.min(allocQty, remaining);
+
+      await restockExistingLotInTx(tx, {
+        organizationId: params.organizationId,
+        locationId: location.id,
+        itemId: params.ingredient.itemId,
+        lotId: allocation.lotId,
+        quantity: returnQty,
+        unitCost: allocation.costPerUnit ?? "0",
+        eventType: "manufacturing_variance_gain",
+        eventSubtype: "manufacturing_actuals",
+        referenceType: params.referenceType,
+        referenceId: params.referenceId,
+        actorUserId: params.actorUserId ?? null,
+        idempotencyKey:
+          restockIndex === 0 ? params.idempotencyKey ?? null : null,
+        metadata: { manufacturingOrderIngredientId: params.ingredient.id },
+      });
+
+      const remainingOnAllocation = allocQty - returnQty;
+      if (remainingOnAllocation <= VARIANCE_EPSILON) {
+        await tx
+          .delete(manufacturingPickAllocations)
+          .where(eq(manufacturingPickAllocations.id, allocation.id));
+      } else {
+        await tx
+          .update(manufacturingPickAllocations)
+          .set({ quantityUsed: normalizeNumericScale(remainingOnAllocation, 4) })
+          .where(eq(manufacturingPickAllocations.id, allocation.id));
+      }
+
+      remaining -= returnQty;
+      restockIndex++;
+    }
+  }
+
+  const updatedAllocations = await tx
+    .select({
+      quantityUsed: manufacturingPickAllocations.quantityUsed,
+      costPerUnit: manufacturingPickAllocations.costPerUnit,
+    })
+    .from(manufacturingPickAllocations)
+    .where(
+      eq(
+        manufacturingPickAllocations.manufacturingOrderIngredientId,
+        params.ingredient.id
+      )
+    );
+
+  let newTotalQuantity = 0;
+  let newTotalCost = 0;
+  for (const row of updatedAllocations) {
+    const q = parseFloat(row.quantityUsed);
+    const c = row.costPerUnit != null ? parseFloat(row.costPerUnit) : 0;
+    newTotalQuantity += q;
+    newTotalCost += q * c;
+  }
+
+  return { newTotalQuantity, newTotalCost };
 }

@@ -29,12 +29,18 @@ function getDefaultActualQuantity(execution: ManufacturingExecutionDetail) {
   return execution.plannedQuantity;
 }
 
+export type IngredientActualInput = {
+  ingredientId: string;
+  actualConsumedQuantity: string;
+};
+
 function CompletionCard({
   defaultActualQuantity,
   isBatchMode,
   canComplete,
   isCompleting,
   actionError,
+  ingredients,
   onComplete,
 }: {
   defaultActualQuantity: string;
@@ -42,16 +48,27 @@ function CompletionCard({
   canComplete: boolean;
   isCompleting: boolean;
   actionError: string | null;
-  onComplete: (value: string) => void;
+  ingredients: Array<{
+    id: string;
+    itemName: string;
+    itemSku: string | null;
+    unitName: string;
+    plannedQuantity: string;
+    pickedQuantity: string;
+  }>;
+  onComplete: (value: string, ingredientActuals: IngredientActualInput[]) => void;
 }) {
   const [actualQuantity, setActualQuantity] = useState(defaultActualQuantity);
+  const [actualsById, setActualsById] = useState<Record<string, string>>(() =>
+    Object.fromEntries(ingredients.map((ingredient) => [ingredient.id, ingredient.pickedQuantity]))
+  );
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{isBatchMode ? "Complete Current Batch" : "Complete Order"}</CardTitle>
         <CardDescription>
-          Enter the actual good output from the work that was just produced.
+          Enter the actual good output and the actual ingredient consumption from this run.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -66,9 +83,64 @@ function CompletionCard({
             onChange={(event) => setActualQuantity(event.target.value)}
           />
         </div>
+
+        {ingredients.length > 0 && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Actual Ingredient Consumption</p>
+              <p className="text-xs text-muted-foreground">
+                Defaults to the picked quantity. Adjust if the worker used more or less than planned — variance is written as an inventory movement.
+              </p>
+            </div>
+            <div className="grid gap-3">
+              {ingredients.map((ingredient) => {
+                const inputId = `actual-consumed-${ingredient.id}`;
+                const value = actualsById[ingredient.id] ?? ingredient.pickedQuantity;
+                return (
+                  <div key={ingredient.id} className="max-w-lg space-y-1">
+                    <label className="text-sm font-medium" htmlFor={inputId}>
+                      {ingredient.itemSku
+                        ? `${ingredient.itemName} (${ingredient.itemSku})`
+                        : ingredient.itemName}
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
+                      {" \u00b7 "}
+                      Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
+                    </p>
+                    <Input
+                      id={inputId}
+                      inputMode="decimal"
+                      value={value}
+                      onChange={(event) =>
+                        setActualsById((prev) => ({
+                          ...prev,
+                          [ingredient.id]: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {actionError && <p className="text-sm text-destructive">{actionError}</p>}
         <div className="flex flex-wrap gap-3">
-          <Button disabled={!canComplete || isCompleting} onClick={() => onComplete(actualQuantity)}>
+          <Button
+            disabled={!canComplete || isCompleting}
+            onClick={() =>
+              onComplete(
+                actualQuantity,
+                ingredients.map((ingredient) => ({
+                  ingredientId: ingredient.id,
+                  actualConsumedQuantity:
+                    actualsById[ingredient.id] ?? ingredient.pickedQuantity,
+                }))
+              )
+            }
+          >
             {isCompleting ? "Completing..." : isBatchMode ? "Complete Batch" : "Complete Order"}
           </Button>
           {!canComplete && (
@@ -163,13 +235,19 @@ export function ManufacturingExecution({
   });
 
   const completeOrderMutation = useMutation({
-    mutationFn: async (value: string) => {
+    mutationFn: async (input: {
+      actualQuantity: string;
+      ingredientActuals: IngredientActualInput[];
+    }) => {
       const response = await fetch(`/api/manufacturing-orders/${execution.id}/complete`, {
         method: "POST",
         headers: createIdempotencyHeaders("manufacturing-complete", {
           "Content-Type": "application/json",
         }),
-        body: JSON.stringify({ actualQuantity: value }),
+        body: JSON.stringify({
+          actualQuantity: input.actualQuantity,
+          ingredientActuals: input.ingredientActuals,
+        }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -186,7 +264,10 @@ export function ManufacturingExecution({
   });
 
   const completeBatchMutation = useMutation({
-    mutationFn: async (value: string) => {
+    mutationFn: async (input: {
+      actualQuantity: string;
+      ingredientActuals: IngredientActualInput[];
+    }) => {
       if (!execution.currentBatchId) {
         throw new Error("No active batch is ready to complete.");
       }
@@ -198,7 +279,10 @@ export function ManufacturingExecution({
           headers: createIdempotencyHeaders("manufacturing-batch-complete", {
             "Content-Type": "application/json",
           }),
-          body: JSON.stringify({ actualQuantity: value }),
+          body: JSON.stringify({
+            actualQuantity: input.actualQuantity,
+            ingredientActuals: input.ingredientActuals,
+          }),
         }
       );
       const body = await response.json().catch(() => null);
@@ -405,13 +489,27 @@ export function ManufacturingExecution({
           canComplete={execution.canComplete}
           isCompleting={isCompleting}
           actionError={actionError}
-          onComplete={(value) => {
+          ingredients={execution.ingredients.map((ingredient) => ({
+            id: ingredient.id,
+            itemName: ingredient.itemName,
+            itemSku: ingredient.itemSku,
+            unitName: ingredient.unitName,
+            plannedQuantity: ingredient.plannedQuantity,
+            pickedQuantity: ingredient.pickedQuantity,
+          }))}
+          onComplete={(value, ingredientActuals) => {
             if (execution.manufacturingMode === "batch") {
-              completeBatchMutation.mutate(value);
+              completeBatchMutation.mutate({
+                actualQuantity: value,
+                ingredientActuals,
+              });
               return;
             }
 
-            completeOrderMutation.mutate(value);
+            completeOrderMutation.mutate({
+              actualQuantity: value,
+              ingredientActuals,
+            });
           }}
         />
       </div>

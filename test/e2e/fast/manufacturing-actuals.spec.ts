@@ -1,0 +1,250 @@
+import { and, eq, sql } from "drizzle-orm";
+import { test, expect } from "../fixtures";
+import {
+  inventoryEvents,
+  inventoryItemBalances,
+  inventoryLotBalances,
+  manufacturingOrderBatches,
+  manufacturingOrderIngredients,
+  manufacturingOrders,
+  manufacturingPickAllocations,
+} from "../../../lib/db/schema";
+import { createItem, getUnitId, testFetch } from "../../helpers/api";
+
+test.describe("Manufacturing batch ingredient actuals", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("captures over- and under-consumption variance at batch completion", async ({
+    db,
+  }) => {
+    test.slow();
+
+    const ts = Date.now();
+    const unitId = getUnitId();
+    const soilName = `Actuals Soil ${ts}`;
+    const productName = `Actuals Bag ${ts}`;
+
+    const soilCreate = await createItem({
+      name: soilName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `ACTUALS-SOIL-${ts}`,
+      category: `Actuals ${ts}`,
+      description: "Soil tote for actuals test",
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "200",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(soilCreate.status).toBe(201);
+    const soilId = soilCreate.body.id as string;
+
+    const productCreate = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `ACTUALS-PRODUCT-${ts}`,
+      category: `Actuals ${ts}`,
+      description: "Bulk bag product for actuals test",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "50.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "50",
+      bom: [{ componentId: soilId, quantity: "1" }],
+    });
+    expect(productCreate.status).toBe(201);
+    const productId = productCreate.body.id as string;
+
+    const createResponse = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        productId,
+        plannedQuantity: "100",
+        plannedDate: null,
+        notes: "Actuals smoke test",
+        ingredients: [{ itemId: soilId, quantityPerUnit: "1" }],
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const orderId = (await createResponse.json()).id as string;
+
+    const releaseResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/release`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmShortage: false }),
+      }
+    );
+    expect(releaseResponse.status).toBe(200);
+
+    const batches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId));
+    expect(batches).toHaveLength(2);
+    const sortedBatches = [...batches].sort(
+      (left, right) => left.batchNumber - right.batchNumber
+    );
+    const [batchOne, batchTwo] = sortedBatches;
+
+    const getBatchIngredient = async (batchId: string) => {
+      const [ingredient] = await db
+        .select()
+        .from(manufacturingOrderIngredients)
+        .where(
+          and(
+            eq(manufacturingOrderIngredients.manufacturingOrderId, orderId),
+            eq(manufacturingOrderIngredients.manufacturingOrderBatchId, batchId)
+          )
+        );
+      expect(ingredient).toBeDefined();
+      return ingredient!;
+    };
+
+    // Batch 1: under-consume — plan 50, pick 50, actual 48
+    const batchOneIngredient = await getBatchIngredient(batchOne.id);
+
+    const startOneResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batchOne.id}/start`,
+      { method: "POST" }
+    );
+    expect(startOneResponse.status).toBe(200);
+
+    const pickOneResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${batchOneIngredient.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickOneResponse.status).toBe(200);
+
+    const completeOneResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batchOne.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actualQuantity: "50",
+          ingredientActuals: [
+            { ingredientId: batchOneIngredient.id, actualConsumedQuantity: "48" },
+          ],
+        }),
+      }
+    );
+    expect(completeOneResponse.status).toBe(200);
+
+    const [reconciledOne] = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.id, batchOneIngredient.id));
+    expect(reconciledOne.actualQuantity).toBe("48.0000");
+
+    const varianceGainEvents = await db
+      .select()
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_batch"),
+          eq(inventoryEvents.referenceId, batchOne.id),
+          eq(inventoryEvents.eventType, "manufacturing_variance_gain")
+        )
+      );
+    expect(varianceGainEvents).toHaveLength(1);
+    expect(varianceGainEvents[0].quantity).toBe("2.0000");
+    expect(varianceGainEvents[0].itemId).toBe(soilId);
+
+    // Batch 2: over-consume — plan 50, pick 50, actual 52
+    const batchTwoIngredient = await getBatchIngredient(batchTwo.id);
+
+    const startTwoResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batchTwo.id}/start`,
+      { method: "POST" }
+    );
+    expect(startTwoResponse.status).toBe(200);
+
+    const pickTwoResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${batchTwoIngredient.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickTwoResponse.status).toBe(200);
+
+    const completeTwoResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batchTwo.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actualQuantity: "50",
+          ingredientActuals: [
+            { ingredientId: batchTwoIngredient.id, actualConsumedQuantity: "52" },
+          ],
+        }),
+      }
+    );
+    expect(completeTwoResponse.status).toBe(200);
+
+    const [reconciledTwo] = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.id, batchTwoIngredient.id));
+    expect(reconciledTwo.actualQuantity).toBe("52.0000");
+
+    const varianceLossEvents = await db
+      .select()
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_batch"),
+          eq(inventoryEvents.referenceId, batchTwo.id),
+          eq(inventoryEvents.eventType, "manufacturing_variance_loss")
+        )
+      );
+    expect(varianceLossEvents).toHaveLength(1);
+    expect(varianceLossEvents[0].quantity).toBe("2.0000");
+    expect(varianceLossEvents[0].itemId).toBe(soilId);
+
+    const [completedOrder] = await db
+      .select({
+        status: manufacturingOrders.status,
+        actualQuantity: manufacturingOrders.actualQuantity,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(completedOrder.status).toBe("completed");
+    expect(completedOrder.actualQuantity).toBe("100.0000");
+
+    const [remainingSoil] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, soilId));
+    // Started with 200 totes, total net consumption = 48 + 52 = 100
+    expect(parseFloat(remainingSoil.onHandQty)).toBeCloseTo(100, 4);
+
+    const allocations = await db
+      .select({
+        totalUsed: sql<string>`COALESCE(SUM(${manufacturingPickAllocations.quantityUsed}), 0)`,
+      })
+      .from(manufacturingPickAllocations)
+      .innerJoin(
+        manufacturingOrderIngredients,
+        eq(
+          manufacturingPickAllocations.manufacturingOrderIngredientId,
+          manufacturingOrderIngredients.id
+        )
+      )
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    // Net across both batches: 48 + 52 = 100 totes still allocated
+    expect(parseFloat(allocations[0].totalUsed)).toBeCloseTo(100, 4);
+
+    const soilLotBalances = await db
+      .select({ quantity: inventoryLotBalances.quantity })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, soilId));
+    const lotTotal = soilLotBalances.reduce(
+      (sum, row) => sum + parseFloat(row.quantity),
+      0
+    );
+    expect(lotTotal).toBeCloseTo(100, 4);
+  });
+});

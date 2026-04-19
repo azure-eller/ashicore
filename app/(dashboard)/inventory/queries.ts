@@ -1265,6 +1265,7 @@ export async function getStockMovements(itemId: string) {
           WHEN ${inventoryEvents.eventType} = 'manufacturing_output' THEN 'manufacturing_produced'
           WHEN ${inventoryEvents.eventType} = 'sales_consumption' THEN 'sales_shipped'
           WHEN ${inventoryEvents.eventType} = 'manufacturing_ingredient_consumption' THEN 'manufacturing_picked'
+          WHEN ${inventoryEvents.eventType} IN ('manufacturing_variance_loss', 'manufacturing_variance_gain') THEN 'manufacturing_variance'
           WHEN ${inventoryEvents.eventType} IN ('stocktake_gain', 'stocktake_loss', 'stocktake_verification') THEN 'stocktake_adjustment'
           ELSE 'manual_adjustment'
         END`.as("movementType"),
@@ -1293,10 +1294,12 @@ export async function getStockMovements(itemId: string) {
             "manufacturing_output",
             "manual_adjustment_increase",
             "stocktake_gain",
+            "manufacturing_variance_gain",
             "manual_adjustment_decrease",
             "stocktake_loss",
             "sales_consumption",
             "manufacturing_ingredient_consumption",
+            "manufacturing_variance_loss",
             "unpick_restock",
             "stocktake_verification",
           ])

@@ -167,8 +167,21 @@ export type ReleaseManufacturingOrder = z.infer<
   typeof releaseManufacturingOrderSchema
 >;
 
+const ingredientActualSchema = z.object({
+  ingredientId: z.string().min(1, "Ingredient is required"),
+  actualConsumedQuantity: z
+    .string()
+    .trim()
+    .min(1, "Actual consumed is required")
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 0;
+    }, "Actual consumed must be zero or greater"),
+});
+
 export const completeManufacturingOrderSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity"),
+  ingredientActuals: z.array(ingredientActualSchema).default([]),
 });
 export type CompleteManufacturingOrder = z.infer<
   typeof completeManufacturingOrderSchema
@@ -176,6 +189,7 @@ export type CompleteManufacturingOrder = z.infer<
 
 export const completeManufacturingBatchSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity"),
+  ingredientActuals: z.array(ingredientActualSchema).default([]),
 });
 export type CompleteManufacturingBatch = z.infer<
   typeof completeManufacturingBatchSchema

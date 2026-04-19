@@ -147,6 +147,7 @@ const MOVEMENT_TYPE_LABELS: Record<string, string> = {
   manufacturing_picked: "MO picked",
   manufacturing_consumed: "MO consumed",
   manufacturing_produced: "MO produced",
+  manufacturing_variance: "MO variance",
   sales_shipped: "Sale",
   stocktake_adjustment: "Stocktake",
 };
