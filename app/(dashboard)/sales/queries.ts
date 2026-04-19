@@ -1957,22 +1957,28 @@ export async function getSalesOrder(
         potential: trimScaleNullable(
           sql<string | null>`(
             CASE WHEN ${items.itemType} = 'product' AND EXISTS (
-              SELECT 1 FROM inventory.bom_components WHERE item_id = ${items.id}
+              SELECT 1
+              FROM inventory.bom_revisions br
+              INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
+              WHERE br.product_id = ${items.id}
+                AND br.is_current = true
             ) THEN
               FLOOR(
                 (
                   SELECT MIN(
                     (
-                      ${projectedOnHandQtyExpr(items.organizationId, sql`bc.component_id`)}
+                      ${projectedOnHandQtyExpr(items.organizationId, sql`brc.component_id`)}
                       - ${projectedCommittedQtyExpr(
                         items.organizationId,
-                        sql`bc.component_id`
+                        sql`brc.component_id`
                       )}
                     )
-                    / NULLIF(bc.quantity, 0)
+                    / NULLIF(brc.quantity, 0)
                   )
-                  FROM inventory.bom_components bc
-                  WHERE bc.item_id = ${items.id}
+                  FROM inventory.bom_revisions br
+                  INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
+                  WHERE br.product_id = ${items.id}
+                    AND br.is_current = true
                 )
                 * CASE WHEN ${items.manufacturingMode} = 'batch' AND ${items.expectedBatchYield} IS NOT NULL
                     THEN ${items.expectedBatchYield}::numeric

@@ -295,6 +295,13 @@
       "when": 1776535884832,
       "tag": "0041_append_only_inventory_events",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1776568187102,
+      "tag": "0042_tense_trish_tilby",
+      "breakpoints": true
     }
   ]
 }
