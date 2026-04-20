@@ -2,6 +2,9 @@ import type { NeonDatabase } from "drizzle-orm/neon-serverless";
 import { recordDbConnect, recordDbQuery } from "@/lib/observability/request-timing";
 import * as schema from "./schema";
 
+const dbModuleInitStartedAt = performance.now();
+const dbModuleLoadedAt = Date.now();
+
 // App role (RLS enforced, no DDL). Falls back to DATABASE_URL for migration scripts.
 const connectionString =
   process.env.DATABASE_URL_APP || process.env.DATABASE_URL;
@@ -103,3 +106,5 @@ function createDb(): NeonDatabase<typeof schema> {
 }
 
 export const db = createDb();
+export const dbModuleInitMs = performance.now() - dbModuleInitStartedAt;
+export const dbModuleAgeMs = () => Date.now() - dbModuleLoadedAt;

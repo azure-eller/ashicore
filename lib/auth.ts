@@ -15,6 +15,9 @@ import * as schema from "@/lib/db/schema";
 import { sendAccountEmailVerificationEmail, sendPasswordResetEmail } from "@/lib/email/auth-emails";
 import { sendTeamInvitationEmail } from "@/lib/email/team-invites";
 
+const authModuleInitStartedAt = performance.now();
+const authModuleLoadedAt = Date.now();
+
 const authFallbackUrl = getCanonicalAppUrl();
 
 const authAllowedHosts = (() => {
@@ -201,3 +204,6 @@ export const auth = betterAuth({
     nextCookies(),
   ],
 });
+
+export const authModuleInitMs = performance.now() - authModuleInitStartedAt;
+export const authModuleAgeMs = () => Date.now() - authModuleLoadedAt;
