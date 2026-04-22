@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -59,20 +59,7 @@ function CompletionCard({
   onComplete: (value: string, ingredientActuals: IngredientActualInput[]) => void;
 }) {
   const [actualQuantity, setActualQuantity] = useState(defaultActualQuantity);
-  const [actualsById, setActualsById] = useState<Record<string, string>>(() =>
-    Object.fromEntries(ingredients.map((ingredient) => [ingredient.id, ingredient.pickedQuantity]))
-  );
-  const ingredientActualDefaults = JSON.stringify(
-    ingredients.map((ingredient) => [ingredient.id, ingredient.pickedQuantity])
-  );
-
-  useEffect(() => {
-    setActualsById(
-      Object.fromEntries(
-        JSON.parse(ingredientActualDefaults) as Array<[string, string]>
-      )
-    );
-  }, [ingredientActualDefaults]);
+  const [actualsById, setActualsById] = useState<Record<string, string>>({});
 
   return (
     <Card>
