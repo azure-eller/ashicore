@@ -1964,7 +1964,9 @@ export async function getSalesOrder(
               WHERE br.product_id = ${items.id}
                 AND br.is_current = true
             ) THEN
-              FLOOR(
+              GREATEST(
+                0,
+                FLOOR(
                 (
                   SELECT MIN(
                     (
@@ -1985,6 +1987,7 @@ export async function getSalesOrder(
                     THEN ${items.expectedBatchYield}::numeric
                     ELSE 1
                   END
+                )
               )
             ELSE NULL END
           )`

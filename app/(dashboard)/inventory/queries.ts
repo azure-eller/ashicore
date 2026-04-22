@@ -84,7 +84,9 @@ const potentialSubquery = sql<string | null>`(
     WHERE br.product_id = ${items.id}
       AND br.is_current = true
   ) THEN
-    FLOOR(
+    GREATEST(
+      0,
+      FLOOR(
       (
         SELECT MIN(
           (
@@ -102,6 +104,7 @@ const potentialSubquery = sql<string | null>`(
           THEN ${items.expectedBatchYield}
           ELSE 1
         END
+      )
     )
   ELSE NULL END
 )`.as("potential");

@@ -22,7 +22,7 @@ import type { SalesOrderDetail } from "./types";
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 
 function StockCell({ value, threshold }: { value: string | null; threshold: number }) {
-  if (value === null) return <span className="text-muted-foreground">\u2014</span>;
+  if (value === null) return <span className="text-muted-foreground">{"\u2014"}</span>;
   const qty = parseFloat(value);
   const isLow = qty < threshold;
   return (
