@@ -10,6 +10,7 @@ import {
 } from "../../../lib/db/schema";
 import {
   createItem,
+  createUnit,
   deleteItem,
   getUnitId,
   testFetch,
@@ -870,5 +871,131 @@ test.describe("Stocktake flow", () => {
     expect(productLots).toHaveLength(1);
     expect(productLots[0].quantity).toBe("1.0000");
     expect(productLots[0].costPerUnit).toBe("5.000000");
+  });
+
+  test("creates material opening stock using stock-unit cost when purchase units are configured", async ({
+    db,
+  }) => {
+    const gallonUnit = await createUnit({
+      name: `Stocktake Gallon ${ts}`,
+      size: "1",
+      uom: "gal",
+    });
+    expect(gallonUnit.status).toBe(201);
+
+    const purchaseUnit = await createUnit({
+      name: `Stocktake 325 Gallon Tote ${ts}`,
+      size: "325",
+      uom: "gal",
+    });
+    expect(purchaseUnit.status).toBe(201);
+
+    const materialCreate = await createItem({
+      name: `Stocktake Converted Cost ${ts}`,
+      itemType: "material",
+      unitDefinitionId: gallonUnit.body.id,
+      purchaseUnitDefinitionId: purchaseUnit.body.id,
+      purchaseToStockFactor: "325",
+      sku: `STK-CONV-${ts}`,
+      category: materialCategory,
+      description: "Material with purchase-unit conversion",
+      defaultPurchasePrice: "250",
+      defaultSellingPrice: null,
+      stock: "325",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(materialCreate.status).toBe(201);
+    const convertedMaterialId = materialCreate.body.id as string;
+
+    const [lot] = await db
+      .select({
+        quantity: lots.quantity,
+        costPerUnit: inventoryLotBalances.unitCost,
+      })
+      .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
+      .where(eq(lots.itemId, convertedMaterialId));
+
+    expect(lot.quantity).toBe("325.0000");
+    expect(lot.costPerUnit).toBe("0.769231");
+
+    const [event] = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        unitCost: inventoryEvents.unitCost,
+      })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.itemId, convertedMaterialId))
+      .orderBy(asc(inventoryEvents.occurredAt), asc(inventoryEvents.id));
+
+    expect(event.eventType).toBe("manual_adjustment_increase");
+    expect(event.unitCost).toBe("0.769231");
+  });
+
+  test("creates product opening stock using BOM-derived converted material cost", async ({
+    db,
+  }) => {
+    const gallonUnit = await createUnit({
+      name: `Stocktake Product Gallon ${ts}`,
+      size: "1",
+      uom: "gal",
+    });
+    expect(gallonUnit.status).toBe(201);
+
+    const purchaseUnit = await createUnit({
+      name: `Stocktake Product 325 Gallon Tote ${ts}`,
+      size: "325",
+      uom: "gal",
+    });
+    expect(purchaseUnit.status).toBe(201);
+
+    const materialCreate = await createItem({
+      name: `Stocktake BOM Converted Material ${ts}`,
+      itemType: "material",
+      unitDefinitionId: gallonUnit.body.id,
+      purchaseUnitDefinitionId: purchaseUnit.body.id,
+      purchaseToStockFactor: "325",
+      sku: `STK-BOM-CONV-MAT-${ts}`,
+      category: materialCategory,
+      description: "Converted-cost BOM material",
+      defaultPurchasePrice: "250",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    expect(materialCreate.status).toBe(201);
+
+    const productCreate = await createItem({
+      name: `Stocktake BOM Converted Product ${ts}`,
+      itemType: "product",
+      unitDefinitionId: gallonUnit.body.id,
+      sku: `STK-BOM-CONV-PROD-${ts}`,
+      category: productCategory,
+      description: "Product opening stock costed from converted BOM ingredient",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "18.00",
+      stock: "1",
+      safetyStock: "0",
+      bom: [{ componentId: materialCreate.body.id, quantity: "10" }],
+    });
+
+    expect(productCreate.status).toBe(201);
+    const convertedProductId = productCreate.body.id as string;
+
+    const [lot] = await db
+      .select({
+        quantity: lots.quantity,
+        costPerUnit: inventoryLotBalances.unitCost,
+      })
+      .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
+      .where(eq(lots.itemId, convertedProductId));
+
+    expect(lot.quantity).toBe("1.0000");
+    expect(lot.costPerUnit).toBe("7.692310");
   });
 });

@@ -372,11 +372,14 @@ buildStocktakeCategoryScope("material", "Soil")
 
 ### Positive stock additions need cost
 
-Any positive stock write that creates a lot must resolve a non-null `costPerUnit`. Materials use `defaultPurchasePrice`. Products derive cost from active BOM ingredients. If no cost basis exists, fail instead of creating a null-cost lot.
+Any positive stock write that creates a lot must resolve a non-null `costPerUnit`. Materials convert `defaultPurchasePrice` from purchase-unit price to stock-unit cost using `purchaseToStockFactor`. Products derive cost from active BOM ingredients. If no cost basis exists, fail instead of creating a null-cost lot.
 
 ```ts
 if (item.itemType === "material") {
-  return item.defaultPurchasePrice
+  return resolveStockUnitCostFromDefaultPurchasePrice({
+    defaultPurchasePrice: item.defaultPurchasePrice,
+    purchaseToStockFactor: item.purchaseToStockFactor,
+  })
 }
 
 return deriveBomIngredientCost(...)

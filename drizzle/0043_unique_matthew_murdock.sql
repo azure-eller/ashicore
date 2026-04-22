@@ -1,0 +1,1 @@
+ALTER TABLE "manufacturing"."manufacturing_pick_allocations" ALTER COLUMN "cost_per_unit" SET DATA TYPE numeric(18, 6);

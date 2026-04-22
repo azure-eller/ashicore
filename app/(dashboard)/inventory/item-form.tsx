@@ -789,6 +789,11 @@ export function ItemForm({
                           inputMode="decimal"
                           autoComplete="off"
                         />
+                        <FieldDescription>
+                          {purchaseUnit
+                            ? `Price per ${purchaseUnit.name}. Inventory cost converts this to ${stockingUnit?.name ?? "stock"} cost automatically.`
+                            : `Price per ${stockingUnit?.name ?? "stock"} unit.`}
+                        </FieldDescription>
                         {fieldState.invalid && (
                           <FieldError errors={[fieldState.error]} />
                         )}

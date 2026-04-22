@@ -7,12 +7,14 @@ import {
   inventoryLotBalances,
   lots,
   manufacturingOrderIngredients,
+  manufacturingPickAllocations,
   manufacturingOrders,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
 import {
   createItem,
+  createUnit,
   deleteItem,
   getUnitId,
   testFetch,
@@ -1475,5 +1477,109 @@ test.describe("Manufacturing order flow", () => {
     expect(deleteProductResult.body?.error).toContain(
       "draft or released manufacturing orders"
     );
+  });
+
+  test("preserves six-decimal converted ingredient cost through pick and completion", async ({
+    db,
+  }) => {
+    const gallonUnit = await createUnit({
+      name: `Manufacturing Gallon ${ts}`,
+      size: "1",
+      uom: "gal",
+    });
+    expect(gallonUnit.status).toBe(201);
+
+    const purchaseUnit = await createUnit({
+      name: `Manufacturing 325 Gallon Tote ${ts}`,
+      size: "325",
+      uom: "gal",
+    });
+    expect(purchaseUnit.status).toBe(201);
+
+    const materialCreate = await createItem({
+      name: `Manufacturing Converted Castings ${ts}`,
+      itemType: "material",
+      unitDefinitionId: gallonUnit.body.id,
+      purchaseUnitDefinitionId: purchaseUnit.body.id,
+      purchaseToStockFactor: "325",
+      sku: `MFG-CONV-MAT-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Converted-cost ingredient",
+      defaultPurchasePrice: "250",
+      defaultSellingPrice: null,
+      stock: "325",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialCreate.status).toBe(201);
+    const convertedMaterialId = materialCreate.body.id as string;
+
+    const productCreate = await createItem({
+      name: `Manufacturing Converted Blend ${ts}`,
+      itemType: "product",
+      unitDefinitionId: gallonUnit.body.id,
+      sku: `MFG-CONV-PROD-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Finished good costed from converted ingredient",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: convertedMaterialId, quantity: "10" }],
+    });
+    expect(productCreate.status).toBe(201);
+    const convertedProductId = productCreate.body.id as string;
+
+    const orderId = await createManufacturingOrder({
+      productId: convertedProductId,
+      plannedQuantity: "1",
+      notes: "Precision cost carry-through",
+      ingredients: [{ itemId: convertedMaterialId, quantityPerUnit: "10" }],
+    });
+
+    await releaseManufacturingOrder(orderId);
+    await pickAllManufacturingIngredients(orderId);
+
+    const ingredientRows = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+
+    expect(ingredientRows).toHaveLength(1);
+
+    const allocations = await db
+      .select({
+        quantityUsed: manufacturingPickAllocations.quantityUsed,
+        costPerUnit: manufacturingPickAllocations.costPerUnit,
+      })
+      .from(manufacturingPickAllocations)
+      .where(
+        eq(
+          manufacturingPickAllocations.manufacturingOrderIngredientId,
+          ingredientRows[0].id
+        )
+      );
+
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].quantityUsed).toBe("10.0000");
+    expect(allocations[0].costPerUnit).toBe("0.769231");
+
+    const completion = await completeManufacturingOrder(orderId, "1");
+    expect(completion.status).toBe(200);
+
+    const producedLots = await db
+      .select({
+        quantity: lots.quantity,
+        costPerUnit: inventoryLotBalances.unitCost,
+      })
+      .from(lots)
+      .innerJoin(inventoryLotBalances, eq(inventoryLotBalances.lotId, lots.id))
+      .where(eq(lots.itemId, convertedProductId));
+
+    expect(producedLots).toHaveLength(1);
+    expect(producedLots[0].quantity).toBe("1.0000");
+    expect(producedLots[0].costPerUnit).toBe("7.692310");
   });
 });

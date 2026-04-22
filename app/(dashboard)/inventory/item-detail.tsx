@@ -387,7 +387,14 @@ export function ItemDetail({
         {!isMaster && itemType === "material" && (
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Purchase Price</dt>
-            <dd className="mt-1 text-sm">{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</dd>
+            <dd className="mt-1 text-sm">
+              <span>{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</span>
+              <span className="block text-xs text-muted-foreground">
+                {item.purchaseUnitName
+                  ? `Per ${item.purchaseUnitName}`
+                  : `Per ${item.unitName ?? "stock"} unit`}
+              </span>
+            </dd>
           </div>
         )}
         {!isMaster && (

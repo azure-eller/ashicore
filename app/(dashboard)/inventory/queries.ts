@@ -1331,6 +1331,10 @@ export async function updateItem(
     const [existingItem] = await tx
       .select({
         id: items.id,
+        purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
+        purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
+          "purchaseToStockFactor"
+        ),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
@@ -1418,6 +1422,36 @@ export async function updateItem(
           ),
         });
       }
+    }
+
+    if (
+      (itemData.purchaseUnitDefinitionId !== undefined &&
+        itemData.purchaseUnitDefinitionId !== existingItem.purchaseUnitDefinitionId) ||
+      (itemData.purchaseToStockFactor !== undefined &&
+        itemData.purchaseToStockFactor !== existingItem.purchaseToStockFactor)
+    ) {
+      await recordCostBasisChangeInTx(tx, {
+        organizationId: orgId,
+        itemId: id,
+        actorUserId: userId,
+        eventSubtype: "purchase_unit_config",
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "purchase-unit-config"
+        ),
+        metadata: {
+          before: {
+            purchaseUnitDefinitionId: existingItem.purchaseUnitDefinitionId,
+            purchaseToStockFactor: existingItem.purchaseToStockFactor,
+          },
+          after: {
+            purchaseUnitDefinitionId:
+              itemData.purchaseUnitDefinitionId ?? existingItem.purchaseUnitDefinitionId,
+            purchaseToStockFactor:
+              itemData.purchaseToStockFactor ?? existingItem.purchaseToStockFactor,
+          },
+        },
+      });
     }
 
     if (

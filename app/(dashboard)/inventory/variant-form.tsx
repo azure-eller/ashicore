@@ -319,6 +319,10 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                         placeholder="0.00"
                         inputMode="decimal"
                       />
+                      <FieldDescription>
+                        Purchase-unit price. Inventory cost converts this to stock-unit cost
+                        automatically.
+                      </FieldDescription>
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}
