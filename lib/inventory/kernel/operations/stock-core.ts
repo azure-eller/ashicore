@@ -22,6 +22,7 @@ import {
   InsufficientStockError,
   MissingCostBasisError,
 } from "@/lib/inventory/kernel/errors";
+import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
 
 type PositiveStockEventType =
   | "opening_balance"
@@ -90,6 +91,7 @@ export async function resolvePositiveStockUnitCostInTx(
         name: items.name,
         itemType: items.itemType,
         defaultPurchasePrice: items.defaultPurchasePrice,
+        purchaseToStockFactor: items.purchaseToStockFactor,
       })
       .from(items)
       .where(eq(items.id, currentItemId));
@@ -103,8 +105,21 @@ export async function resolvePositiveStockUnitCostInTx(
     }
 
     if (item.itemType === "material") {
+      const stockUnitCost = resolveStockUnitCostFromDefaultPurchasePrice({
+        defaultPurchasePrice: item.defaultPurchasePrice,
+        purchaseToStockFactor: item.purchaseToStockFactor,
+      });
+
+      if (stockUnitCost != null) {
+        return stockUnitCost;
+      }
+
       if (item.defaultPurchasePrice != null) {
-        return normalizeNumericScale(parseFloat(item.defaultPurchasePrice), 6);
+        throw new MissingCostBasisError(
+          currentItemId,
+          "material_default_price",
+          `Cannot resolve cost for ${item.name} because its purchase conversion is invalid.`
+        );
       }
 
       throw new MissingCostBasisError(

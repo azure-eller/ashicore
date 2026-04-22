@@ -196,7 +196,12 @@ export async function recordCostBasisChangeInTx(
     organizationId: string;
     itemId: string;
     actorUserId?: string | null;
-    eventSubtype: "default_purchase_price" | "bom_locked" | "bom_unlocked" | "bom_edited";
+    eventSubtype:
+      | "default_purchase_price"
+      | "purchase_unit_config"
+      | "bom_locked"
+      | "bom_unlocked"
+      | "bom_edited";
     metadata: Record<string, unknown>;
     idempotencyKey?: string | null;
   }

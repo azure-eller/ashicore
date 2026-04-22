@@ -217,7 +217,7 @@ export const manufacturingPickAllocations = manufacturingSchema
         .notNull()
         .references(() => lots.id),
       quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
-      costPerUnit: numeric("cost_per_unit", { precision: 12, scale: 4 }),
+      costPerUnit: numeric("cost_per_unit", { precision: 18, scale: 6 }),
       createdBy: text("created_by").notNull(),
       createdAt: timestamp("created_at").notNull().defaultNow(),
     },

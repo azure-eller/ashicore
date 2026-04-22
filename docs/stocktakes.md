@@ -91,7 +91,7 @@ Stocktake completion reuses the inventory kernel:
 - negative variance writes `stocktake_loss` per consumed lot
 - zero variance writes `stocktake_verification` so the ledger can answer "when was this item last physically verified?"
 - positive deltas must resolve to a non-null `costPerUnit`
-  - materials use the item's current `defaultPurchasePrice`
+  - materials convert the item's current `defaultPurchasePrice` from purchase-unit price into stock-unit cost using `purchaseToStockFactor`
   - products derive cost from active BOM ingredients
   - if there is no cost basis, fail completion instead of creating a null-cost lot
 

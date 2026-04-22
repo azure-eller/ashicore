@@ -316,7 +316,7 @@ export async function pickManufacturingIngredientInTx(
       manufacturingOrderIngredientId: params.ingredientId,
       lotId: allocation.lotId,
       quantityUsed: normalizeNumericScale(allocation.quantity, 4),
-      costPerUnit: normalizeNumericScale(allocation.unitCost, 4),
+      costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
       createdBy: params.actorUserId ?? "system",
     }))
   );

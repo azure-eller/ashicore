@@ -27,6 +27,23 @@ Purchasing v1 does not include:
 - receiving locations
 - supplier lot numbers or expiry dates
 
+## Purchase Units And Inventory Cost
+
+- `defaultPurchasePrice` is the price of one purchase unit, not one stock unit
+- `purchaseToStockFactor` means "stock units per 1 purchase unit"
+- PO lines store both:
+  - `unitCost` = purchase-unit price
+  - `stockUnitCost` = converted stock-unit cost
+- inventory lots, ledger `unit_cost`, BOM ingredient rollups, stocktake gains, and manual increases always use stock-unit cost
+
+Example:
+
+- purchase unit = `325 Gallon Tote`
+- stock unit = `Gallon`
+- `defaultPurchasePrice = 250`
+- `purchaseToStockFactor = 325`
+- stock-unit cost = `250 / 325 = 0.769231`
+
 ## Status Rules
 
 - `draft` orders are editable
