@@ -690,8 +690,30 @@ export async function reconcileIngredientActualsInTx(
     idempotencyKey?: string | null;
   }
 ): Promise<{ newTotalQuantity: number; newTotalCost: number }> {
+  const replay = await beginInventoryOperationInTx<{
+    newTotalQuantity: number;
+    newTotalCost: number;
+  }>(tx, {
+    organizationId: params.organizationId,
+    operationName: "reconcileIngredientActuals",
+    idempotencyKey: params.idempotencyKey ?? null,
+    payload: {
+      ingredientId: params.ingredient.id,
+      itemId: params.ingredient.itemId,
+      pickedQuantity: params.ingredient.pickedQuantity,
+      actualConsumedQuantity: params.actualConsumedQuantity,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+    },
+  });
+
+  if (replay.replayed) {
+    return replay.result;
+  }
+
   const delta = params.actualConsumedQuantity - params.ingredient.pickedQuantity;
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  let firstEventId: string | null = null;
 
   if (delta > VARIANCE_EPSILON) {
     const consumed = await consumeStockFifoInTx(tx, {
@@ -707,6 +729,7 @@ export async function reconcileIngredientActualsInTx(
       idempotencyKey: params.idempotencyKey ?? null,
       metadata: { manufacturingOrderIngredientId: params.ingredient.id },
     });
+    firstEventId = consumed.eventIds[0] ?? null;
 
     if (consumed.allocations.length > 0) {
       await tx.insert(manufacturingPickAllocations).values(
@@ -739,7 +762,7 @@ export async function reconcileIngredientActualsInTx(
         desc(manufacturingPickAllocations.createdAt),
         desc(manufacturingPickAllocations.id)
       )
-      .for("update", { of: manufacturingPickAllocations });
+      .for("update");
 
     let restockIndex = 0;
     for (const allocation of allocations) {
@@ -747,7 +770,7 @@ export async function reconcileIngredientActualsInTx(
       const allocQty = parseFloat(allocation.quantityUsed);
       const returnQty = Math.min(allocQty, remaining);
 
-      await restockExistingLotInTx(tx, {
+      const restocked = await restockExistingLotInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,
         itemId: params.ingredient.itemId,
@@ -763,6 +786,9 @@ export async function reconcileIngredientActualsInTx(
           restockIndex === 0 ? params.idempotencyKey ?? null : null,
         metadata: { manufacturingOrderIngredientId: params.ingredient.id },
       });
+      if (firstEventId == null) {
+        firstEventId = restocked.eventId;
+      }
 
       const remainingOnAllocation = allocQty - returnQty;
       if (remainingOnAllocation <= VARIANCE_EPSILON) {
@@ -803,5 +829,14 @@ export async function reconcileIngredientActualsInTx(
     newTotalCost += q * c;
   }
 
-  return { newTotalQuantity, newTotalCost };
+  const result = { newTotalQuantity, newTotalCost };
+
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    firstEventId,
+    result,
+  });
+
+  return result;
 }

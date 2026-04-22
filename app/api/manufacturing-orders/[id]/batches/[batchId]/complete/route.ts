@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { completeManufacturingBatchSchema } from "@/lib/schemas/manufacturing-orders";
 import {
   completeManufacturingBatch,
@@ -23,6 +24,9 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();
+    if (error instanceof InsufficientStockError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     throw error;
   }
 });

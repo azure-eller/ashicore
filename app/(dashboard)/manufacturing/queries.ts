@@ -888,6 +888,9 @@ async function ensureBatchExecutionRowsInTx(
     .returning({
       id: manufacturingOrderBatches.id,
       batchNumber: manufacturingOrderBatches.batchNumber,
+      plannedQuantity: trimScale(manufacturingOrderBatches.plannedQuantity).as(
+        "plannedQuantity"
+      ),
     });
 
   await tx.insert(manufacturingOrderIngredients).values(
@@ -901,7 +904,9 @@ async function ensureBatchExecutionRowsInTx(
         itemType: ingredient.itemType,
         unitName: ingredient.unitName,
         quantityPerUnit: ingredient.quantityPerUnit,
-        plannedQuantity: ingredient.quantityPerUnit,
+        plannedQuantity: normalizeQuantityString(
+          parseFloat(ingredient.quantityPerUnit) * parseFloat(batch.plannedQuantity)
+        ),
         sortOrder: ingredient.sortOrder,
       }))
     )

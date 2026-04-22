@@ -247,4 +247,226 @@ test.describe("Manufacturing batch ingredient actuals", () => {
     );
     expect(lotTotal).toBeCloseTo(100, 4);
   });
+
+  test("returns 409 when discrete actuals exceed remaining stock", async ({
+    db,
+  }) => {
+    const ts = Date.now();
+    const unitId = getUnitId();
+    const soilName = `Actuals Discrete Soil ${ts}`;
+    const productName = `Actuals Discrete Product ${ts}`;
+
+    const soilCreate = await createItem({
+      name: soilName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `ACTUALS-DISCRETE-SOIL-${ts}`,
+      category: `Actuals Discrete ${ts}`,
+      description: "Soil for discrete actuals shortage",
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "51",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(soilCreate.status).toBe(201);
+    const soilId = soilCreate.body.id as string;
+
+    const productCreate = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `ACTUALS-DISCRETE-PRODUCT-${ts}`,
+      category: `Actuals Discrete ${ts}`,
+      description: "Discrete product for actuals shortage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "50.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      bom: [{ componentId: soilId, quantity: "1" }],
+    });
+    expect(productCreate.status).toBe(201);
+    const productId = productCreate.body.id as string;
+
+    const createResponse = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        productId,
+        plannedQuantity: "50",
+        plannedDate: null,
+        notes: "Discrete actuals shortage test",
+        ingredients: [{ itemId: soilId, quantityPerUnit: "1" }],
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const orderId = (await createResponse.json()).id as string;
+
+    const releaseResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/release`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmShortage: false }),
+      }
+    );
+    expect(releaseResponse.status).toBe(200);
+
+    const [ingredient] = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(ingredient).toBeDefined();
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient!.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const completeResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actualQuantity: "50",
+          ingredientActuals: [
+            { ingredientId: ingredient!.id, actualConsumedQuantity: "52" },
+          ],
+        }),
+      }
+    );
+    expect(completeResponse.status).toBe(409);
+    const completeBody = await completeResponse.json();
+    expect(completeBody).toMatchObject({
+      error: expect.stringContaining("Insufficient stock"),
+    });
+
+    const [order] = await db
+      .select({
+        status: manufacturingOrders.status,
+        actualQuantity: manufacturingOrders.actualQuantity,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(order.status).toBe("released");
+    expect(order.actualQuantity).toBeNull();
+  });
+
+  test("returns 409 when batch actuals exceed remaining stock", async ({
+    db,
+  }) => {
+    const ts = Date.now();
+    const unitId = getUnitId();
+    const soilName = `Actuals Batch Soil ${ts}`;
+    const productName = `Actuals Batch Product ${ts}`;
+
+    const soilCreate = await createItem({
+      name: soilName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `ACTUALS-BATCH-SOIL-${ts}`,
+      category: `Actuals Batch ${ts}`,
+      description: "Soil for batch actuals shortage",
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "51",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(soilCreate.status).toBe(201);
+    const soilId = soilCreate.body.id as string;
+
+    const productCreate = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `ACTUALS-BATCH-PRODUCT-${ts}`,
+      category: `Actuals Batch ${ts}`,
+      description: "Batch product for actuals shortage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "50.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "50",
+      bom: [{ componentId: soilId, quantity: "1" }],
+    });
+    expect(productCreate.status).toBe(201);
+    const productId = productCreate.body.id as string;
+
+    const createResponse = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        productId,
+        plannedQuantity: "50",
+        plannedDate: null,
+        notes: "Batch actuals shortage test",
+        ingredients: [{ itemId: soilId, quantityPerUnit: "1" }],
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const orderId = (await createResponse.json()).id as string;
+
+    const releaseResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/release`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmShortage: false }),
+      }
+    );
+    expect(releaseResponse.status).toBe(200);
+
+    const [batch] = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId));
+    expect(batch).toBeDefined();
+
+    const [ingredient] = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderBatchId, batch!.id));
+    expect(ingredient).toBeDefined();
+
+    const startResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batch!.id}/start`,
+      { method: "POST" }
+    );
+    expect(startResponse.status).toBe(200);
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient!.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const completeResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batch!.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actualQuantity: "50",
+          ingredientActuals: [
+            { ingredientId: ingredient!.id, actualConsumedQuantity: "52" },
+          ],
+        }),
+      }
+    );
+    expect(completeResponse.status).toBe(409);
+    const completeBody = await completeResponse.json();
+    expect(completeBody).toMatchObject({
+      error: expect.stringContaining("Insufficient stock"),
+    });
+
+    const [batchRow] = await db
+      .select({
+        status: manufacturingOrderBatches.status,
+        actualQuantity: manufacturingOrderBatches.actualQuantity,
+      })
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.id, batch!.id));
+    expect(batchRow.status).toBe("in_progress");
+    expect(batchRow.actualQuantity).toBeNull();
+  });
 });
