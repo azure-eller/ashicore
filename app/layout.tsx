@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { Inter } from "next/font/google";
-import { getOptionalSessionReadability } from "@/lib/dal/user-preferences";
+import { ReadabilityProvider } from "@/app/readability-provider";
 import { normalizeReadabilityOption } from "@/lib/schemas/account";
 import "./globals.css";
 
@@ -21,14 +21,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [cookieStore, persistedReadability] = await Promise.all([
-    cookies(),
-    getOptionalSessionReadability(),
-  ]);
-  const cookieReadability = normalizeReadabilityOption(
-    cookieStore.get("readability")?.value
-  );
-  const readability = persistedReadability ?? cookieReadability;
+  const cookieStore = await cookies();
+  const readability = normalizeReadabilityOption(cookieStore.get("readability")?.value);
   const readabilityAttr = readability === "default" ? undefined : readability;
 
   return (
@@ -39,7 +33,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="antialiased">
-        {children}
+        <ReadabilityProvider initial={readability}>{children}</ReadabilityProvider>
       </body>
     </html>
   );

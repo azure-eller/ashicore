@@ -1,9 +1,8 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { Providers } from "@/app/providers";
-import { ReadabilityProvider } from "@/app/readability-provider";
+import { ReadabilityPreferenceBootstrap } from "./readability-preference-bootstrap";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { canWriteModule } from "@/lib/authz";
-import { getUserReadability } from "./settings/queries";
 import {
   SidebarInset,
   SidebarProvider,
@@ -14,10 +13,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [context, readability] = await Promise.all([
-    getAuthedMemberContext(),
-    getUserReadability(),
-  ]);
+  const context = await getAuthedMemberContext();
   const user = {
     name: context.name,
     email: context.email,
@@ -27,17 +23,16 @@ export default async function DashboardLayout({
 
   return (
     <Providers>
-      <ReadabilityProvider initial={readability}>
-        <SidebarProvider>
-          <AppSidebar
-            user={user}
-            assignedRoles={context.assignedRoles}
-            organizationName={context.organizationName}
-            agentEnabled={agentEnabled}
-          />
-          <SidebarInset>{children}</SidebarInset>
-        </SidebarProvider>
-      </ReadabilityProvider>
+      <ReadabilityPreferenceBootstrap />
+      <SidebarProvider>
+        <AppSidebar
+          user={user}
+          assignedRoles={context.assignedRoles}
+          organizationName={context.organizationName}
+          agentEnabled={agentEnabled}
+        />
+        <SidebarInset>{children}</SidebarInset>
+      </SidebarProvider>
     </Providers>
   );
 }

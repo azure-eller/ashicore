@@ -308,6 +308,13 @@ async function OrdersData() {
 }
 ```
 
+Parent layouts must stay light enough for child route loaders to stream. Do not put non-essential auth/DB preference reads in `app/layout.tsx` or dashboard layouts; use cookies for display preferences so `loading.tsx` can appear immediately.
+
+```tsx
+const cookieStore = await cookies()
+const readability = normalizeReadabilityOption(cookieStore.get("readability")?.value)
+```
+
 ### Postgres numeric fields
 
 Postgres `numeric` columns are returned as strings by the driver. Always parse for display — use `formatQuantity()` from `lib/format.ts` or `parseFloat()`:

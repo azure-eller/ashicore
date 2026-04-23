@@ -8,7 +8,6 @@ import {
   getAuthedMemberContext,
   requireTeamManagementAccess,
 } from "@/lib/dal/auth";
-import { getPersistedReadabilityForUser } from "@/lib/dal/user-preferences";
 import { db } from "@/lib/db";
 import {
   invitation,
@@ -29,6 +28,7 @@ import {
   normalizeAppRole,
 } from "@/lib/authz";
 import {
+  normalizeReadabilityOption,
   type ReadabilityOption,
 } from "@/lib/schemas/account";
 import type {
@@ -161,9 +161,25 @@ export async function getAccountPageData(): Promise<AccountPageData> {
   };
 }
 
-export async function getUserReadability(): Promise<ReadabilityOption> {
-  const context = await getAuthedMemberContext();
-  return (await getPersistedReadabilityForUser(context.userId)) ?? "default";
+async function getPersistedReadabilityForUser(
+  userId: string
+): Promise<ReadabilityOption> {
+  const [row] = await db
+    .select({
+      readability: userPreferences.readability,
+    })
+    .from(userPreferences)
+    .where(eq(userPreferences.userId, userId))
+    .limit(1);
+
+  return normalizeReadabilityOption(row?.readability);
+}
+
+export async function getUserReadabilityForRequest(
+  requestHeaders: HeadersInit
+): Promise<ReadabilityOption> {
+  const context = await getAuthedApiMemberContext(requestHeaders);
+  return getPersistedReadabilityForUser(context.userId);
 }
 
 export async function upsertUserReadability(
