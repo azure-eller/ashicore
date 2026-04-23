@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -9,7 +7,6 @@ import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
-import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { SortableHeader } from "@/components/sortable-header";
 import {
   Tooltip,
@@ -24,85 +21,6 @@ import { formatQuantity } from "@/lib/format";
 import { calcStock } from "./types";
 import type { InventoryProductView, ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
-
-type UsedInResponse = {
-  parents: Array<{
-    id: string;
-    name: string;
-    displayName: string;
-  }>;
-};
-
-function UsedInPopover({
-  itemId,
-  usedInCount,
-  isMaster,
-}: {
-  itemId: string;
-  usedInCount: number;
-  isMaster: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const { data, isLoading } = useQuery<UsedInResponse>({
-    queryKey: ["items", itemId, "used-in"],
-    queryFn: async () => {
-      const response = await fetch(`/api/items/${itemId}/used-in`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch parent products");
-      }
-
-      return response.json();
-    },
-    enabled: open && usedInCount > 0 && !isMaster,
-  });
-
-  if (isMaster) {
-    return "\u2014";
-  }
-
-  if (usedInCount === 0) {
-    return <span className="text-muted-foreground">0</span>;
-  }
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="cursor-pointer text-left font-medium text-foreground underline decoration-dotted underline-offset-4 hover:text-primary"
-        >
-          {usedInCount}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-80 bg-popover text-popover-foreground"
-      >
-        <PopoverHeader>
-          <PopoverTitle>Used In</PopoverTitle>
-          <PopoverDescription>
-            Products that currently consume this item in their recipe.
-          </PopoverDescription>
-        </PopoverHeader>
-        <div className="mt-3 flex flex-col gap-2">
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading parent products…</p>
-          ) : (
-            data?.parents.map((parent) => (
-              <Link
-                key={parent.id}
-                href={`/inventory/products/${parent.id}`}
-                className="text-sm font-medium hover:underline"
-              >
-                {parent.displayName}
-              </Link>
-            ))
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 export function getColumns(
   itemType: ItemType,
@@ -147,7 +65,14 @@ export function getColumns(
             ? Object.values(variantAttrs).join(" / ")
             : row.original.displayName;
 
-          return <div className="pl-6 text-sm text-muted-foreground">{attrValues}</div>;
+          return (
+            <Link
+              href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
+              className="block pl-6 text-sm text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {attrValues}
+            </Link>
+          );
         }
 
         return (
@@ -204,7 +129,7 @@ export function getColumns(
       filterFn: multiValueFilter,
       cell: ({ row, column }) => {
         const value = row.getValue("category") as string | null;
-        if (!value) return "\u2014";
+        if (!value) return "—";
 
         return (
           <button
@@ -252,22 +177,6 @@ export function getColumns(
         );
       },
     },
-    ...(isProduct
-      ? [
-          {
-            id: "usedIn",
-            accessorFn: (row: ItemRow) => row.usedInCount,
-            header: "Used In",
-            cell: ({ row }) => (
-              <UsedInPopover
-                itemId={row.original.id}
-                usedInCount={row.original.usedInCount}
-                isMaster={row.original.isMaster}
-              />
-            ),
-          } satisfies ColumnDef<ItemRow>,
-        ]
-      : []),
     ...(isProduct && !isSubAssemblies
       ? [
           {
@@ -287,7 +196,7 @@ export function getColumns(
             ),
             cell: ({ row }) => {
               const val = row.original.potential;
-              if (val == null) return "\u2014";
+              if (val == null) return "—";
               const num = parseFloat(val);
               return (
                 <span className={num <= 0 ? "text-muted-foreground" : undefined}>
@@ -301,14 +210,14 @@ export function getColumns(
     {
       accessorKey: "unit",
       header: "Stocking Unit",
-      cell: ({ row }) => row.original.unit ?? "\u2014",
+      cell: ({ row }) => row.original.unit ?? "—",
     },
     {
       accessorKey: "sku",
       header: "SKU",
       cell: ({ row }) => {
-        if (row.original.isMaster) return "\u2014";
-        return (row.getValue("sku") as string | null) ?? "\u2014";
+        if (row.original.isMaster) return "—";
+        return (row.getValue("sku") as string | null) ?? "—";
       },
     },
   ];

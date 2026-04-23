@@ -252,6 +252,21 @@ Portal components should use semantic background/text tokens on the portal conte
 <DropdownMenuContent className="bg-popover text-popover-foreground" />
 ```
 
+### Dialog sizes
+
+`DialogContent` and `AlertDialogContent` take a `size` prop. Default is `default` (~24rem) which is right for short confirmations. Dialogs that contain tables or wider content should declare a wider size explicitly rather than reaching for a one-off `className="max-w-*"`.
+
+Variants: `sm | default | md | lg | xl | 2xl | 3xl | content`. `content` sizes to fit the content (`w-fit` capped at 90vw / 72rem) and is the right choice when the table inside determines width.
+
+```tsx
+// ✓ Correct — use the size prop to pick an appropriate width
+<AlertDialogContent size="2xl">{/* shortage table */}</AlertDialogContent>
+<DialogContent size="content">{/* width-driven by content */}</DialogContent>
+
+// ✗ Wrong — one-off max-width override for a recurring width
+<AlertDialogContent className="max-w-5xl">...</AlertDialogContent>
+```
+
 ### Inverted / dark surfaces
 
 To create a dark surface in light mode (or light in dark mode), scope `className="dark"` on the container. This is how shadcn does it on their create page. All children automatically pick up dark mode tokens through the `@custom-variant dark (&:is(.dark *))` rule — no manual CSS variable overrides needed.

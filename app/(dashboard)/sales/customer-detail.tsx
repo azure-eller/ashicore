@@ -7,7 +7,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
+import { DetailPageActions } from "@/components/detail-page-actions";
 import { formatAddress, formatDateTime } from "@/lib/format";
 import type { CustomerRow } from "./types";
 
@@ -70,19 +70,17 @@ export function CustomerDetail({ customer }: { customer: CustomerRow }) {
           </div>
 
           {!isDeleted && (
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/sales/customers/${customer.id}/edit`}>Edit</Link>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                disabled={deleteMutation.isPending}
-              >
-                Delete
-              </Button>
-            </div>
+            <DetailPageActions
+              editHref={`/sales/customers/${customer.id}/edit`}
+              menu={[
+                {
+                  label: "Delete",
+                  onSelect: () => setDeleteOpen(true),
+                  destructive: true,
+                  disabled: deleteMutation.isPending,
+                },
+              ]}
+            />
           )}
         </div>
 

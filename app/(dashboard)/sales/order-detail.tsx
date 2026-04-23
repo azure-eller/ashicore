@@ -9,6 +9,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DetailPageActions } from "@/components/detail-page-actions";
 import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -229,13 +230,54 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            {canEdit && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/sales/orders/${order.id}/edit`}>Edit</Link>
-              </Button>
-            )}
-            {canConfirm && (
+          <DetailPageActions
+            editHref={canEdit ? `/sales/orders/${order.id}/edit` : undefined}
+            menu={[
+              ...(canDownloadBol
+                ? [
+                    {
+                      label: "Download BOL",
+                      onSelect: () => {
+                        window.open(
+                          `/api/sales-orders/${order.id}/bol`,
+                          "_blank",
+                          "noopener,noreferrer"
+                        );
+                      },
+                    },
+                  ]
+                : []),
+              ...(canRetryXeroPush
+                ? [
+                    {
+                      label: "Retry Xero push",
+                      onSelect: () => xeroPushMutation.mutate(),
+                      disabled: xeroPushMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canCancel
+                ? [
+                    {
+                      label: "Cancel order",
+                      onSelect: () => setCancelOpen(true),
+                      disabled: cancelMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canDelete
+                ? [
+                    {
+                      label: "Delete",
+                      onSelect: () => setDeleteOpen(true),
+                      disabled: deleteMutation.isPending,
+                      destructive: true,
+                    },
+                  ]
+                : []),
+            ]}
+          >
+            {canConfirm ? (
               <Button
                 size="sm"
                 onClick={() => confirmMutation.mutate(false)}
@@ -243,8 +285,8 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
               >
                 {confirmMutation.isPending ? "Confirming..." : "Confirm"}
               </Button>
-            )}
-            {canShip && (
+            ) : null}
+            {canShip ? (
               <Button
                 size="sm"
                 onClick={() => shipMutation.mutate()}
@@ -252,33 +294,10 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
               >
                 {shipMutation.isPending ? "Shipping..." : "Ship"}
               </Button>
-            )}
-            {canDownloadBol && (
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={`/api/sales-orders/${order.id}/bol`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Download BOL
-                </a>
-              </Button>
-            )}
-            {canRetryXeroPush && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => xeroPushMutation.mutate()}
-                disabled={xeroPushMutation.isPending}
-              >
-                {xeroPushMutation.isPending
-                  ? "Pushing..."
-                  : "Retry Xero push"}
-              </Button>
-            )}
+            ) : null}
             {canCreateMOs &&
               (order.hasManufacturableLines ? (
-                <Button size="sm" asChild>
+                <Button variant="outline" size="sm" asChild>
                   <Link href={createMOHref}>Create MOs</Link>
                 </Button>
               ) : (
@@ -290,27 +309,7 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                   }
                 />
               ))}
-            {canCancel && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCancelOpen(true)}
-                disabled={cancelMutation.isPending}
-              >
-                Cancel
-              </Button>
-            )}
-            {canDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                disabled={deleteMutation.isPending}
-              >
-                Delete
-              </Button>
-            )}
-          </div>
+          </DetailPageActions>
         </div>
 
         <Separator />

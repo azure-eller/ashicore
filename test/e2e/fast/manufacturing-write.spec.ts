@@ -235,7 +235,7 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(draftOrder.numberOfBatches).toBe(3);
 
     await page.getByRole("button", { name: "Release" }).click();
-    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toBeVisible({
+    await expect(page.getByRole("link", { name: "Execute" })).toBeVisible({
       timeout: 15_000,
     });
 
@@ -291,7 +291,7 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     expect(blockedCompleteResponse.status).toBe(400);
 
-    await page.getByRole("link", { name: "Start Manufacturing" }).click();
+    await page.getByRole("link", { name: "Execute" }).click();
     await page.waitForURL(`**/manufacturing/orders/${batchOrderId}/execute`);
 
     const runBatch = async (output: string, expectedActual: string, expectedExpected: string) => {

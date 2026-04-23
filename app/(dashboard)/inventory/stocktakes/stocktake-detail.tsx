@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DetailPageActions } from "@/components/detail-page-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -368,7 +369,16 @@ export function StocktakeDetail({
           </div>
 
           {canEditCounts && (
-            <div className="flex flex-wrap gap-2">
+            <DetailPageActions
+              menu={[
+                {
+                  label: "Cancel stocktake",
+                  onSelect: () => setCancelOpen(true),
+                  disabled: cancelMutation.isPending,
+                  destructive: true,
+                },
+              ]}
+            >
               <Button
                 variant="outline"
                 size="sm"
@@ -378,22 +388,13 @@ export function StocktakeDetail({
                 {saveMutation.isPending ? "Saving..." : "Save Counts"}
               </Button>
               <Button
-                variant="outline"
                 size="sm"
                 onClick={handleComplete}
                 disabled={!canComplete}
               >
                 {completeMutation.isPending ? "Completing..." : "Complete"}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCancelOpen(true)}
-                disabled={cancelMutation.isPending}
-              >
-                Cancel
-              </Button>
-            </div>
+            </DetailPageActions>
           )}
         </div>
 

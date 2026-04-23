@@ -7,9 +7,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
-import { TooltipHeader } from "@/components/tooltip-header";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { DetailPageActions } from "@/components/detail-page-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,19 +29,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
-import { MANUFACTURING_SHORTAGE_TOOLTIP } from "@/lib/tooltip-copy";
+import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
-import type {
-  ManufacturingOrderDetail as ManufacturingOrderDetailType,
-  ManufacturingReleaseWarningPayload,
-} from "./types";
-
-type ApiError = {
-  status?: number;
-  error?: string;
-  shortage?: ManufacturingReleaseWarningPayload;
-};
+import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from "./types";
 
 export function ManufacturingOrderDetail({
   order,
@@ -53,8 +43,6 @@ export function ManufacturingOrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [releaseWarning, setReleaseWarning] =
-    useState<ManufacturingReleaseWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refreshQueries = async () => {
@@ -111,50 +99,9 @@ export function ManufacturingOrderDetail({
     },
   });
 
-  const releaseMutation = useMutation({
-    mutationFn: async (confirmShortage?: boolean) => {
-      const response = await fetch(`/api/manufacturing-orders/${order.id}/release`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("manufacturing-order-release", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ confirmShortage: confirmShortage ?? false }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: body?.error ?? "Failed to release order.",
-          shortage: body?.shortage,
-        } satisfies ApiError;
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await refreshQueries();
-      setReleaseWarning(null);
-      router.refresh();
-    },
-    onError: (error: ApiError) => {
-      if (error.status === 409 && error.shortage) {
-        setReleaseWarning(error.shortage);
-        return;
-      }
-      setActionError(error.error ?? "Failed to release order.");
-    },
-  });
-
   const canEdit = order.status === "draft";
-  const canRelease = order.status === "draft";
-  const canExecute = order.status === "released";
   const canCancel = order.status === "draft" || order.status === "released";
   const canDelete = order.status !== "released";
-  const executionLabel =
-    order.pickProgressStatus === "not_started"
-      ? "Start Manufacturing"
-      : "Continue Manufacturing";
 
   return (
     <>
@@ -177,50 +124,32 @@ export function ManufacturingOrderDetail({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {canEdit && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/manufacturing/orders/${order.id}/edit`}>Edit</Link>
-              </Button>
-            )}
-            {canRelease && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => releaseMutation.mutate(false)}
-                disabled={releaseMutation.isPending}
-              >
-                Release
-              </Button>
-            )}
-            {canExecute && (
-              <Button size="sm" asChild>
-                <Link href={`/manufacturing/orders/${order.id}/execute`}>
-                  {executionLabel}
-                </Link>
-              </Button>
-            )}
-            {canCancel && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCancelOpen(true)}
-                disabled={cancelMutation.isPending}
-              >
-                Cancel
-              </Button>
-            )}
-            {canDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                disabled={deleteMutation.isPending}
-              >
-                Delete
-              </Button>
-            )}
-          </div>
+          <DetailPageActions
+            editHref={canEdit ? `/manufacturing/orders/${order.id}/edit` : undefined}
+            menu={[
+              ...(canCancel
+                ? [
+                    {
+                      label: "Cancel order",
+                      onSelect: () => setCancelOpen(true),
+                      disabled: cancelMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canDelete
+                ? [
+                    {
+                      label: "Delete",
+                      onSelect: () => setDeleteOpen(true),
+                      disabled: deleteMutation.isPending,
+                      destructive: true,
+                    },
+                  ]
+                : []),
+            ]}
+          >
+            <MoStageAction orderId={order.id} status={order.status} />
+          </DetailPageActions>
         </div>
 
         <Separator />
@@ -508,64 +437,6 @@ export function ManufacturingOrderDetail({
               onClick={() => deleteMutation.mutate()}
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={releaseWarning != null}
-        onOpenChange={(open) => {
-          if (!open) setReleaseWarning(null);
-        }}
-      >
-        <AlertDialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Release with shortages?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Releasing is still allowed, but one or more ingredients are short right now.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ingredient</TableHead>
-                  <TableHead className="text-right">Needed</TableHead>
-                  <TableHead className="text-right">Available</TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader
-                      label="Shortage"
-                      tooltip={MANUFACTURING_SHORTAGE_TOOLTIP}
-                    />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {releaseWarning?.ingredients.map((ingredient) => (
-                  <TableRow key={ingredient.itemId}>
-                    <TableCell>{ingredient.itemName}</TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.needed} {ingredient.unitName}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.available} {ingredient.unitName}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.shortage} {ingredient.unitName}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={releaseMutation.isPending}
-              onClick={() => releaseMutation.mutate(true)}
-            >
-              {releaseMutation.isPending ? "Releasing..." : "Release Anyway"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

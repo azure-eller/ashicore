@@ -11,7 +11,7 @@ export default async function ManufacturingOrderExecutionPage({
   const execution = await getManufacturingExecutionDetail(id);
 
   if (!execution) {
-    redirect("/manufacturing/execution");
+    redirect("/manufacturing/orders");
   }
 
   return <ManufacturingExecution execution={execution} />;

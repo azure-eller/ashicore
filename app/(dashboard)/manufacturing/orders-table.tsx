@@ -7,7 +7,7 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
-import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
+import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
 
@@ -73,13 +73,6 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     },
   },
   {
-    accessorKey: "pickProgressStatus",
-    header: "Execution",
-    cell: ({ row }) => (
-      <ManufacturingPickProgressBadge status={row.original.pickProgressStatus} />
-    ),
-  },
-  {
     accessorKey: "actualQuantity",
     header: "Actual",
     cell: ({ row }) =>
@@ -102,6 +95,14 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     accessorKey: "completedAt",
     header: ({ column }) => <SortableHeader column={column} label="Completed" />,
     cell: ({ row }) => formatDate(row.original.completedAt),
+  },
+  {
+    id: "action",
+    header: "",
+    cell: ({ row }) => (
+      <MoStageAction orderId={row.original.id} status={row.original.status} />
+    ),
+    enableSorting: false,
   },
 ];
 

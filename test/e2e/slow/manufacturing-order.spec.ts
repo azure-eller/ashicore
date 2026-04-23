@@ -826,10 +826,10 @@ test.describe("Manufacturing order flow", () => {
     await page.getByRole("button", { name: "Release Anyway" }).click();
 
     await expect(
-      page.getByRole("link", { name: "Start Manufacturing" })
+      page.getByRole("link", { name: "Execute" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
-    await expect(page.locator("main").getByText("Released", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main").getByText("In Progress", { exact: true }).first()).toBeVisible();
     await expect(page.locator("table").first()).toContainText("21");
     await expect(page.locator("table").first()).toContainText("6");
 
@@ -853,7 +853,7 @@ test.describe("Manufacturing order flow", () => {
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", releasedOrder.orderNumber);
     const releasedRow = page.getByRole("row", { name: new RegExp(releasedOrder.orderNumber) });
-    await expect(releasedRow).toContainText("Released");
+    await expect(releasedRow).toContainText("In Progress");
   });
 
   test("cancels a released order without mutating lots or stock movements", async ({
@@ -861,16 +861,22 @@ test.describe("Manufacturing order flow", () => {
     db,
   }) => {
     await page.goto(`/manufacturing/orders/${releasedOrderId}`);
-    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Execute" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Cancel order" }).click();
     await expect(page.getByText("Cancel this order?")).toBeVisible();
     await page.getByRole("button", { name: "Cancel Order" }).click();
 
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible({
+    await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toHaveCount(0);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("link", { name: "Execute" })).toHaveCount(0);
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
 
     const [cancelledOrder] = await db
@@ -934,7 +940,7 @@ test.describe("Manufacturing order flow", () => {
     expect(completionOrderId).toBeTruthy();
 
     await page.getByRole("button", { name: "Release" }).click();
-    await expect(page.getByRole("link", { name: "Start Manufacturing" })).toBeVisible({
+    await expect(page.getByRole("link", { name: "Execute" })).toBeVisible({
       timeout: 15_000,
     });
 
@@ -946,7 +952,7 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(releasedProduct.expectedQty).toBe("4.0000");
 
-    await page.getByRole("link", { name: "Start Manufacturing" }).click();
+    await page.getByRole("link", { name: "Execute" }).click();
     await page.waitForURL(`**/manufacturing/orders/${completionOrderId}/execute`);
 
     const sandCard = page.locator('[data-slot="card"]').filter({ hasText: sandName }).first();

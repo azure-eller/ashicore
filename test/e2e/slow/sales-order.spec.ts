@@ -716,8 +716,10 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Ship" })).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Cancel order" })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   test("confirmed orders show Create MOs from detail and the orders table", async ({
@@ -833,11 +835,14 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Cancel order" }).click();
     await page.getByRole("button", { name: "Cancel Order" }).click();
     // Page refreshes after cancel — give it extra time (slowmo can eat the default 5s)
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     const orderRows = await db
       .select()
@@ -872,7 +877,8 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete Order" }).click();
     await page.waitForURL("**/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
@@ -1045,7 +1051,8 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
 
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete Customer" }).click();
 
     await expect(page.getByText(/cannot delete|active.*order/i)).toBeVisible();
@@ -1110,14 +1117,16 @@ test.describe("Sales order flow", () => {
 
   test("deletes the blocking order, then deletes the customer", async ({ page, db }) => {
     await page.goto(`/sales/orders/${guardOrderId}`);
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete Order" }).click();
     await page.waitForURL("**/sales/orders");
 
     await page.goto(`/sales/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
 
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete Customer" }).click();
     await page.waitForURL("**/sales/customers");
     await filterList(page, "Search customers", customerName);

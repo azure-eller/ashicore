@@ -72,6 +72,10 @@ export function AppSidebar({
           url: "/inventory/materials",
         },
         {
+          title: "Sub-assemblies",
+          url: "/inventory/sub-assemblies",
+        },
+        {
           title: "Stocktakes",
           url: "/inventory/stocktakes",
         },

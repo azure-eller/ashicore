@@ -306,8 +306,8 @@ export function ManufacturingExecution({
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Link href="/manufacturing/execution" className="hover:text-foreground">
-                Execution Queue
+              <Link href="/manufacturing/orders" className="hover:text-foreground">
+                Orders
               </Link>
               <span>/</span>
               <Link

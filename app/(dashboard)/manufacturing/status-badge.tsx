@@ -7,7 +7,7 @@ export function ManufacturingOrderStatusBadge({
   status: ManufacturingOrderStatus;
 }) {
   if (status === "released") {
-    return <Badge>Released</Badge>;
+    return <Badge>In Progress</Badge>;
   }
 
   if (status === "completed") {

@@ -31,7 +31,6 @@ import { FilterableHeader, multiValueFilter } from "@/components/filterable-head
 import { SortableHeader } from "@/components/sortable-header";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   AlertDialog,
@@ -68,6 +67,7 @@ import {
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
+import { SoStageAction } from "./so-stage-action";
 import { OrderExpandedDetail } from "./order-expanded-detail";
 import type {
   BulkOversellWarningPayload,
@@ -156,36 +156,7 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   {
     id: "actions",
     header: "",
-    cell: ({ row }) => {
-      if (row.original.status !== "confirmed") {
-        return null;
-      }
-
-      if (!row.original.hasManufacturableLines) {
-        return (
-          <div className="flex justify-end">
-            <DisabledTooltipButton
-              label="Create MOs"
-              tooltip={
-                row.original.manufacturableDisabledReason ??
-                "No manufacturable lines remain on this order."
-              }
-              variant="ghost"
-            />
-          </div>
-        );
-      }
-
-      return (
-        <div className="flex justify-end">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href={`/manufacturing/orders/new?salesOrderId=${row.original.id}`}>
-              Create MOs
-            </Link>
-          </Button>
-        </div>
-      );
-    },
+    cell: ({ row }) => <SoStageAction order={row.original} />,
     enableSorting: false,
   },
 ];

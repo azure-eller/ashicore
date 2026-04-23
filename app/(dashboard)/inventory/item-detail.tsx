@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { ItemDetailActions } from "./item-detail-actions";
 import {
   Tooltip,
   TooltipContent,
@@ -338,13 +339,12 @@ export function ItemDetail({
             </Tooltip>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
-          {canEdit ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`${basePath}/${item.id}/edit`}>Edit</Link>
-            </Button>
-          ) : null}
-        </div>
+        <ItemDetailActions
+          itemId={item.id}
+          itemType={itemType}
+          canEdit={canEdit}
+          canDelete={canEdit}
+        />
       </div>
       <Separator />
 

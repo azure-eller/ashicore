@@ -7,7 +7,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { DetailPageActions } from "@/components/detail-page-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,19 +71,17 @@ export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
           </div>
 
           {!isDeleted && (
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/purchasing/suppliers/${supplier.id}/edit`}>Edit</Link>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                disabled={deleteMutation.isPending}
-              >
-                Delete
-              </Button>
-            </div>
+            <DetailPageActions
+              editHref={`/purchasing/suppliers/${supplier.id}/edit`}
+              menu={[
+                {
+                  label: "Delete",
+                  onSelect: () => setDeleteOpen(true),
+                  destructive: true,
+                  disabled: deleteMutation.isPending,
+                },
+              ]}
+            />
           )}
         </div>
 

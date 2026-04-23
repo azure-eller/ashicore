@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DetailPageActions } from "@/components/detail-page-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -230,53 +231,49 @@ export function PurchaseOrderDetail({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {canEdit && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/purchasing/orders/${order.id}/edit`}>Edit</Link>
-              </Button>
-            )}
-            {canSubmit && (
+          <DetailPageActions
+            editHref={canEdit ? `/purchasing/orders/${order.id}/edit` : undefined}
+            menu={[
+              ...(canCancel
+                ? [
+                    {
+                      label: "Cancel order",
+                      onSelect: () => setCancelOpen(true),
+                      disabled: cancelMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canDelete
+                ? [
+                    {
+                      label: "Delete",
+                      onSelect: () => setDeleteOpen(true),
+                      disabled: deleteMutation.isPending,
+                      destructive: true,
+                    },
+                  ]
+                : []),
+            ]}
+          >
+            {canSubmit ? (
               <Button
-                variant="outline"
                 size="sm"
                 onClick={() => submitMutation.mutate()}
                 disabled={submitMutation.isPending}
               >
                 {submitMutation.isPending ? "Submitting..." : "Submit"}
               </Button>
-            )}
-            {canReceive && (
+            ) : null}
+            {canReceive ? (
               <Button
-                variant="outline"
                 size="sm"
                 onClick={() => setReceiveOpen(true)}
                 disabled={receiveMutation.isPending}
               >
                 Receive
               </Button>
-            )}
-            {canCancel && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCancelOpen(true)}
-                disabled={cancelMutation.isPending}
-              >
-                Cancel
-              </Button>
-            )}
-            {canDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                disabled={deleteMutation.isPending}
-              >
-                Delete
-              </Button>
-            )}
-          </div>
+            ) : null}
+          </DetailPageActions>
         </div>
 
         <Separator />
