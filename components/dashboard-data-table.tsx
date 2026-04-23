@@ -315,14 +315,14 @@ export function DashboardDataTable<TData extends { id: string }>({
                 >
                   {addActions.map((action) => (
                     <DropdownMenuItem key={action.href} asChild>
-                      <Link href={action.href}>{action.label}</Link>
+                      <Link href={action.href} prefetch={false}>{action.label}</Link>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
               <Button variant="default" aria-label={addAriaLabel} asChild>
-                <Link href={addHref}>
+                <Link href={addHref} prefetch={false}>
                   {addAriaLabel}
                   <HugeiconsIcon
                     icon={Add01Icon}

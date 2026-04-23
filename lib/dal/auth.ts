@@ -20,6 +20,7 @@ import {
 } from "@/lib/authz";
 import { db } from "@/lib/db";
 import { member } from "@/lib/db/schema";
+import { measureObservedOperation } from "@/lib/observability/request-log";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 
 type MemberContext = {
@@ -40,14 +41,24 @@ async function resolveMemberContext(
   requestHeaders: HeadersInit,
   existingSession?: AuthSession
 ) {
+  const normalizedHeaders =
+    requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
   const session =
     existingSession ??
-    (await auth.api.getSession({
-      headers:
-        requestHeaders instanceof Headers
-          ? requestHeaders
-          : new Headers(requestHeaders),
-    }));
+    (await measureObservedOperation(
+      "auth.get_session",
+      () =>
+        auth.api.getSession({
+          headers: normalizedHeaders,
+        }),
+      {
+        headers: normalizedHeaders,
+        successData: (resolvedSession) => ({
+          hasSession: Boolean(resolvedSession),
+          hasActiveOrganization: Boolean(resolvedSession?.session.activeOrganizationId),
+        }),
+      }
+    ));
 
   if (!session || !session.session.activeOrganizationId) {
     return null;
@@ -55,19 +66,29 @@ async function resolveMemberContext(
 
   const activeOrganizationId = session.session.activeOrganizationId;
 
-  const membership = await db.query.member.findFirst({
-    where: and(
-      eq(member.organizationId, activeOrganizationId),
-      eq(member.userId, session.user.id)
-    ),
-    with: {
-      organization: {
-        columns: {
-          name: true,
+  const membership = await measureObservedOperation(
+    "auth.load_membership",
+    () =>
+      db.query.member.findFirst({
+        where: and(
+          eq(member.organizationId, activeOrganizationId),
+          eq(member.userId, session.user.id)
+        ),
+        with: {
+          organization: {
+            columns: {
+              name: true,
+            },
+          },
         },
-      },
-    },
-  });
+      }),
+    {
+      headers: normalizedHeaders,
+      successData: (resolvedMembership) => ({
+        foundMembership: Boolean(resolvedMembership?.organization),
+      }),
+    }
+  );
 
   if (!membership || !membership.organization) {
     return null;
@@ -90,9 +111,20 @@ const getRequestAuthState = cache(async () => {
   const requestHeaders = await headers();
   const normalizedHeaders =
     requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
-  const session = await auth.api.getSession({
-    headers: normalizedHeaders,
-  });
+  const session = await measureObservedOperation(
+    "auth.get_session",
+    () =>
+      auth.api.getSession({
+        headers: normalizedHeaders,
+      }),
+    {
+      headers: normalizedHeaders,
+      successData: (resolvedSession) => ({
+        hasSession: Boolean(resolvedSession),
+        hasActiveOrganization: Boolean(resolvedSession?.session.activeOrganizationId),
+      }),
+    }
+  );
 
   if (!session || !session.session.activeOrganizationId) {
     return {
@@ -265,5 +297,19 @@ export async function withAuthedOrgContext<T>(
   callback: (tx: Tx, orgId: string, userId: string) => Promise<T>
 ): Promise<T> {
   const { orgId, userId } = await getAuthedContext();
-  return withOrgContext(orgId, (tx) => callback(tx, orgId, userId));
+  const requestHeaders = await headers();
+
+  return withOrgContext(
+    orgId,
+    (tx) => callback(tx, orgId, userId),
+    {
+      setOrgContext: (setOrgContext) =>
+        measureObservedOperation("db.set_org_context", setOrgContext, {
+          headers: requestHeaders,
+          extra: {
+            hasOrgId: Boolean(orgId),
+          },
+        }),
+    }
+  );
 }

@@ -68,6 +68,7 @@ export function getColumns(
           return (
             <Link
               href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
+              prefetch={false}
               className="block pl-6 text-sm text-muted-foreground hover:text-foreground hover:underline"
             >
               {attrValues}
@@ -105,6 +106,7 @@ export function getColumns(
             ) : null}
             <Link
               href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
+              prefetch={false}
               className="hover:underline"
             >
               {row.original.displayName}

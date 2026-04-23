@@ -385,7 +385,6 @@ export function AgentChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const restoreAttemptedRef = useRef(false);
   const bootstrapRequestRef = useRef<Promise<AgentSessionSnapshot> | null>(null);
   const providerOverrideRef = useRef<"fake" | "anthropic" | null>(null);
   const [session, setSession] = useState<AgentSessionSnapshot | null>(null);
@@ -488,26 +487,6 @@ export function AgentChatPanel({
     }
   }, []);
 
-  const handleComposerFocus = useCallback(() => {
-    if (blurTimerRef.current) {
-      clearTimeout(blurTimerRef.current);
-      blurTimerRef.current = null;
-    }
-    onComposerFocus?.();
-  }, [onComposerFocus]);
-
-  const handleComposerBlur = useCallback(() => {
-    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
-    blurTimerRef.current = setTimeout(() => {
-      onComposerBlur?.();
-      blurTimerRef.current = null;
-    }, 150);
-  }, [onComposerBlur]);
-
-  useEffect(() => () => {
-    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
-  }, []);
-
   const ensureSession = useCallback(async () => {
     if (session) {
       return session;
@@ -548,17 +527,30 @@ export function AgentChatPanel({
     }
   }, [session]);
 
-  useEffect(() => {
-    if (restoreAttemptedRef.current) {
-      return;
+  const handleComposerFocus = useCallback(() => {
+    if (blurTimerRef.current) {
+      clearTimeout(blurTimerRef.current);
+      blurTimerRef.current = null;
     }
+    onComposerFocus?.();
+    if (!session && !bootstrapRequestRef.current) {
+      void ensureSession().catch((cause) => {
+        setError(cause instanceof Error ? cause.message : "Failed to start the ERP agent.");
+      });
+    }
+  }, [ensureSession, onComposerFocus, session]);
 
-    restoreAttemptedRef.current = true;
+  const handleComposerBlur = useCallback(() => {
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    blurTimerRef.current = setTimeout(() => {
+      onComposerBlur?.();
+      blurTimerRef.current = null;
+    }, 150);
+  }, [onComposerBlur]);
 
-    void ensureSession().catch((cause) => {
-      setError(cause instanceof Error ? cause.message : "Failed to start the ERP agent.");
-    });
-  }, [ensureSession]);
+  useEffect(() => () => {
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (session?.session.id) {

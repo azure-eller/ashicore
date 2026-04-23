@@ -90,6 +90,43 @@ Do not capture by default:
 
 Use request IDs in API error responses and logs so failures can be matched across user reports, logs, and Sentry events.
 
+## Cold-start Debugging
+
+The app now stamps a request ID on both HTML and API responses:
+
+- `x-request-id`
+- `x-erp-request-id`
+
+Use that ID to correlate the browser request with Vercel Runtime Logs.
+
+Perf logs are emitted as `[perf]` JSON lines. Key events:
+
+- `rsc.root_layout.complete`: HTML request finished; `sinceProxyMs` is the end-to-end server wall time from proxy entry to response completion
+- `auth.get_session`: Better Auth session lookup
+- `auth.load_membership`: active-org membership lookup
+- `db.set_org_context`: RLS org context setup
+- `inventory.get_items`, `sales.get_orders`, `purchasing.get_orders`, `manufacturing.get_orders`: landing-page data loads
+
+API routes also emit:
+
+- `Server-Timing`
+- `x-erp-handler-ms`
+- `x-erp-db-query-ms`
+- `x-erp-db-query-count`
+- `x-erp-db-connect-ms`
+- `x-erp-db-connect-count`
+- `x-erp-process-uptime-ms`
+
+How to use it in production:
+
+1. Load the slow page in the browser and copy `x-erp-request-id` from the response headers.
+2. Search that request ID in Vercel Runtime Logs.
+3. Check Vercel’s function start type for that request: `Cold`, `Hot`, or `Hot (prewarmed)`.
+4. Compare `sinceProxyMs` on `rsc.root_layout.complete` with the step logs:
+   If `auth.get_session` or `db.set_org_context` is large, the bottleneck is auth/DB startup.
+   If those are small but `rsc.root_layout.complete` is large, the delay is later in page rendering or page-specific data work.
+5. For API-heavy flows, use `Server-Timing` and the `x-erp-db-*` headers to separate handler time from DB connect/query time.
+
 ## Inventory Reconciliation Cron
 
 Inventory integrity now has a scheduled production backstop.

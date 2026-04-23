@@ -25,6 +25,7 @@ import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
+import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   InsertPurchaseOrder,
   PurchaseOrderStatus,
@@ -434,56 +435,66 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
 }
 
 export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const orderRows = await tx
-      .select({
-        id: purchaseOrders.id,
-        orderNumber: purchaseOrders.orderNumber,
-        supplierName: purchaseOrders.supplierName,
-        status: purchaseOrders.status,
-        expectedDate: purchaseOrders.expectedDate,
-        totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
-        deletedAt: purchaseOrders.deletedAt,
-        createdAt: purchaseOrders.createdAt,
-        updatedAt: purchaseOrders.updatedAt,
-        receivedAt: purchaseOrders.receivedAt,
-      })
-      .from(purchaseOrders)
-      .where(isNull(purchaseOrders.deletedAt))
-      .orderBy(desc(purchaseOrders.createdAt));
+  return measureObservedOperation(
+    "purchasing.get_orders",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        const orderRows = await tx
+          .select({
+            id: purchaseOrders.id,
+            orderNumber: purchaseOrders.orderNumber,
+            supplierName: purchaseOrders.supplierName,
+            status: purchaseOrders.status,
+            expectedDate: purchaseOrders.expectedDate,
+            totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
+            deletedAt: purchaseOrders.deletedAt,
+            createdAt: purchaseOrders.createdAt,
+            updatedAt: purchaseOrders.updatedAt,
+            receivedAt: purchaseOrders.receivedAt,
+          })
+          .from(purchaseOrders)
+          .where(isNull(purchaseOrders.deletedAt))
+          .orderBy(desc(purchaseOrders.createdAt));
 
-    if (orderRows.length === 0) {
-      return [];
+        if (orderRows.length === 0) {
+          return [];
+        }
+
+        const orderIds = orderRows.map((order) => order.id);
+        const lines = await tx
+          .select({
+            purchaseOrderId: purchaseOrderLines.purchaseOrderId,
+            itemName: purchaseOrderLines.itemName,
+            quantity: trimScale(purchaseOrderLines.quantityOrdered).as("quantity"),
+            sortOrder: purchaseOrderLines.sortOrder,
+          })
+          .from(purchaseOrderLines)
+          .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
+          .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
+
+        const linesByOrderId = new Map<
+          string,
+          Array<{ itemName: string; quantity: string }>
+        >();
+        lines.forEach((line) => {
+          const bucket = linesByOrderId.get(line.purchaseOrderId) ?? [];
+          bucket.push({ itemName: line.itemName, quantity: line.quantity });
+          linesByOrderId.set(line.purchaseOrderId, bucket);
+        });
+
+        return orderRows.map((order) => ({
+          ...order,
+          status: order.status as PurchaseOrderStatus,
+          itemSummary: summarizeItems(linesByOrderId.get(order.id) ?? []),
+        }));
+      });
+    },
+    {
+      successData: (orders) => ({
+        rowCount: orders.length,
+      }),
     }
-
-    const orderIds = orderRows.map((order) => order.id);
-    const lines = await tx
-      .select({
-        purchaseOrderId: purchaseOrderLines.purchaseOrderId,
-        itemName: purchaseOrderLines.itemName,
-        quantity: trimScale(purchaseOrderLines.quantityOrdered).as("quantity"),
-        sortOrder: purchaseOrderLines.sortOrder,
-      })
-      .from(purchaseOrderLines)
-      .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
-      .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
-
-    const linesByOrderId = new Map<
-      string,
-      Array<{ itemName: string; quantity: string }>
-    >();
-    lines.forEach((line) => {
-      const bucket = linesByOrderId.get(line.purchaseOrderId) ?? [];
-      bucket.push({ itemName: line.itemName, quantity: line.quantity });
-      linesByOrderId.set(line.purchaseOrderId, bucket);
-    });
-
-    return orderRows.map((order) => ({
-      ...order,
-      status: order.status as PurchaseOrderStatus,
-      itemSummary: summarizeItems(linesByOrderId.get(order.id) ?? []),
-    }));
-  });
+  );
 }
 
 export async function getPurchaseOrder(

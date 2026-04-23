@@ -47,6 +47,7 @@ import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
+import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
   InsertCustomerCategory,
@@ -1833,51 +1834,65 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
 }
 
 export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const orderRows = await tx
-      .select({
-        id: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        customerName: salesOrders.customerName,
-        status: salesOrders.status,
-        requestedDate: salesOrders.requestedDate,
-        shippedAt: salesOrders.shippedAt,
-        totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
-        deletedAt: salesOrders.deletedAt,
-        createdAt: salesOrders.createdAt,
-        updatedAt: salesOrders.updatedAt,
-      })
-      .from(salesOrders)
-      .where(isNull(salesOrders.deletedAt))
-      .orderBy(desc(salesOrders.createdAt));
+  return measureObservedOperation(
+    "sales.get_orders",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        const orderRows = await tx
+          .select({
+            id: salesOrders.id,
+            orderNumber: salesOrders.orderNumber,
+            customerName: salesOrders.customerName,
+            status: salesOrders.status,
+            requestedDate: salesOrders.requestedDate,
+            shippedAt: salesOrders.shippedAt,
+            totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
+            deletedAt: salesOrders.deletedAt,
+            createdAt: salesOrders.createdAt,
+            updatedAt: salesOrders.updatedAt,
+          })
+          .from(salesOrders)
+          .where(isNull(salesOrders.deletedAt))
+          .orderBy(desc(salesOrders.createdAt));
 
-    if (orderRows.length === 0) {
-      return [];
+        if (orderRows.length === 0) {
+          return [];
+        }
+
+        const orderIds = orderRows.map((order) => order.id);
+        const manufacturingSummaries = await getSalesOrderManufacturingSummariesInTx(
+          tx,
+          orderIds
+        );
+
+        return orderRows.map((order) => {
+          const manufacturingSummary = manufacturingSummaries.get(order.id);
+          const summaryLines = manufacturingSummary?.lines ?? [];
+          return {
+            ...order,
+            status: order.status as SalesOrderListRow["status"],
+            itemSummary: summarizeItems(summaryLines),
+            lines: summaryLines.map((line) => ({
+              masterName: line.masterName,
+              attrs: line.attrs,
+              quantity: line.quantity,
+              unitName: line.unitName,
+            })),
+            hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
+            manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
+            manufacturableDisabledReason:
+              manufacturingSummary?.disabledReason ??
+              "No manufacturable lines remain on this order.",
+          };
+        });
+      });
+    },
+    {
+      successData: (orders) => ({
+        rowCount: orders.length,
+      }),
     }
-
-    const orderIds = orderRows.map((order) => order.id);
-    const manufacturingSummaries = await getSalesOrderManufacturingSummariesInTx(tx, orderIds);
-
-    return orderRows.map((order) => {
-      const manufacturingSummary = manufacturingSummaries.get(order.id);
-      const summaryLines = manufacturingSummary?.lines ?? [];
-      return {
-        ...order,
-        status: order.status as SalesOrderListRow["status"],
-        itemSummary: summarizeItems(summaryLines),
-        lines: summaryLines.map((line) => ({
-          masterName: line.masterName,
-          attrs: line.attrs,
-          quantity: line.quantity,
-          unitName: line.unitName,
-        })),
-        hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
-        manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
-        manufacturableDisabledReason:
-          manufacturingSummary?.disabledReason ?? "No manufacturable lines remain on this order.",
-      };
-    });
-  });
+  );
 }
 
 export async function getSalesOrder(

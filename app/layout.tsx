@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import { Inter } from "next/font/google";
 import { ReadabilityProvider } from "@/app/readability-provider";
+import {
+  getRequestLogContext,
+  logObservedEvent,
+} from "@/lib/observability/request-log";
 import { normalizeReadabilityOption } from "@/lib/schemas/account";
 import "./globals.css";
 
@@ -21,9 +26,14 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const requestContext = await getRequestLogContext();
   const cookieStore = await cookies();
   const readability = normalizeReadabilityOption(cookieStore.get("readability")?.value);
   const readabilityAttr = readability === "default" ? undefined : readability;
+
+  after(() => {
+    logObservedEvent("rsc.root_layout.complete", requestContext);
+  });
 
   return (
     <html

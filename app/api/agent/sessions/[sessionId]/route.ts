@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertAgentApiAccess } from "@/lib/agent/erp/access";
-import { getAgentSessionSnapshot } from "@/lib/agent/erp/session-service";
+import { getAgentSessionSnapshot } from "@/lib/agent/erp/session-summary-service";
 
 export const runtime = "nodejs";
 

@@ -57,7 +57,7 @@ export function NavMain({
             return (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton asChild isActive={isItemActive} tooltip={item.title}>
-                  <Link href={item.url}>
+                  <Link href={item.url} prefetch={false}>
                     {item.icon}
                     <span>{item.title}</span>
                   </Link>
@@ -70,7 +70,7 @@ export function NavMain({
             return (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton asChild isActive={Boolean(isItemActive)} tooltip={item.title}>
-                  <Link href={item.url}>
+                  <Link href={item.url} prefetch={false}>
                     {item.icon}
                     <span>{item.title}</span>
                   </Link>
@@ -108,7 +108,7 @@ export function NavMain({
                       {item.items?.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton asChild isActive={isPathActive(subItem.url)}>
-                            <Link href={subItem.url}>
+                            <Link href={subItem.url} prefetch={false}>
                               <span>{subItem.title}</span>
                             </Link>
                           </SidebarMenuSubButton>

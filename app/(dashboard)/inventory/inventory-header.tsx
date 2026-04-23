@@ -53,6 +53,7 @@ export function InventoryHeader({ counts }: InventoryHeaderProps) {
               <Link
                 key={tab.href}
                 href={tab.href}
+                prefetch={false}
                 className="inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
               >
                 {content}

@@ -12,8 +12,6 @@ import {
 } from "@/lib/authz";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
-import { sendAccountEmailVerificationEmail, sendPasswordResetEmail } from "@/lib/email/auth-emails";
-import { sendTeamInvitationEmail } from "@/lib/email/team-invites";
 
 const authModuleInitStartedAt = performance.now();
 const authModuleLoadedAt = Date.now();
@@ -166,6 +164,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     sendResetPassword: async ({ user, url }) => {
+      const { sendPasswordResetEmail } = await import("@/lib/email/auth-emails");
       await sendPasswordResetEmail({
         email: user.email,
         url,
@@ -174,6 +173,7 @@ export const auth = betterAuth({
   },
   emailVerification: {
     sendVerificationEmail: async ({ user, url }) => {
+      const { sendAccountEmailVerificationEmail } = await import("@/lib/email/auth-emails");
       await sendAccountEmailVerificationEmail({
         email: user.email,
         url,
@@ -192,6 +192,7 @@ export const auth = betterAuth({
       creatorRole: "owner",
       roles: organizationRoles,
       sendInvitationEmail: async (data) => {
+        const { sendTeamInvitationEmail } = await import("@/lib/email/team-invites");
         await sendTeamInvitationEmail({
           invitationId: data.id,
           email: data.email,

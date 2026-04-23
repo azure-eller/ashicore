@@ -516,6 +516,8 @@ delete event.request?.data
 scope.setContext("request", { method, path })
 ```
 
+Cold-start debugging uses proxy-stamped request IDs. Grab `x-erp-request-id` from the HTML/API response, then find matching `[perf]` runtime logs. `rsc.root_layout.complete` logs `sinceProxyMs` for full server wall time, and API responses expose `Server-Timing` plus `x-erp-*` DB timing headers.
+
 ### Product deletes with active sales orders
 
 Products referenced by active draft or confirmed sales orders cannot be soft-deleted. Block the delete in inventory instead of teaching the sales form how to recover missing draft products.

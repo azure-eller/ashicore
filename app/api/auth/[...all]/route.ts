@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { auth, authModuleAgeMs, authModuleInitMs } from "@/lib/auth";
 import { dbModuleAgeMs, dbModuleInitMs } from "@/lib/db";
 import {
@@ -6,6 +7,10 @@ import {
   logRequestTiming,
   withRequestTiming,
 } from "@/lib/observability/request-timing";
+import {
+  ERP_REQUEST_ID_HEADER,
+  REQUEST_ID_HEADER,
+} from "@/lib/observability/request-headers";
 import { toNextJsHandler } from "better-auth/next-js";
 
 export const runtime = "nodejs";
@@ -19,6 +24,7 @@ async function withAuthTiming(
 ) {
   const pathname = new URL(request.url).pathname;
   const label = `${method} ${pathname}`;
+  const requestId = request.headers.get(REQUEST_ID_HEADER) ?? randomUUID();
 
   return withRequestTiming(label, async () => {
     const startedAt = performance.now();
@@ -29,6 +35,8 @@ async function withAuthTiming(
     const routeModuleAgeMs = Date.now() - routeModuleLoadedAt;
     const processUptimeMs = process.uptime() * 1000;
 
+    wrappedResponse.headers.set(REQUEST_ID_HEADER, requestId);
+    wrappedResponse.headers.set(ERP_REQUEST_ID_HEADER, requestId);
     wrappedResponse.headers.set("x-erp-handler-ms", totalMs.toFixed(1));
     wrappedResponse.headers.set("x-erp-db-query-ms", snapshot.dbQueryMs.toFixed(1));
     wrappedResponse.headers.set("x-erp-db-query-count", String(snapshot.dbQueryCount));

@@ -45,6 +45,7 @@ import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
+import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteManufacturingBatch,
   CompleteManufacturingOrder,
@@ -1047,105 +1048,115 @@ function getBatchPickProgressStatus(
 }
 
 export async function getManufacturingOrders(): Promise<ManufacturingOrderListRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const orders = (await tx
-      .select({
-        id: manufacturingOrders.id,
-        orderNumber: manufacturingOrders.orderNumber,
-        productName: manufacturingOrders.productName,
-        productSku: manufacturingOrders.productSku,
-        salesOrderNumber: manufacturingOrders.salesOrderNumber,
-        salesCustomerName: manufacturingOrders.salesCustomerName,
-        requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
-          "requestedQuantity"
-        ),
-        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
-          "plannedQuantity"
-        ),
-        actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
-          "actualQuantity"
-        ),
-        unitName: manufacturingOrders.unitName,
-        plannedDate: manufacturingOrders.plannedDate,
-        status: manufacturingOrders.status,
-        manufacturingMode: manufacturingOrders.manufacturingMode,
-        numberOfBatches: manufacturingOrders.numberOfBatches,
-        deletedAt: manufacturingOrders.deletedAt,
-        createdAt: manufacturingOrders.createdAt,
-        updatedAt: manufacturingOrders.updatedAt,
-        completedAt: manufacturingOrders.completedAt,
-      })
-      .from(manufacturingOrders)
-      .where(isNull(manufacturingOrders.deletedAt))
-      .orderBy(desc(manufacturingOrders.createdAt))) as Array<
-      Omit<
-        ManufacturingOrderListRow,
-        "pickProgressStatus" | "completedBatchCount" | "actionableBatchCount"
-      >
-    >;
+  return measureObservedOperation(
+    "manufacturing.get_orders",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        const orders = (await tx
+          .select({
+            id: manufacturingOrders.id,
+            orderNumber: manufacturingOrders.orderNumber,
+            productName: manufacturingOrders.productName,
+            productSku: manufacturingOrders.productSku,
+            salesOrderNumber: manufacturingOrders.salesOrderNumber,
+            salesCustomerName: manufacturingOrders.salesCustomerName,
+            requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
+              "requestedQuantity"
+            ),
+            plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+              "plannedQuantity"
+            ),
+            actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+              "actualQuantity"
+            ),
+            unitName: manufacturingOrders.unitName,
+            plannedDate: manufacturingOrders.plannedDate,
+            status: manufacturingOrders.status,
+            manufacturingMode: manufacturingOrders.manufacturingMode,
+            numberOfBatches: manufacturingOrders.numberOfBatches,
+            deletedAt: manufacturingOrders.deletedAt,
+            createdAt: manufacturingOrders.createdAt,
+            updatedAt: manufacturingOrders.updatedAt,
+            completedAt: manufacturingOrders.completedAt,
+          })
+          .from(manufacturingOrders)
+          .where(isNull(manufacturingOrders.deletedAt))
+          .orderBy(desc(manufacturingOrders.createdAt))) as Array<
+          Omit<
+            ManufacturingOrderListRow,
+            "pickProgressStatus" | "completedBatchCount" | "actionableBatchCount"
+          >
+        >;
 
-    if (orders.length === 0) {
-      return [];
-    }
+        if (orders.length === 0) {
+          return [];
+        }
 
-    const orderIds = orders.map((order) => order.id);
-    const ingredientRows = await tx
-      .select({
-        manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
-        manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
-        plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
-          "plannedQuantity"
-        ),
-        pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
-          "pickedQuantity"
-        ),
-      })
-      .from(manufacturingOrderIngredients)
-      .where(inArray(manufacturingOrderIngredients.manufacturingOrderId, orderIds));
+        const orderIds = orders.map((order) => order.id);
+        const ingredientRows = await tx
+          .select({
+            manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
+            manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+            plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+              "plannedQuantity"
+            ),
+            pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
+              "pickedQuantity"
+            ),
+          })
+          .from(manufacturingOrderIngredients)
+          .where(inArray(manufacturingOrderIngredients.manufacturingOrderId, orderIds));
 
-    const batchRows = await tx
-      .select({
-        manufacturingOrderId: manufacturingOrderBatches.manufacturingOrderId,
-        status: manufacturingOrderBatches.status,
-      })
-      .from(manufacturingOrderBatches)
-      .where(inArray(manufacturingOrderBatches.manufacturingOrderId, orderIds));
+        const batchRows = await tx
+          .select({
+            manufacturingOrderId: manufacturingOrderBatches.manufacturingOrderId,
+            status: manufacturingOrderBatches.status,
+          })
+          .from(manufacturingOrderBatches)
+          .where(inArray(manufacturingOrderBatches.manufacturingOrderId, orderIds));
 
-    const ingredientsByOrder = new Map<string, IngredientProgressRow[]>();
-    for (const row of ingredientRows) {
-      if (row.manufacturingOrderBatchId != null) {
-        continue;
-      }
-      const existing = ingredientsByOrder.get(row.manufacturingOrderId) ?? [];
-      existing.push({
-        plannedQuantity: row.plannedQuantity,
-        pickedQuantity: row.pickedQuantity,
+        const ingredientsByOrder = new Map<string, IngredientProgressRow[]>();
+        for (const row of ingredientRows) {
+          if (row.manufacturingOrderBatchId != null) {
+            continue;
+          }
+          const existing = ingredientsByOrder.get(row.manufacturingOrderId) ?? [];
+          existing.push({
+            plannedQuantity: row.plannedQuantity,
+            pickedQuantity: row.pickedQuantity,
+          });
+          ingredientsByOrder.set(row.manufacturingOrderId, existing);
+        }
+
+        const batchesByOrder = new Map<string, Array<{ status: ManufacturingBatchStatus }>>();
+        for (const row of batchRows) {
+          const existing = batchesByOrder.get(row.manufacturingOrderId) ?? [];
+          existing.push({ status: row.status as ManufacturingBatchStatus });
+          batchesByOrder.set(row.manufacturingOrderId, existing);
+        }
+
+        return orders.map((order) => {
+          const batches = batchesByOrder.get(order.id) ?? [];
+          const pickProgressStatus =
+            order.manufacturingMode === "batch" && batches.length > 0
+              ? getBatchPickProgressStatus(batches)
+              : getPickProgressStatus(ingredientsByOrder.get(order.id) ?? []);
+
+          return {
+            ...order,
+            pickProgressStatus,
+            completedBatchCount: batches.filter((batch) => batch.status === "completed").length,
+            actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
+          };
+        });
       });
-      ingredientsByOrder.set(row.manufacturingOrderId, existing);
+    },
+    {
+      successData: (orders) => ({
+        rowCount: orders.length,
+      }),
     }
-
-    const batchesByOrder = new Map<string, Array<{ status: ManufacturingBatchStatus }>>();
-    for (const row of batchRows) {
-      const existing = batchesByOrder.get(row.manufacturingOrderId) ?? [];
-      existing.push({ status: row.status as ManufacturingBatchStatus });
-      batchesByOrder.set(row.manufacturingOrderId, existing);
-    }
-
-    return orders.map((order) => {
-      const batches = batchesByOrder.get(order.id) ?? [];
-      const pickProgressStatus =
-        order.manufacturingMode === "batch" && batches.length > 0
-          ? getBatchPickProgressStatus(batches)
-          : getPickProgressStatus(ingredientsByOrder.get(order.id) ?? []);
-
-      return {
-        ...order,
-        pickProgressStatus,
-        completedBatchCount: batches.filter((batch) => batch.status === "completed").length,
-        actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
-      };
-    });
-  });
+  );
 }
 
 export async function getManufacturingProductTemplates(): Promise<
