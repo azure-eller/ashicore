@@ -903,9 +903,7 @@ async function ensureBatchExecutionRowsInTx(
         itemType: ingredient.itemType,
         unitName: ingredient.unitName,
         quantityPerUnit: ingredient.quantityPerUnit,
-        plannedQuantity: normalizeQuantityString(
-          parseFloat(ingredient.quantityPerUnit) * parseFloat(batch.plannedQuantity)
-        ),
+        plannedQuantity: ingredient.quantityPerUnit,
         sortOrder: ingredient.sortOrder,
       }))
     )

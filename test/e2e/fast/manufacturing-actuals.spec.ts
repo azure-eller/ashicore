@@ -104,7 +104,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       return ingredient!;
     };
 
-    // Batch 1: under-consume — plan 50, pick 50, actual 48
+    // Batch 1: under-consume — plan 1, pick 1, actual 0.98
     const batchOneIngredient = await getBatchIngredient(batchOne.id);
 
     const startOneResponse = await testFetch(
@@ -126,7 +126,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         body: JSON.stringify({
           actualQuantity: "50",
           ingredientActuals: [
-            { ingredientId: batchOneIngredient.id, actualConsumedQuantity: "48" },
+            { ingredientId: batchOneIngredient.id, actualConsumedQuantity: "0.98" },
           ],
         }),
       }
@@ -137,7 +137,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       .select()
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.id, batchOneIngredient.id));
-    expect(reconciledOne.actualQuantity).toBe("48.0000");
+    expect(reconciledOne.actualQuantity).toBe("0.9800");
 
     const varianceGainEvents = await db
       .select()
@@ -150,10 +150,10 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         )
       );
     expect(varianceGainEvents).toHaveLength(1);
-    expect(varianceGainEvents[0].quantity).toBe("2.0000");
+    expect(varianceGainEvents[0].quantity).toBe("0.0200");
     expect(varianceGainEvents[0].itemId).toBe(soilId);
 
-    // Batch 2: over-consume — plan 50, pick 50, actual 52
+    // Batch 2: over-consume — plan 1, pick 1, actual 1.02
     const batchTwoIngredient = await getBatchIngredient(batchTwo.id);
 
     const startTwoResponse = await testFetch(
@@ -175,7 +175,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         body: JSON.stringify({
           actualQuantity: "50",
           ingredientActuals: [
-            { ingredientId: batchTwoIngredient.id, actualConsumedQuantity: "52" },
+            { ingredientId: batchTwoIngredient.id, actualConsumedQuantity: "1.02" },
           ],
         }),
       }
@@ -186,7 +186,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       .select()
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.id, batchTwoIngredient.id));
-    expect(reconciledTwo.actualQuantity).toBe("52.0000");
+    expect(reconciledTwo.actualQuantity).toBe("1.0200");
 
     const varianceLossEvents = await db
       .select()
@@ -199,7 +199,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         )
       );
     expect(varianceLossEvents).toHaveLength(1);
-    expect(varianceLossEvents[0].quantity).toBe("2.0000");
+    expect(varianceLossEvents[0].quantity).toBe("0.0200");
     expect(varianceLossEvents[0].itemId).toBe(soilId);
 
     const [completedOrder] = await db
@@ -218,8 +218,8 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, soilId));
-    // Started with 200 totes, total net consumption = 48 + 52 = 100
-    expect(parseFloat(remainingSoil.onHandQty)).toBeCloseTo(100, 4);
+    // Started with 200 totes, total net consumption = 0.98 + 1.02 = 2
+    expect(parseFloat(remainingSoil.onHandQty)).toBeCloseTo(198, 4);
 
     const allocations = await db
       .select({
@@ -234,8 +234,8 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         )
       )
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
-    // Net across both batches: 48 + 52 = 100 totes still allocated
-    expect(parseFloat(allocations[0].totalUsed)).toBeCloseTo(100, 4);
+    // Net across both batches: 0.98 + 1.02 = 2 totes still allocated
+    expect(parseFloat(allocations[0].totalUsed)).toBeCloseTo(2, 4);
 
     const soilLotBalances = await db
       .select({ quantity: inventoryLotBalances.quantity })
@@ -245,7 +245,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       (sum, row) => sum + parseFloat(row.quantity),
       0
     );
-    expect(lotTotal).toBeCloseTo(100, 4);
+    expect(lotTotal).toBeCloseTo(198, 4);
   });
 
   test("returns 409 when discrete actuals exceed remaining stock", async ({
