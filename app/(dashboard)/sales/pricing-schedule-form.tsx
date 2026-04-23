@@ -191,11 +191,6 @@ export function PricingScheduleForm({
           <h1 className="text-3xl font-semibold tracking-tight">
             {isEditing ? "Edit Pricing Schedule" : "Add Pricing Schedule"}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            {isEditing
-              ? "Update the customer scope, unit, and quantity discounts for this pricing schedule."
-              : "Create a single quantity-discount curve for one customer scope and unit."}
-          </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">

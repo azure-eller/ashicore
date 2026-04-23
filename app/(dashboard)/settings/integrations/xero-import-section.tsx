@@ -45,19 +45,12 @@ export function XeroImportSection({
   }
 
   return (
-    <div className="space-y-4 border-t pt-6">
-      <div>
-        <h3 className="text-base font-medium">Import from Xero</h3>
-        <p className="text-sm text-muted-foreground">
-          Pull existing contacts so you don&apos;t have to re-key customers and
-          suppliers. Matches by Xero contact ID, then email, then name.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap gap-3">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2">
         {canImportCustomers && (
           <Button
             variant="outline"
+            size="sm"
             onClick={() =>
               customersMutation.mutate(undefined, {
                 onSuccess: (data) => setCustomerSummary(data),
@@ -65,14 +58,13 @@ export function XeroImportSection({
             }
             disabled={customersMutation.isPending}
           >
-            {customersMutation.isPending
-              ? "Importing customers..."
-              : "Import customers"}
+            {customersMutation.isPending ? "Importing…" : "Import customers"}
           </Button>
         )}
         {canImportSuppliers && (
           <Button
             variant="outline"
+            size="sm"
             onClick={() =>
               suppliersMutation.mutate(undefined, {
                 onSuccess: (data) => setSupplierSummary(data),
@@ -80,9 +72,7 @@ export function XeroImportSection({
             }
             disabled={suppliersMutation.isPending}
           >
-            {suppliersMutation.isPending
-              ? "Importing suppliers..."
-              : "Import suppliers"}
+            {suppliersMutation.isPending ? "Importing…" : "Import suppliers"}
           </Button>
         )}
       </div>

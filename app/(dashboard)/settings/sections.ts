@@ -1,22 +1,24 @@
-import { canManageTeam } from "@/lib/authz";
-
 export type SettingsSection = {
   id: string;
   title: string;
 };
 
-const ALL_SETTINGS_SECTIONS: SettingsSection[] = [
-  { id: "profile", title: "Profile" },
-  { id: "appearance", title: "Appearance" },
-  { id: "team", title: "Team" },
-];
+export function getSettingsSections({
+  showTeam,
+  showIntegrations,
+}: {
+  showTeam: boolean;
+  showIntegrations: boolean;
+}): SettingsSection[] {
+  const sections: SettingsSection[] = [{ id: "account", title: "Account" }];
 
-export function getSettingsSections(role: string | string[] | null | undefined): SettingsSection[] {
-  return ALL_SETTINGS_SECTIONS.filter((section) => {
-    if (section.id === "team") {
-      return canManageTeam(role);
-    }
+  if (showTeam) {
+    sections.push({ id: "team", title: "Team" });
+  }
 
-    return true;
-  });
+  if (showIntegrations) {
+    sections.push({ id: "integrations", title: "Integrations" });
+  }
+
+  return sections;
 }

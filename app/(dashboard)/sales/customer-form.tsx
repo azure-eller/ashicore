@@ -272,11 +272,6 @@ export function CustomerForm({
           <h1 className="text-3xl font-semibold tracking-tight">
             {isEditing ? "Edit Customer" : "Add Customer"}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            {isEditing
-              ? "Update this customer’s details."
-              : "Create a new customer for sales orders."}
-          </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">

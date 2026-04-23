@@ -477,11 +477,20 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
     });
   };
 
+  const memberCount = data.members.length;
+  const pendingCount = data.pendingInvites.length;
+
   return (
     <>
-      <section id="team" className="rounded-xl border bg-background">
-        <div className="flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Team</h2>
+      <section id="team" className="scroll-mt-24 rounded-lg border">
+        <div className="flex items-center justify-between gap-4 p-6">
+          <h2 className="text-base font-semibold tracking-tight">
+            Team{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              · {memberCount} {memberCount === 1 ? "member" : "members"}
+              {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
+            </span>
+          </h2>
           <InviteMemberDialog
             canGrantTeamManagement={data.canGrantTeamManagement}
             onSuccess={refreshData}
@@ -494,105 +503,92 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
           </div>
         ) : null}
 
-        {data.pendingInvites.length > 0 ? (
-          <div className="border-t px-6 py-4">
-            <div className="space-y-2">
-              {data.pendingInvites.map((invite) => (
-                <div
-                  key={invite.id}
-                  data-email={invite.email}
-                  className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{invite.email}</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <AccessPresetBadge presetKey={invite.presetKey} />
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(invite.expiresAt)}
-                      </span>
-                    </div>
+        <div className="divide-y border-t">
+          {data.members.map((member) => {
+            const manageable = member.canManage && !member.isCurrentUser;
+
+            return (
+              <div
+                key={member.id}
+                data-email={member.email}
+                className="group flex items-center justify-between gap-4 px-6 py-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-foreground">
+                    {member.name}
+                    {member.isCurrentUser ? (
+                      <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                    ) : null}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={mutationPending}
-                      onClick={() => resendMutation.mutate(invite.id)}
-                    >
-                      <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
-                      Resend
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={mutationPending}
-                      onClick={() => cancelInviteMutation.mutate(invite.id)}
-                    >
-                      Cancel
-                    </Button>
+                  <div className="truncate text-sm text-muted-foreground">
+                    {member.email}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
 
-        <div className="border-t px-6 py-4">
-          <h3 className="mb-3 text-sm font-medium">Members</h3>
-          <div className="overflow-hidden rounded-xl border">
-            <div className="divide-y">
-              {data.members.map((member) => {
-                const manageable = member.canManage && !member.isCurrentUser;
-
-                return (
-                  <div
-                    key={member.id}
-                    data-email={member.email}
-                    className="group flex items-center justify-between gap-4 px-4 py-4"
-                  >
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="space-y-1">
-                        <div className="font-medium text-foreground">
-                          {member.name}
-                          {member.isCurrentUser ? (
-                            <span className="ml-2 text-xs text-muted-foreground">(You)</span>
-                          ) : null}
-                        </div>
-                        <div className="truncate text-sm text-muted-foreground">
-                          {member.email}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-2">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
-                        {member.role === "owner" ? (
-                          <TeamRoleBadge role={member.role} />
-                        ) : null}
-                      </div>
-
-                      {manageable ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          disabled={mutationPending}
-                          onClick={() => setCustomizingMember(member)}
-                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                          aria-label={`Edit ${member.name}`}
-                        >
-                          <HugeiconsIcon icon={PencilEdit02Icon} />
-                        </Button>
-                      ) : null}
-                    </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
+                    {member.role === "owner" ? (
+                      <TeamRoleBadge role={member.role} />
+                    ) : null}
                   </div>
-                );
-              })}
+
+                  {manageable ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={mutationPending}
+                      onClick={() => setCustomizingMember(member)}
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Edit ${member.name}`}
+                    >
+                      <HugeiconsIcon icon={PencilEdit02Icon} />
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+
+          {data.pendingInvites.map((invite) => (
+            <div
+              key={invite.id}
+              data-email={invite.email}
+              data-pending="true"
+              className="flex items-center justify-between gap-4 px-6 py-4 opacity-60"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-foreground">{invite.email}</div>
+                <div className="text-sm text-muted-foreground">
+                  pending · expires {formatDate(invite.expiresAt)}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <AccessPresetBadge presetKey={invite.presetKey} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={mutationPending}
+                  onClick={() => resendMutation.mutate(invite.id)}
+                >
+                  <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
+                  Resend
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={mutationPending}
+                  onClick={() => cancelInviteMutation.mutate(invite.id)}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       </section>
 

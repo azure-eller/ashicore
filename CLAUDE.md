@@ -82,6 +82,19 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 
 These are gotchas that have caused real bugs. Follow them exactly.
 
+### UI text minimalism
+
+Don't write descriptive subtitles that restate what a heading, label, or button already says. Skip "Manage your X" / "Create a new Y" / "Update this Z" blurbs under page titles. Skip `<p>` descriptions under section headings when the heading is already clear. Skip `FieldDescription` text that repeats a field label. Headings, field labels, and button labels are enough.
+
+```tsx
+// ✗ Wrong — subtitle restates the heading
+<h1>Edit Customer</h1>
+<p className="text-sm text-muted-foreground">Update this customer's details.</p>
+
+// ✓ Correct — the heading is enough
+<h1>Edit Customer</h1>
+```
+
 ### Date and datetime fields
 
 Never use `<input type="date">`. Use `DatePicker` for date columns (`YYYY-MM-DD`) and `DateTimePicker` for timestamp columns (`YYYY-MM-DDTHH:mm:ss`). Both use string values matching Postgres types. See `docs/ui-patterns.md` for Controller examples.

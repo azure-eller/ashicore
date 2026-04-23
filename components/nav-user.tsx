@@ -29,6 +29,7 @@ import {
 import { authClient } from "@/lib/auth-client"
 import { getInitials } from "@/lib/format"
 import { clearReadabilityCookie } from "@/lib/readability-cookie"
+import { ReadabilitySegmented } from "@/components/readability-segmented"
 import { useRouter } from "next/navigation"
 
 export function NavUser({
@@ -97,6 +98,13 @@ export function NavUser({
                 </div>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1.5">
+              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Text size
+              </p>
+              <ReadabilitySegmented />
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => router.push("/settings")}>

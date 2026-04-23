@@ -364,15 +364,6 @@ export function ItemForm({
                 ? "Add Product with Variants"
                 : `Add ${typeLabel}`}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            {isEditing
-              ? isVariant
-                ? "Update variant-specific details. Family name and title are derived from the product family."
-                : `Update this ${typeLabel.toLowerCase()}'s details.`
-              : isMaster
-                ? "Variants can be added from the product detail page after creation."
-                : `Create a new ${typeLabel.toLowerCase()} in your inventory.`}
-          </p>
         </div>
 
         <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">

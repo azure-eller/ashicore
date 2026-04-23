@@ -453,11 +453,6 @@ export function ManufacturingOrderForm({
           <h1 className="text-3xl font-semibold tracking-tight">
             {isEditing ? "Edit Manufacturing Order" : "Add Manufacturing Order"}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            {isEditing
-              ? "Update this draft order before it is released."
-              : "Leave sales order empty for a standalone build, or select a confirmed order to create draft MOs for the whole order."}
-          </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">

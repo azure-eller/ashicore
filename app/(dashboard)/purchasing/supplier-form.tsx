@@ -107,11 +107,6 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
           <h1 className="text-3xl font-semibold tracking-tight">
             {isEditing ? "Edit Supplier" : "Add Supplier"}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            {isEditing
-              ? "Update this supplier’s purchasing details."
-              : "Create a supplier for purchase orders and receiving."}
-          </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">

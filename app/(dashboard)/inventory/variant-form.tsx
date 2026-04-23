@@ -116,11 +116,9 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
     <div className="mx-auto w-full max-w-4xl space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">Add Variant</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Add a variant to the <span className="font-medium">{masterName}</span> family.
-            Category and BOM are inherited from the family.
-          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Add Variant <span className="text-muted-foreground">— {masterName}</span>
+          </h1>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button type="button" variant="outline" onClick={handleCancel}>

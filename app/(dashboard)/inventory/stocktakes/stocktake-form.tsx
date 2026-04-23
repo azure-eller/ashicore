@@ -107,10 +107,6 @@ export function StocktakeForm({
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">New Stocktake</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Snapshot current inventory, enter counted totals, and reconcile the
-            counted truth back to stock.
-          </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">
