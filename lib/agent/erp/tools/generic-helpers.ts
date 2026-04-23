@@ -60,7 +60,7 @@ export function getLastReadMarker(args: {
   entityType: ErpEntityType;
   id: string;
 }) {
-  const acceptedToolNames = new Set(["erp.get", "erp.create", "erp.update"]);
+  const acceptedToolNames = new Set(["erp_get", "erp_create", "erp_update"]);
 
   for (const message of [...args.transcript].reverse()) {
     for (const part of [...message.parts].reverse()) {
@@ -118,7 +118,7 @@ export async function validatePriorRead(args: {
       result: false as const,
       code: "needs_prior_read",
       message: "Read the record before updating it.",
-      suggestion: `Use erp.get with entityType '${args.entityType}' and this id, review the current state, then retry erp.update.`,
+      suggestion: `Use erp_get with entityType '${args.entityType}' and this id, review the current state, then retry erp_update.`,
     };
   }
 
@@ -140,7 +140,7 @@ export async function validatePriorRead(args: {
       result: false as const,
       code: "read_stale",
       message: "Record state has changed since you read it.",
-      suggestion: `Re-read with erp.get for entityType '${args.entityType}', review the current state, then retry erp.update.`,
+      suggestion: `Re-read with erp_get for entityType '${args.entityType}', review the current state, then retry erp_update.`,
     };
   }
 

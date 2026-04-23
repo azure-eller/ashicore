@@ -72,8 +72,8 @@ function getAgentProvider(providerOverride?: AgentProviderOverride | null) {
   return new AnthropicProvider();
 }
 
-function getAgentModel() {
-  return process.env.AGENT_MODEL ?? process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+function getAgentModel(modelOverride?: string | null) {
+  return modelOverride ?? process.env.AGENT_MODEL ?? process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 }
 
 function summarizeAssistantMessage(messages: AgentMessage[]) {
@@ -589,10 +589,11 @@ export async function* runAgentTurn(args: {
   input: CreateAgentTurnRequest;
   signal: AbortSignal;
   providerOverride?: AgentProviderOverride | null;
+  modelOverride?: string | null;
 }): AsyncGenerator<AgentTurnStreamEvent, void, void> {
   const snapshot = await getAgentSessionSnapshot(args.sessionId, args.actor);
   const provider = getAgentProvider(args.providerOverride);
-  const model = getAgentModel();
+  const model = getAgentModel(args.modelOverride);
   const turn = await createTurnRecord({
     sessionId: args.sessionId,
     actor: args.actor,

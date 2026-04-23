@@ -14,7 +14,7 @@ import { insertSupplierSchema } from "@/lib/schemas/suppliers";
 const draftSalesOrderCreateSchema = insertSalesOrderSchema.refine(
   (value) => value.status === "draft",
   {
-    message: "erp.create only supports draft sales orders.",
+    message: "erp_create only supports draft sales orders.",
     path: ["status"],
   }
 );
@@ -49,11 +49,11 @@ const erpCreateInputSchema = z.discriminatedUnion("entityType", [
 type ErpCreateInput = z.infer<typeof erpCreateInputSchema>;
 
 const DESCRIPTION = `
-Use this to create exactly one new ERP record when the create intent is clear. ALWAYS use erp.create for CRUD-shaped records and draft-state orders that can be created without triggering operational side effects. NEVER use this to guess whether a record already exists; use erp.search first if identity is uncertain. This tool is approval-gated and shows a field preview before execution. On success it returns the full created record, not just an id.
+Use this to create exactly one new ERP record when the create intent is clear. ALWAYS use erp_create for CRUD-shaped records and draft-state orders that can be created without triggering operational side effects. NEVER use this to guess whether a record already exists; use erp_search first if identity is uncertain. This tool is approval-gated and shows a field preview before execution. On success it returns the full created record, not just an id.
 `.trim();
 
 export const erpCreateTool = buildTool({
-  name: "erp.create",
+  name: "erp_create",
   description: DESCRIPTION,
   searchHint: "create a new ERP record",
   module: "multiple",

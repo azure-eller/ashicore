@@ -19,11 +19,11 @@ const erpSearchInputSchema = z.strictObject({
 type ErpSearchInput = z.infer<typeof erpSearchInputSchema>;
 
 const DESCRIPTION = `
-Use this for broad discovery when you do not yet know the exact record to inspect. ALWAYS use erp.search for fuzzy lookups like names, order numbers, SKUs, or partial phrases that may refer to more than one ERP entity. NEVER use this when you already know the exact entity type and id. This tool returns compact hits only, not full record state. Use erp.get for the authoritative detail of one exact record. Use erp.list when you already know the entity type and need structured filters instead of broad discovery. Results are paginated with limit and offset. Default limit is 25 and maximum limit is 100.
+Use this for broad discovery when you do not yet know the exact record to inspect. ALWAYS use erp_search for fuzzy lookups like names, order numbers, SKUs, or partial phrases that may refer to more than one ERP entity. NEVER use this when you already know the exact entity type and id. This tool returns compact hits only, not full record state. Use erp_get for the authoritative detail of one exact record. Use erp_list when you already know the entity type and need structured filters instead of broad discovery. Results are paginated with limit and offset. Default limit is 25 and maximum limit is 100.
 `.trim();
 
 export const erpSearchTool = buildTool({
-  name: "erp.search",
+  name: "erp_search",
   description: DESCRIPTION,
   searchHint: "search ERP records across entities by fuzzy text",
   module: "multiple",
@@ -77,4 +77,3 @@ export const erpSearchTool = buildTool({
     });
   },
 });
-

@@ -12,9 +12,20 @@ type RouteContext = {
   }>;
 };
 
+const DEV_AGENT_MODEL_PATTERN = /^claude-[a-z0-9-]{1,96}$/;
+
 function getRequestedAgentProvider(headers: Headers) {
   const provider = headers.get("x-agent-provider");
   return provider === "fake" || provider === "anthropic" ? provider : null;
+}
+
+function getRequestedAgentModel(headers: Headers) {
+  if (process.env.NODE_ENV === "production") {
+    return null;
+  }
+
+  const model = headers.get("x-agent-model")?.trim() ?? "";
+  return DEV_AGENT_MODEL_PATTERN.test(model) ? model : null;
 }
 
 function encodeSseEvent(event: string, payload: unknown) {
@@ -72,6 +83,7 @@ export const POST = apiHandler(async (request, context: RouteContext) => {
           input: body,
           signal: abortController.signal,
           providerOverride: getRequestedAgentProvider(request.headers),
+          modelOverride: getRequestedAgentModel(request.headers),
         })) {
           if (!enqueueEvent(event.event, event.payload)) {
             break;

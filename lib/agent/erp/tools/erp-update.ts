@@ -17,7 +17,7 @@ import { updateSupplierSchema } from "@/lib/schemas/suppliers";
 const draftSalesOrderUpdateSchema = insertSalesOrderSchema.refine(
   (value) => value.status === "draft",
   {
-    message: "erp.update only supports draft sales orders.",
+    message: "erp_update only supports draft sales orders.",
     path: ["status"],
   }
 );
@@ -58,11 +58,11 @@ const erpUpdateInputSchema = z.discriminatedUnion("entityType", [
 type ErpUpdateInput = z.infer<typeof erpUpdateInputSchema>;
 
 const DESCRIPTION = `
-Use this to update exactly one known ERP record after you have already read that same record with erp.get in the current session. ALWAYS read first, then update. NEVER use this to guess whether a record exists or to overwrite a record you have not inspected. If the record changed after your read, this tool fails with read_stale; re-read with erp.get, review the current state, then retry. This tool is approval-gated and shows a field-level diff before execution. On success it returns the full updated record.
+Use this to update exactly one known ERP record after you have already read that same record with erp_get in the current session. ALWAYS read first, then update. NEVER use this to guess whether a record exists or to overwrite a record you have not inspected. If the record changed after your read, this tool fails with read_stale; re-read with erp_get, review the current state, then retry. This tool is approval-gated and shows a field-level diff before execution. On success it returns the full updated record.
 `.trim();
 
 export const erpUpdateTool = buildTool({
-  name: "erp.update",
+  name: "erp_update",
   description: DESCRIPTION,
   searchHint: "update an existing ERP record by entity type and id",
   module: "multiple",
@@ -115,7 +115,7 @@ export const erpUpdateTool = buildTool({
       return {
         result: false,
         code: "invalid_state_transition",
-        message: `erp.update only supports draft ${input.entityType.replaceAll("_", " ")} records.`,
+        message: `erp_update only supports draft ${input.entityType.replaceAll("_", " ")} records.`,
       };
     }
 

@@ -381,6 +381,7 @@ export function AgentChatPanel({
 }) {
   const searchParams = useSearchParams();
   const requestedProvider = searchParams.get("agentProvider");
+  const requestedModel = searchParams.get("agentModel")?.trim() || null;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -421,6 +422,11 @@ export function AgentChatPanel({
       ...(providerOverrideRef.current
         ? {
             "X-Agent-Provider": providerOverrideRef.current,
+          }
+        : {}),
+      ...(requestedModel
+        ? {
+            "X-Agent-Model": requestedModel,
           }
         : {}),
     };

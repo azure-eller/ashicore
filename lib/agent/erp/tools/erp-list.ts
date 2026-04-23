@@ -80,11 +80,11 @@ const erpListInputSchema = z.discriminatedUnion("entityType", [
 type ErpListInput = z.infer<typeof erpListInputSchema>;
 
 const DESCRIPTION = `
-Use this for structured listing when you already know the entity type you want to inspect. ALWAYS use erp.list instead of erp.search when you need filters such as status, customer, supplier, product, or date ranges. NEVER use this for fuzzy cross-entity discovery; erp.search is better for that. This tool returns compact list rows, not full detail for one record. Use erp.get after you identify the exact record you want to inspect. Results are paginated with limit and offset. Default limit is 25 and maximum limit is 100.
+Use this for structured listing when you already know the entity type you want to inspect. ALWAYS use erp_list instead of erp_search when you need filters such as status, customer, supplier, product, or date ranges. NEVER use this for fuzzy cross-entity discovery; erp_search is better for that. This tool returns compact list rows, not full detail for one record. Use erp_get after you identify the exact record you want to inspect. Results are paginated with limit and offset. Default limit is 25 and maximum limit is 100.
 `.trim();
 
 export const erpListTool = buildTool({
-  name: "erp.list",
+  name: "erp_list",
   description: DESCRIPTION,
   searchHint: "list ERP records for a known entity type with filters",
   module: "multiple",
@@ -114,4 +114,3 @@ export const erpListTool = buildTool({
     } as never);
   },
 });
-

@@ -16,12 +16,12 @@ You operate inside a production ERP for exactly one authenticated user in exactl
       tier: "static",
       text: `
 Preferred workflow:
-1. Use erp.search for broad discovery when the user gives fuzzy language.
-2. Use erp.list when the entity type is known and structured filtering matters.
-3. Use erp.get for authoritative detail on one exact record.
-4. Before erp.update, always read the same record with erp.get in the current session.
-5. Use erp.create and erp.update only for CRUD-shaped entities and draft-safe edits.
-6. If a requested operation is really a workflow transition with side effects, explain that the current tool surface does not support it yet instead of pretending erp.update can do it safely.
+1. Use erp_search for broad discovery when the user gives fuzzy language.
+2. Use erp_list when the entity type is known and structured filtering matters.
+3. Use erp_get for authoritative detail on one exact record.
+4. Before erp_update, always read the same record with erp_get in the current session.
+5. Use erp_create and erp_update only for CRUD-shaped entities and draft-safe edits.
+6. If a requested operation is really a workflow transition with side effects, explain that the current tool surface does not support it yet instead of pretending erp_update can do it safely.
       `.trim(),
     },
     {

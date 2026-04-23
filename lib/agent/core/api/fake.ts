@@ -51,9 +51,9 @@ export class FakeAgentProvider implements AgentProvider {
     }
 
     const latestText = getLatestUserText(request);
-    const latestGet = findLatestToolResult(request, "erp.get");
-    const latestSearch = findLatestToolResult(request, "erp.search");
-    const latestList = findLatestToolResult(request, "erp.list");
+    const latestGet = findLatestToolResult(request, "erp_get");
+    const latestSearch = findLatestToolResult(request, "erp_search");
+    const latestList = findLatestToolResult(request, "erp_list");
 
     if (latestText.includes("list") && latestText.includes("order")) {
       if (latestList) {
@@ -67,7 +67,7 @@ export class FakeAgentProvider implements AgentProvider {
       yield {
         type: "tool_use",
         id: randomUUID(),
-        name: "erp.list",
+        name: "erp_list",
         input: {
           entityType: latestText.includes("purchase") ? "purchase_order" : "sales_order",
           limit: 25,
@@ -93,7 +93,7 @@ export class FakeAgentProvider implements AgentProvider {
       yield {
         type: "tool_use",
         id: randomUUID(),
-        name: "erp.search",
+        name: "erp_search",
         input: {
           query: latestText.replace(/\b(find|search|look up|for|the)\b/g, " ").trim() || latestText,
           limit: 10,
@@ -132,7 +132,7 @@ export class FakeAgentProvider implements AgentProvider {
         yield {
           type: "tool_use",
           id: randomUUID(),
-          name: "erp.get",
+          name: "erp_get",
           input: {
             entityType: firstItem.entityType,
             id: firstItem.id,
@@ -146,7 +146,7 @@ export class FakeAgentProvider implements AgentProvider {
       yield {
         type: "tool_use",
         id: randomUUID(),
-        name: "erp.create",
+        name: "erp_create",
         input: {
           entityType: "customer",
           values: {
@@ -200,7 +200,7 @@ export class FakeAgentProvider implements AgentProvider {
         yield {
           type: "tool_use",
           id: randomUUID(),
-          name: "erp.update",
+          name: "erp_update",
           input: {
             entityType: output.entityType,
             id: record.id,

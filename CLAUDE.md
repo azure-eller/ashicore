@@ -13,6 +13,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
 - `pnpm test` — run fast Playwright write-path smoke tests with parallel workers (dev server must be running)
+- `pnpm test:e2e:agent:live` — run the opt-in live Anthropic agent smoke on `claude-haiku-4-5` by default
 - `pnpm test:e2e:slow` — run slow serial operational Playwright stories
 - `pnpm test:e2e:auth` — run auth, invite, and team-access regressions
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
@@ -690,6 +691,7 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 ### Key rules
 
 - Default local test after normal changes: `pnpm test`
+- Live Anthropic agent coverage is opt-in: `pnpm test:e2e:agent:live`
 - If you touch one domain deeply, run that domain's slow spec too: `pnpm test:e2e:<domain>:slow`
 - If you touch auth, invites, or team access, run `pnpm test:e2e:auth`
   This command includes both `auth-security.spec.ts` and `team-management.spec.ts`.

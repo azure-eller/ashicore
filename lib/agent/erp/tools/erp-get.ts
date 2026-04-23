@@ -11,11 +11,11 @@ const erpGetInputSchema = z.strictObject({
 type ErpGetInput = z.infer<typeof erpGetInputSchema>;
 
 const DESCRIPTION = `
-Use this when you already know the exact entity type and id and need the authoritative current state of one ERP record. ALWAYS use erp.get before erp.update so the agent has the current record and updatedAt value. NEVER use this for fuzzy discovery by name, code, or partial text; use erp.search for that. This tool returns one record and has no pagination. If you need structured listing or filtering for a known entity type, use erp.list instead.
+Use this when you already know the exact entity type and id and need the authoritative current state of one ERP record. ALWAYS use erp_get before erp_update so the agent has the current record and updatedAt value. NEVER use this for fuzzy discovery by name, code, or partial text; use erp_search for that. This tool returns one record and has no pagination. If you need structured listing or filtering for a known entity type, use erp_list instead.
 `.trim();
 
 export const erpGetTool = buildTool({
-  name: "erp.get",
+  name: "erp_get",
   description: DESCRIPTION,
   searchHint: "get full ERP record by entity type and id",
   module: "multiple",
