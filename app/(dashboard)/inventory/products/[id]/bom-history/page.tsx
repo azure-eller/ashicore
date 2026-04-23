@@ -16,6 +16,7 @@ import { getBomRevisionHistory, getItem } from "@/app/(dashboard)/inventory/quer
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import { cn } from "@/lib/utils";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 
 export default async function ProductBomHistoryPage({
   params,
@@ -138,7 +139,14 @@ export default async function ProductBomHistoryPage({
                 <TableBody>
                   {selectedRevision.components.map((component) => (
                     <TableRow key={component.id}>
-                      <TableCell>{component.componentName}</TableCell>
+                      <TableCell>
+                        <Link
+                          href={itemDetailHref(component.componentItemType, component.componentId)}
+                          className="hover:underline"
+                        >
+                          {component.componentName}
+                        </Link>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{component.componentItemType}</Badge>
                       </TableCell>

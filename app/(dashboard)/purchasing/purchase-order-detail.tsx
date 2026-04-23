@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -359,7 +360,14 @@ export function PurchaseOrderDetail({
               <TableBody>
                 {order.lines.map((line) => (
                   <TableRow key={line.id}>
-                    <TableCell>{line.itemName}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={itemDetailHref("material", line.itemId)}
+                        className="hover:underline"
+                      >
+                        {line.itemName}
+                      </Link>
+                    </TableCell>
                     <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
                     <TableCell className="text-right">
                       {formatQuantity(line.quantityOrdered)}
@@ -468,12 +476,15 @@ export function PurchaseOrderDetail({
                   {order.lines.map((line, index) => (
                     <TableRow key={line.id}>
                       <TableCell>
-                        <div className="space-y-1">
+                        <Link
+                          href={itemDetailHref("material", line.itemId)}
+                          className="block space-y-1 hover:underline"
+                        >
                           <div className="font-medium">{line.itemName}</div>
                           {line.itemSku && (
                             <p className="text-xs text-muted-foreground">{line.itemSku}</p>
                           )}
-                        </div>
+                        </Link>
                       </TableCell>
                       <TableCell className="text-right">
                         {formatQuantity(line.quantityOrdered)}

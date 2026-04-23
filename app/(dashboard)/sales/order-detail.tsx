@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -390,7 +391,14 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
               <TableBody>
                 {order.lines.map((line) => (
                   <TableRow key={line.id}>
-                    <TableCell>{line.itemName}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={itemDetailHref("product", line.itemId)}
+                        className="hover:underline"
+                      >
+                        {line.itemName}
+                      </Link>
+                    </TableCell>
                     <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
                     <TableCell className="text-right">{line.quantity}</TableCell>
                     <TableCell>{line.unitName}</TableCell>
@@ -563,10 +571,15 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
                 {oversellWarning?.products.map((product) => (
                   <TableRow key={product.itemId}>
                     <TableCell>
-                      <div className="font-medium">{product.itemName}</div>
-                      {product.itemSku && (
-                        <div className="text-xs text-muted-foreground">{product.itemSku}</div>
-                      )}
+                      <Link
+                        href={itemDetailHref("product", product.itemId)}
+                        className="hover:underline"
+                      >
+                        <div className="font-medium">{product.itemName}</div>
+                        {product.itemSku && (
+                          <div className="text-xs text-muted-foreground">{product.itemSku}</div>
+                        )}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       {product.inStock} {product.unitName}

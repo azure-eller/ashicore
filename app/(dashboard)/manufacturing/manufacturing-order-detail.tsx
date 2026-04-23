@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -324,9 +325,14 @@ export function ManufacturingOrderDetail({
                 {order.ingredients.map((ingredient) => (
                   <TableRow key={ingredient.id}>
                     <TableCell>
-                      {ingredient.itemSku
-                        ? `${ingredient.itemName} (${ingredient.itemSku})`
-                        : ingredient.itemName}
+                      <Link
+                        href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
+                        className="hover:underline"
+                      >
+                        {ingredient.itemSku
+                          ? `${ingredient.itemName} (${ingredient.itemSku})`
+                          : ingredient.itemName}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{ingredient.itemType}</Badge>

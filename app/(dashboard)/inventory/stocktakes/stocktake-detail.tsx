@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -505,14 +506,17 @@ export function StocktakeDetail({
                   filteredLines.map((line) => (
                     <TableRow key={line.id}>
                       <TableCell>
-                        <div className="space-y-0.5">
+                        <Link
+                          href={itemDetailHref(line.itemType, line.itemId)}
+                          className="block space-y-0.5 hover:underline"
+                        >
                           <div>{line.itemName}</div>
                           {line.itemSku && (
                             <div className="text-xs text-muted-foreground">
                               {line.itemSku}
                             </div>
                           )}
-                        </div>
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{line.itemType}</Badge>

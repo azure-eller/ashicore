@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
-import { calcStock, ITEM_TYPE_SEGMENTS, type ItemType } from "@/app/(dashboard)/inventory/types";
+import { calcStock, ITEM_TYPE_SEGMENTS, itemDetailHref, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { formatPrice, formatMovementType, formatQuantity } from "@/lib/format";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
@@ -66,6 +66,7 @@ interface ItemDetailProps {
   itemType: ItemType;
   bom?: {
     id: string;
+    componentId: string;
     componentName: string;
     componentItemType: string;
     componentUnit: string;
@@ -533,7 +534,14 @@ export function ItemDetail({
 
                       return (
                         <TableRow key={b.id}>
-                          <TableCell>{b.componentName}</TableCell>
+                          <TableCell>
+                            <Link
+                              href={itemDetailHref(b.componentItemType, b.componentId)}
+                              className="hover:underline"
+                            >
+                              {b.componentName}
+                            </Link>
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{b.componentItemType}</Badge>
                           </TableCell>

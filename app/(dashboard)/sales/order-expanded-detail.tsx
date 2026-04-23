@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import {
   Tooltip,
   TooltipContent,
@@ -89,7 +91,12 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                   </TableCell>
                   <TableCell className="text-sm">
                     <span className="flex items-center gap-1.5 flex-wrap">
-                      <span>{line.masterName}</span>
+                      <Link
+                        href={itemDetailHref("product", line.itemId)}
+                        className="hover:underline"
+                      >
+                        {line.masterName}
+                      </Link>
                       {line.attrs.map((attr, i) => (
                         <Badge
                           key={attr}

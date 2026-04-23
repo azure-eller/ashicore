@@ -961,11 +961,12 @@ test.describe("Manufacturing order flow", () => {
       .filter({ hasText: compostName })
       .first();
 
-    await sandCard.getByRole("button", { name: /Pick / }).click();
-    await compostCard.getByRole("button", { name: /Pick / }).click();
+    await sandCard.getByRole("button", { name: "Pick", exact: true }).click();
+    await compostCard.getByRole("button", { name: "Pick", exact: true }).click();
 
-    await page.getByLabel("Actual Output").fill("6");
     await page.getByRole("button", { name: "Complete Order" }).click();
+    await page.getByLabel("Actual Output").fill("6");
+    await page.getByRole("button", { name: "Confirm" }).click();
 
     await expect
       .poll(

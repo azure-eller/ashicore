@@ -306,11 +306,12 @@ test.describe("Manufacturing write-path smoke", () => {
         .filter({ hasText: batchCompostName })
         .first();
 
-      await sandCard.getByRole("button", { name: /Pick / }).click();
-      await compostCard.getByRole("button", { name: /Pick / }).click();
+      await sandCard.getByRole("button", { name: "Pick", exact: true }).click();
+      await compostCard.getByRole("button", { name: "Pick", exact: true }).click();
 
-      await page.getByLabel("Actual Output").fill(output);
       await page.getByRole("button", { name: "Complete Batch" }).click();
+      await page.getByLabel("Actual Output").fill(output);
+      await page.getByRole("button", { name: "Confirm" }).click();
 
       await expect
         .poll(

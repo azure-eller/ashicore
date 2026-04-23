@@ -14,12 +14,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import type { ManufacturingExecutionDetail } from "./types";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 
 function getDefaultActualQuantity(execution: ManufacturingExecutionDetail) {
   if (execution.manufacturingMode === "batch" && execution.currentBatch != null) {
@@ -34,121 +43,134 @@ export type IngredientActualInput = {
   actualConsumedQuantity: string;
 };
 
-function CompletionCard({
-  defaultActualQuantity,
+type CompleteDialogIngredient = {
+  id: string;
+  itemName: string;
+  itemSku: string | null;
+  unitName: string;
+  plannedQuantity: string;
+  pickedQuantity: string;
+};
+
+function CompleteDialog({
+  open,
+  onOpenChange,
   isBatchMode,
-  canComplete,
-  isCompleting,
-  actionError,
+  defaultActualQuantity,
   ingredients,
-  onComplete,
+  isCompleting,
+  error,
+  onSubmit,
 }: {
-  defaultActualQuantity: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   isBatchMode: boolean;
-  canComplete: boolean;
+  defaultActualQuantity: string;
+  ingredients: CompleteDialogIngredient[];
   isCompleting: boolean;
-  actionError: string | null;
-  ingredients: Array<{
-    id: string;
-    itemName: string;
-    itemSku: string | null;
-    unitName: string;
-    plannedQuantity: string;
-    pickedQuantity: string;
-  }>;
-  onComplete: (value: string, ingredientActuals: IngredientActualInput[]) => void;
+  error: string | null;
+  onSubmit: (value: string, ingredientActuals: IngredientActualInput[]) => void;
 }) {
   const [actualQuantity, setActualQuantity] = useState(defaultActualQuantity);
   const [actualsById, setActualsById] = useState<Record<string, string>>({});
 
+  const handleConfirm = () => {
+    onSubmit(
+      actualQuantity,
+      ingredients.map((ingredient) => ({
+        ingredientId: ingredient.id,
+        actualConsumedQuantity:
+          actualsById[ingredient.id] ?? ingredient.pickedQuantity,
+      }))
+    );
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{isBatchMode ? "Complete Current Batch" : "Complete Order"}</CardTitle>
-        <CardDescription>
-          Enter the actual good output and the actual ingredient consumption from this run.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="max-w-sm space-y-2">
-          <label className="text-sm font-medium" htmlFor="actual-output">
-            Actual Output
-          </label>
-          <Input
-            id="actual-output"
-            inputMode="decimal"
-            value={actualQuantity}
-            onChange={(event) => setActualQuantity(event.target.value)}
-          />
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size={isBatchMode ? "lg" : "default"}>
+        <DialogHeader>
+          <DialogTitle>
+            {isBatchMode ? "Complete Current Batch" : "Complete Order"}
+          </DialogTitle>
+          <DialogDescription>
+            {isBatchMode
+              ? "Enter the actual good output and the actual ingredient consumption from this batch."
+              : "Enter the actual good output for this order."}
+          </DialogDescription>
+        </DialogHeader>
 
-        {ingredients.length > 0 && (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Actual Ingredient Consumption</p>
-              <p className="text-xs text-muted-foreground">
-                Defaults to the picked quantity. Adjust if the worker used more or less than planned — variance is written as an inventory movement.
-              </p>
-            </div>
-            <div className="grid gap-3">
-              {ingredients.map((ingredient) => {
-                const inputId = `actual-consumed-${ingredient.id}`;
-                const value = actualsById[ingredient.id] ?? ingredient.pickedQuantity;
-                return (
-                  <div key={ingredient.id} className="max-w-lg space-y-1">
-                    <label className="text-sm font-medium" htmlFor={inputId}>
-                      {ingredient.itemSku
-                        ? `${ingredient.itemName} (${ingredient.itemSku})`
-                        : ingredient.itemName}
-                    </label>
-                    <p className="text-xs text-muted-foreground">
-                      Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
-                      {" \u00b7 "}
-                      Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
-                    </p>
-                    <Input
-                      id={inputId}
-                      inputMode="decimal"
-                      value={value}
-                      onChange={(event) =>
-                        setActualsById((prev) => ({
-                          ...prev,
-                          [ingredient.id]: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
+        <div className="space-y-5 py-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="actual-output">
+              Actual Output
+            </label>
+            <Input
+              id="actual-output"
+              inputMode="decimal"
+              value={actualQuantity}
+              onChange={(event) => setActualQuantity(event.target.value)}
+            />
           </div>
-        )}
 
-        {actionError && <p className="text-sm text-destructive">{actionError}</p>}
-        <div className="flex flex-wrap gap-3">
-          <Button
-            disabled={!canComplete || isCompleting}
-            onClick={() =>
-              onComplete(
-                actualQuantity,
-                ingredients.map((ingredient) => ({
-                  ingredientId: ingredient.id,
-                  actualConsumedQuantity:
-                    actualsById[ingredient.id] ?? ingredient.pickedQuantity,
-                }))
-              )
-            }
-          >
-            {isCompleting ? "Completing..." : isBatchMode ? "Complete Batch" : "Complete Order"}
-          </Button>
-          {!canComplete && (
-            <p className="self-center text-sm text-muted-foreground">
-              Pick every ingredient before completion.
-            </p>
+          {isBatchMode && ingredients.length > 0 && (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Actual Ingredient Consumption</p>
+                <p className="text-xs text-muted-foreground">
+                  Defaults to the picked quantity. Adjust if the worker used more or less than planned — variance is written as an inventory movement.
+                </p>
+              </div>
+              <div className="grid gap-3">
+                {ingredients.map((ingredient) => {
+                  const inputId = `actual-consumed-${ingredient.id}`;
+                  const value = actualsById[ingredient.id] ?? ingredient.pickedQuantity;
+                  return (
+                    <div key={ingredient.id} className="space-y-1">
+                      <label className="text-sm font-medium" htmlFor={inputId}>
+                        {ingredient.itemSku
+                          ? `${ingredient.itemName} (${ingredient.itemSku})`
+                          : ingredient.itemName}
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
+                        {" · "}
+                        Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
+                      </p>
+                      <Input
+                        id={inputId}
+                        inputMode="decimal"
+                        value={value}
+                        onChange={(event) =>
+                          setActualsById((prev) => ({
+                            ...prev,
+                            [ingredient.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
-      </CardContent>
-    </Card>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isCompleting}
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleConfirm} disabled={isCompleting}>
+            {isCompleting ? "Completing..." : "Confirm"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -159,12 +181,15 @@ export function ManufacturingExecution({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [actionError, setActionError] = useState<string | null>(null);
-  const actualQuantityResetKey =
-    execution.manufacturingMode === "batch"
-      ? `${execution.id}:${execution.currentBatchId ?? "complete"}`
-      : execution.id;
+  const [pickError, setPickError] = useState<{ id: string; message: string } | null>(null);
+  const [pickingIngredientId, setPickingIngredientId] = useState<string | null>(null);
+  const [startBatchError, setStartBatchError] = useState<string | null>(null);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+  const [completeOpen, setCompleteOpen] = useState(false);
   const defaultActualQuantity = getDefaultActualQuantity(execution);
+  const canPick =
+    execution.manufacturingMode === "discrete" ||
+    execution.currentBatch?.status === "in_progress";
 
   const refreshData = async () => {
     await Promise.all([
@@ -198,11 +223,11 @@ export function ManufacturingExecution({
       }
     },
     onMutate: () => {
-      setActionError(null);
+      setStartBatchError(null);
     },
     onSuccess: refreshData,
     onError: (error) => {
-      setActionError(error.message);
+      setStartBatchError(error.message);
     },
   });
 
@@ -222,13 +247,20 @@ export function ManufacturingExecution({
       if (!response.ok) {
         throw new Error(body?.error ?? "Failed to pick ingredient.");
       }
+      return ingredientId;
     },
-    onMutate: () => {
-      setActionError(null);
+    onMutate: (ingredientId) => {
+      setPickingIngredientId(ingredientId);
+      setPickError((prev) => (prev?.id === ingredientId ? null : prev));
     },
-    onSuccess: refreshData,
-    onError: (error) => {
-      setActionError(error.message);
+    onSuccess: async (_data, ingredientId) => {
+      setPickingIngredientId(null);
+      setPickError((prev) => (prev?.id === ingredientId ? null : prev));
+      await refreshData();
+    },
+    onError: (error, ingredientId) => {
+      setPickingIngredientId(null);
+      setPickError({ id: ingredientId, message: error.message });
     },
   });
 
@@ -253,11 +285,14 @@ export function ManufacturingExecution({
       }
     },
     onMutate: () => {
-      setActionError(null);
+      setCompleteError(null);
     },
-    onSuccess: refreshData,
+    onSuccess: async () => {
+      setCompleteOpen(false);
+      await refreshData();
+    },
     onError: (error) => {
-      setActionError(error.message);
+      setCompleteError(error.message);
     },
   });
 
@@ -289,11 +324,14 @@ export function ManufacturingExecution({
       }
     },
     onMutate: () => {
-      setActionError(null);
+      setCompleteError(null);
     },
-    onSuccess: refreshData,
+    onSuccess: async () => {
+      setCompleteOpen(false);
+      await refreshData();
+    },
     onError: (error) => {
-      setActionError(error.message);
+      setCompleteError(error.message);
     },
   });
 
@@ -396,29 +434,34 @@ export function ManufacturingExecution({
                 ))}
               </div>
               {execution.currentBatch ? (
-                <div className="rounded-lg border border-border/80 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="space-y-1">
-                      <p className="font-medium">
-                        Batch {execution.currentBatch.batchNumber}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Planned {formatQuantity(execution.currentBatch.plannedQuantity)}{" "}
-                        {execution.unitName}
-                        {execution.currentBatch.startedAt && (
-                          <> • Started {formatDateTime(execution.currentBatch.startedAt)}</>
-                        )}
-                      </p>
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-border/80 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="space-y-1">
+                        <p className="font-medium">
+                          Batch {execution.currentBatch.batchNumber}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Planned {formatQuantity(execution.currentBatch.plannedQuantity)}{" "}
+                          {execution.unitName}
+                          {execution.currentBatch.startedAt && (
+                            <> • Started {formatDateTime(execution.currentBatch.startedAt)}</>
+                          )}
+                        </p>
+                      </div>
+                      {execution.currentBatch.status === "pending" && (
+                        <Button
+                          onClick={() => startBatchMutation.mutate()}
+                          disabled={startBatchMutation.isPending}
+                        >
+                          {startBatchMutation.isPending ? "Starting..." : "Start Batch"}
+                        </Button>
+                      )}
                     </div>
-                    {execution.currentBatch.status === "pending" && (
-                      <Button
-                        onClick={() => startBatchMutation.mutate()}
-                        disabled={startBatchMutation.isPending}
-                      >
-                        {startBatchMutation.isPending ? "Starting..." : "Start Batch"}
-                      </Button>
-                    )}
                   </div>
+                  {startBatchError && (
+                    <p className="text-sm text-destructive">{startBatchError}</p>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -435,6 +478,13 @@ export function ManufacturingExecution({
             <p className="text-sm text-muted-foreground">
               Pick each ingredient at its remaining quantity. FIFO lot selection is automatic.
             </p>
+            {execution.manufacturingMode === "batch" &&
+              !canPick &&
+              execution.currentBatch && (
+                <p className="text-sm text-muted-foreground">
+                  Start batch {execution.currentBatch.batchNumber} before picking.
+                </p>
+              )}
           </div>
 
           <div className="grid gap-3">
@@ -443,36 +493,49 @@ export function ManufacturingExecution({
 
               return (
                 <Card key={ingredient.id} size="sm" className="border border-border/80">
-                  <CardContent className="flex flex-col gap-4 py-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">
-                          {ingredient.itemSku
-                            ? `${ingredient.itemName} (${ingredient.itemSku})`
-                            : ingredient.itemName}
+                  <CardContent className="flex flex-col gap-2 py-1">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
+                            className="font-medium hover:underline"
+                          >
+                            {ingredient.itemSku
+                              ? `${ingredient.itemName} (${ingredient.itemSku})`
+                              : ingredient.itemName}
+                          </Link>
+                          <Badge variant="outline">{ingredient.itemType}</Badge>
+                          {isPicked && <Badge variant="outline">Picked</Badge>}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
+                          {" • "}
+                          Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
+                          {" • "}
+                          Remaining {formatQuantity(ingredient.remainingQuantity)} {ingredient.unitName}
                         </p>
-                        <Badge variant="outline">{ingredient.itemType}</Badge>
-                        {isPicked && <Badge variant="outline">Picked</Badge>}
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
-                        {" • "}
-                        Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
-                        {" • "}
-                        Remaining {formatQuantity(ingredient.remainingQuantity)} {ingredient.unitName}
-                      </p>
+                      <Button
+                        variant={isPicked ? "outline" : "default"}
+                        disabled={
+                          isPicked ||
+                          !canPick ||
+                          pickMutation.isPending ||
+                          isCompleting
+                        }
+                        onClick={() => pickMutation.mutate(ingredient.id)}
+                      >
+                        {isPicked
+                          ? "Picked"
+                          : pickingIngredientId === ingredient.id
+                            ? "Picking..."
+                            : "Pick"}
+                      </Button>
                     </div>
-                    <Button
-                      variant={isPicked ? "outline" : "default"}
-                      disabled={isPicked || pickMutation.isPending || isCompleting}
-                      onClick={() => pickMutation.mutate(ingredient.id)}
-                    >
-                      {isPicked
-                        ? "Picked"
-                        : pickMutation.isPending
-                          ? "Picking..."
-                          : `Pick ${formatQuantity(ingredient.remainingQuantity)} ${ingredient.unitName}`}
-                    </Button>
+                    {pickError?.id === ingredient.id && (
+                      <p className="text-sm text-destructive">{pickError.message}</p>
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -480,13 +543,32 @@ export function ManufacturingExecution({
           </div>
         </div>
 
-        <CompletionCard
-          key={actualQuantityResetKey}
-          defaultActualQuantity={defaultActualQuantity}
+        <div className="flex justify-end">
+          <Button
+            size="lg"
+            disabled={!execution.canComplete || isCompleting}
+            onClick={() => setCompleteOpen(true)}
+          >
+            {execution.manufacturingMode === "batch" ? "Complete Batch" : "Complete Order"}
+          </Button>
+        </div>
+
+        <CompleteDialog
+          key={
+            completeOpen
+              ? `open:${execution.currentBatchId ?? execution.id}:${defaultActualQuantity}`
+              : "closed"
+          }
+          open={completeOpen}
+          onOpenChange={(next) => {
+            if (isCompleting) return;
+            if (!next) {
+              setCompleteError(null);
+            }
+            setCompleteOpen(next);
+          }}
           isBatchMode={execution.manufacturingMode === "batch"}
-          canComplete={execution.canComplete}
-          isCompleting={isCompleting}
-          actionError={actionError}
+          defaultActualQuantity={defaultActualQuantity}
           ingredients={execution.ingredients.map((ingredient) => ({
             id: ingredient.id,
             itemName: ingredient.itemName,
@@ -495,7 +577,9 @@ export function ManufacturingExecution({
             plannedQuantity: ingredient.plannedQuantity,
             pickedQuantity: ingredient.pickedQuantity,
           }))}
-          onComplete={(value, ingredientActuals) => {
+          isCompleting={isCompleting}
+          error={completeError}
+          onSubmit={(value, ingredientActuals) => {
             if (execution.manufacturingMode === "batch") {
               completeBatchMutation.mutate({
                 actualQuantity: value,

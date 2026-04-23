@@ -9,6 +9,11 @@ export const ITEM_TYPE_SEGMENTS: Record<ItemType, string> = {
   product: "products",
 };
 
+export function itemDetailHref(itemType: ItemType | string, id: string) {
+  const segment = ITEM_TYPE_SEGMENTS[itemType as ItemType] ?? "products";
+  return `/inventory/${segment}/${id}`;
+}
+
 export type VariantRow = {
   id: string;
   name: string;
