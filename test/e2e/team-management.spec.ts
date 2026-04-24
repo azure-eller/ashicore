@@ -10,14 +10,18 @@ import {
   unitDefinitions,
   user,
 } from "../../lib/db/schema";
+import {
+  TEST_ACCOUNT_EMAIL,
+  TEST_ACCOUNT_PASSWORD,
+} from "../helpers/test-account";
 
 const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
 const SESSION_COOKIE = env.TEST_SESSION_COOKIE;
 const TEST_ORG_ID = env.TEST_ORG_ID;
 const BASE_URL = env.TEST_BASE_URL ?? "http://localhost:3000";
 const BLOCKED_ROUTE_ID = "11111111-1111-1111-1111-111111111111";
-const TEST_OWNER_EMAIL = "test-agent@erp-test.local";
-const TEST_OWNER_PASSWORD = "TestPassword123!";
+const TEST_OWNER_EMAIL = TEST_ACCOUNT_EMAIL;
+const TEST_OWNER_PASSWORD = TEST_ACCOUNT_PASSWORD;
 
 function parseCookie(raw: string) {
   const [name, ...rest] = raw.split("=");

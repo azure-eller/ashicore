@@ -20,6 +20,8 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:sales` — run the fast sales write-path smoke flow
 - `pnpm test:reconciliation` — run inventory reconciliation Playwright specs
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
+- `pnpm dev:seed-user` — create/update the canonical local login (`test@test.com` / `TestPassword123!`) for the running dev server
+- `pnpm seed` — seed demo inventory data through the running dev server into the canonical local/test org
 - `pnpm diff:projections -- --org-id <org-id>` — diff ledger-derived inventory projections for one org
 - `pnpm verify:inventory-state` — diff projections for the current Playwright test org from `test/.test-env.json`
 - `pnpm verify:inventory-kernel` — fail if bridge-only stock helpers leak into new call sites
@@ -737,6 +739,7 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - After form submission, **query the database directly** via the `db` fixture to verify the row
 - The `db` fixture uses the app role with RLS — same security path as the real app
 - Dev server must be running (`pnpm dev`) before `pnpm test`
+- Canonical local/test login is `test@test.com` / `TestPassword123!`; Playwright global setup and `pnpm dev:seed-user` keep this user on `test-org`.
 
 ### Key files
 
