@@ -765,6 +765,7 @@ For code-changing work:
 - Create or enter a dedicated worktree before making changes
 - Do not reuse another active worktree unless the user explicitly points to it
 - Worktrees fall back to the repo root `.env.local` for shared settings, but DB URLs must come from the worktree `.env.local` created by `pnpm db:local:setup`
+- Do not use `gh pr merge --delete-branch` from a feature worktree. Merge first, then delete the remote branch and run `pnpm worktree:cleanup <branch>` separately from the repo root.
 - After a PR merges, agents MUST run `pnpm worktree:cleanup <branch>` from the repo root to drop the local DB and remove the worktree. If no linked worktrees remain, shared local Postgres should be stopped too.
 - Local Postgres data persists across `pnpm db:local:stop`; no reseed is required for normal dev or tests.
 

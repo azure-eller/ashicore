@@ -422,10 +422,14 @@ Worktrees still fall back to the repo-root `.env.local` for shared settings like
 Cleanup flow after merge:
 
 ```bash
+gh pr merge <pr> --merge
+git push origin --delete <branch>
 pnpm worktree:cleanup <branch>
 ```
 
 Run it from the repo root.
+
+Do not use `gh pr merge --delete-branch` from a feature worktree. GitHub CLI may try to delete or switch the local branch and fail because the repo root already holds the `main` worktree.
 
 `pnpm worktree:cleanup <branch>`:
 
