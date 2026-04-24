@@ -101,7 +101,7 @@ Optional:
 
 ## Database Notes
 
-- `DATABASE_URL` is the owner connection. Use it for `drizzle-kit generate` and `drizzle-kit migrate` only.
+- `DATABASE_URL` is the owner connection. Use it for migration generation/application only via `pnpm db:generate` and `pnpm drizzle-kit migrate`.
 - `DATABASE_URL_APP` is the app role. Use it for normal app runtime so RLS is actually exercised.
 - Default local dev is one shared local Postgres instance plus one database per worktree.
 - `pnpm db:local:setup` auto-starts local Postgres when needed, derives the database name from the current worktree folder, creates `app_user`, writes worktree-local DB URLs, and runs migrations.
@@ -136,7 +136,7 @@ pnpm db:local:setup
 pnpm worktree:cleanup <branch>
 pnpm db:local:start   # optional manual control
 pnpm db:local:stop
-pnpm drizzle-kit generate
+pnpm db:generate
 pnpm drizzle-kit migrate
 ```
 

@@ -18,6 +18,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:e2e:auth` — run auth, invite, and team-access regressions
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
 - `pnpm test:sales` — run the fast sales write-path smoke flow
+- `pnpm test:reconciliation` — run inventory reconciliation Playwright specs
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
 - `pnpm diff:projections -- --org-id <org-id>` — diff ledger-derived inventory projections for one org
 - `pnpm verify:inventory-state` — diff projections for the current Playwright test org from `test/.test-env.json`

@@ -18,7 +18,6 @@
     "db:check-migrations": "tsx scripts/make-migrations-idempotent.ts --check",
     "worktree:cleanup": "tsx scripts/cleanup-worktree.ts",
     "cleanup": "tsx scripts/cleanup-worktree.ts",
-    "pull:google-sheet": "DOTENV_CONFIG_PATH=.env.local tsx -r dotenv/config scripts/pull-google-sheet.ts",
     "test": "pnpm test:e2e:fast",
     "test:e2e:fast": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast --workers=${PLAYWRIGHT_FAST_WORKERS:-8}",
     "test:e2e:agent:live": "EMAIL_OUTBOX_ONLY=1 LIVE_AGENT_SMOKE=1 playwright test test/e2e/fast/agent-live.spec.ts",
@@ -81,12 +80,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@google-cloud/local-auth": "^3.0.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
@@ -95,11 +90,8 @@
     "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
-    "googleapis": "^171.4.0",
-    "jsdom": "^29.0.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5",
-    "vitest": "^4.1.0"
+    "typescript": "^5"
   }
 }

@@ -1,3 +1,5 @@
+import "server-only";
+
 // Org isolation is enforced by RLS via app.current_org_id.
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
