@@ -147,6 +147,23 @@ function buildDocumentConditions(filters: InventoryLedgerFilters) {
   }
 }
 
+function countNeedsExpandedJoins(filters: InventoryLedgerFilters) {
+  if (filters.q) {
+    return true;
+  }
+
+  if (!filters.documentId) {
+    return false;
+  }
+
+  return (
+    filters.documentType === "purchase_order" ||
+    filters.documentType === "sales_order" ||
+    filters.documentType === "manufacturing_order" ||
+    filters.documentType === "stocktake"
+  );
+}
+
 function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: string) {
   const conditions = [eq(inventoryEvents.organizationId, organizationId)];
 
@@ -431,82 +448,97 @@ export async function getInventoryLedger(
   return withAuthedOrgContext(async (tx, orgId) => {
     const where = buildLedgerWhere(filters, orgId);
     const offset = (filters.page - 1) * filters.pageSize;
+    const countSelection = {
+      totalCount: sql<number>`count(*)`,
+    };
 
-    const [{ totalCount }] = await tx
-      .select({
-        totalCount: sql<number>`count(*)`,
-      })
-      .from(inventoryEvents)
-      .innerJoin(items, eq(inventoryEvents.itemId, items.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
-      .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
-      .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
-      .leftJoin(
-        directPurchaseOrders,
-        and(
-          eq(inventoryEvents.referenceType, "purchase_order"),
-          eq(inventoryEvents.referenceId, directPurchaseOrders.id)
-        )
-      )
-      .leftJoin(
-        purchaseOrderLineRefs,
-        and(
-          eq(inventoryEvents.referenceType, "purchase_order_line"),
-          eq(inventoryEvents.referenceId, purchaseOrderLineRefs.id)
-        )
-      )
-      .leftJoin(
-        purchaseOrdersViaLines,
-        eq(purchaseOrderLineRefs.purchaseOrderId, purchaseOrdersViaLines.id)
-      )
-      .leftJoin(
-        directSalesOrders,
-        and(
-          eq(inventoryEvents.referenceType, "sales_order"),
-          eq(inventoryEvents.referenceId, directSalesOrders.id)
-        )
-      )
-      .leftJoin(
-        salesOrderLineRefs,
-        and(
-          eq(inventoryEvents.referenceType, "sales_order_line"),
-          eq(inventoryEvents.referenceId, salesOrderLineRefs.id)
-        )
-      )
-      .leftJoin(
-        salesOrdersViaLines,
-        eq(salesOrderLineRefs.salesOrderId, salesOrdersViaLines.id)
-      )
-      .leftJoin(
-        directManufacturingOrders,
-        and(
-          eq(inventoryEvents.referenceType, "manufacturing_order"),
-          eq(inventoryEvents.referenceId, directManufacturingOrders.id)
-        )
-      )
-      .leftJoin(
-        manufacturingIngredientRefs,
-        and(
-          eq(inventoryEvents.referenceType, "manufacturing_order_ingredient"),
-          eq(inventoryEvents.referenceId, manufacturingIngredientRefs.id)
-        )
-      )
-      .leftJoin(
-        manufacturingOrdersViaIngredients,
-        eq(
-          manufacturingIngredientRefs.manufacturingOrderId,
-          manufacturingOrdersViaIngredients.id
-        )
-      )
-      .leftJoin(
-        stocktakeLineRefs,
-        and(
-          eq(inventoryEvents.referenceType, "stocktake_line"),
-          eq(inventoryEvents.referenceId, stocktakeLineRefs.id)
-        )
-      )
-      .leftJoin(stocktakeDocs, eq(stocktakeLineRefs.stocktakeId, stocktakeDocs.id))
-      .where(where);
+    const countRows = countNeedsExpandedJoins(filters)
+      ? await tx
+          .select(countSelection)
+          .from(inventoryEvents)
+          .innerJoin(items, eq(inventoryEvents.itemId, items.id))
+          .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+          .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
+          .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
+          .leftJoin(
+            directPurchaseOrders,
+            and(
+              eq(inventoryEvents.referenceType, "purchase_order"),
+              eq(inventoryEvents.referenceId, directPurchaseOrders.id)
+            )
+          )
+          .leftJoin(
+            purchaseOrderLineRefs,
+            and(
+              eq(inventoryEvents.referenceType, "purchase_order_line"),
+              eq(inventoryEvents.referenceId, purchaseOrderLineRefs.id)
+            )
+          )
+          .leftJoin(
+            purchaseOrdersViaLines,
+            eq(purchaseOrderLineRefs.purchaseOrderId, purchaseOrdersViaLines.id)
+          )
+          .leftJoin(
+            directSalesOrders,
+            and(
+              eq(inventoryEvents.referenceType, "sales_order"),
+              eq(inventoryEvents.referenceId, directSalesOrders.id)
+            )
+          )
+          .leftJoin(
+            salesOrderLineRefs,
+            and(
+              eq(inventoryEvents.referenceType, "sales_order_line"),
+              eq(inventoryEvents.referenceId, salesOrderLineRefs.id)
+            )
+          )
+          .leftJoin(
+            salesOrdersViaLines,
+            eq(salesOrderLineRefs.salesOrderId, salesOrdersViaLines.id)
+          )
+          .leftJoin(
+            directManufacturingOrders,
+            and(
+              eq(inventoryEvents.referenceType, "manufacturing_order"),
+              eq(inventoryEvents.referenceId, directManufacturingOrders.id)
+            )
+          )
+          .leftJoin(
+            manufacturingIngredientRefs,
+            and(
+              eq(inventoryEvents.referenceType, "manufacturing_order_ingredient"),
+              eq(inventoryEvents.referenceId, manufacturingIngredientRefs.id)
+            )
+          )
+          .leftJoin(
+            manufacturingOrdersViaIngredients,
+            eq(
+              manufacturingIngredientRefs.manufacturingOrderId,
+              manufacturingOrdersViaIngredients.id
+            )
+          )
+          .leftJoin(
+            stocktakeLineRefs,
+            and(
+              eq(inventoryEvents.referenceType, "stocktake_line"),
+              eq(inventoryEvents.referenceId, stocktakeLineRefs.id)
+            )
+          )
+          .leftJoin(stocktakeDocs, eq(stocktakeLineRefs.stocktakeId, stocktakeDocs.id))
+          .where(where)
+      : filters.lot
+        ? await tx
+            .select(countSelection)
+            .from(inventoryEvents)
+            .innerJoin(items, eq(inventoryEvents.itemId, items.id))
+            .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
+            .where(where)
+        : await tx
+            .select(countSelection)
+            .from(inventoryEvents)
+            .innerJoin(items, eq(inventoryEvents.itemId, items.id))
+            .where(where);
+    const totalCount = Number(countRows[0]?.totalCount ?? 0);
 
     const rows = await tx
       .select({
@@ -702,8 +734,8 @@ export async function getInventoryLedger(
       rows: mappedRows,
       page: filters.page,
       pageSize: filters.pageSize,
-      totalCount: Number(totalCount),
-      totalPages: Math.max(1, Math.ceil(Number(totalCount) / filters.pageSize)),
+      totalCount,
+      totalPages: Math.max(1, Math.ceil(totalCount / filters.pageSize)),
       resolvedFilters: {
         itemLabel: filters.itemId ? await resolveItemFilterLabel(tx, filters.itemId) : null,
         documentLabel: await resolveDocumentFilterLabel(tx, filters),

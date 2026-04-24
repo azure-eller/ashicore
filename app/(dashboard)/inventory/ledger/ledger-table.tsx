@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowDown01Icon,
@@ -40,6 +40,7 @@ import {
 import {
   formatInventoryLedgerBalanceDimension,
   formatInventoryLedgerEventClass,
+  formatInventoryLedgerEventLabel,
   formatInventoryLedgerSourceType,
   INVENTORY_LEDGER_EVENT_CLASSES,
   INVENTORY_LEDGER_SCOPE_VALUES,
@@ -308,7 +309,7 @@ export function LedgerTable({
                   <SelectItem value={ALL_VALUE}>All event types</SelectItem>
                   {INVENTORY_EVENT_TYPES.map((eventType) => (
                     <SelectItem key={eventType} value={eventType}>
-                      {eventType}
+                      {formatInventoryLedgerEventLabel(eventType)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -447,8 +448,8 @@ export function LedgerTable({
                   const signedQuantity = parseFloat(row.signedQuantity);
 
                   return (
-                    <>
-                      <TableRow key={row.id}>
+                    <Fragment key={row.id}>
+                      <TableRow>
                         <TableCell>
                           <Button
                             type="button"
@@ -542,7 +543,7 @@ export function LedgerTable({
                       </TableRow>
 
                       {isExpanded ? (
-                        <TableRow key={`${row.id}-details`} className="bg-muted/20">
+                        <TableRow className="bg-muted/20">
                           <TableCell colSpan={8} className="space-y-4">
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                               <div className="space-y-1">
@@ -603,7 +604,7 @@ export function LedgerTable({
                           </TableCell>
                         </TableRow>
                       ) : null}
-                    </>
+                    </Fragment>
                   );
                 })}
               </TableBody>

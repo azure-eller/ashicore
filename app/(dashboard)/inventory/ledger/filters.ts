@@ -22,11 +22,13 @@ export function parseInventoryLedgerFilters(
 export function buildInventoryLedgerSearchParams(filters: InventoryLedgerFilters) {
   const searchParams = new URLSearchParams();
 
-  const entries = Object.entries(filters).filter(([, value]) => {
+  const entries = Object.entries(filters).filter(([key, value]) => {
     if (value == null) return false;
     if (typeof value === "string") return value.length > 0;
     if (typeof value === "number") {
-      return !((value === 1 && filters.page === 1) || (value === 50 && filters.pageSize === 50));
+      if (key === "page") return value !== 1;
+      if (key === "pageSize") return value !== 50;
+      return true;
     }
 
     return true;
