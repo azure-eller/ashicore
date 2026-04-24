@@ -43,7 +43,7 @@ export default async function SettingsPage({
   ]);
 
   return (
-    <div className="relative mx-auto w-full max-w-6xl">
+    <div className="relative mx-auto w-full max-w-5xl">
       <div className="pointer-events-none absolute left-0 top-0 z-30">
         <div className="pointer-events-auto">
           <SidebarCollapsedBar />
@@ -52,26 +52,22 @@ export default async function SettingsPage({
 
       <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_180px] lg:items-start">
-        <div className="order-2 min-w-0 lg:order-1">
-          <div className="flex w-full max-w-3xl flex-col gap-6">
-            <AccountSection initialData={accountData} />
-            {teamData ? <TeamSection initialData={teamData} /> : null}
-            {showIntegrations ? (
-              <IntegrationsSection
-                connection={xeroConnection}
-                error={resolvedSearchParams.error}
-                canManageConnection={canManageXero}
-                canImportCustomers={canManageXero}
-                canImportSuppliers={canImportSuppliers}
-              />
-            ) : null}
-          </div>
+      <div className="mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_160px] lg:gap-8">
+        <div className="flex min-w-0 flex-col gap-6">
+          <AccountSection initialData={accountData} />
+          {teamData ? <TeamSection initialData={teamData} /> : null}
+          {showIntegrations ? (
+            <IntegrationsSection
+              connection={xeroConnection}
+              error={resolvedSearchParams.error}
+              canManageConnection={canManageXero}
+              canImportCustomers={canManageXero}
+              canImportSuppliers={canImportSuppliers}
+            />
+          ) : null}
         </div>
 
-        <div className="order-1 lg:order-2 lg:justify-self-end">
-          <SettingsNav sections={sections} />
-        </div>
+        <SettingsNav sections={sections} />
       </div>
     </div>
   );
