@@ -20,7 +20,7 @@ export default async function StocktakeDetailPage({
   return (
     <StocktakeDetail
       stocktake={stocktake}
-      canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
+      canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
     />
   );
 }

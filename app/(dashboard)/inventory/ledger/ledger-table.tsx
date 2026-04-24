@@ -517,7 +517,7 @@ export function LedgerTable({
                         </TableCell>
                         <TableCell
                           className={`text-right font-mono ${
-                            signedQuantity < 0 ? "text-destructive" : undefined
+                            signedQuantity < 0 ? "text-destructive" : ""
                           }`}
                         >
                           {row.balanceDimension === "none"

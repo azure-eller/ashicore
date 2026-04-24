@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { parseInventoryLedgerFilters } from "./filters";
 import { LedgerTable } from "./ledger-table";
 import { getInventoryLedger, getInventoryLedgerActorOptions } from "./queries";
@@ -10,7 +10,7 @@ export default async function InventoryLedgerPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireModuleWriteAccess("inventory");
+  await requireModuleReadAccess("inventory");
 
   return (
     <Suspense fallback={<InventoryLedgerLoading />}>

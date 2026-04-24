@@ -20,7 +20,7 @@ export default async function PurchaseOrderDetailPage({
   return (
     <PurchaseOrderDetail
       order={order}
-      canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
+      canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
     />
   );
 }

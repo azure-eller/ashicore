@@ -28,7 +28,7 @@ export default async function ProductDetailPage({
     ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
       canManageLockedBom(context.assignedRoles)
     : hasModuleAccess(context.assignedRoles, "inventory", "operate");
-  const canViewLedger = hasModuleAccess(context.assignedRoles, "inventory", "operate");
+  const canViewLedger = hasModuleAccess(context.assignedRoles, "inventory", "read");
 
   if (item.isMaster) {
     const variants = await getVariants(id);
