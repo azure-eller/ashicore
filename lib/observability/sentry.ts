@@ -77,6 +77,10 @@ export function getSentryReplayErrorSampleRate() {
   return 1.0;
 }
 
+export function isSentryLocalVariableCaptureEnabled() {
+  return process.env.NODE_ENV === "development" && process.env.SENTRY_INCLUDE_LOCAL_VARIABLES === "1";
+}
+
 export function sanitizeSentryEvent<T extends SentryEvent>(event: T): T {
   if (event.request) {
     delete event.request.data;
