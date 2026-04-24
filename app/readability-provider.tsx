@@ -40,7 +40,7 @@ export function ReadabilityProvider({
   }, [initial]);
 
   useEffect(() => {
-    if (readability === "default") {
+    if (readability === "small") {
       document.documentElement.removeAttribute("data-readability");
       return;
     }

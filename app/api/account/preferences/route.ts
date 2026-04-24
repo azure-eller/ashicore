@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import {
+  LEGACY_READABILITY_COOKIE_NAME,
+  READABILITY_COOKIE_MAX_AGE,
+  READABILITY_COOKIE_NAME,
+} from "@/lib/readability-cookie";
 import { updateReadabilitySchema } from "@/lib/schemas/account";
 import {
   getUserReadabilityForRequest,
@@ -7,9 +12,15 @@ import {
 } from "@/app/(dashboard)/settings/queries";
 
 function setReadabilityCookie(response: NextResponse, readability: string) {
-  response.cookies.set("readability", readability, {
+  response.cookies.set(READABILITY_COOKIE_NAME, readability, {
     path: "/",
-    maxAge: 60 * 60 * 24 * 365,
+    maxAge: READABILITY_COOKIE_MAX_AGE,
+    httpOnly: false,
+    sameSite: "lax",
+  });
+  response.cookies.set(LEGACY_READABILITY_COOKIE_NAME, "", {
+    path: "/",
+    maxAge: 0,
     httpOnly: false,
     sameSite: "lax",
   });

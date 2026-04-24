@@ -6,9 +6,9 @@ import { READABILITY_OPTIONS, type ReadabilityOption } from "@/lib/schemas/accou
 import { cn } from "@/lib/utils";
 
 const LABEL: Record<ReadabilityOption, string> = {
-  default: "Default",
-  large: "Medium",
-  "x-large": "Large",
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
 };
 
 export function ReadabilitySegmented() {

@@ -131,14 +131,14 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-:root[data-readability="large"] {
+:root[data-readability="medium"] {
   font-size: 19px;
   --table-head-height: 3.125rem;
   --table-cell-px: 0.85rem;
   --table-cell-py: 0.85rem;
 }
 
-:root[data-readability="x-large"] {
+:root[data-readability="large"] {
   font-size: 21px;
   --table-head-height: 3.5rem;
   --table-cell-px: 1rem;
