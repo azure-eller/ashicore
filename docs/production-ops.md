@@ -88,6 +88,8 @@ Do not capture by default:
 - raw request bodies
 - customer notes/comments unless intentionally scrubbed
 
+Keep server-side `includeLocalVariables` off on Vercel and other deployed environments. Sentry's local-variable integration opens the Node inspector, which is useful for local debugging but can add major cold-start latency in production-like runtimes. If you need it, gate it behind a local-only env flag such as `SENTRY_INCLUDE_LOCAL_VARIABLES=1`.
+
 Use request IDs in API error responses and logs so failures can be matched across user reports, logs, and Sentry events.
 
 ## Cold-start Debugging

@@ -524,9 +524,15 @@ if (!senderConfig || (await shouldWriteEmailOutbox())) await writeEmailOutbox(em
 
 Sentry and API error logging must redact secrets and user-entered notes. Never capture passwords, tokens, cookies, raw request bodies, or customer notes/comments by default.
 
+Keep Sentry `includeLocalVariables` local-only and opt-in. It opens the Node inspector and can explode Vercel cold starts.
+
 ```ts
 delete event.request?.data
 scope.setContext("request", { method, path })
+
+const includeLocalVariables =
+  process.env.NODE_ENV === "development" &&
+  process.env.SENTRY_INCLUDE_LOCAL_VARIABLES === "1"
 ```
 
 Cold-start debugging uses proxy-stamped request IDs. Grab `x-erp-request-id` from the HTML/API response, then find matching `[perf]` runtime logs. `rsc.root_layout.complete` logs `sinceProxyMs` for full server wall time, and API responses expose `Server-Timing` plus `x-erp-*` DB timing headers.

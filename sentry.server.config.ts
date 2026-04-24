@@ -4,6 +4,7 @@ import {
   getSentryEnvironment,
   getSentryRelease,
   getSentryTracesSampleRate,
+  isSentryLocalVariableCaptureEnabled,
   isSentryEnabled,
   sanitizeSentryEvent,
 } from "@/lib/observability/sentry";
@@ -16,7 +17,7 @@ if (isSentryEnabled()) {
     release: getSentryRelease(),
     tracesSampleRate: getSentryTracesSampleRate(),
     sendDefaultPii: false,
-    includeLocalVariables: true,
+    includeLocalVariables: isSentryLocalVariableCaptureEnabled(),
     enableLogs: true,
     beforeSend: sanitizeSentryEvent,
   });
