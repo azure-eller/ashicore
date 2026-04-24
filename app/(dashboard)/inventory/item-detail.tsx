@@ -107,6 +107,7 @@ interface ItemDetailProps {
   }[];
   canEdit?: boolean;
   canViewBom?: boolean;
+  canViewLedger?: boolean;
 }
 
 export function ItemDetail({
@@ -119,6 +120,7 @@ export function ItemDetail({
   variants,
   canEdit = false,
   canViewBom = true,
+  canViewLedger = false,
 }: ItemDetailProps) {
   const isMaster = item.isMaster === true;
   const isVariant = item.parentId != null;
@@ -345,6 +347,7 @@ export function ItemDetail({
           itemType={itemType}
           canEdit={canEdit}
           canDelete={canEdit}
+          canViewLedger={canViewLedger}
         />
       </div>
       <Separator />
@@ -637,7 +640,14 @@ export function ItemDetail({
       {/* Stock Movements */}
       <Separator />
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">Stock Movements</h2>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">Stock Movements</h2>
+          {canViewLedger ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/inventory/ledger?itemId=${item.id}`}>View Full Ledger</Link>
+            </Button>
+          ) : null}
+        </div>
         {movements.length === 0 ? (
           <p className="text-sm text-muted-foreground">No stock movements recorded.</p>
         ) : (

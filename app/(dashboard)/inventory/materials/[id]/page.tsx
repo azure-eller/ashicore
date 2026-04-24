@@ -27,6 +27,7 @@ export default async function MaterialDetailPage({
       movements={movements}
       usedInParents={usedInParents}
       canEdit={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
+      canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
     />
   );
 }

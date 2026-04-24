@@ -28,6 +28,7 @@ export default async function ProductDetailPage({
     ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
       canManageLockedBom(context.assignedRoles)
     : hasModuleAccess(context.assignedRoles, "inventory", "operate");
+  const canViewLedger = hasModuleAccess(context.assignedRoles, "inventory", "operate");
 
   if (item.isMaster) {
     const variants = await getVariants(id);
@@ -40,6 +41,7 @@ export default async function ProductDetailPage({
         variants={variants}
         canEdit={canEdit}
         canViewBom={false}
+        canViewLedger={canViewLedger}
       />
     );
   }
@@ -61,6 +63,7 @@ export default async function ProductDetailPage({
       usedInParents={usedInParents}
       canEdit={canEdit}
       canViewBom={canViewBom}
+      canViewLedger={canViewLedger}
     />
   );
 }
