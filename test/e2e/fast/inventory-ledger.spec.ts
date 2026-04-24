@@ -2,6 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { filterList, test, expect } from "../fixtures";
 import {
   inventoryEvents,
+  manufacturingOrderBatches,
+  manufacturingOrders,
   purchaseOrders,
   salesOrders,
   stocktakeItems,
@@ -41,6 +43,7 @@ test.describe("Inventory ledger explorer", () => {
 
   let salesOrderId = "";
   let salesOrderNumber = "";
+  let salesProductId = "";
 
   let stocktakeId = "";
   let stocktakeLossLineId = "";
@@ -130,6 +133,7 @@ test.describe("Inventory ledger explorer", () => {
       bom: [],
     });
     expect(salesProductCreate.status).toBe(201);
+    salesProductId = salesProductCreate.body.id as string;
     const customerCreate = await createCustomer({
       name: customerName,
       email: `ledger-customer-${ts}@example.com`,
@@ -514,6 +518,91 @@ test.describe("Inventory ledger explorer", () => {
         [stocktakeLossLineId, stocktakeVerifiedLineId].includes(row.referenceId)
       )
     ).toBe(true);
+  });
+
+  test("returns manufacturing batch rows from the ledger API using batch resolution", async ({
+    db,
+  }) => {
+    const [sourceEvent] = await db
+      .select({ locationId: inventoryEvents.locationId })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.itemId, purchaseMaterialId))
+      .limit(1);
+    if (!sourceEvent) {
+      throw new Error("Expected a source inventory event for batch ledger test.");
+    }
+
+    const [order] = await db
+      .insert(manufacturingOrders)
+      .values({
+        organizationId: getOrgId(),
+        orderNumber: `MO-LEDGER-${ts}`,
+        productId: salesProductId,
+        productName: salesProductName,
+        unitName: "Each",
+        manufacturingMode: "batch",
+        numberOfBatches: 1,
+        expectedBatchYield: "1",
+        requestedQuantity: "1",
+        plannedQuantity: "1",
+        status: "released",
+      })
+      .returning({ id: manufacturingOrders.id, orderNumber: manufacturingOrders.orderNumber });
+    if (!order) {
+      throw new Error("Expected test manufacturing order to be inserted.");
+    }
+
+    const [batch] = await db
+      .insert(manufacturingOrderBatches)
+      .values({
+        manufacturingOrderId: order.id,
+        batchNumber: 1,
+        status: "completed",
+        plannedQuantity: "1",
+        actualQuantity: "1",
+      })
+      .returning({ id: manufacturingOrderBatches.id });
+    if (!batch) {
+      throw new Error("Expected test manufacturing batch to be inserted.");
+    }
+
+    const [batchEvent] = await db
+      .insert(inventoryEvents)
+      .values({
+        organizationId: getOrgId(),
+        locationId: sourceEvent.locationId,
+        eventType: "cost_basis_change",
+        eventSubtype: "bom_edited",
+        itemId: purchaseMaterialId,
+        quantity: "0",
+        referenceType: "manufacturing_batch",
+        referenceId: batch.id,
+      })
+      .returning({ id: inventoryEvents.id });
+    if (!batchEvent) {
+      throw new Error("Expected test manufacturing batch event to be inserted.");
+    }
+
+    const response = await testFetch(
+      `/api/inventory-ledger?documentType=manufacturing_order&documentId=${order.id}&scope=all&eventType=cost_basis_change`
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.resolvedFilters.documentLabel).toBe(order.orderNumber);
+    expect(body.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: batchEvent.id,
+          referenceType: "manufacturing_batch",
+          sourceDocument: expect.objectContaining({
+            type: "manufacturing_order",
+            id: order.id,
+            label: order.orderNumber,
+          }),
+        }),
+      ])
+    );
   });
 
   test("shows stocktake activity in the UI drill-through", async ({ page }) => {

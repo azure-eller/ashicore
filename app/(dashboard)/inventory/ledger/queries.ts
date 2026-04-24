@@ -18,6 +18,7 @@ import {
   type InventoryEventType,
   inventoryEvents,
   items,
+  manufacturingOrderBatches,
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -77,6 +78,14 @@ const manufacturingOrdersViaIngredients = alias(
   manufacturingOrders,
   "ledger_manufacturing_orders_via_ingredients"
 );
+const manufacturingBatchRefs = alias(
+  manufacturingOrderBatches,
+  "ledger_manufacturing_batch_refs"
+);
+const manufacturingOrdersViaBatches = alias(
+  manufacturingOrders,
+  "ledger_manufacturing_orders_via_batches"
+);
 
 const stocktakeLineRefs = alias(stocktakeItems, "ledger_stocktake_line_refs");
 const stocktakeDocs = alias(stocktakes, "ledger_stocktake_docs");
@@ -128,11 +137,13 @@ function buildDocumentConditions(filters: InventoryLedgerFilters) {
         id
           ? or(
               eq(directManufacturingOrders.id, id),
-              eq(manufacturingOrdersViaIngredients.id, id)
+              eq(manufacturingOrdersViaIngredients.id, id),
+              eq(manufacturingOrdersViaBatches.id, id)
             )
           : or(
               eq(inventoryEvents.referenceType, "manufacturing_order"),
-              eq(inventoryEvents.referenceType, "manufacturing_order_ingredient")
+              eq(inventoryEvents.referenceType, "manufacturing_order_ingredient"),
+              eq(inventoryEvents.referenceType, "manufacturing_batch")
             ),
       ];
     case "stocktake":
@@ -232,6 +243,7 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
       ilike(salesOrdersViaLines.orderNumber, pattern),
       ilike(directManufacturingOrders.orderNumber, pattern),
       ilike(manufacturingOrdersViaIngredients.orderNumber, pattern),
+      ilike(manufacturingOrdersViaBatches.orderNumber, pattern),
       ilike(stocktakeDocs.name, pattern),
       ilike(actorUsers.name, pattern),
       ilike(actorUsers.email, pattern)
@@ -306,6 +318,8 @@ function resolveSourceDocument(row: {
   directManufacturingOrderNumber: string | null;
   manufacturingOrderIdViaIngredient: string | null;
   manufacturingOrderNumberViaIngredient: string | null;
+  manufacturingOrderIdViaBatch: string | null;
+  manufacturingOrderNumberViaBatch: string | null;
   stocktakeId: string | null;
   stocktakeName: string | null;
 }) {
@@ -337,13 +351,17 @@ function resolveSourceDocument(row: {
 
   if (
     row.directManufacturingOrderId ||
-    row.manufacturingOrderIdViaIngredient
+    row.manufacturingOrderIdViaIngredient ||
+    row.manufacturingOrderIdViaBatch
   ) {
     const id =
-      row.directManufacturingOrderId ?? row.manufacturingOrderIdViaIngredient;
+      row.directManufacturingOrderId ??
+      row.manufacturingOrderIdViaIngredient ??
+      row.manufacturingOrderIdViaBatch;
     const label =
       row.directManufacturingOrderNumber ??
       row.manufacturingOrderNumberViaIngredient ??
+      row.manufacturingOrderNumberViaBatch ??
       id ??
       "Manufacturing order";
 
@@ -534,6 +552,20 @@ export async function getInventoryLedger(
             )
           )
           .leftJoin(
+            manufacturingBatchRefs,
+            and(
+              eq(inventoryEvents.referenceType, "manufacturing_batch"),
+              eq(inventoryEvents.referenceId, manufacturingBatchRefs.id)
+            )
+          )
+          .leftJoin(
+            manufacturingOrdersViaBatches,
+            eq(
+              manufacturingBatchRefs.manufacturingOrderId,
+              manufacturingOrdersViaBatches.id
+            )
+          )
+          .leftJoin(
             stocktakeLineRefs,
             and(
               eq(inventoryEvents.referenceType, "stocktake_line"),
@@ -595,6 +627,8 @@ export async function getInventoryLedger(
         manufacturingOrderIdViaIngredient: manufacturingOrdersViaIngredients.id,
         manufacturingOrderNumberViaIngredient:
           manufacturingOrdersViaIngredients.orderNumber,
+        manufacturingOrderIdViaBatch: manufacturingOrdersViaBatches.id,
+        manufacturingOrderNumberViaBatch: manufacturingOrdersViaBatches.orderNumber,
         stocktakeId: stocktakeDocs.id,
         stocktakeName: stocktakeDocs.name,
       })
@@ -661,6 +695,20 @@ export async function getInventoryLedger(
         )
       )
       .leftJoin(
+        manufacturingBatchRefs,
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_batch"),
+          eq(inventoryEvents.referenceId, manufacturingBatchRefs.id)
+        )
+      )
+      .leftJoin(
+        manufacturingOrdersViaBatches,
+        eq(
+          manufacturingBatchRefs.manufacturingOrderId,
+          manufacturingOrdersViaBatches.id
+        )
+      )
+      .leftJoin(
         stocktakeLineRefs,
         and(
           eq(inventoryEvents.referenceType, "stocktake_line"),
@@ -699,6 +747,8 @@ export async function getInventoryLedger(
         manufacturingOrderIdViaIngredient: row.manufacturingOrderIdViaIngredient,
         manufacturingOrderNumberViaIngredient:
           row.manufacturingOrderNumberViaIngredient,
+        manufacturingOrderIdViaBatch: row.manufacturingOrderIdViaBatch,
+        manufacturingOrderNumberViaBatch: row.manufacturingOrderNumberViaBatch,
         stocktakeId: row.stocktakeId,
         stocktakeName: row.stocktakeName,
       });
