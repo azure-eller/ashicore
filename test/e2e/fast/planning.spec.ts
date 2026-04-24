@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   manufacturingOrderIngredients,
@@ -580,7 +580,7 @@ test.describe("Planning workspace", () => {
     expect(ingredients[0].plannedQuantity).toBe("10.0000");
   });
 
-  test("duplicate recommendation action is rejected", async () => {
+  test("duplicate recommendation action is rejected", async ({ db }) => {
     const itemId = await createMaterial(`Planning Duplicate Action ${ts}`);
     await establishSupplierHistory(itemId);
     await createConfirmedDemand(itemId, "4");
@@ -593,6 +593,42 @@ test.describe("Planning workspace", () => {
     expect(first.status).toBe(201);
     const duplicate = await createPlanningPurchaseOrderDraft(recommendation.actionPayload!);
     expect(duplicate.status).toBe(409);
+
+    const concurrentItemId = await createMaterial(`Planning Concurrent Duplicate ${ts}`);
+    await establishSupplierHistory(concurrentItemId);
+    await createConfirmedDemand(concurrentItemId, "4");
+
+    const concurrentPlanning = await snapshot();
+    const concurrentRecommendation = recommendationFor(
+      concurrentPlanning,
+      concurrentItemId
+    );
+    expect(concurrentRecommendation.actionPayload).toBeTruthy();
+
+    const concurrentResults = await Promise.all([
+      createPlanningPurchaseOrderDraft(concurrentRecommendation.actionPayload!),
+      createPlanningPurchaseOrderDraft(concurrentRecommendation.actionPayload!),
+    ]);
+    expect(concurrentResults.map((result) => result.status).sort()).toEqual([
+      201,
+      409,
+    ]);
+
+    const marker = `[planning-recommendation:${concurrentRecommendation.id}]`;
+    const planningDrafts = await db
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .innerJoin(
+        purchaseOrderLines,
+        eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id)
+      )
+      .where(
+        and(
+          eq(purchaseOrderLines.itemId, concurrentItemId),
+          sql`${purchaseOrders.notes} LIKE ${`%${marker}%`}`
+        )
+      );
+    expect(planningDrafts).toHaveLength(1);
   });
 
   test("authorization keeps another org planning data and actions isolated", async () => {

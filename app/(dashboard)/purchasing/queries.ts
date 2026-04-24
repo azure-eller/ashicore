@@ -616,34 +616,42 @@ export async function getEditablePurchaseOrder(
   });
 }
 
+export async function createPurchaseOrderInTx(
+  tx: Tx,
+  orgId: string,
+  data: InsertPurchaseOrder
+) {
+  const prepared = await preparePurchaseOrderPayload(tx, data);
+  const orderNumber = await generateOrderNumber(tx);
+
+  const [order] = await tx
+    .insert(purchaseOrders)
+    .values({
+      organizationId: orgId,
+      orderNumber,
+      supplierId: prepared.supplierId,
+      supplierName: prepared.supplierName,
+      status: "draft",
+      expectedDate: prepared.expectedDate,
+      notes: prepared.notes,
+      totalAmount: prepared.totalAmount,
+    })
+    .returning({ id: purchaseOrders.id });
+
+  await tx.insert(purchaseOrderLines).values(
+    prepared.preparedLines.map((line) => ({
+      purchaseOrderId: order.id,
+      ...line,
+    }))
+  );
+
+  return order;
+}
+
 export async function createPurchaseOrder(data: InsertPurchaseOrder) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const prepared = await preparePurchaseOrderPayload(tx, data);
-    const orderNumber = await generateOrderNumber(tx);
-
-    const [order] = await tx
-      .insert(purchaseOrders)
-      .values({
-        organizationId: orgId,
-        orderNumber,
-        supplierId: prepared.supplierId,
-        supplierName: prepared.supplierName,
-        status: "draft",
-        expectedDate: prepared.expectedDate,
-        notes: prepared.notes,
-        totalAmount: prepared.totalAmount,
-      })
-      .returning({ id: purchaseOrders.id });
-
-    await tx.insert(purchaseOrderLines).values(
-      prepared.preparedLines.map((line) => ({
-        purchaseOrderId: order.id,
-        ...line,
-      }))
-    );
-
-    return order;
-  });
+  return withAuthedOrgContext((tx, orgId) =>
+    createPurchaseOrderInTx(tx, orgId, data)
+  );
 }
 
 export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
