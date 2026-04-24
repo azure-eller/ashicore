@@ -44,6 +44,27 @@ Example:
 - `purchaseToStockFactor = 325`
 - stock-unit cost = `250 / 325 = 0.769231`
 
+### Material Running Stock Cost
+
+Materials also carry `items.currentStockUnitCost`, which is the current stock-unit cost basis for future positive stock writes and planning reads.
+
+- `defaultPurchasePrice` stays user-editable and remains a purchase-unit price
+- `currentStockUnitCost` is system state, not a manual default field
+- positive stock writes resolve material cost in this order:
+  1. explicit stock-unit cost on the write
+  2. `currentStockUnitCost`
+  3. derived `defaultPurchasePrice / purchaseToStockFactor`
+  4. fail with a missing-cost error
+
+Update rules:
+
+- opening balances seed `currentStockUnitCost` when they provide an explicit unit cost
+- purchase receipts update it with a weighted average using stock-unit quantities and line `stockUnitCost`
+- if prior on-hand is `<= 0`, the next receipt replaces the stored value with the incoming stock-unit cost instead of averaging
+- when stock reaches `0`, keep the last stored value until a later receipt replaces it
+- correction-class positive flows such as manual increases and stocktake gains may use `currentStockUnitCost` as the fallback lot cost, but they do not rewrite the item field
+- negative flows never rewrite it; FIFO valuation continues to come from the consumed lots themselves
+
 ## Status Rules
 
 - `draft` orders are editable

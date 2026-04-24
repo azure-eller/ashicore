@@ -421,6 +421,16 @@ if (item.itemType === "material") {
 return deriveBomIngredientCost(...)
 ```
 
+### Material running stock cost
+
+Materials keep `items.currentStockUnitCost` as the item-level stock-unit cost basis. Positive stock flows resolve cost in this order: explicit unit cost, `currentStockUnitCost`, then `defaultPurchasePrice / purchaseToStockFactor`. Opening balances seed it, purchase receipts weighted-average it, but correction flows and negative flows do not rewrite it.
+
+```ts
+if (explicitUnitCost != null) return explicitUnitCost
+if (item.currentStockUnitCost != null) return item.currentStockUnitCost
+return resolveStockUnitCostFromDefaultPurchasePrice(...)
+```
+
 ### Sales shipping
 
 Sales shipping is one-shot: `confirmed -> shipped` consumes stock FIFO, writes `sales_shipped` stock movements, and recomputes `committedQty`. Shipped orders are historical and do not block customer/product soft delete.

@@ -18,6 +18,36 @@ const bomRowSchema = z.object({
   quantity: bomQuantitySchema,
 });
 
+const nullableStringPreserveUndefined = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((value) => {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    return value != null ? value.trim() || null : null;
+  });
+
+const currentStockUnitCostMessage =
+  "Current stock unit cost must be a non-negative number";
+
+function isNonNegativeNumberString(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+const currentStockUnitCostSchema = nullableStringOptional.refine(
+  (value) => value == null || isNonNegativeNumberString(value),
+  currentStockUnitCostMessage
+);
+
+const currentStockUnitCostUpdateSchema = nullableStringPreserveUndefined.refine(
+  (value) => value == null || isNonNegativeNumberString(value),
+  currentStockUnitCostMessage
+);
+
 // Base schema without superRefine — used as the foundation for both insert and update.
 // superRefine can't be applied before .omit(), so we split it out.
 const rawBaseItemSchema = createInsertSchema(items, {
@@ -29,6 +59,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
   sku: nullableString,
   category: nullableString,
   defaultPurchasePrice: nullableString,
+  currentStockUnitCost: currentStockUnitCostSchema,
   defaultSellingPrice: nullableString,
   sellable: z.boolean().default(true),
   description: nullableString,
@@ -154,6 +185,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   unitDefinitionId: true,
   stock: true,
 }).extend({
+  currentStockUnitCost: currentStockUnitCostUpdateSchema,
   sellable: z.boolean().optional(),
   manufacturingMode: z.enum(["discrete", "batch"]),
   stock: z.string().refine(
@@ -206,3 +238,15 @@ export const insertVariantSchema = z.object({
 
 export type InsertVariant = z.infer<typeof insertVariantSchema>;
 export type InsertVariantFormValues = z.input<typeof insertVariantSchema>;
+
+export const overrideCurrentStockUnitCostSchema = z.object({
+  currentStockUnitCost: z
+    .string()
+    .trim()
+    .min(1, "Current stock unit cost is required")
+    .refine(isNonNegativeNumberString, currentStockUnitCostMessage),
+});
+
+export type OverrideCurrentStockUnitCost = z.infer<
+  typeof overrideCurrentStockUnitCostSchema
+>;

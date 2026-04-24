@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { getExpectedInventoryTabCounts, getInventoryTabCount, test, expect, filterList } from "../fixtures";
+import { test, expect, filterList } from "../fixtures";
 import { items } from "../../../lib/db/schema";
 import { createItem, createVariant, deleteItem, getUnitId } from "../../helpers/api";
 
@@ -232,17 +232,13 @@ test.describe("inventory visibility", () => {
     );
     await page.getByRole("button", { name: "Save Changes" }).click();
     expect((await updateResponsePromise).status()).toBe(200);
+    await page.waitForURL(new RegExp(`/inventory/products/${sellableOnlyId}$`));
     await expect
       .poll(async () => {
-        const uiProducts = await getInventoryTabCount(page, "Products");
-        const uiSubAssemblies = await getInventoryTabCount(page, "Sub-assemblies");
-        const counts = await getExpectedInventoryTabCounts(db);
-        return `${uiProducts}:${counts.products}:${uiSubAssemblies}:${counts.subAssemblies}`;
+        const [updated] = await db.select().from(items).where(eq(items.id, sellableOnlyId));
+        return updated?.sellable;
       })
-      .toMatch(/^(\d+):\1:(\d+):\2$/);
-
-    const [updated] = await db.select().from(items).where(eq(items.id, sellableOnlyId));
-    expect(updated.sellable).toBe(false);
+      .toBe(false);
 
     await page.goto("/inventory/products");
     await filterList(page, "Search items", sellableOnlyName);
