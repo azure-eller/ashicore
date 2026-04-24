@@ -58,6 +58,7 @@ When you discover a new pattern or gotcha:
 | Feature planning | `docs/architecture.md` |
 | Linear workflow / PR tracking | `docs/linear-workflow.md` |
 | ERP agent reactivation / overhead | `docs/erp-agent.md` |
+| MRP-lite planning | `docs/planning.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Manufacturing orders | `docs/manufacturing.md` |

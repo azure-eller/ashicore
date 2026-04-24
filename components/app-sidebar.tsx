@@ -5,6 +5,7 @@ import * as React from "react"
 
 import {
   canReadModule,
+  canReadPlanning,
 } from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
@@ -23,6 +24,7 @@ import {
   PackageIcon,
   Store04Icon,
   ShoppingBag02Icon,
+  ChartAnalysisIcon,
 } from "@hugeicons/core-free-icons"
 
 const AgentChatPanel = dynamic(
@@ -63,6 +65,14 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const navMain = ([
+    canReadPlanning(assignedRoles) ? {
+      title: "Planning",
+      url: "/planning",
+      icon: (
+        <HugeiconsIcon icon={ChartAnalysisIcon} strokeWidth={2} />
+      ),
+      isActive: true,
+    } : null,
     canReadModule(assignedRoles, "inventory") ? {
       title: "Inventory",
       url: "/inventory",

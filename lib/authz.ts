@@ -406,6 +406,15 @@ export function canReadModule(role: string | string[] | null | undefined, module
   return hasModuleAccess(role, module, "read");
 }
 
+export function canReadPlanning(role: string | string[] | null | undefined) {
+  return (
+    hasModuleAccess(role, "inventory", "read") &&
+    hasModuleAccess(role, "sales", "read") &&
+    hasModuleAccess(role, "manufacturing", "read") &&
+    hasModuleAccess(role, "purchasing", "read")
+  );
+}
+
 export function canWriteModule(role: string | string[] | null | undefined, module: ModuleKey) {
   return hasModuleAccess(role, module, "operate");
 }

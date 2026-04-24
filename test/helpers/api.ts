@@ -631,3 +631,33 @@ export async function completeManufacturingOrder(
   const body = await res.json().catch(() => null);
   return { status: res.status, body };
 }
+
+// ---------------------------------------------------------------------------
+// Planning helpers
+// ---------------------------------------------------------------------------
+
+export async function getPlanningSnapshot() {
+  const res = await testFetch("/api/planning");
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function createPlanningPurchaseOrderDraft(data: Record<string, unknown>) {
+  const res = await testFetch("/api/planning/actions/purchase-order", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function createPlanningManufacturingOrderDraft(
+  data: Record<string, unknown>
+) {
+  const res = await testFetch("/api/planning/actions/manufacturing-order", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
