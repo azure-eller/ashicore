@@ -10,6 +10,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +38,7 @@ import {
   INVENTORY_EVENT_TYPES,
 } from "@/lib/db/schema";
 import {
+  formatDate,
   formatDateTime,
   formatPrice,
   formatQuantity,
@@ -41,7 +47,9 @@ import {
   formatInventoryLedgerBalanceDimension,
   formatInventoryLedgerEventClass,
   formatInventoryLedgerEventLabel,
+  formatInventoryLedgerMovementCategory,
   formatInventoryLedgerSourceType,
+  formatInventoryLedgerSummaryAction,
   INVENTORY_LEDGER_EVENT_CLASSES,
   INVENTORY_LEDGER_SCOPE_VALUES,
   INVENTORY_LEDGER_SOURCE_TYPES,
@@ -49,7 +57,7 @@ import {
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
 import { ITEM_TYPES } from "../types";
 import { buildInventoryLedgerSearchParams } from "./filters";
-import type { InventoryLedgerPageProps } from "./types";
+import type { InventoryLedgerPageProps, InventoryLedgerRow } from "./types";
 
 const ALL_VALUE = "__all__";
 
@@ -77,6 +85,40 @@ function withDateFilterTimeZone(filters: InventoryLedgerFilters) {
   };
 }
 
+function formatQuantityChange(row: InventoryLedgerRow) {
+  if (row.balanceDimension === "none") {
+    return "No quantity change";
+  }
+
+  const signedQuantity = parseFloat(row.signedQuantity);
+  const sign = signedQuantity > 0 ? "+" : "";
+  return `${sign}${formatQuantity(row.signedQuantity)} units`;
+}
+
+function formatQuantityMagnitude(row: InventoryLedgerRow) {
+  const signedQuantity = parseFloat(row.signedQuantity);
+  const quantity =
+    Number.isFinite(signedQuantity) && signedQuantity !== 0
+      ? Math.abs(signedQuantity)
+      : Math.abs(parseFloat(row.quantity));
+
+  return `${formatQuantity(String(quantity))} units`;
+}
+
+function formatLedgerRowSummary(row: InventoryLedgerRow) {
+  const actor = row.actor?.name ?? "System";
+  const action = formatInventoryLedgerSummaryAction(row.eventType);
+  const date = formatDate(row.occurredAt);
+
+  if (row.balanceDimension === "none") {
+    return `${actor} ${action} ${row.item.displayName} on ${date}.`;
+  }
+
+  return `${actor} ${action} ${row.item.displayName} by ${formatQuantityMagnitude(
+    row
+  )} on ${date}.`;
+}
+
 export function LedgerTable({
   initialData,
   initialFilters,
@@ -86,6 +128,7 @@ export function LedgerTable({
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState<DraftFilters>(initialFilters);
 
   useEffect(() => {
@@ -201,7 +244,7 @@ export function LedgerTable({
 
       <div className="rounded-lg border bg-card">
         <div className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
                 Search
@@ -217,34 +260,59 @@ export function LedgerTable({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Lot</label>
-              <Input
-                aria-label="Filter by lot"
-                placeholder="Lot number"
-                value={draftFilters.lot ?? ""}
-                onChange={(event) =>
-                  updateDraftFilters({ lot: normalizeOptionalValue(event.target.value) })
+              <label className="text-xs font-medium text-muted-foreground">
+                From
+              </label>
+              <DatePicker
+                value={draftFilters.dateFrom ?? ""}
+                onChange={(value) =>
+                  updateDraftFilters({
+                    dateFrom: normalizeOptionalValue(value),
+                  })
                 }
+                aria-label="Filter from date"
+                placeholder="Start date"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Scope</label>
+              <label className="text-xs font-medium text-muted-foreground">To</label>
+              <DatePicker
+                value={draftFilters.dateTo ?? ""}
+                onChange={(value) =>
+                  updateDraftFilters({
+                    dateTo: normalizeOptionalValue(value),
+                  })
+                }
+                aria-label="Filter to date"
+                placeholder="End date"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Movement Category
+              </label>
               <Select
-                value={draftFilters.scope ?? "stock"}
+                value={draftFilters.eventClass ?? ALL_VALUE}
                 onValueChange={(value) =>
                   updateDraftFilters({
-                    scope: value as InventoryLedgerFilters["scope"],
+                    eventClass: normalizeOptionalValue(
+                      value
+                    ) as InventoryLedgerFilters["eventClass"],
+                    scope:
+                      value !== ALL_VALUE && value !== "stock" ? "all" : draftFilters.scope,
                   })
                 }
               >
-                <SelectTrigger aria-label="Filter by scope">
-                  <SelectValue />
+                <SelectTrigger aria-label="Filter by movement category">
+                  <SelectValue placeholder="All categories" />
                 </SelectTrigger>
                 <SelectContent>
-                  {INVENTORY_LEDGER_SCOPE_VALUES.map((scope) => (
-                    <SelectItem key={scope} value={scope}>
-                      {scope === "stock" ? "Stock events" : "All events"}
+                  <SelectItem value={ALL_VALUE}>All categories</SelectItem>
+                  {INVENTORY_LEDGER_EVENT_CLASSES.map((eventClass) => (
+                    <SelectItem key={eventClass} value={eventClass}>
+                      {formatInventoryLedgerMovementCategory(eventClass)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -276,168 +344,161 @@ export function LedgerTable({
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Event Class
-              </label>
-              <Select
-                value={draftFilters.eventClass ?? ALL_VALUE}
-                onValueChange={(value) =>
-                  updateDraftFilters({
-                    eventClass: normalizeOptionalValue(
-                      value
-                    ) as InventoryLedgerFilters["eventClass"],
-                    scope:
-                      value !== ALL_VALUE && value !== "stock" ? "all" : draftFilters.scope,
-                  })
-                }
-              >
-                <SelectTrigger aria-label="Filter by event class">
-                  <SelectValue placeholder="All event classes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_VALUE}>All event classes</SelectItem>
-                  {INVENTORY_LEDGER_EVENT_CLASSES.map((eventClass) => (
-                    <SelectItem key={eventClass} value={eventClass}>
-                      {formatInventoryLedgerEventClass(eventClass)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Event Type
-              </label>
-              <Select
-                value={draftFilters.eventType ?? ALL_VALUE}
-                onValueChange={(value) =>
-                  updateDraftFilters({
-                    eventType: normalizeOptionalValue(
-                      value
-                    ) as InventoryLedgerFilters["eventType"],
-                  })
-                }
-              >
-                <SelectTrigger aria-label="Filter by event type">
-                  <SelectValue placeholder="All event types" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_VALUE}>All event types</SelectItem>
-                  {INVENTORY_EVENT_TYPES.map((eventType) => (
-                    <SelectItem key={eventType} value={eventType}>
-                      {formatInventoryLedgerEventLabel(eventType)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Document Type
-              </label>
-              <Select
-                value={draftFilters.documentType ?? ALL_VALUE}
-                onValueChange={(value) =>
-                  updateDraftFilters({
-                    documentType: normalizeOptionalValue(
-                      value
-                    ) as InventoryLedgerFilters["documentType"],
-                  })
-                }
-              >
-                <SelectTrigger aria-label="Filter by document type">
-                  <SelectValue placeholder="All documents" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_VALUE}>All documents</SelectItem>
-                  {INVENTORY_LEDGER_SOURCE_TYPES.map((documentType) => (
-                    <SelectItem key={documentType} value={documentType}>
-                      {formatInventoryLedgerSourceType(documentType)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Actor</label>
-              <Select
-                value={draftFilters.actorUserId ?? ALL_VALUE}
-                onValueChange={(value) =>
-                  updateDraftFilters({
-                    actorUserId: normalizeOptionalValue(value),
-                  })
-                }
-              >
-                <SelectTrigger aria-label="Filter by actor">
-                  <SelectValue placeholder="All actors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_VALUE}>All actors</SelectItem>
-                  {actorOptions.map((actor) => (
-                    <SelectItem key={actor.id} value={actor.id}>
-                      {actor.email ? `${actor.name} (${actor.email})` : actor.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                From
-              </label>
-              <DatePicker
-                value={draftFilters.dateFrom ?? ""}
-                onChange={(value) =>
-                  updateDraftFilters({
-                    dateFrom: normalizeOptionalValue(value),
-                  })
-                }
-                aria-label="Filter from date"
-                placeholder="Start date"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">To</label>
-              <DatePicker
-                value={draftFilters.dateTo ?? ""}
-                onChange={(value) =>
-                  updateDraftFilters({
-                    dateTo: normalizeOptionalValue(value),
-                  })
-                }
-                aria-label="Filter to date"
-                placeholder="End date"
-              />
-            </div>
-          </div>
+          <Collapsible open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CollapsibleTrigger asChild>
+                <Button type="button" variant="ghost" size="sm">
+                  <HugeiconsIcon
+                    icon={moreFiltersOpen ? ArrowDown01Icon : ArrowRight01Icon}
+                    size={14}
+                    aria-hidden
+                  />
+                  More filters
+                </Button>
+              </CollapsibleTrigger>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleApply}
-              disabled={isPending}
-            >
-              {isPending ? "Applying..." : "Apply Filters"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClear}
-              disabled={isPending}
-            >
-              Clear All
-            </Button>
-          </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleApply}
+                  disabled={isPending}
+                >
+                  {isPending ? "Applying..." : "Apply Filters"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClear}
+                  disabled={isPending}
+                >
+                  Clear All
+                </Button>
+              </div>
+            </div>
+
+            <CollapsibleContent>
+              <div className="grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Lot</label>
+                  <Input
+                    aria-label="Filter by lot"
+                    placeholder="Lot number"
+                    value={draftFilters.lot ?? ""}
+                    onChange={(event) =>
+                      updateDraftFilters({ lot: normalizeOptionalValue(event.target.value) })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Scope</label>
+                  <Select
+                    value={draftFilters.scope ?? "stock"}
+                    onValueChange={(value) =>
+                      updateDraftFilters({
+                        scope: value as InventoryLedgerFilters["scope"],
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Filter by scope">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INVENTORY_LEDGER_SCOPE_VALUES.map((scope) => (
+                        <SelectItem key={scope} value={scope}>
+                          {scope === "stock" ? "Stock events" : "All events"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Event Type
+                  </label>
+                  <Select
+                    value={draftFilters.eventType ?? ALL_VALUE}
+                    onValueChange={(value) =>
+                      updateDraftFilters({
+                        eventType: normalizeOptionalValue(
+                          value
+                        ) as InventoryLedgerFilters["eventType"],
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Filter by event type">
+                      <SelectValue placeholder="All event types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_VALUE}>All event types</SelectItem>
+                      {INVENTORY_EVENT_TYPES.map((eventType) => (
+                        <SelectItem key={eventType} value={eventType}>
+                          {formatInventoryLedgerEventLabel(eventType)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Document Type
+                  </label>
+                  <Select
+                    value={draftFilters.documentType ?? ALL_VALUE}
+                    onValueChange={(value) =>
+                      updateDraftFilters({
+                        documentType: normalizeOptionalValue(
+                          value
+                        ) as InventoryLedgerFilters["documentType"],
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Filter by document type">
+                      <SelectValue placeholder="All documents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_VALUE}>All documents</SelectItem>
+                      {INVENTORY_LEDGER_SOURCE_TYPES.map((documentType) => (
+                        <SelectItem key={documentType} value={documentType}>
+                          {formatInventoryLedgerSourceType(documentType)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Actor</label>
+                  <Select
+                    value={draftFilters.actorUserId ?? ALL_VALUE}
+                    onValueChange={(value) =>
+                      updateDraftFilters({
+                        actorUserId: normalizeOptionalValue(value),
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Filter by actor">
+                      <SelectValue placeholder="All actors" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_VALUE}>All actors</SelectItem>
+                      {actorOptions.map((actor) => (
+                        <SelectItem key={actor.id} value={actor.id}>
+                          {actor.email ? `${actor.name} (${actor.email})` : actor.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
         <Separator />
@@ -563,75 +624,190 @@ export function LedgerTable({
 
                       {isExpanded ? (
                         <TableRow className="bg-muted/20">
-                          <TableCell colSpan={8} className="space-y-4">
-                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                              <div className="space-y-1">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  Event Type
-                                </div>
-                                <div>{row.eventType}</div>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  Event Subtype
-                                </div>
-                                <div>{row.eventSubtype ?? "—"}</div>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  Reference
-                                </div>
-                                <div className="break-all">
-                                  {row.referenceType ?? "—"} / {row.referenceId ?? "—"}
-                                </div>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  Costs
-                                </div>
-                                <div>
-                                  {formatPrice(row.unitCost) ?? "—"}
-                                  {" / "}
-                                  {formatPrice(row.extendedCost) ?? "—"}
-                                </div>
-                              </div>
-                            </div>
+                          <TableCell colSpan={8} className="py-4">
+                            <div className="space-y-5">
+                              <p className="text-sm font-medium">
+                                {formatLedgerRowSummary(row)}
+                              </p>
 
-                            <div className="flex flex-wrap gap-3">
-                              <Button variant="outline" size="sm" asChild>
-                                <Link href={row.item.href}>View Item</Link>
-                              </Button>
-                              {row.sourceDocument?.href ? (
-                                <Button variant="outline" size="sm" asChild>
-                                  <Link href={row.sourceDocument.href}>
-                                    View Source
-                                  </Link>
-                                </Button>
-                              ) : null}
-                            </div>
-
-                            {row.metadataSummary.length > 0 ? (
-                              <div className="space-y-2">
-                                <div className="text-xs font-medium text-muted-foreground">
-                                  Metadata
-                                </div>
-                                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                                  {row.metadataSummary.map((entry) => (
-                                    <div
-                                      key={entry.label}
-                                      className="rounded-md border bg-background p-3"
-                                    >
-                                      <div className="text-xs font-medium text-muted-foreground">
-                                        {entry.label}
-                                      </div>
-                                      <div className="mt-1 break-words text-sm">
-                                        {entry.value}
-                                      </div>
+                              <div className="grid gap-x-8 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
+                                <section className="space-y-3">
+                                  <h3 className="text-sm font-semibold">Movement</h3>
+                                  <dl className="space-y-2 text-sm">
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Quantity change
+                                      </dt>
+                                      <dd className="font-mono">
+                                        {formatQuantityChange(row)}
+                                      </dd>
                                     </div>
-                                  ))}
-                                </div>
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Lot
+                                      </dt>
+                                      <dd className="font-mono">{row.lot?.number ?? "—"}</dd>
+                                    </div>
+                                    {row.unitCost ? (
+                                      <div>
+                                        <dt className="text-xs font-medium text-muted-foreground">
+                                          Unit cost
+                                        </dt>
+                                        <dd>{formatPrice(row.unitCost) ?? "—"}</dd>
+                                      </div>
+                                    ) : null}
+                                    {row.extendedCost ? (
+                                      <div>
+                                        <dt className="text-xs font-medium text-muted-foreground">
+                                          Value change
+                                        </dt>
+                                        <dd>{formatPrice(row.extendedCost) ?? "—"}</dd>
+                                      </div>
+                                    ) : null}
+                                  </dl>
+                                </section>
+
+                                <section className="space-y-3">
+                                  <h3 className="text-sm font-semibold">Source</h3>
+                                  <dl className="space-y-2 text-sm">
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Source document
+                                      </dt>
+                                      <dd>
+                                        {row.sourceDocument ? (
+                                          row.sourceDocument.href ? (
+                                            <Link
+                                              href={row.sourceDocument.href}
+                                              className="font-medium hover:underline"
+                                            >
+                                              {row.sourceDocument.label}
+                                            </Link>
+                                          ) : (
+                                            row.sourceDocument.label
+                                          )
+                                        ) : (
+                                          "—"
+                                        )}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Source type
+                                      </dt>
+                                      <dd>
+                                        {row.sourceDocument
+                                          ? formatInventoryLedgerSourceType(
+                                              row.sourceDocument.type
+                                            )
+                                          : "—"}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Reference
+                                      </dt>
+                                      <dd className="break-all font-mono text-xs">
+                                        {row.referenceType ?? "—"} / {row.referenceId ?? "—"}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button variant="outline" size="sm" asChild>
+                                      <Link href={row.item.href}>View Item</Link>
+                                    </Button>
+                                    {row.sourceDocument?.href ? (
+                                      <Button variant="outline" size="sm" asChild>
+                                        <Link href={row.sourceDocument.href}>
+                                          View Source
+                                        </Link>
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </section>
+
+                                <section className="space-y-3">
+                                  <h3 className="text-sm font-semibold">Audit</h3>
+                                  <dl className="space-y-2 text-sm">
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Actor
+                                      </dt>
+                                      <dd>
+                                        {row.actor ? (
+                                          <>
+                                            <div>{row.actor.name}</div>
+                                            {row.actor.email ? (
+                                              <div className="text-xs text-muted-foreground">
+                                                {row.actor.email}
+                                              </div>
+                                            ) : null}
+                                          </>
+                                        ) : (
+                                          "—"
+                                        )}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Timestamp
+                                      </dt>
+                                      <dd>{formatDateTime(row.occurredAt)}</dd>
+                                    </div>
+                                  </dl>
+                                </section>
                               </div>
-                            ) : null}
+
+                              <details className="rounded-md border bg-background p-3">
+                                <summary className="cursor-pointer text-sm font-semibold">
+                                  Advanced
+                                </summary>
+                                <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                  <div className="space-y-1">
+                                    <div className="text-xs font-medium text-muted-foreground">
+                                      Event type
+                                    </div>
+                                    <div className="break-all font-mono text-sm">
+                                      {row.eventType}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-xs font-medium text-muted-foreground">
+                                      Event subtype
+                                    </div>
+                                    <div className="break-all font-mono text-sm">
+                                      {row.eventSubtype ?? "—"}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-2 md:col-span-2 xl:col-span-3">
+                                    <div className="text-xs font-medium text-muted-foreground">
+                                      Metadata
+                                    </div>
+                                    {row.metadataSummary.length > 0 ? (
+                                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                        {row.metadataSummary.map((entry) => (
+                                          <div
+                                            key={entry.label}
+                                            className="rounded-md border p-3"
+                                          >
+                                            <div className="text-xs font-medium text-muted-foreground">
+                                              {entry.label}
+                                            </div>
+                                            <div className="mt-1 break-words text-sm">
+                                              {entry.value}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="text-sm text-muted-foreground">
+                                        No metadata
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ) : null}

@@ -1,12 +1,19 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { filterList, test, expect } from "../fixtures";
+import { db as appDb } from "../../../lib/db";
 import {
+  inventoryLocations,
   inventoryEvents,
+  items,
+  lots,
   manufacturingOrderBatches,
   manufacturingOrders,
+  organization,
   purchaseOrders,
   salesOrders,
   stocktakeItems,
+  unitDefinitions,
 } from "../../../lib/db/schema";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 import {
@@ -40,6 +47,13 @@ test.describe("Inventory ledger explorer", () => {
   let purchaseMaterialId = "";
   let purchaseOrderId = "";
   let purchaseOrderNumber = "";
+  let manualEventId = "";
+  let manualEventQuantity = "";
+  let manualEventReferenceType: string | null = null;
+  let manualEventReferenceId: string | null = null;
+  let manualEventDateUtc = "";
+  let manualEventLotNumber = "";
+  let manualEventActorUserId = "";
 
   let salesOrderId = "";
   let salesOrderNumber = "";
@@ -111,6 +125,41 @@ test.describe("Inventory ledger explorer", () => {
         return rows.map((row) => row.eventType).sort().join(",");
       })
       .toContain("expected_increase");
+
+    const [manualEvent] = await db
+      .select({
+        id: inventoryEvents.id,
+        quantity: inventoryEvents.quantity,
+        referenceType: inventoryEvents.referenceType,
+        referenceId: inventoryEvents.referenceId,
+        occurredAt: inventoryEvents.occurredAt,
+        actorUserId: inventoryEvents.actorUserId,
+        lotNumber: lots.lotNumber,
+      })
+      .from(inventoryEvents)
+      .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
+      .where(
+        and(
+          eq(inventoryEvents.itemId, purchaseMaterialId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .limit(1);
+    expect(manualEvent).toBeTruthy();
+    manualEventId = manualEvent!.id;
+    manualEventQuantity = manualEvent!.quantity;
+    manualEventReferenceType = manualEvent!.referenceType;
+    manualEventReferenceId = manualEvent!.referenceId;
+    manualEventDateUtc = manualEvent!.occurredAt.toISOString().slice(0, 10);
+    manualEventLotNumber = manualEvent!.lotNumber ?? "";
+    manualEventActorUserId = manualEvent!.actorUserId ?? `ledger-actor-${ts}`;
+
+    if (!manualEvent!.actorUserId) {
+      await db
+        .update(inventoryEvents)
+        .set({ actorUserId: manualEventActorUserId })
+        .where(eq(inventoryEvents.id, manualEventId));
+    }
 
     const [purchaseOrder] = await db
       .select({ orderNumber: purchaseOrders.orderNumber })
@@ -383,10 +432,138 @@ test.describe("Inventory ledger explorer", () => {
     expect(utcRowIds).not.toContain(denverExcludedEvent.id);
   });
 
-  test("keeps the global ledger stock-only by default and applies event-class filters", async ({
+  test("returns raw event rows and applies core API filters", async () => {
+    const exactResponse = await testFetch(
+      `/api/inventory-ledger?q=${encodeURIComponent(
+        purchaseMaterialName
+      )}&dateFrom=${manualEventDateUtc}&dateTo=${manualEventDateUtc}&timeZone=UTC&itemType=material&eventType=manual_adjustment_increase&lot=${encodeURIComponent(
+        manualEventLotNumber
+      )}&documentType=item&documentId=${purchaseMaterialId}&actorUserId=${encodeURIComponent(
+        manualEventActorUserId
+      )}&scope=all`
+    );
+    const exactBody = await exactResponse.json();
+
+    expect(exactResponse.status).toBe(200);
+    const exactRow = exactBody.rows.find(
+      (row: { id: string }) => row.id === manualEventId
+    );
+    expect(exactRow).toMatchObject({
+      id: manualEventId,
+      eventType: "manual_adjustment_increase",
+      referenceType: manualEventReferenceType,
+      referenceId: manualEventReferenceId,
+      item: expect.objectContaining({
+        id: purchaseMaterialId,
+        itemType: "material",
+      }),
+    });
+    expect(parseFloat(exactRow.quantity)).toBe(parseFloat(manualEventQuantity));
+
+    const categoryResponse = await testFetch(
+      `/api/inventory-ledger?itemId=${purchaseMaterialId}&scope=all&eventClass=expected`
+    );
+    const categoryBody = await categoryResponse.json();
+
+    expect(categoryResponse.status).toBe(200);
+    expect(
+      categoryBody.rows.every(
+        (row: { eventClass: string }) => row.eventClass === "expected"
+      )
+    ).toBe(true);
+    expect(
+      categoryBody.rows.some(
+        (row: { eventType: string }) => row.eventType === "expected_increase"
+      )
+    ).toBe(true);
+    expect(
+      categoryBody.rows.some((row: { id: string }) => row.id === manualEventId)
+    ).toBe(false);
+  });
+
+  test("does not return another organization's ledger rows", async () => {
+    const otherOrgId = randomUUID();
+    const otherUnitId = randomUUID();
+    const otherLocationId = randomUUID();
+    const otherItemId = randomUUID();
+    const otherEventId = randomUUID();
+    const otherOrgName = `Other Ledger Org ${ts}`;
+    const otherItemName = `Other Org Ledger Material ${ts}`;
+
+    await appDb.insert(organization).values({
+      id: otherOrgId,
+      name: otherOrgName,
+      slug: `other-ledger-${ts}`,
+      createdAt: new Date(),
+    });
+
+    await appDb.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('app.current_org_id', ${otherOrgId}, true)`);
+      await tx.insert(unitDefinitions).values({
+        id: otherUnitId,
+        organizationId: otherOrgId,
+        name: "Each",
+        size: "1",
+        uom: "ea",
+      });
+      await tx.insert(inventoryLocations).values({
+        id: otherLocationId,
+        organizationId: otherOrgId,
+        name: "Other default",
+        code: `OTHER-${ts}`,
+        isDefault: true,
+      });
+      await tx.insert(items).values({
+        id: otherItemId,
+        organizationId: otherOrgId,
+        name: otherItemName,
+        itemType: "material",
+        unitDefinitionId: otherUnitId,
+        sellable: false,
+      });
+      await tx.insert(inventoryEvents).values({
+        id: otherEventId,
+        organizationId: otherOrgId,
+        locationId: otherLocationId,
+        eventType: "cost_basis_change",
+        eventSubtype: "other_org_visibility",
+        itemId: otherItemId,
+        quantity: "0",
+        referenceType: "item",
+        referenceId: otherItemId,
+      });
+    });
+
+    const response = await testFetch(
+      `/api/inventory-ledger?scope=all&q=${encodeURIComponent(otherItemName)}`
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.rows).toEqual([]);
+  });
+
+  test("loads with primary filters and collapses advanced filters", async ({
     page,
   }) => {
     await page.goto("/inventory/ledger");
+    await expect(
+      page.getByRole("heading", { name: "Inventory Ledger" })
+    ).toBeVisible();
+    await expect(page.getByLabel("Search ledger")).toBeVisible();
+    await expect(page.getByLabel("Filter from date")).toBeVisible();
+    await expect(page.getByLabel("Filter to date")).toBeVisible();
+    await expect(page.getByLabel("Filter by movement category")).toBeVisible();
+    await expect(page.getByLabel("Filter by item type")).toBeVisible();
+    await expect(page.getByLabel("Filter by lot")).toBeHidden();
+
+    await page.getByRole("button", { name: "More filters" }).click();
+    await expect(page.getByLabel("Filter by lot")).toBeVisible();
+    await expect(page.getByLabel("Filter by scope")).toBeVisible();
+    await expect(page.getByLabel("Filter by event type")).toBeVisible();
+    await expect(page.getByLabel("Filter by document type")).toBeVisible();
+    await expect(page.getByLabel("Filter by actor")).toBeVisible();
+
     await filterList(page, "Search ledger", purchaseMaterialName);
     await Promise.all([
       page.waitForURL(
@@ -401,8 +578,8 @@ test.describe("Inventory ledger explorer", () => {
     await expect(globalTableBody.getByText("Manual stock increase")).toBeVisible();
     await expect(globalTableBody.getByText("Expected supply increase")).toHaveCount(0);
 
-    await page.getByLabel("Filter by event class").click();
-    await page.getByRole("option", { name: "Expected" }).click();
+    await page.getByLabel("Filter by movement category").click();
+    await page.getByRole("option", { name: "Expected supply" }).click();
 
     await Promise.all([
       page.waitForURL(
@@ -417,6 +594,116 @@ test.describe("Inventory ledger explorer", () => {
 
     await expect(globalTableBody.getByText("Expected supply increase").first()).toBeVisible();
     await expect(globalTableBody.getByText("Manual stock increase")).toHaveCount(0);
+  });
+
+  test("expands manual adjustment rows with summary sections and advanced metadata", async ({
+    page,
+  }) => {
+    await page.goto(`/inventory/ledger?itemId=${purchaseMaterialId}`);
+
+    const tableBody = page.locator("tbody");
+    const manualRow = tableBody
+      .locator("tr")
+      .filter({ hasText: "Manual stock increase" })
+      .filter({ hasText: purchaseMaterialName })
+      .first();
+    await manualRow.getByRole("button", { name: "Expand row" }).click();
+
+    await expect(
+      page.getByText(new RegExp(`manually increased ${purchaseMaterialName} by`))
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Movement" })).toBeVisible();
+    await expect(page.getByText("Quantity change", { exact: true })).toBeVisible();
+    await expect(page.getByText("Unit cost", { exact: true })).toBeVisible();
+    await expect(page.getByText("Value change", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
+    await expect(page.getByText("Reference", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Audit" })).toBeVisible();
+    await expect(page.getByText("Timestamp", { exact: true })).toBeVisible();
+
+    await expect(page.getByText("Advanced")).toBeVisible();
+    await expect(page.getByText("manual_adjustment_increase")).toBeHidden();
+    await page.getByText("Advanced").click();
+    await expect(
+      page.getByText("manual_adjustment_increase", { exact: true })
+    ).toBeVisible();
+    await expect(page.getByText("manual_adjustment", { exact: true })).toBeVisible();
+    await expect(page.getByText("Metadata")).toBeVisible();
+    await expect(page.getByText("Lot number")).toBeVisible();
+  });
+
+  test("shows business-friendly manufacturing movement labels", async ({
+    db,
+    page,
+  }) => {
+    const [sourceEvent] = await db
+      .select({
+        locationId: inventoryEvents.locationId,
+        lotId: inventoryEvents.lotId,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, purchaseMaterialId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .limit(1);
+    if (!sourceEvent?.lotId) {
+      throw new Error("Expected a source lot for manufacturing label coverage.");
+    }
+
+    const [productLot] = await db
+      .insert(lots)
+      .values({
+        organizationId: getOrgId(),
+        itemId: salesProductId,
+        lotNumber: `LMO-${String(ts).slice(-12)}`,
+        quantity: "0",
+      })
+      .returning({ id: lots.id });
+    if (!productLot) {
+      throw new Error("Expected a product lot for manufacturing label coverage.");
+    }
+
+    await db.insert(inventoryEvents).values([
+      {
+        organizationId: getOrgId(),
+        locationId: sourceEvent.locationId,
+        eventType: "manufacturing_ingredient_consumption",
+        eventSubtype: "pick",
+        itemId: purchaseMaterialId,
+        lotId: sourceEvent.lotId,
+        quantity: "1",
+        unitCost: "2.25",
+        extendedCost: "2.25",
+      },
+      {
+        organizationId: getOrgId(),
+        locationId: sourceEvent.locationId,
+        eventType: "manufacturing_output",
+        eventSubtype: "complete",
+        itemId: salesProductId,
+        lotId: productLot.id,
+        quantity: "1",
+        unitCost: "2.25",
+        extendedCost: "2.25",
+      },
+    ]);
+
+    await page.goto(
+      `/inventory/ledger?scope=all&eventType=manufacturing_ingredient_consumption&q=${encodeURIComponent(
+        purchaseMaterialName
+      )}`
+    );
+    await expect(page.locator("tbody").getByText("Manufacturing material used")).toBeVisible();
+
+    await page.goto(
+      `/inventory/ledger?scope=all&eventType=manufacturing_output&q=${encodeURIComponent(
+        salesProductName
+      )}`
+    );
+    await expect(page.locator("tbody").getByText("Manufacturing output")).toBeVisible();
   });
 
   test("shows full item activity when deep-linking from item detail", async ({ page }) => {
@@ -436,6 +723,7 @@ test.describe("Inventory ledger explorer", () => {
       .filter({ hasText: purchaseOrderNumber })
       .first();
     await expectedSupplyRow.getByRole("button", { name: "Expand row" }).click();
+    await expect(page.getByRole("link", { name: "View Item" })).toBeVisible();
     await expect(page.getByRole("link", { name: "View Source" })).toBeVisible();
   });
 
@@ -624,7 +912,9 @@ test.describe("Inventory ledger explorer", () => {
     ]);
 
     const stocktakeTableBody = page.locator("tbody");
-    await expect(stocktakeTableBody.getByText("Stocktake loss", { exact: true })).toBeVisible();
+    await expect(
+      stocktakeTableBody.getByText("Stocktake adjustment", { exact: true })
+    ).toBeVisible();
     await expect(
       stocktakeTableBody.getByText("Stocktake verification", { exact: true })
     ).toBeVisible();

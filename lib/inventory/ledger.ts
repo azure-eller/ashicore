@@ -77,12 +77,12 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   purchase_receipt: "Purchase receipt",
   manufacturing_output: "Manufacturing output",
   manual_adjustment_increase: "Manual stock increase",
-  stocktake_gain: "Stocktake gain",
+  stocktake_gain: "Stocktake adjustment",
   manufacturing_variance_gain: "Manufacturing variance gain",
   manual_adjustment_decrease: "Manual stock decrease",
-  stocktake_loss: "Stocktake loss",
+  stocktake_loss: "Stocktake adjustment",
   sales_consumption: "Sales shipment",
-  manufacturing_ingredient_consumption: "Manufacturing pick",
+  manufacturing_ingredient_consumption: "Manufacturing material used",
   manufacturing_variance_loss: "Manufacturing variance loss",
   unpick_restock: "Unpick restock",
   reservation_increase: "Reservation increase",
@@ -93,12 +93,41 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   stocktake_verification: "Stocktake verification",
 };
 
+const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
+  opening_balance: "recorded opening stock for",
+  purchase_receipt: "received",
+  manufacturing_output: "produced",
+  manual_adjustment_increase: "manually increased",
+  stocktake_gain: "increased stocktake count for",
+  manufacturing_variance_gain: "recorded manufacturing variance gain for",
+  manual_adjustment_decrease: "manually decreased",
+  stocktake_loss: "decreased stocktake count for",
+  sales_consumption: "shipped",
+  manufacturing_ingredient_consumption: "used",
+  manufacturing_variance_loss: "recorded manufacturing variance loss for",
+  unpick_restock: "returned picked material for",
+  reservation_increase: "reserved",
+  reservation_release: "released reservation for",
+  expected_increase: "expected",
+  expected_release: "released expected supply for",
+  cost_basis_change: "updated cost basis for",
+  stocktake_verification: "verified stocktake count for",
+};
+
 const EVENT_CLASS_LABELS: Record<InventoryLedgerEventClass, string> = {
   stock: "Stock",
   reservation: "Reservation",
   expected: "Expected",
   verification: "Verification",
   cost: "Cost",
+};
+
+const MOVEMENT_CATEGORY_LABELS: Record<InventoryLedgerEventClass, string> = {
+  stock: "Stock movements",
+  reservation: "Reservations",
+  expected: "Expected supply",
+  verification: "Verification",
+  cost: "Cost changes",
 };
 
 const BALANCE_DIMENSION_LABELS: Record<InventoryLedgerBalanceDimension, string> = {
@@ -186,10 +215,20 @@ export function formatInventoryLedgerEventLabel(eventType: InventoryEventType) {
   return EVENT_LABELS[eventType];
 }
 
+export function formatInventoryLedgerSummaryAction(eventType: InventoryEventType) {
+  return SUMMARY_ACTIONS[eventType];
+}
+
 export function formatInventoryLedgerEventClass(
   eventClass: InventoryLedgerEventClass
 ) {
   return EVENT_CLASS_LABELS[eventClass];
+}
+
+export function formatInventoryLedgerMovementCategory(
+  eventClass: InventoryLedgerEventClass
+) {
+  return MOVEMENT_CATEGORY_LABELS[eventClass];
 }
 
 export function formatInventoryLedgerBalanceDimension(
