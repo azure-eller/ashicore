@@ -59,6 +59,24 @@ function normalizeOptionalValue(value: string) {
   return value === ALL_VALUE || value === "" ? undefined : value;
 }
 
+function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function withDateFilterTimeZone(filters: InventoryLedgerFilters) {
+  if (!filters.dateFrom && !filters.dateTo) {
+    return {
+      ...filters,
+      timeZone: undefined,
+    };
+  }
+
+  return {
+    ...filters,
+    timeZone: filters.timeZone ?? getBrowserTimeZone(),
+  };
+}
+
 export function LedgerTable({
   initialData,
   initialFilters,
@@ -119,10 +137,10 @@ export function LedgerTable({
   };
 
   const handleApply = () => {
-    navigate({
+    navigate(withDateFilterTimeZone({
       ...draftFilters,
       page: 1,
-    });
+    }));
   };
 
   const handleClear = () => {
@@ -139,16 +157,17 @@ export function LedgerTable({
       actorUserId: undefined,
       dateFrom: undefined,
       dateTo: undefined,
+      timeZone: undefined,
       page: 1,
       pageSize: initialFilters.pageSize,
     });
   };
 
   const goToPage = (page: number) => {
-    navigate({
+    navigate(withDateFilterTimeZone({
       ...initialFilters,
       page,
-    });
+    }));
   };
 
   return (
@@ -591,14 +610,26 @@ export function LedgerTable({
                               ) : null}
                             </div>
 
-                            {row.metadata ? (
+                            {row.metadataSummary.length > 0 ? (
                               <div className="space-y-2">
                                 <div className="text-xs font-medium text-muted-foreground">
                                   Metadata
                                 </div>
-                                <pre className="overflow-x-auto rounded-md border bg-background p-3 text-xs">
-                                  {JSON.stringify(row.metadata, null, 2)}
-                                </pre>
+                                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                  {row.metadataSummary.map((entry) => (
+                                    <div
+                                      key={entry.label}
+                                      className="rounded-md border bg-background p-3"
+                                    >
+                                      <div className="text-xs font-medium text-muted-foreground">
+                                        {entry.label}
+                                      </div>
+                                      <div className="mt-1 break-words text-sm">
+                                        {entry.value}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             ) : null}
                           </TableCell>

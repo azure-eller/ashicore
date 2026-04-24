@@ -2,6 +2,7 @@ import type { InventoryEventType } from "@/lib/db/schema";
 import type {
   InventoryLedgerBalanceDimension,
   InventoryLedgerEventClass,
+  InventoryLedgerMetadataSummaryEntry,
   InventoryLedgerSourceType,
 } from "@/lib/inventory/ledger";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
@@ -50,7 +51,7 @@ export type InventoryLedgerRow = {
   extendedCost: string | null;
   referenceType: string | null;
   referenceId: string | null;
-  metadata: Record<string, unknown> | null;
+  metadataSummary: InventoryLedgerMetadataSummaryEntry[];
 };
 
 export type InventoryLedgerPageData = {

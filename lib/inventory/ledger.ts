@@ -34,6 +34,11 @@ export const INVENTORY_LEDGER_BALANCE_DIMENSIONS = [
 export type InventoryLedgerBalanceDimension =
   (typeof INVENTORY_LEDGER_BALANCE_DIMENSIONS)[number];
 
+export type InventoryLedgerMetadataSummaryEntry = {
+  label: string;
+  value: string;
+};
+
 const STOCK_INCREASE_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "opening_balance",
   "purchase_receipt",
@@ -220,4 +225,88 @@ export function buildInventoryLedgerHref(filters: {
 
   const query = searchParams.toString();
   return query ? `/inventory/ledger?${query}` : "/inventory/ledger";
+}
+
+export function summarizeInventoryLedgerMetadata(
+  metadata: Record<string, unknown> | null
+): InventoryLedgerMetadataSummaryEntry[] {
+  if (!metadata) {
+    return [];
+  }
+
+  const summary: InventoryLedgerMetadataSummaryEntry[] = [];
+  const handledKeys = new Set<string>();
+
+  const mark = (...keys: string[]) => {
+    for (const key of keys) {
+      handledKeys.add(key);
+    }
+  };
+
+  const add = (label: string, value: string, ...keys: string[]) => {
+    summary.push({ label, value });
+    mark(...keys);
+  };
+
+  if (typeof metadata.lotNumber === "string") {
+    add("Lot number", metadata.lotNumber, "lotNumber");
+  }
+
+  if ("note" in metadata) {
+    add("Internal note", "Hidden", "note");
+  }
+
+  if ("revisionNote" in metadata) {
+    add("Revision note", "Hidden", "revisionNote");
+  }
+
+  if ("stocktakeId" in metadata) {
+    add("Stocktake link", "Resolved from source document", "stocktakeId");
+  }
+
+  if ("purchaseOrderLineId" in metadata) {
+    add("Purchase line", "Resolved from source document", "purchaseOrderLineId");
+  }
+
+  if ("salesOrderLineId" in metadata) {
+    add("Sales line", "Resolved from source document", "salesOrderLineId");
+  }
+
+  if ("manufacturingOrderIngredientId" in metadata) {
+    add(
+      "Manufacturing ingredient",
+      "Resolved from source document",
+      "manufacturingOrderIngredientId"
+    );
+  }
+
+  if (typeof metadata.componentCount === "number") {
+    add("Components", String(metadata.componentCount), "componentCount");
+  }
+
+  if (typeof metadata.ingredientCostTotal === "string") {
+    add("Ingredient cost total", metadata.ingredientCostTotal, "ingredientCostTotal");
+  }
+
+  if (typeof metadata.overheadCostTotal === "string") {
+    add("Overhead cost total", metadata.overheadCostTotal, "overheadCostTotal");
+  }
+
+  if (Array.isArray(metadata.ingredientIds)) {
+    add("Ingredient lines", String(metadata.ingredientIds.length), "ingredientIds");
+  }
+
+  if ("before" in metadata || "after" in metadata) {
+    add("Change details", "Captured", "before", "after");
+  }
+
+  const hasHiddenMetadata = Object.keys(metadata).some(
+    (key) => !handledKeys.has(key)
+  );
+
+  if (hasHiddenMetadata) {
+    add("Additional metadata", "Hidden");
+  }
+
+  return summary;
 }

@@ -6,7 +6,7 @@ import {
   INVENTORY_LEDGER_SCOPE_VALUES,
   INVENTORY_LEDGER_SOURCE_TYPES,
 } from "@/lib/inventory/ledger";
-import { isValidIsoDate } from "@/lib/schemas/shared";
+import { isValidIsoDate, isValidTimeZone } from "@/lib/schemas/shared";
 
 const optionalTrimmedString = z
   .string()
@@ -35,6 +35,10 @@ export const inventoryLedgerFiltersSchema = z
     dateTo: optionalTrimmedString.refine(
       (value) => value == null || isValidIsoDate(value),
       "dateTo must be a real date in YYYY-MM-DD format"
+    ),
+    timeZone: optionalTrimmedString.refine(
+      (value) => value == null || isValidTimeZone(value),
+      "timeZone must be a valid IANA time zone"
     ),
     page: z.coerce.number().int().min(1).optional(),
     pageSize: z.coerce.number().int().min(10).max(100).optional(),

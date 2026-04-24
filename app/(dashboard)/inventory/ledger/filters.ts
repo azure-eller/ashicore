@@ -24,6 +24,7 @@ export function buildInventoryLedgerSearchParams(filters: InventoryLedgerFilters
 
   const entries = Object.entries(filters).filter(([key, value]) => {
     if (value == null) return false;
+    if (key === "timeZone" && !filters.dateFrom && !filters.dateTo) return false;
     if (typeof value === "string") return value.length > 0;
     if (typeof value === "number") {
       if (key === "page") return value !== 1;

@@ -11,6 +11,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   INVENTORY_EVENT_TYPES,
@@ -39,6 +40,7 @@ import {
   getInventoryLedgerEventClass,
   getSignedInventoryLedgerQuantity,
   isStockAffectingInventoryEvent,
+  summarizeInventoryLedgerMetadata,
   type InventoryLedgerSourceType,
 } from "@/lib/inventory/ledger";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
@@ -78,15 +80,18 @@ const manufacturingOrdersViaIngredients = alias(
 
 const stocktakeLineRefs = alias(stocktakeItems, "ledger_stocktake_line_refs");
 const stocktakeDocs = alias(stocktakes, "ledger_stocktake_docs");
+const DEFAULT_LEDGER_TIME_ZONE = "UTC";
 
-function getStartOfDayUtc(date: string) {
-  return new Date(`${date}T00:00:00.000Z`);
+function getLedgerTimeZone(filters: InventoryLedgerFilters) {
+  return filters.timeZone ?? DEFAULT_LEDGER_TIME_ZONE;
 }
 
-function getNextDayUtc(date: string) {
-  const next = getStartOfDayUtc(date);
-  next.setUTCDate(next.getUTCDate() + 1);
-  return next;
+function getStartOfDayInTimeZone(date: string, timeZone: string) {
+  return sql`(${date}::date::timestamp AT TIME ZONE ${timeZone})`;
+}
+
+function getNextDayInTimeZone(date: string, timeZone: string) {
+  return sql`((${date}::date + interval '1 day')::timestamp AT TIME ZONE ${timeZone})`;
 }
 
 function buildDocumentConditions(filters: InventoryLedgerFilters) {
@@ -165,7 +170,8 @@ function countNeedsExpandedJoins(filters: InventoryLedgerFilters) {
 }
 
 function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: string) {
-  const conditions = [eq(inventoryEvents.organizationId, organizationId)];
+  const conditions: SQL[] = [eq(inventoryEvents.organizationId, organizationId)];
+  const timeZone = getLedgerTimeZone(filters);
 
   if (filters.itemId) {
     conditions.push(eq(inventoryEvents.itemId, filters.itemId));
@@ -180,11 +186,21 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
   }
 
   if (filters.dateFrom) {
-    conditions.push(gte(inventoryEvents.occurredAt, getStartOfDayUtc(filters.dateFrom)));
+    conditions.push(
+      gte(
+        inventoryEvents.occurredAt,
+        getStartOfDayInTimeZone(filters.dateFrom, timeZone)
+      )
+    );
   }
 
   if (filters.dateTo) {
-    conditions.push(lt(inventoryEvents.occurredAt, getNextDayUtc(filters.dateTo)));
+    conditions.push(
+      lt(
+        inventoryEvents.occurredAt,
+        getNextDayInTimeZone(filters.dateTo, timeZone)
+      )
+    );
   }
 
   if (filters.lot) {
@@ -726,7 +742,9 @@ export async function getInventoryLedger(
         extendedCost: row.extendedCost,
         referenceType: row.referenceType,
         referenceId: row.referenceId,
-        metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+        metadataSummary: summarizeInventoryLedgerMetadata(
+          (row.metadata as Record<string, unknown> | null) ?? null
+        ),
       };
     });
 

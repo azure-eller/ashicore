@@ -14,6 +14,7 @@ import {
   createPurchaseOrder,
   createSalesOrder,
   createSupplier,
+  getOrgId,
   getUnitId,
   submitPurchaseOrder,
   testFetch,
@@ -292,6 +293,92 @@ test.describe("Inventory ledger explorer", () => {
       .toContain("stocktake_verification");
   });
 
+  test("applies date filters in the requested timezone and hides raw metadata", async ({
+    db,
+  }) => {
+    const [sourceEvent] = await db
+      .select({ locationId: inventoryEvents.locationId })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.itemId, purchaseMaterialId))
+      .limit(1);
+    if (!sourceEvent) {
+      throw new Error("Expected a source inventory event for ledger date filter test.");
+    }
+
+    const [denverIncludedEvent, denverExcludedEvent] = await db
+      .insert(inventoryEvents)
+      .values([
+        {
+          organizationId: getOrgId(),
+          locationId: sourceEvent.locationId,
+          eventType: "cost_basis_change",
+          eventSubtype: "default_purchase_price",
+          itemId: purchaseMaterialId,
+          quantity: "0",
+          referenceType: "item",
+          referenceId: purchaseMaterialId,
+          occurredAt: new Date("2026-04-25T05:30:00.000Z"),
+          metadata: {
+            note: "ledger secret note",
+            token: "ledger secret token",
+          },
+        },
+        {
+          organizationId: getOrgId(),
+          locationId: sourceEvent.locationId,
+          eventType: "cost_basis_change",
+          eventSubtype: "default_purchase_price",
+          itemId: purchaseMaterialId,
+          quantity: "0",
+          referenceType: "item",
+          referenceId: purchaseMaterialId,
+          occurredAt: new Date("2026-04-25T06:30:00.000Z"),
+          metadata: {
+            note: "outside Denver day",
+          },
+        },
+      ])
+      .returning({ id: inventoryEvents.id });
+    if (!denverIncludedEvent || !denverExcludedEvent) {
+      throw new Error("Expected test inventory events to be inserted.");
+    }
+
+    const denverResponse = await testFetch(
+      `/api/inventory-ledger?itemId=${purchaseMaterialId}&scope=all&eventType=cost_basis_change&dateFrom=2026-04-24&dateTo=2026-04-24&timeZone=America%2FDenver`
+    );
+    const denverBody = await denverResponse.json();
+
+    expect(denverResponse.status).toBe(200);
+    const denverRowIds = denverBody.rows.map((row: { id: string }) => row.id);
+    expect(denverRowIds).toContain(denverIncludedEvent.id);
+    expect(denverRowIds).not.toContain(denverExcludedEvent.id);
+
+    const includedRow = denverBody.rows.find(
+      (row: { id: string }) => row.id === denverIncludedEvent.id
+    );
+    if (!includedRow) {
+      throw new Error("Expected the Denver ledger response to include the late-day event.");
+    }
+    expect(includedRow).not.toHaveProperty("metadata");
+    expect(includedRow.metadataSummary).toEqual(
+      expect.arrayContaining([
+        { label: "Internal note", value: "Hidden" },
+        { label: "Additional metadata", value: "Hidden" },
+      ])
+    );
+    expect(JSON.stringify(includedRow)).not.toContain("ledger secret");
+
+    const utcResponse = await testFetch(
+      `/api/inventory-ledger?itemId=${purchaseMaterialId}&scope=all&eventType=cost_basis_change&dateFrom=2026-04-24&dateTo=2026-04-24&timeZone=UTC`
+    );
+    const utcBody = await utcResponse.json();
+    const utcRowIds = utcBody.rows.map((row: { id: string }) => row.id);
+
+    expect(utcResponse.status).toBe(200);
+    expect(utcRowIds).not.toContain(denverIncludedEvent.id);
+    expect(utcRowIds).not.toContain(denverExcludedEvent.id);
+  });
+
   test("keeps the global ledger stock-only by default and applies event-class filters", async ({
     page,
   }) => {
@@ -324,7 +411,7 @@ test.describe("Inventory ledger explorer", () => {
       page.getByRole("button", { name: "Apply Filters" }).click(),
     ]);
 
-    await expect(globalTableBody.getByText("Expected supply increase")).toBeVisible();
+    await expect(globalTableBody.getByText("Expected supply increase").first()).toBeVisible();
     await expect(globalTableBody.getByText("Manual stock increase")).toHaveCount(0);
   });
 
@@ -337,11 +424,12 @@ test.describe("Inventory ledger explorer", () => {
 
     const itemTableBody = page.locator("tbody");
     await expect(itemTableBody.getByText("Manual stock increase")).toBeVisible();
-    await expect(itemTableBody.getByText("Expected supply increase")).toBeVisible();
+    await expect(itemTableBody.getByText("Expected supply increase").first()).toBeVisible();
 
     const expectedSupplyRow = itemTableBody
       .locator("tr")
       .filter({ hasText: "Expected supply increase" })
+      .filter({ hasText: purchaseOrderNumber })
       .first();
     await expectedSupplyRow.getByRole("button", { name: "Expand row" }).click();
     await expect(page.getByRole("link", { name: "View Source" })).toBeVisible();
