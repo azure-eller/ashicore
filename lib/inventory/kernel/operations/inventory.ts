@@ -9,6 +9,7 @@ import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
   resolvePositiveStockUnitCostInTx,
+  updateMaterialCurrentStockUnitCostInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
 
 export async function seedOpeningBalanceInTx(
@@ -62,6 +63,11 @@ export async function seedOpeningBalanceInTx(
     lotId: created.lotId,
     eventId: created.eventId,
   };
+
+  await updateMaterialCurrentStockUnitCostInTx(tx, {
+    itemId: params.itemId,
+    currentStockUnitCost: params.unitCost,
+  });
 
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
@@ -198,6 +204,7 @@ export async function recordCostBasisChangeInTx(
     actorUserId?: string | null;
     eventSubtype:
       | "default_purchase_price"
+      | "current_stock_unit_cost_override"
       | "purchase_unit_config"
       | "bom_locked"
       | "bom_unlocked"

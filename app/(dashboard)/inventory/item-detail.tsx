@@ -19,7 +19,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, itemDetailHref, type ItemType } from "@/app/(dashboard)/inventory/types";
-import { formatPrice, formatMovementType, formatQuantity } from "@/lib/format";
+import { formatCost, formatPrice, formatMovementType, formatQuantity } from "@/lib/format";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
@@ -41,6 +41,7 @@ interface ItemDetailProps {
     purchaseUnitUom: string | null;
     purchaseToStockFactor: string | null;
     defaultPurchasePrice: string | null;
+    currentStockUnitCost: string | null;
     defaultSellingPrice: string | null;
     sellable?: boolean | null;
     stock: string;
@@ -398,6 +399,20 @@ export function ItemDetail({
             </dd>
           </div>
         )}
+        {!isMaster && itemType === "material" && (
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">
+              Current Stock Unit Cost
+            </dt>
+            <dd className="mt-1 text-sm">
+              <span>{formatCost(item.currentStockUnitCost) ?? "\u2014"}</span>
+              <span className="block text-xs text-muted-foreground">
+                Per {item.unitName ?? "stock"} unit. Updated automatically from opening stock and
+                purchase receipts.
+              </span>
+            </dd>
+          </div>
+        )}
         {!isMaster && (
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Selling Price</dt>
@@ -624,7 +639,7 @@ export function ItemDetail({
                   <TableRow key={lot.id}>
                     <TableCell className="font-mono">{lot.lotNumber}</TableCell>
                     <TableCell className="text-right">{lot.quantity}</TableCell>
-                    <TableCell className="text-right">{formatPrice(lot.costPerUnit) ?? "\u2014"}</TableCell>
+                    <TableCell className="text-right">{formatCost(lot.costPerUnit) ?? "\u2014"}</TableCell>
                     <TableCell className="text-right">{lot.receivedAt.toLocaleDateString("en-US")}</TableCell>
                   </TableRow>
                 ))}

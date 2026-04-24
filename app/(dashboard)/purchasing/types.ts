@@ -35,6 +35,7 @@ export type PurchaseOrderMaterialOption = {
   purchaseUnitName: string | null;
   purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
+  currentStockUnitCost: string | null;
 };
 
 export type PurchaseOrderListRow = {

@@ -37,6 +37,7 @@ export type ItemRow = {
   committedQty: string;
   expectedQty: string;
   safetyStock: string;
+  currentStockUnitCost: string | null;
   unit: string | null;
   unitSize: string | null;
   unitUom: string | null;

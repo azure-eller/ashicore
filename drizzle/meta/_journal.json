@@ -316,6 +316,20 @@
       "when": 1776624547928,
       "tag": "0044_shocking_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1777039931633,
+      "tag": "0045_free_venus",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1777041378052,
+      "tag": "0046_tense_wild_pack",
+      "breakpoints": true
     }
   ]
 }

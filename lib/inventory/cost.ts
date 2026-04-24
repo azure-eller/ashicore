@@ -1,5 +1,9 @@
 import { normalizeNumericScale } from "@/lib/format";
 
+export function normalizeStockUnitCost(value: number) {
+  return normalizeNumericScale(value, 6);
+}
+
 export function resolveStockUnitCostFromDefaultPurchasePrice(params: {
   defaultPurchasePrice: string | null;
   purchaseToStockFactor: string | null;
@@ -18,5 +22,33 @@ export function resolveStockUnitCostFromDefaultPurchasePrice(params: {
     return null;
   }
 
-  return normalizeNumericScale(purchaseUnitCost / factor, 6);
+  return normalizeStockUnitCost(purchaseUnitCost / factor);
+}
+
+export function calculateNextCurrentStockUnitCost(params: {
+  priorQuantity: number;
+  priorUnitCost: string | null;
+  incomingQuantity: number;
+  incomingExtendedCost: number;
+}) {
+  if (params.incomingQuantity <= 0) {
+    return null;
+  }
+
+  const incomingUnitCost = normalizeStockUnitCost(
+    params.incomingExtendedCost / params.incomingQuantity
+  );
+
+  const priorUnitCost = params.priorUnitCost != null
+    ? Number.parseFloat(params.priorUnitCost)
+    : Number.NaN;
+
+  if (params.priorQuantity <= 0 || !Number.isFinite(priorUnitCost)) {
+    return incomingUnitCost;
+  }
+
+  return normalizeStockUnitCost(
+    ((params.priorQuantity * priorUnitCost) + params.incomingExtendedCost) /
+      (params.priorQuantity + params.incomingQuantity)
+  );
 }

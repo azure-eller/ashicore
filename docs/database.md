@@ -249,7 +249,7 @@ Positive stock writes must always have a lot cost:
 - purchase receipts use the PO line unit cost
 - manufacturing output uses the computed actual cost per unit
 - manual adjustments and positive stocktake deltas derive cost from the current item:
-  - materials convert `defaultPurchasePrice` from purchase-unit price into stock-unit cost using `purchaseToStockFactor`
+  - materials use `currentStockUnitCost`, falling back to `defaultPurchasePrice / purchaseToStockFactor`
   - products derive cost from active BOM ingredients recursively
 - if no cost basis exists, fail the write instead of creating a null-cost lot
 
