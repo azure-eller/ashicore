@@ -10,6 +10,8 @@
     "db:local:start": "tsx scripts/local-db-cli.ts start",
     "db:local:stop": "tsx scripts/local-db-cli.ts stop",
     "db:local:setup": "tsx scripts/setup-local-db.ts",
+    "dev:seed-user": "tsx scripts/seed-dev-user.ts",
+    "seed": "tsx scripts/seed.ts",
     "diff:projections": "tsx scripts/diff-projections.ts",
     "verify:inventory-state": "tsx scripts/verify-inventory-state.ts",
     "verify:inventory-kernel": "tsx scripts/verify-inventory-kernel.ts",

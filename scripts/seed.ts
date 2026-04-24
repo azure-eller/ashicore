@@ -1,185 +1,346 @@
-import { withOrgContext } from "@/lib/db/with-org-context";
-import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel";
 import { loadWorktreeEnv } from "./load-worktree-env";
 
 loadWorktreeEnv();
 
-async function main() {
-  const { db } = await import("@/lib/db");
-  const { organization, unitDefinitions, items } = await import("@/lib/db/schema");
-  // 1. Get the first org
-  const orgs = await db.select().from(organization).limit(1);
-  if (orgs.length === 0) {
-    console.error("No organizations found. Sign up and create an org first.");
-    process.exit(1);
-  }
-  const orgId = orgs[0].id;
-  console.log(`Seeding for org: ${orgs[0].name} (${orgId})`);
+type UnitSeed = {
+  key: string;
+  name: string;
+  size: string;
+  uom: string;
+};
 
-  // 2. Insert unit definitions
-  const insertedUnits = await db
-    .insert(unitDefinitions)
-    .values([
-      { organizationId: orgId, name: "bale", size: "225", uom: "l" },
-      { organizationId: orgId, name: "bag", size: "1", uom: "ft3" },
-      { organizationId: orgId, name: "bag", size: "2", uom: "ft3" },
-      { organizationId: orgId, name: "yard", size: "1", uom: "yd3" },
-      { organizationId: orgId, name: "lb", size: "1", uom: "lb" },
-    ])
-    .onConflictDoNothing()
-    .returning();
+type ItemSummary = {
+  id: string;
+  name: string;
+  sku: string | null;
+};
 
-  const [bale, bag1, bag2, yard, lb] = insertedUnits;
-  console.log(`Inserted ${insertedUnits.length} unit definitions`);
+type CreatedUnit = {
+  id: string;
+};
 
-  // 3. Insert items
-  const insertedItems = await db
-    .insert(items)
-    .values([
-      // Materials
-      {
-        organizationId: orgId,
-        name: "Sphagnum Peat Moss",
-        sku: "MAT-SPM-001",
-        category: "Peat",
-        itemType: "material",
-        sellable: true,
-        unitDefinitionId: bale.id,
-        safetyStock: "10",
-      },
-      {
-        organizationId: orgId,
-        name: "Perlite",
-        sku: "MAT-PRL-001",
-        category: "Amendments",
-        itemType: "material",
-        sellable: true,
-        unitDefinitionId: bag1.id,
-        safetyStock: "24",
-      },
-      {
-        organizationId: orgId,
-        name: "Compost",
-        sku: "MAT-CMP-001",
-        category: "Organics",
-        itemType: "material",
-        sellable: true,
-        unitDefinitionId: yard.id,
-        safetyStock: "8",
-      },
-      {
-        organizationId: orgId,
-        name: "Pumice",
-        sku: "MAT-PMC-001",
-        category: "Amendments",
-        itemType: "material",
-        sellable: true,
-        unitDefinitionId: bag1.id,
-        safetyStock: "12",
-      },
-      {
-        organizationId: orgId,
-        name: "Worm Castings",
-        sku: "MAT-WC-001",
-        category: "Organics",
-        itemType: "material",
-        sellable: true,
-        unitDefinitionId: lb.id,
-        safetyStock: "100",
-      },
-      // Products
-      {
-        organizationId: orgId,
-        name: "Premium Garden Mix",
-        sku: "PRD-PGM-001",
-        category: "Potting Mix",
-        itemType: "product",
-        sellable: true,
-        unitDefinitionId: bag2.id,
-        safetyStock: "40",
-        defaultSellingPrice: "24.99",
-      },
-      {
-        organizationId: orgId,
-        name: "Raised Bed Blend",
-        sku: "PRD-RBB-001",
-        category: "Potting Mix",
-        itemType: "product",
-        sellable: true,
-        unitDefinitionId: yard.id,
-        safetyStock: "5",
-        defaultSellingPrice: "89.00",
-      },
-      {
-        organizationId: orgId,
-        name: "Seed Starting Mix",
-        sku: "PRD-SSM-001",
-        category: "Specialty",
-        itemType: "product",
-        sellable: true,
-        unitDefinitionId: bag1.id,
-        safetyStock: "20",
-        defaultSellingPrice: "12.49",
-      },
-    ])
-    .onConflictDoUpdate({
-      target: [items.organizationId, items.sku],
-      set: { deletedAt: null },
-    })
-    .returning({ id: items.id, name: items.name });
+type CreatedItem = {
+  id: string;
+  name: string;
+  sku: string | null;
+};
 
-  console.log(`Inserted ${insertedItems.length} items:`);
-  for (const item of insertedItems) {
-    console.log(`  - ${item.name}`);
-  }
+const seedUnits: UnitSeed[] = [
+  { key: "bale", name: "bale", size: "225", uom: "l" },
+  { key: "bag-1", name: "bag", size: "1", uom: "cu ft" },
+  { key: "bag-2", name: "bag", size: "2", uom: "cu ft" },
+  { key: "yard", name: "yard", size: "1", uom: "cu yd" },
+  { key: "lb", name: "lb", size: "1", uom: "lb" },
+];
 
-  // 4. Seed opening balances through the inventory kernel
-  const stockAmounts: Record<string, string> = {
-    "Sphagnum Peat Moss": "48",
-    "Perlite": "120",
-    "Compost": "30",
-    "Pumice": "60",
-    "Worm Castings": "500",
-    "Premium Garden Mix": "200",
-    "Raised Bed Blend": "15",
-    "Seed Starting Mix": "85",
-  };
-  const openingUnitCosts: Record<string, string> = {
-    "Sphagnum Peat Moss": "8.5",
-    "Perlite": "2.75",
-    "Compost": "32",
-    "Pumice": "3.5",
-    "Worm Castings": "0.85",
-    "Premium Garden Mix": "14.5",
-    "Raised Bed Blend": "54",
-    "Seed Starting Mix": "7.25",
+const materialSeeds = [
+  {
+    name: "Sphagnum Peat Moss",
+    sku: "MAT-SPM-001",
+    category: "Peat",
+    unitKey: "bale",
+    safetyStock: "10",
+    stock: "48",
+    defaultPurchasePrice: "8.5",
+  },
+  {
+    name: "Perlite",
+    sku: "MAT-PRL-001",
+    category: "Amendments",
+    unitKey: "bag-1",
+    safetyStock: "24",
+    stock: "120",
+    defaultPurchasePrice: "2.75",
+  },
+  {
+    name: "Compost",
+    sku: "MAT-CMP-001",
+    category: "Organics",
+    unitKey: "yard",
+    safetyStock: "8",
+    stock: "30",
+    defaultPurchasePrice: "32",
+  },
+  {
+    name: "Pumice",
+    sku: "MAT-PMC-001",
+    category: "Amendments",
+    unitKey: "bag-1",
+    safetyStock: "12",
+    stock: "60",
+    defaultPurchasePrice: "3.5",
+  },
+  {
+    name: "Worm Castings",
+    sku: "MAT-WC-001",
+    category: "Organics",
+    unitKey: "lb",
+    safetyStock: "100",
+    stock: "500",
+    defaultPurchasePrice: "0.85",
+  },
+];
+
+const productSeeds = [
+  {
+    name: "Premium Garden Mix",
+    sku: "PRD-PGM-001",
+    category: "Potting Mix",
+    unitKey: "bag-2",
+    safetyStock: "40",
+    defaultSellingPrice: "24.99",
+    bom: [
+      { sku: "MAT-SPM-001", quantity: "1" },
+      { sku: "MAT-PRL-001", quantity: "1" },
+      { sku: "MAT-CMP-001", quantity: "0.25" },
+    ],
+  },
+  {
+    name: "Raised Bed Blend",
+    sku: "PRD-RBB-001",
+    category: "Potting Mix",
+    unitKey: "yard",
+    safetyStock: "5",
+    defaultSellingPrice: "89",
+    bom: [
+      { sku: "MAT-CMP-001", quantity: "1" },
+      { sku: "MAT-PMC-001", quantity: "2" },
+    ],
+  },
+  {
+    name: "Seed Starting Mix",
+    sku: "PRD-SSM-001",
+    category: "Specialty",
+    unitKey: "bag-1",
+    safetyStock: "20",
+    defaultSellingPrice: "12.49",
+    bom: [
+      { sku: "MAT-SPM-001", quantity: "1" },
+      { sku: "MAT-PRL-001", quantity: "0.5" },
+      { sku: "MAT-WC-001", quantity: "0.25" },
+    ],
+  },
+];
+
+async function apiFetch<T>(
+  baseUrl: string,
+  cookies: string,
+  path: string,
+  options: RequestInit & { idempotencyKey?: string } = {}
+) {
+  const {
+    idempotencyKey,
+    headers: optionHeaders,
+    ...requestOptions
+  } = options;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Cookie: cookies,
+    Origin: baseUrl,
   };
 
-  let lotSeq = 1;
-  for (const item of insertedItems) {
-    const qty = stockAmounts[item.name];
-    const unitCost = openingUnitCosts[item.name];
-    if (!qty || !unitCost) continue;
-
-    await withOrgContext(orgId, async (tx) => {
-      await seedOpeningBalanceInTx(tx, {
-        organizationId: orgId,
-        itemId: item.id,
-        quantity: Number(qty),
-        unitCost,
-        actorUserId: "seed",
-        idempotencyKey: `seed-opening:${item.id}`,
-        lotNumber: `LOT-${String(lotSeq).padStart(6, "0")}`,
-      });
-    });
-    lotSeq += 1;
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
   }
-  console.log(`Seeded ${lotSeq - 1} opening balance lots`);
 
-  console.log("Seed complete.");
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...requestOptions,
+    headers: {
+      ...headers,
+      ...Object.fromEntries(new Headers(optionHeaders)),
+    },
+  });
+  const body = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Request failed: ${options.method ?? "GET"} ${path} ${response.status} ${body}`
+    );
+  }
+
+  return JSON.parse(body || "null") as T;
 }
 
-main().catch((err) => {
-  console.error(err);
+function itemPayload(params: {
+  name: string;
+  sku: string;
+  category: string;
+  itemType: "material" | "product";
+  unitDefinitionId: string;
+  safetyStock: string;
+  stock: string;
+  defaultPurchasePrice: string | null;
+  defaultSellingPrice: string | null;
+  bom: Array<{ componentId: string; quantity: string }>;
+}) {
+  return {
+    name: params.name,
+    sku: params.sku,
+    category: params.category,
+    itemType: params.itemType,
+    sellable: true,
+    unitDefinitionId: params.unitDefinitionId,
+    purchaseUnitDefinitionId: null,
+    purchaseToStockFactor: null,
+    defaultPurchasePrice: params.defaultPurchasePrice,
+    currentStockUnitCost: null,
+    defaultSellingPrice: params.defaultSellingPrice,
+    description: null,
+    stock: params.stock,
+    safetyStock: params.safetyStock,
+    bom: params.bom,
+    revisionNote: null,
+    manufacturingMode: "discrete",
+    expectedBatchYield: null,
+  };
+}
+
+async function createSeedUnits(baseUrl: string, cookies: string) {
+  const unitsByKey = new Map<string, string>();
+
+  for (const unit of seedUnits) {
+    const created = await apiFetch<CreatedUnit>(baseUrl, cookies, "/api/units", {
+      method: "POST",
+      body: JSON.stringify({
+        name: unit.name,
+        size: unit.size,
+        uom: unit.uom,
+      }),
+    });
+    unitsByKey.set(unit.key, created.id);
+  }
+
+  return unitsByKey;
+}
+
+async function listItems(baseUrl: string, cookies: string) {
+  const [materials, products] = await Promise.all([
+    apiFetch<ItemSummary[]>(baseUrl, cookies, "/api/items?itemType=material"),
+    apiFetch<ItemSummary[]>(baseUrl, cookies, "/api/items?itemType=product"),
+  ]);
+  return [...materials, ...products];
+}
+
+async function main() {
+  const { ensureTestAccount } = await import(
+    "../test/helpers/test-account-setup"
+  );
+  const { readTestEnv } = await import("../test/helpers/test-env");
+  const account = await ensureTestAccount();
+  const env = readTestEnv();
+  const runId = Date.now();
+  const existingItems = await listItems(account.baseUrl, env.TEST_SESSION_COOKIE);
+  const existingBySku = new Map(
+    existingItems
+      .filter((item) => item.sku)
+      .map((item) => [item.sku as string, item])
+  );
+  const missingSkus = [...materialSeeds, ...productSeeds].filter(
+    (seed) => !existingBySku.has(seed.sku)
+  );
+
+  if (missingSkus.length === 0) {
+    console.log(`Seed data already exists for ${account.email}.`);
+    return;
+  }
+
+  const unitsByKey = await createSeedUnits(
+    account.baseUrl,
+    env.TEST_SESSION_COOKIE
+  );
+  const materialIdsBySku = new Map<string, string>();
+  let createdMaterials = 0;
+  let createdProducts = 0;
+
+  for (const material of materialSeeds) {
+    const existing = existingBySku.get(material.sku);
+
+    if (existing) {
+      materialIdsBySku.set(material.sku, existing.id);
+      continue;
+    }
+
+    const unitDefinitionId = unitsByKey.get(material.unitKey);
+    if (!unitDefinitionId) {
+      throw new Error(`Missing seed unit '${material.unitKey}'.`);
+    }
+
+    const created = await apiFetch<CreatedItem>(
+      account.baseUrl,
+      env.TEST_SESSION_COOKIE,
+      "/api/items",
+      {
+        method: "POST",
+        idempotencyKey: `seed:${material.sku}:${runId}`,
+        body: JSON.stringify(
+          itemPayload({
+            ...material,
+            itemType: "material",
+            unitDefinitionId,
+            defaultSellingPrice: null,
+            bom: [],
+          })
+        ),
+      }
+    );
+    materialIdsBySku.set(material.sku, created.id);
+    existingBySku.set(material.sku, created);
+    createdMaterials += 1;
+  }
+
+  for (const product of productSeeds) {
+    if (existingBySku.has(product.sku)) {
+      continue;
+    }
+
+    const unitDefinitionId = unitsByKey.get(product.unitKey);
+    if (!unitDefinitionId) {
+      throw new Error(`Missing seed unit '${product.unitKey}'.`);
+    }
+
+    const bom = product.bom.map((component) => {
+      const componentId = materialIdsBySku.get(component.sku);
+
+      if (!componentId) {
+        throw new Error(`Missing seed material '${component.sku}'.`);
+      }
+
+      return {
+        componentId,
+        quantity: component.quantity,
+      };
+    });
+
+    const created = await apiFetch<CreatedItem>(
+      account.baseUrl,
+      env.TEST_SESSION_COOKIE,
+      "/api/items",
+      {
+        method: "POST",
+        idempotencyKey: `seed:${product.sku}:${runId}`,
+        body: JSON.stringify(
+          itemPayload({
+            ...product,
+            itemType: "product",
+            unitDefinitionId,
+            stock: "0",
+            defaultPurchasePrice: null,
+            defaultSellingPrice: product.defaultSellingPrice,
+            bom,
+          })
+        ),
+      }
+    );
+    existingBySku.set(product.sku, created);
+    createdProducts += 1;
+  }
+
+  console.log(
+    `Seed complete for ${account.email}: ${createdMaterials} materials, ${createdProducts} products.`
+  );
+}
+
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

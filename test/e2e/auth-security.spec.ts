@@ -10,6 +10,7 @@ import {
   testFetch,
 } from "../helpers/api";
 import { extractFirstUrl, waitForOutboxEmail } from "../helpers/email-outbox";
+import { TEST_ACCOUNT_EMAIL } from "../helpers/test-account";
 import { member, salesOrders, user } from "../../lib/db/schema";
 
 dotenv.config({ path: ".env.local" });
@@ -36,7 +37,7 @@ function createAuthDb() {
 
 const authDb = createAuthDb();
 
-const TEST_USER_EMAIL = "test-agent@erp-test.local";
+const TEST_USER_EMAIL = TEST_ACCOUNT_EMAIL;
 
 async function createConfirmedSalesOrder(payload: {
   customerId: string;
