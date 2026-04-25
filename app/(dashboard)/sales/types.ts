@@ -122,6 +122,9 @@ export type SalesOrderItemOption = {
   defaultSellingPrice: string | null;
   stock: string;
   committedQty: string;
+  demandQty: string;
+  shortageQty: string;
+  availableQty: string;
   expectedQty: string;
   safetyStock: string;
 };
@@ -243,12 +246,16 @@ export type OversellWarningProduct = {
   itemSku: string | null;
   unitName: string;
   inStock: number;
+  availableQty: number;
   committedQty: number;
+  demandQty: number;
+  shortageQty: number;
   expectedQty: number;
   safetyStock: number;
   calculatedStock: number;
   addedQty: number;
-  projectedCommittedQty: number;
+  projectedDemandQty: number;
+  projectedShortageQty: number;
   projectedCalculatedStock: number;
 };
 

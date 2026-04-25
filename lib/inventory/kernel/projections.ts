@@ -4,6 +4,7 @@ import {
   inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
+  inventoryDemandSummary,
   inventoryReservationsSummary,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -14,6 +15,7 @@ export type ItemBalanceDelta = {
   itemId: string;
   onHandDelta?: number;
   committedDelta?: number;
+  demandDelta?: number;
   expectedDelta?: number;
   lastVerifiedAt?: Date | null;
 };
@@ -41,6 +43,7 @@ type SummaryDelta = {
 type AggregatedItemBalanceDelta = ItemBalanceDelta & {
   onHandDelta: number;
   committedDelta: number;
+  demandDelta: number;
   expectedDelta: number;
 };
 
@@ -84,6 +87,7 @@ function aggregateItemBalanceDeltas(deltas: ItemBalanceDelta[]) {
       itemId: delta.itemId,
       onHandDelta: 0,
       committedDelta: 0,
+      demandDelta: 0,
       expectedDelta: 0,
       lastVerifiedAt: undefined,
     };
@@ -93,6 +97,9 @@ function aggregateItemBalanceDeltas(deltas: ItemBalanceDelta[]) {
     );
     current.committedDelta = roundQuantity(
       current.committedDelta + (delta.committedDelta ?? 0)
+    );
+    current.demandDelta = roundQuantity(
+      current.demandDelta + (delta.demandDelta ?? 0)
     );
     current.expectedDelta = roundQuantity(
       current.expectedDelta + (delta.expectedDelta ?? 0)
@@ -149,12 +156,19 @@ function aggregateSummaryDeltas(deltas: SummaryDelta[]) {
 
 function computeAvailableToPromise(params: {
   onHandQty: number;
-  committedQty: number;
+  demandQty: number;
   expectedQty: number;
 }) {
   return roundQuantity(
-    params.onHandQty - params.committedQty + params.expectedQty
+    params.onHandQty - params.demandQty + params.expectedQty
   );
+}
+
+function computeShortageQty(params: {
+  demandQty: number;
+  committedQty: number;
+}) {
+  return Math.max(0, roundQuantity(params.demandQty - params.committedQty));
 }
 
 export async function applyItemBalanceDeltasInTx(
@@ -164,7 +178,14 @@ export async function applyItemBalanceDeltasInTx(
   for (const delta of aggregateItemBalanceDeltas(deltas)) {
     const onHandDelta = normalizeNumeric(delta.onHandDelta);
     const committedDelta = normalizeNumeric(delta.committedDelta);
+    const demandDelta = normalizeNumeric(delta.demandDelta);
     const expectedDelta = normalizeNumeric(delta.expectedDelta);
+    const shortageQty = normalizeNumeric(
+      computeShortageQty({
+        demandQty: delta.demandDelta,
+        committedQty: delta.committedDelta,
+      })
+    );
 
     await tx
       .insert(inventoryItemBalances)
@@ -174,11 +195,13 @@ export async function applyItemBalanceDeltasInTx(
         itemId: delta.itemId,
         onHandQty: onHandDelta,
         committedQty: committedDelta,
+        demandQty: demandDelta,
+        shortageQty,
         expectedQty: expectedDelta,
         availableToPromise: normalizeNumeric(
           computeAvailableToPromise({
             onHandQty: delta.onHandDelta,
-            committedQty: delta.committedDelta,
+            demandQty: delta.demandDelta,
             expectedQty: delta.expectedDelta,
           })
         ),
@@ -194,10 +217,16 @@ export async function applyItemBalanceDeltasInTx(
         set: {
           onHandQty: sql`${inventoryItemBalances.onHandQty} + ${onHandDelta}`,
           committedQty: sql`${inventoryItemBalances.committedQty} + ${committedDelta}`,
+          demandQty: sql`${inventoryItemBalances.demandQty} + ${demandDelta}`,
+          shortageQty: sql`GREATEST(
+            0,
+            (${inventoryItemBalances.demandQty} + ${demandDelta})
+            - (${inventoryItemBalances.committedQty} + ${committedDelta})
+          )`,
           expectedQty: sql`${inventoryItemBalances.expectedQty} + ${expectedDelta}`,
           availableToPromise: sql`
             (${inventoryItemBalances.onHandQty} + ${onHandDelta})
-            - (${inventoryItemBalances.committedQty} + ${committedDelta})
+            - (${inventoryItemBalances.demandQty} + ${demandDelta})
             + (${inventoryItemBalances.expectedQty} + ${expectedDelta})
           `,
           lastVerifiedAt:
@@ -392,6 +421,75 @@ export async function applyExpectedSummaryDeltasInTx(
           eq(inventoryExpectedSummary.itemId, delta.itemId),
           eq(inventoryExpectedSummary.referenceType, delta.referenceType),
           eq(inventoryExpectedSummary.referenceId, delta.referenceId)
+        )
+      );
+  }
+}
+
+export async function applyDemandSummaryDeltasInTx(
+  tx: Tx,
+  deltas: SummaryDelta[]
+) {
+  for (const delta of aggregateSummaryDeltas(deltas)) {
+    const quantity = normalizeNumeric(delta.quantity);
+
+    if (delta.quantity > 0) {
+      await tx
+        .insert(inventoryDemandSummary)
+        .values({
+          organizationId: delta.organizationId,
+          locationId: delta.locationId,
+          itemId: delta.itemId,
+          referenceType: delta.referenceType,
+          referenceId: delta.referenceId,
+          quantity,
+        })
+        .onConflictDoUpdate({
+          target: [
+            inventoryDemandSummary.organizationId,
+            inventoryDemandSummary.locationId,
+            inventoryDemandSummary.itemId,
+            inventoryDemandSummary.referenceType,
+            inventoryDemandSummary.referenceId,
+          ],
+          set: {
+            quantity: sql`${inventoryDemandSummary.quantity} + ${quantity}`,
+            updatedAt: new Date(),
+          },
+        });
+      continue;
+    }
+
+    const [updated] = await tx
+      .update(inventoryDemandSummary)
+      .set({
+        quantity: sql`${inventoryDemandSummary.quantity} + ${quantity}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(inventoryDemandSummary.organizationId, delta.organizationId),
+          eq(inventoryDemandSummary.locationId, delta.locationId),
+          eq(inventoryDemandSummary.itemId, delta.itemId),
+          eq(inventoryDemandSummary.referenceType, delta.referenceType),
+          eq(inventoryDemandSummary.referenceId, delta.referenceId)
+        )
+      )
+      .returning({ quantity: inventoryDemandSummary.quantity });
+
+    if (!updated || parseFloat(updated.quantity) > 0) {
+      continue;
+    }
+
+    await tx
+      .delete(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.organizationId, delta.organizationId),
+          eq(inventoryDemandSummary.locationId, delta.locationId),
+          eq(inventoryDemandSummary.itemId, delta.itemId),
+          eq(inventoryDemandSummary.referenceType, delta.referenceType),
+          eq(inventoryDemandSummary.referenceId, delta.referenceId)
         )
       );
   }

@@ -71,6 +71,77 @@ export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
   return parseFloat(row?.quantity ?? "0");
 }
 
+export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
+  const [reservable] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.stockStatus, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const [reserved] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
+    })
+    .from(inventoryItemBalances)
+    .where(eq(inventoryItemBalances.itemId, itemId));
+
+  return Math.max(
+    0,
+    roundQuantity(
+      parseFloat(reservable?.quantity ?? "0") - parseFloat(reserved?.quantity ?? "0")
+    )
+  );
+}
+
+export async function getCurrentAvailableQtyAtLocationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+  }
+) {
+  const [reservable] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.stockStatus, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const [reserved] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
+    })
+    .from(inventoryItemBalances)
+    .where(
+      and(
+        eq(inventoryItemBalances.organizationId, params.organizationId),
+        eq(inventoryItemBalances.locationId, params.locationId),
+        eq(inventoryItemBalances.itemId, params.itemId)
+      )
+    );
+
+  return Math.max(
+    0,
+    roundQuantity(
+      parseFloat(reservable?.quantity ?? "0") - parseFloat(reserved?.quantity ?? "0")
+    )
+  );
+}
+
 export async function resolvePositiveStockUnitCostInTx(
   tx: Tx,
   params: {
@@ -336,6 +407,7 @@ async function getLockedFifoLotsInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.stockStatus, "available"),
         sql`${inventoryLotBalances.quantity} > 0`
       )
     )

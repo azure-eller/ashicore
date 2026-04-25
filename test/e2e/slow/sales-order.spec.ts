@@ -599,9 +599,9 @@ test.describe("Sales order flow", () => {
 
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await oversellDialog.getByText("Current Committed", { exact: true }).hover();
+    await oversellDialog.getByText("Reserved", { exact: true }).hover();
     await expect(
-      page.getByText("Quantity already reserved by confirmed sales orders.")
+      page.getByText("Available stock already hard-reserved.")
     ).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 
@@ -619,10 +619,16 @@ test.describe("Sales order flow", () => {
       .toBe("confirmed");
 
     const [primaryItemAfterConfirm] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
+      .select({
+        committedQty: inventoryItemBalances.committedQty,
+        demandQty: inventoryItemBalances.demandQty,
+        shortageQty: inventoryItemBalances.shortageQty,
+      })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, primaryProductId));
-    expect(primaryItemAfterConfirm.committedQty).toBe("5.0000");
+    expect(primaryItemAfterConfirm.committedQty).toBe("4.0000");
+    expect(primaryItemAfterConfirm.demandQty).toBe("5.0000");
+    expect(primaryItemAfterConfirm.shortageQty).toBe("1.0000");
 
     await updateSalesOrderStatus(bulkOrderId, "cancelled");
 
@@ -656,9 +662,9 @@ test.describe("Sales order flow", () => {
     // The edited order quantity exceeds the fixture's opening stock, so the oversell dialog should appear.
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await oversellDialog.getByText("Current Committed", { exact: true }).hover();
+    await oversellDialog.getByText("Reserved", { exact: true }).hover();
     await expect(
-      page.getByText("Quantity already reserved by confirmed sales orders.")
+      page.getByText("Available stock already hard-reserved.")
     ).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).scrollIntoViewIfNeeded();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
@@ -703,8 +709,8 @@ test.describe("Sales order flow", () => {
         { timeout: 15_000 }
       )
       .toEqual({
-        primary: "5.0000",
-        secondary: "5.0000",
+        primary: "4.0000",
+        secondary: "0.0000",
         material: "0.0000",
       });
 
@@ -828,7 +834,7 @@ test.describe("Sales order flow", () => {
         },
         { timeout: 15_000 }
       )
-      .toBe("5.0000");
+      .toBe("0.0000");
   });
 
   test("cancels the confirmed order and releases committed stock", async ({ page, db }) => {

@@ -792,7 +792,10 @@ export function OrderForm({
           }
         }}
       >
-        <AlertDialogContent className="max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto bg-background text-foreground">
+        <AlertDialogContent
+          size="3xl"
+          className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -808,8 +811,26 @@ export function OrderForm({
                   <TableHead>Current Stock</TableHead>
                   <TableHead>
                     <TooltipHeader
-                      label="Current Committed"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentCommitted}
+                      label="Available"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentAvailable}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Reserved"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentReserved}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Demand"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentDemand}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Backorder"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentShortage}
                     />
                   </TableHead>
                   <TableHead>
@@ -833,8 +854,14 @@ export function OrderForm({
                   <TableHead>Added Qty</TableHead>
                   <TableHead>
                     <TooltipHeader
-                      label="Projected Committed"
-                      tooltip={OVERSELL_TOOLTIP_COPY.projectedCommitted}
+                      label="Projected Demand"
+                      tooltip={OVERSELL_TOOLTIP_COPY.projectedDemand}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Projected Backorder"
+                      tooltip={OVERSELL_TOOLTIP_COPY.projectedShortage}
                     />
                   </TableHead>
                   <TableHead>
@@ -855,13 +882,19 @@ export function OrderForm({
                       )}
                     </TableCell>
                     <TableCell>{product.inStock} {product.unitName}</TableCell>
+                    <TableCell>{product.availableQty} {product.unitName}</TableCell>
                     <TableCell>{product.committedQty} {product.unitName}</TableCell>
+                    <TableCell>{product.demandQty} {product.unitName}</TableCell>
+                    <TableCell>{product.shortageQty} {product.unitName}</TableCell>
                     <TableCell>{product.expectedQty} {product.unitName}</TableCell>
                     <TableCell>{product.safetyStock} {product.unitName}</TableCell>
                     <TableCell>{product.calculatedStock} {product.unitName}</TableCell>
                     <TableCell>{product.addedQty} {product.unitName}</TableCell>
                     <TableCell>
-                      {product.projectedCommittedQty} {product.unitName}
+                      {product.projectedDemandQty} {product.unitName}
+                    </TableCell>
+                    <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
+                      {product.projectedShortageQty} {product.unitName}
                     </TableCell>
                     <TableCell className="text-destructive">
                       {product.projectedCalculatedStock} {product.unitName}

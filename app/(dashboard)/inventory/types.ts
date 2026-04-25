@@ -20,6 +20,9 @@ export type VariantRow = {
   sku: string | null;
   stock: string;
   committedQty: string;
+  demandQty: string;
+  shortageQty: string;
+  availableQty: string;
   expectedQty: string;
   safetyStock: string;
   defaultSellingPrice: string | null;
@@ -35,6 +38,9 @@ export type ItemRow = {
   itemType: ItemType;
   stock: string;
   committedQty: string;
+  demandQty: string;
+  shortageQty: string;
+  availableQty: string;
   expectedQty: string;
   safetyStock: string;
   currentStockUnitCost: string | null;
@@ -65,11 +71,11 @@ export type InventoryTabCounts = {
 };
 
 export function calcStock(
-  row: Pick<ItemRow, "stock" | "committedQty" | "expectedQty" | "safetyStock">,
+  row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty" | "safetyStock">,
 ): number {
   const result =
     parseFloat(row.stock) -
-    parseFloat(row.committedQty) +
+    parseFloat(row.demandQty) +
     parseFloat(row.expectedQty) -
     parseFloat(row.safetyStock);
   return Math.round(result * 10000) / 10000;

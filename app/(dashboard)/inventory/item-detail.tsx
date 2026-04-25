@@ -46,6 +46,9 @@ interface ItemDetailProps {
     sellable?: boolean | null;
     stock: string;
     committedQty: string;
+    demandQty: string;
+    shortageQty: string;
+    availableQty: string;
     expectedQty: string;
     safetyStock: string;
     manufacturingMode?: string;
@@ -100,6 +103,9 @@ interface ItemDetailProps {
     sku: string | null;
     stock: string;
     committedQty: string;
+    demandQty: string;
+    shortageQty: string;
+    availableQty: string;
     expectedQty: string;
     safetyStock: string;
     defaultSellingPrice: string | null;
@@ -438,8 +444,20 @@ export function ItemDetail({
           <dd className="mt-1 text-sm">{formatQuantity(item.stock)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Committed</dt>
+          <dt className="text-sm font-medium text-muted-foreground">Available</dt>
+          <dd className="mt-1 text-sm">{formatQuantity(item.availableQty)} {item.unitName}</dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Reserved</dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.committedQty)} {item.unitName}</dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Demand</dt>
+          <dd className="mt-1 text-sm">{formatQuantity(item.demandQty)} {item.unitName}</dd>
+        </div>
+        <div>
+          <dt className="text-sm font-medium text-muted-foreground">Backorder</dt>
+          <dd className="mt-1 text-sm">{formatQuantity(item.shortageQty)} {item.unitName}</dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">Expected</dt>
