@@ -144,7 +144,7 @@ Auth:
 
 Schedule:
 
-- `vercel.json` runs the route hourly with `0 * * * *`
+- `vercel.json` runs the route daily with `0 0 * * *`
 
 Behavior:
 

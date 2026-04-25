@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { customerCategories, customers } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";

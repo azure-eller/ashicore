@@ -1,3 +1,5 @@
+import "server-only";
+
 // Org isolation is enforced by RLS via app.current_org_id.
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
@@ -37,15 +39,21 @@ import {
   lockItemsInTx,
   manualDecreaseStockInTx,
   manualIncreaseStockInTx,
+  projectedAvailableQty,
+  projectedAvailableQtyExpr,
   projectedCommittedQty,
-  projectedCommittedQtyExpr,
+  projectedDemandQty,
   projectedExpectedQty,
   projectedLotQuantity,
   projectedLotUnitCost,
   projectedOnHandQty,
-  projectedOnHandQtyExpr,
+  projectedShortageQty,
   recordCostBasisChangeInTx,
 } from "@/lib/inventory/kernel";
+import {
+  normalizeStockUnitCost,
+  resolveStockUnitCostFromDefaultPurchasePrice,
+} from "@/lib/inventory/cost";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
@@ -68,6 +76,18 @@ const committedQtySubquery = projectedCommittedQty(
   items.organizationId,
   items.id
 ).as("committedQty");
+const demandQtySubquery = projectedDemandQty(
+  items.organizationId,
+  items.id
+).as("demandQty");
+const shortageQtySubquery = projectedShortageQty(
+  items.organizationId,
+  items.id
+).as("shortageQty");
+const availableQtySubquery = projectedAvailableQty(
+  items.organizationId,
+  items.id
+).as("availableQty");
 const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
@@ -76,7 +96,7 @@ const expectedQtySubquery = projectedExpectedQty(
 // Potential: how many finished units could be produced from current available ingredient stock.
 // For discrete products: floor(min(component_available / bom_qty))
 // For batch products: floor(min(component_available / bom_qty)) * expected_batch_yield
-// Available = lot stock - committed qty (stock already allocated to open orders)
+// Available = reservable lot stock - hard reservations.
 const potentialSubquery = sql<string | null>`(
   CASE WHEN ${items.itemType} = 'product' AND EXISTS (
     SELECT 1
@@ -91,8 +111,7 @@ const potentialSubquery = sql<string | null>`(
       (
         SELECT MIN(
           (
-            ${projectedOnHandQtyExpr(items.organizationId, sql`brc.component_id`)}
-            - ${projectedCommittedQtyExpr(items.organizationId, sql`brc.component_id`)}
+            ${projectedAvailableQtyExpr(items.organizationId, sql`brc.component_id`)}
           )
           / NULLIF(brc.quantity, 0)
         )
@@ -153,6 +172,27 @@ function parseNumeric(value: string | null | undefined): number {
 
 function formatAggregateNumber(value: number): string {
   return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function normalizeCurrentStockUnitCost(
+  value: string | null | undefined
+): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new InventoryError(
+      "Current stock unit cost must be a non-negative number."
+    );
+  }
+
+  return normalizeStockUnitCost(parsed);
 }
 
 function formatPriceRange(values: Array<string | null | undefined>) {
@@ -384,8 +424,14 @@ export async function getItems(filters?: {
               itemType: items.itemType,
               stock: stockSubquery,
               committedQty: committedQtySubquery,
+              demandQty: demandQtySubquery,
+              shortageQty: shortageQtySubquery,
+              availableQty: availableQtySubquery,
               expectedQty: expectedQtySubquery,
               safetyStock: trimScale(items.safetyStock).as("safetyStock"),
+              currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+                "currentStockUnitCost"
+              ),
               unit: unitDefinitions.name,
               unitSize: unitDefinitions.size,
               unitUom: unitDefinitions.uom,
@@ -411,8 +457,12 @@ export async function getItems(filters?: {
             itemType: row.itemType as ItemType,
             stock: row.stock,
             committedQty: row.committedQty,
+            demandQty: row.demandQty,
+            shortageQty: row.shortageQty,
+            availableQty: row.availableQty,
             expectedQty: row.expectedQty,
             safetyStock: row.safetyStock,
+            currentStockUnitCost: row.currentStockUnitCost,
             unit: row.unit ?? null,
             unitSize: row.unitSize ?? null,
             unitUom: row.unitUom ?? null,
@@ -444,6 +494,9 @@ export async function getItems(filters?: {
               itemType: items.itemType,
               stock: stockSubquery,
               committedQty: committedQtySubquery,
+              demandQty: demandQtySubquery,
+              shortageQty: shortageQtySubquery,
+              availableQty: availableQtySubquery,
               expectedQty: expectedQtySubquery,
               safetyStock: trimScale(items.safetyStock).as("safetyStock"),
               unit: unitDefinitions.name,
@@ -525,8 +578,12 @@ export async function getItems(filters?: {
                 itemType: row.itemType as ItemType,
                 stock: row.stock,
                 committedQty: row.committedQty,
+                demandQty: row.demandQty,
+                shortageQty: row.shortageQty,
+                availableQty: row.availableQty,
                 expectedQty: row.expectedQty,
                 safetyStock: row.safetyStock,
+                currentStockUnitCost: null,
                 unit: row.unit ?? null,
                 unitSize: row.unitSize ?? null,
                 unitUom: row.unitUom ?? null,
@@ -561,6 +618,9 @@ export async function getItems(filters?: {
             parentId: items.parentId,
             stock: stockSubquery,
             committedQty: committedQtySubquery,
+            demandQty: demandQtySubquery,
+            shortageQty: shortageQtySubquery,
+            availableQty: availableQtySubquery,
             expectedQty: expectedQtySubquery,
             safetyStock: trimScale(items.safetyStock).as("safetyStock"),
             defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
@@ -595,6 +655,9 @@ export async function getItems(filters?: {
                 parentId: items.parentId,
                 stock: stockSubquery,
                 committedQty: committedQtySubquery,
+                demandQty: demandQtySubquery,
+                shortageQty: shortageQtySubquery,
+                availableQty: availableQtySubquery,
                 expectedQty: expectedQtySubquery,
                 safetyStock: trimScale(items.safetyStock).as("safetyStock"),
                 defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
@@ -644,8 +707,12 @@ export async function getItems(filters?: {
                 itemType: row.itemType as ItemType,
                 stock: row.stock,
                 committedQty: row.committedQty,
+                demandQty: row.demandQty,
+                shortageQty: row.shortageQty,
+                availableQty: row.availableQty,
                 expectedQty: row.expectedQty,
                 safetyStock: row.safetyStock,
+                currentStockUnitCost: null,
                 unit: row.unit ?? null,
                 unitSize: row.unitSize ?? null,
                 unitUom: row.unitUom ?? null,
@@ -680,6 +747,15 @@ export async function getItems(filters?: {
             const committedQty = formatAggregateNumber(
               visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.committedQty), 0),
             );
+            const demandQty = formatAggregateNumber(
+              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.demandQty), 0),
+            );
+            const shortageQty = formatAggregateNumber(
+              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.shortageQty), 0),
+            );
+            const availableQty = formatAggregateNumber(
+              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.availableQty), 0),
+            );
             const expectedQty = formatAggregateNumber(
               visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.expectedQty), 0),
             );
@@ -703,8 +779,12 @@ export async function getItems(filters?: {
               itemType: row.itemType as ItemType,
               stock,
               committedQty,
+              demandQty,
+              shortageQty,
+              availableQty,
               expectedQty,
               safetyStock,
+              currentStockUnitCost: null,
               unit: row.unit ?? null,
               unitSize: row.unitSize ?? null,
               unitUom: row.unitUom ?? null,
@@ -740,8 +820,12 @@ export async function getItems(filters?: {
                   itemType: variant.itemType as ItemType,
                   stock: variant.stock,
                   committedQty: variant.committedQty,
+                  demandQty: variant.demandQty,
+                  shortageQty: variant.shortageQty,
+                  availableQty: variant.availableQty,
                   expectedQty: variant.expectedQty,
                   safetyStock: variant.safetyStock,
+                  currentStockUnitCost: null,
                   unit: variant.unit ?? null,
                   unitSize: variant.unitSize ?? null,
                   unitUom: variant.unitUom ?? null,
@@ -872,6 +956,9 @@ export async function getItem(id: string) {
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
+        currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+          "currentStockUnitCost"
+        ),
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
           "defaultSellingPrice"
         ),
@@ -889,6 +976,9 @@ export async function getItem(id: string) {
         bomLockedByUserId: items.bomLockedByUserId,
         stock: stockSubquery,
         committedQty: committedQtySubquery,
+        demandQty: demandQtySubquery,
+        shortageQty: shortageQtySubquery,
+        availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         unitName: unitDefinitions.name,
@@ -1352,12 +1442,16 @@ export async function updateItem(
     const [existingItem] = await tx
       .select({
         id: items.id,
+        itemType: items.itemType,
         purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
         purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
           "purchaseToStockFactor"
         ),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
+        ),
+        currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+          "currentStockUnitCost"
         ),
         bomLocked: items.bomLocked,
       })
@@ -1377,10 +1471,18 @@ export async function updateItem(
     const delta =
       stock != null ? stock - (await getCurrentOnHandQtyInTx(tx, id)) : null;
     const currentBom = bom !== undefined ? await getCurrentBomComponentsInTx(tx, id) : [];
+    const normalizedCurrentStockUnitCost =
+      existingItem.itemType === "material"
+        ? normalizeCurrentStockUnitCost(itemData.currentStockUnitCost)
+        : undefined;
+    const normalizedItemData = {
+      ...itemData,
+      currentStockUnitCost: normalizedCurrentStockUnitCost,
+    };
 
     const [item] = await tx
       .update(items)
-      .set({ ...itemData, updatedAt: new Date() })
+      .set({ ...normalizedItemData, updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
 
@@ -1476,8 +1578,8 @@ export async function updateItem(
     }
 
     if (
-      itemData.defaultPurchasePrice !== undefined &&
-      itemData.defaultPurchasePrice !== existingItem.defaultPurchasePrice
+      normalizedItemData.defaultPurchasePrice !== undefined &&
+      normalizedItemData.defaultPurchasePrice !== existingItem.defaultPurchasePrice
     ) {
       await recordCostBasisChangeInTx(tx, {
         organizationId: orgId,
@@ -1490,7 +1592,27 @@ export async function updateItem(
         ),
         metadata: {
           before: existingItem.defaultPurchasePrice,
-          after: itemData.defaultPurchasePrice,
+          after: normalizedItemData.defaultPurchasePrice,
+        },
+      });
+    }
+
+    if (
+      normalizedCurrentStockUnitCost !== undefined &&
+      normalizedCurrentStockUnitCost !== existingItem.currentStockUnitCost
+    ) {
+      await recordCostBasisChangeInTx(tx, {
+        organizationId: orgId,
+        itemId: id,
+        actorUserId: userId,
+        eventSubtype: "current_stock_unit_cost_override",
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "current-stock-unit-cost-override"
+        ),
+        metadata: {
+          before: existingItem.currentStockUnitCost,
+          after: normalizedCurrentStockUnitCost,
         },
       });
     }
@@ -1524,9 +1646,28 @@ export async function createItemWithLot(
       return replay.result;
     }
 
+    const normalizedCurrentStockUnitCost =
+      data.itemType === "material"
+        ? normalizeCurrentStockUnitCost(data.currentStockUnitCost)
+        : null;
+    const initialCurrentStockUnitCost =
+      data.itemType === "material"
+        ? normalizedCurrentStockUnitCost ??
+          (parseFloat(stock) > 0
+            ? resolveStockUnitCostFromDefaultPurchasePrice({
+                defaultPurchasePrice: data.defaultPurchasePrice,
+                purchaseToStockFactor: data.purchaseToStockFactor,
+              })
+            : null)
+        : null;
+
     const [item] = await tx
       .insert(items)
-      .values({ ...data, organizationId: orgId })
+      .values({
+        ...data,
+        currentStockUnitCost: initialCurrentStockUnitCost,
+        organizationId: orgId,
+      })
       .returning({ id: items.id });
 
     if (bom && bom.length > 0) {
@@ -1559,6 +1700,104 @@ export async function createItemWithLot(
     });
 
     return item;
+  });
+}
+
+export async function overrideMaterialCurrentStockUnitCost(
+  id: string,
+  currentStockUnitCost: string,
+  options?: { idempotencyKey?: string },
+): Promise<{ id: string; currentStockUnitCost: string | null } | null> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<
+      { id: string; currentStockUnitCost: string | null } | null
+    >(tx, {
+      organizationId: orgId,
+      operationName: "overrideMaterialCurrentStockUnitCost",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, currentStockUnitCost },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
+    const normalizedCurrentStockUnitCost = normalizeCurrentStockUnitCost(
+      currentStockUnitCost
+    );
+
+    if (normalizedCurrentStockUnitCost == null) {
+      throw new InventoryError("Current stock unit cost is required.");
+    }
+
+    const [existingItem] = await tx
+      .select({
+        id: items.id,
+        itemType: items.itemType,
+        currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+          "currentStockUnitCost"
+        ),
+      })
+      .from(items)
+      .where(and(eq(items.id, id), isNull(items.deletedAt)))
+      .for("update");
+
+    if (!existingItem) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+
+    if (existingItem.itemType !== "material") {
+      throw new InventoryError("Only materials have a current stock unit cost.");
+    }
+
+    const [item] = await tx
+      .update(items)
+      .set({
+        currentStockUnitCost: normalizedCurrentStockUnitCost,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(items.id, id), isNull(items.deletedAt), eq(items.itemType, "material")))
+      .returning({
+        id: items.id,
+        currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+          "currentStockUnitCost"
+        ),
+      });
+
+    if (
+      item &&
+      item.currentStockUnitCost !== existingItem.currentStockUnitCost
+    ) {
+      await recordCostBasisChangeInTx(tx, {
+        organizationId: orgId,
+        itemId: id,
+        actorUserId: userId,
+        eventSubtype: "current_stock_unit_cost_override",
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "current-stock-unit-cost-override"
+        ),
+        metadata: {
+          before: existingItem.currentStockUnitCost,
+          after: item.currentStockUnitCost,
+        },
+      });
+    }
+
+    const result = item ?? null;
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
@@ -1976,6 +2215,9 @@ export async function getVariants(parentId: string) {
         sku: items.sku,
         stock: stockSubquery,
         committedQty: committedQtySubquery,
+        demandQty: demandQtySubquery,
+        shortageQty: shortageQtySubquery,
+        availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),

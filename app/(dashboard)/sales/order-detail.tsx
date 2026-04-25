@@ -551,8 +551,26 @@ export function OrderDetail({
                   <TableHead>Current Stock</TableHead>
                   <TableHead>
                     <TooltipHeader
-                      label="Current Committed"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentCommitted}
+                      label="Available"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentAvailable}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Reserved"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentReserved}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Demand"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentDemand}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Backorder"
+                      tooltip={OVERSELL_TOOLTIP_COPY.currentShortage}
                     />
                   </TableHead>
                   <TableHead>
@@ -576,8 +594,14 @@ export function OrderDetail({
                   <TableHead>Added Qty</TableHead>
                   <TableHead>
                     <TooltipHeader
-                      label="Projected Committed"
-                      tooltip={OVERSELL_TOOLTIP_COPY.projectedCommitted}
+                      label="Projected Demand"
+                      tooltip={OVERSELL_TOOLTIP_COPY.projectedDemand}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader
+                      label="Projected Backorder"
+                      tooltip={OVERSELL_TOOLTIP_COPY.projectedShortage}
                     />
                   </TableHead>
                   <TableHead>
@@ -606,7 +630,16 @@ export function OrderDetail({
                       {product.inStock} {product.unitName}
                     </TableCell>
                     <TableCell>
+                      {product.availableQty} {product.unitName}
+                    </TableCell>
+                    <TableCell>
                       {product.committedQty} {product.unitName}
+                    </TableCell>
+                    <TableCell>
+                      {product.demandQty} {product.unitName}
+                    </TableCell>
+                    <TableCell>
+                      {product.shortageQty} {product.unitName}
                     </TableCell>
                     <TableCell>
                       {product.expectedQty} {product.unitName}
@@ -621,7 +654,10 @@ export function OrderDetail({
                       {product.addedQty} {product.unitName}
                     </TableCell>
                     <TableCell>
-                      {product.projectedCommittedQty} {product.unitName}
+                      {product.projectedDemandQty} {product.unitName}
+                    </TableCell>
+                    <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
+                      {product.projectedShortageQty} {product.unitName}
                     </TableCell>
                     <TableCell className="text-destructive">
                       {product.projectedCalculatedStock} {product.unitName}

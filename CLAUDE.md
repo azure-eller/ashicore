@@ -18,7 +18,10 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:e2e:auth` — run auth, invite, and team-access regressions
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
 - `pnpm test:sales` — run the fast sales write-path smoke flow
+- `pnpm test:reconciliation` — run inventory reconciliation Playwright specs
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
+- `pnpm dev:seed-user` — create/update the canonical local login (`test@test.com` / `TestPassword123!`) for the running dev server
+- `pnpm seed` — seed demo inventory data through the running dev server into the canonical local/test org
 - `pnpm diff:projections -- --org-id <org-id>` — diff ledger-derived inventory projections for one org
 - `pnpm verify:inventory-state` — diff projections for the current Playwright test org from `test/.test-env.json`
 - `pnpm verify:inventory-kernel` — fail if bridge-only stock helpers leak into new call sites
@@ -49,6 +52,7 @@ When you discover a new pattern or gotcha:
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
+| ERP agent reactivation / overhead | `docs/erp-agent.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
@@ -81,6 +85,10 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 ## Coding Patterns
 
 These are gotchas that have caused real bugs. Follow them exactly.
+
+### ERP agent parked
+
+The ERP agent is intentionally disabled. Read `docs/erp-agent.md` before reconnecting it. While disabled, keep `lib/db/schema/agent.ts` out of the runtime schema barrel; only the migration schema should export it.
 
 ### UI text minimalism
 
@@ -421,6 +429,16 @@ if (item.itemType === "material") {
 return deriveBomIngredientCost(...)
 ```
 
+### Material running stock cost
+
+Materials keep `items.currentStockUnitCost` as the item-level stock-unit cost basis. Positive stock flows resolve cost in this order: explicit unit cost, `currentStockUnitCost`, then `defaultPurchasePrice / purchaseToStockFactor`. Opening balances seed it, purchase receipts weighted-average it, but correction flows and negative flows do not rewrite it.
+
+```ts
+if (explicitUnitCost != null) return explicitUnitCost
+if (item.currentStockUnitCost != null) return item.currentStockUnitCost
+return resolveStockUnitCostFromDefaultPurchasePrice(...)
+```
+
 ### Sales shipping
 
 Sales shipping is one-shot: `confirmed -> shipped` consumes stock FIFO, writes `sales_shipped` stock movements, and recomputes `committedQty`. Shipped orders are historical and do not block customer/product soft delete.
@@ -726,6 +744,7 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - After form submission, **query the database directly** via the `db` fixture to verify the row
 - The `db` fixture uses the app role with RLS — same security path as the real app
 - Dev server must be running (`pnpm dev`) before `pnpm test`
+- Canonical local/test login is `test@test.com` / `TestPassword123!`; Playwright global setup and `pnpm dev:seed-user` keep this user on `test-org`.
 
 ### Key files
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -34,15 +36,19 @@ import {
   InsufficientStockError,
   lockItemsInTx,
   releaseReservationForSalesLineInTx,
+  projectedAvailableQty,
+  projectedAvailableQtyExpr,
   projectedCommittedQty,
-  projectedCommittedQtyExpr,
+  projectedDemandQty,
+  projectedDemandQtyExpr,
   projectedExpectedQty,
   projectedExpectedQtyExpr,
   projectedOnHandQty,
   projectedOnHandQtyExpr,
+  projectedShortageQty,
   reserveForSalesInTx,
 } from "@/lib/inventory/kernel";
-import { invalidateOrgPromptSectionCache } from "@/lib/agent/core/promptSections";
+import { isErpAgentEnabled } from "@/lib/feature-flags";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -87,10 +93,33 @@ const committedQtySubquery = projectedCommittedQty(
   items.organizationId,
   items.id
 ).as("committedQty");
+const demandQtySubquery = projectedDemandQty(
+  items.organizationId,
+  items.id
+).as("demandQty");
+const shortageQtySubquery = projectedShortageQty(
+  items.organizationId,
+  items.id
+).as("shortageQty");
+const availableQtySubquery = projectedAvailableQty(
+  items.organizationId,
+  items.id
+).as("availableQty");
 const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
+
+async function invalidateAgentOrgPromptCache(orgId: string) {
+  if (!isErpAgentEnabled()) {
+    return;
+  }
+
+  const { invalidateOrgPromptSectionCache } = await import(
+    "@/lib/agent/core/promptSections"
+  );
+  invalidateOrgPromptSectionCache(orgId);
+}
 
 type PreparedOrderLineBase = {
   itemId: string;
@@ -123,6 +152,9 @@ type SalesItemValidationRow = {
   defaultSellingPrice: string | null;
   stock: string;
   committedQty: string;
+  demandQty: string;
+  shortageQty: string;
+  availableQty: string;
   expectedQty: string;
   safetyStock: string;
   displayName: string;
@@ -511,13 +543,13 @@ export class SalesError extends DomainError {
 
 function calcProjectedStock(values: {
   stock: string;
-  committedQty: string;
+  demandQty: string;
   expectedQty: string;
   safetyStock: string;
 }) {
   return roundQuantity(
     parseFloat(values.stock) -
-      parseFloat(values.committedQty) +
+      parseFloat(values.demandQty) +
       parseFloat(values.expectedQty) -
       parseFloat(values.safetyStock)
   );
@@ -727,6 +759,9 @@ async function getValidatedSalesItemsInTx(
       ),
       stock: stockSubquery,
       committedQty: committedQtySubquery,
+      demandQty: demandQtySubquery,
+      shortageQty: shortageQtySubquery,
+      availableQty: availableQtySubquery,
       expectedQty: expectedQtySubquery,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
     })
@@ -911,11 +946,16 @@ async function buildOversellWarning(
       if (!item) return null;
 
       const currentCommittedQty = parseFloat(item.committedQty);
-      const projectedCommittedQty = roundQuantity(currentCommittedQty + addedQty);
+      const currentDemandQty = parseFloat(item.demandQty);
+      const availableQty = parseFloat(item.availableQty);
+      const currentShortageQty = parseFloat(item.shortageQty);
+      const projectedDemandQty = roundQuantity(currentDemandQty + addedQty);
+      const addedShortageQty = Math.max(0, addedQty - availableQty);
+      const projectedShortageQty = roundQuantity(currentShortageQty + addedShortageQty);
       const calculatedStock = calcProjectedStock(item);
       const projectedCalculatedStock = roundQuantity(calculatedStock - addedQty);
 
-      if (projectedCalculatedStock >= 0) {
+      if (projectedCalculatedStock >= 0 && addedShortageQty <= 0) {
         return null;
       }
 
@@ -925,12 +965,16 @@ async function buildOversellWarning(
         itemSku: item.sku,
         unitName: item.unitName,
         inStock: roundQuantity(parseFloat(item.stock)),
+        availableQty: roundQuantity(availableQty),
         committedQty: roundQuantity(currentCommittedQty),
+        demandQty: roundQuantity(currentDemandQty),
+        shortageQty: roundQuantity(currentShortageQty),
         expectedQty: roundQuantity(parseFloat(item.expectedQty)),
         safetyStock: roundQuantity(parseFloat(item.safetyStock)),
         calculatedStock,
         addedQty: roundQuantity(addedQty),
-        projectedCommittedQty,
+        projectedDemandQty,
+        projectedShortageQty,
         projectedCalculatedStock,
       };
     })
@@ -970,22 +1014,31 @@ async function buildBulkOversellWarning(
     if (!item) return;
 
     const currentCommittedQty = parseFloat(item.committedQty);
-    const projectedCommittedQty = roundQuantity(currentCommittedQty + addedQty);
+    const currentDemandQty = parseFloat(item.demandQty);
+    const availableQty = parseFloat(item.availableQty);
+    const currentShortageQty = parseFloat(item.shortageQty);
+    const projectedDemandQty = roundQuantity(currentDemandQty + addedQty);
+    const addedShortageQty = Math.max(0, addedQty - availableQty);
+    const projectedShortageQty = roundQuantity(currentShortageQty + addedShortageQty);
     const calculatedStock = calcProjectedStock(item);
     const projectedCalculatedStock = roundQuantity(calculatedStock - addedQty);
 
-    if (projectedCalculatedStock >= 0) {
+    if (projectedCalculatedStock >= 0 && addedShortageQty <= 0) {
       return;
     }
 
     oversoldProducts.set(itemId, {
       itemId: item.id,
       inStock: roundQuantity(parseFloat(item.stock)),
+      availableQty: roundQuantity(availableQty),
       committedQty: roundQuantity(currentCommittedQty),
+      demandQty: roundQuantity(currentDemandQty),
+      shortageQty: roundQuantity(currentShortageQty),
       expectedQty: roundQuantity(parseFloat(item.expectedQty)),
       safetyStock: roundQuantity(parseFloat(item.safetyStock)),
       calculatedStock,
-      projectedCommittedQty,
+      projectedDemandQty,
+      projectedShortageQty,
       projectedCalculatedStock,
     });
   });
@@ -1189,7 +1242,7 @@ export async function createCustomerCategory(data: InsertCustomerCategory) {
     return { category, orgId };
   });
 
-  invalidateOrgPromptSectionCache(result.orgId);
+  await invalidateAgentOrgPromptCache(result.orgId);
   return result.category;
 }
 
@@ -1217,7 +1270,7 @@ export async function updateCustomerCategory(id: string, data: UpdateCustomerCat
     return { category: category ?? null, orgId };
   });
 
-  invalidateOrgPromptSectionCache(result.orgId);
+  await invalidateAgentOrgPromptCache(result.orgId);
   return result.category;
 }
 
@@ -1295,7 +1348,7 @@ export async function deleteCustomerCategory(id: string) {
   });
 
   if (result.deleted) {
-    invalidateOrgPromptSectionCache(result.orgId);
+    await invalidateAgentOrgPromptCache(result.orgId);
   }
 
   return { deleted: result.deleted };
@@ -1309,7 +1362,7 @@ export async function deleteCustomerCategories(ids: string[]) {
   });
 
   if (result.deletedCount > 0) {
-    invalidateOrgPromptSectionCache(result.orgId);
+    await invalidateAgentOrgPromptCache(result.orgId);
   }
 
   return { deletedCount: result.deletedCount };
@@ -1762,6 +1815,9 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         ),
         stock: stockSubquery,
         committedQty: committedQtySubquery,
+        demandQty: demandQtySubquery,
+        shortageQty: shortageQtySubquery,
+        availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
       })
@@ -1825,6 +1881,9 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           defaultSellingPrice: row.defaultSellingPrice,
           stock: row.stock,
           committedQty: row.committedQty,
+          demandQty: row.demandQty,
+          shortageQty: row.shortageQty,
+          availableQty: row.availableQty,
           expectedQty: row.expectedQty,
           safetyStock: row.safetyStock,
         } satisfies SalesOrderItemOption;
@@ -1965,7 +2024,7 @@ export async function getSalesOrder(
         calcStock: trimScaleNullable(
           sql<string | null>`(
             ${projectedOnHandQtyExpr(items.organizationId, items.id)}
-            - ${projectedCommittedQtyExpr(items.organizationId, items.id)}
+            - ${projectedDemandQtyExpr(items.organizationId, items.id)}
             + ${projectedExpectedQtyExpr(items.organizationId, items.id)}
             - ${items.safetyStock}
           )`
@@ -1985,11 +2044,7 @@ export async function getSalesOrder(
                 (
                   SELECT MIN(
                     (
-                      ${projectedOnHandQtyExpr(items.organizationId, sql`brc.component_id`)}
-                      - ${projectedCommittedQtyExpr(
-                        items.organizationId,
-                        sql`brc.component_id`
-                      )}
+                      ${projectedAvailableQtyExpr(items.organizationId, sql`brc.component_id`)}
                     )
                     / NULLIF(brc.quantity, 0)
                   )

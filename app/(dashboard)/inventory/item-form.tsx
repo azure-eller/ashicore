@@ -124,6 +124,12 @@ export function ItemForm({
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
   const [bomLockConfirmOpen, setBomLockConfirmOpen] = useState(false);
   const [pendingBomLocked, setPendingBomLocked] = useState<boolean | null>(null);
+  const [currentStockUnitCostDialogOpen, setCurrentStockUnitCostDialogOpen] =
+    useState(false);
+  const [currentStockUnitCostDraft, setCurrentStockUnitCostDraft] = useState("");
+  const [currentStockUnitCostError, setCurrentStockUnitCostError] = useState<string | null>(
+    null
+  );
   const [unitName, setUnitName] = useState("");
   const [unitSize, setUnitSize] = useState("");
   const [unitUom, setUnitUom] = useState("");
@@ -165,6 +171,7 @@ export function ItemForm({
           category: initialData.category,
           description: initialData.description,
           defaultPurchasePrice: initialData.defaultPurchasePrice,
+          currentStockUnitCost: initialData.currentStockUnitCost,
           defaultSellingPrice: initialData.defaultSellingPrice,
           sellable: initialData.sellable ?? true,
           manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
@@ -192,6 +199,7 @@ export function ItemForm({
             category: null,
             description: null,
             defaultPurchasePrice: null,
+            currentStockUnitCost: null,
             defaultSellingPrice: null,
             sellable: true,
             manufacturingMode: "discrete" as const,
@@ -271,7 +279,17 @@ export function ItemForm({
       const url = initialData ? `/api/items/${initialData.id}` : "/api/items";
       const method = initialData ? "PUT" : "POST";
       const nextData = isVariant ? { ...data, name: variantFamilyName } : data;
-      const payload = isMaster ? { ...nextData, isMaster: true } : nextData;
+      const basePayload = isMaster ? { ...nextData, isMaster: true } : nextData;
+      const payload =
+        initialData && itemType === "material"
+          ? (() => {
+              const nextPayload = {
+                ...basePayload,
+              } as typeof basePayload & { currentStockUnitCost?: string | null };
+              delete nextPayload.currentStockUnitCost;
+              return nextPayload;
+            })()
+          : basePayload;
       const res = await fetch(url, {
         method,
         headers: createIdempotencyHeaders("item-form-save", {
@@ -306,6 +324,55 @@ export function ItemForm({
     },
     onMutate: () => {
       setFormError(null);
+    },
+  });
+
+  const currentStockUnitCostMutation = useMutation({
+    mutationFn: async () => {
+      if (!initialData) {
+        throw new Error("Current stock unit cost can only be overridden after the item exists.");
+      }
+
+      const res = await fetch(`/api/items/${initialData.id}/current-stock-unit-cost`, {
+        method: "PUT",
+        headers: createIdempotencyHeaders("item-current-stock-unit-cost", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          currentStockUnitCost: currentStockUnitCostDraft,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        const fieldMessage = err?.errors?.currentStockUnitCost?.[0];
+        throw new Error(
+          fieldMessage ?? err?.error ?? "Failed to update current stock unit cost."
+        );
+      }
+
+      return res.json() as Promise<{ id: string; currentStockUnitCost: string | null }>;
+    },
+    onSuccess: async (result) => {
+      setCurrentStockUnitCostDraft(result.currentStockUnitCost ?? "");
+      setCurrentStockUnitCostDialogOpen(false);
+      setCurrentStockUnitCostError(null);
+      form.setValue(
+        "currentStockUnitCost" as never,
+        (result.currentStockUnitCost ?? null) as never,
+        {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: false,
+        }
+      );
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+    onError: (error) => {
+      setCurrentStockUnitCostError(error.message);
+    },
+    onMutate: () => {
+      setCurrentStockUnitCostError(null);
     },
   });
 
@@ -793,6 +860,58 @@ export function ItemForm({
                   />
                 )}
 
+                {itemType === "material" && (
+                  <Controller
+                    name="currentStockUnitCost"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          Current Stock Unit Cost
+                        </FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          onChange={(event) => field.onChange(event.target.value || null)}
+                          aria-invalid={fieldState.invalid}
+                          placeholder="0.00"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          readOnly={isEditing}
+                          className={isEditing ? "bg-muted/40 text-muted-foreground" : undefined}
+                        />
+                        <FieldDescription>
+                          Per {stockingUnit?.name ?? "stock"} unit. Updated automatically from
+                          opening stock and purchase receipts.
+                        </FieldDescription>
+                        {isEditing && (
+                          <div className="pt-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setCurrentStockUnitCostDraft(
+                                  ((form.getValues("currentStockUnitCost" as never) as unknown as string | null) ??
+                                    "")
+                                );
+                                setCurrentStockUnitCostError(null);
+                                setCurrentStockUnitCostDialogOpen(true);
+                              }}
+                            >
+                              Override current stock unit cost
+                            </Button>
+                          </div>
+                        )}
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+                )}
+
                 <Controller
                   name="defaultSellingPrice"
                   control={form.control}
@@ -1044,6 +1163,60 @@ export function ItemForm({
         </AlertDialogContent>
       </AlertDialog>
       <Dialog
+        open={currentStockUnitCostDialogOpen}
+        onOpenChange={(open) => {
+          setCurrentStockUnitCostDialogOpen(open);
+          if (!open) {
+            setCurrentStockUnitCostError(null);
+            setCurrentStockUnitCostDraft(
+              ((form.getValues("currentStockUnitCost" as never) as unknown as string | null) ??
+                "")
+            );
+          }
+        }}
+      >
+        <DialogContent size="sm" className="bg-background text-foreground">
+          <DialogHeader>
+            <DialogTitle>Override Current Stock Unit Cost</DialogTitle>
+            <DialogDescription>
+              This writes a new stock-unit cost directly to the material. Purchase
+              price and unit conversion stay unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="override-current-stock-unit-cost">
+                Current Stock Unit Cost
+              </FieldLabel>
+              <Input
+                id="override-current-stock-unit-cost"
+                value={currentStockUnitCostDraft}
+                onChange={(event) => setCurrentStockUnitCostDraft(event.target.value)}
+                placeholder="0.00"
+                inputMode="decimal"
+                autoComplete="off"
+              />
+              <FieldDescription>
+                Updated automatically from opening stock and purchase receipts.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
+          {currentStockUnitCostError && <FieldError>{currentStockUnitCostError}</FieldError>}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={() => currentStockUnitCostMutation.mutate()}
+              disabled={currentStockUnitCostMutation.isPending || !currentStockUnitCostDraft.trim()}
+            >
+              {currentStockUnitCostMutation.isPending ? "Updating..." : "Confirm Override"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
         open={isUnitDialogOpen}
         onOpenChange={(open) => {
           setIsUnitDialogOpen(open);
@@ -1053,7 +1226,7 @@ export function ItemForm({
           }
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Create Unit</DialogTitle>
             <DialogDescription>

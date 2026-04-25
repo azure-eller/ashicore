@@ -1,4 +1,10 @@
 const priceFormat = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const costFormat = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
 
 /**
  * Format a price string as USD currency.
@@ -7,6 +13,11 @@ const priceFormat = new Intl.NumberFormat("en-US", { style: "currency", currency
 export function formatPrice(value: string | null | undefined): string | null {
   if (value == null) return null;
   return priceFormat.format(parseFloat(value));
+}
+
+export function formatCost(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  return costFormat.format(parseFloat(value));
 }
 
 export function formatDate(value: string | Date | null | undefined): string {

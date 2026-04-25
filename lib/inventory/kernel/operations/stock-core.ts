@@ -22,7 +22,10 @@ import {
   InsufficientStockError,
   MissingCostBasisError,
 } from "@/lib/inventory/kernel/errors";
-import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
+import {
+  normalizeStockUnitCost,
+  resolveStockUnitCostFromDefaultPurchasePrice,
+} from "@/lib/inventory/cost";
 
 type PositiveStockEventType =
   | "opening_balance"
@@ -68,6 +71,77 @@ export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
   return parseFloat(row?.quantity ?? "0");
 }
 
+export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
+  const [reservable] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.stockStatus, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const [reserved] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
+    })
+    .from(inventoryItemBalances)
+    .where(eq(inventoryItemBalances.itemId, itemId));
+
+  return Math.max(
+    0,
+    roundQuantity(
+      parseFloat(reservable?.quantity ?? "0") - parseFloat(reserved?.quantity ?? "0")
+    )
+  );
+}
+
+export async function getCurrentAvailableQtyAtLocationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+  }
+) {
+  const [reservable] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.stockStatus, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const [reserved] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
+    })
+    .from(inventoryItemBalances)
+    .where(
+      and(
+        eq(inventoryItemBalances.organizationId, params.organizationId),
+        eq(inventoryItemBalances.locationId, params.locationId),
+        eq(inventoryItemBalances.itemId, params.itemId)
+      )
+    );
+
+  return Math.max(
+    0,
+    roundQuantity(
+      parseFloat(reservable?.quantity ?? "0") - parseFloat(reserved?.quantity ?? "0")
+    )
+  );
+}
+
 export async function resolvePositiveStockUnitCostInTx(
   tx: Tx,
   params: {
@@ -94,6 +168,7 @@ export async function resolvePositiveStockUnitCostInTx(
         id: items.id,
         name: items.name,
         itemType: items.itemType,
+        currentStockUnitCost: items.currentStockUnitCost,
         defaultPurchasePrice: items.defaultPurchasePrice,
         purchaseToStockFactor: items.purchaseToStockFactor,
       })
@@ -109,6 +184,15 @@ export async function resolvePositiveStockUnitCostInTx(
     }
 
     if (item.itemType === "material") {
+      const currentStockUnitCost =
+        item.currentStockUnitCost != null
+          ? Number.parseFloat(item.currentStockUnitCost)
+          : Number.NaN;
+
+      if (Number.isFinite(currentStockUnitCost)) {
+        return normalizeStockUnitCost(currentStockUnitCost);
+      }
+
       const stockUnitCost = resolveStockUnitCostFromDefaultPurchasePrice({
         defaultPurchasePrice: item.defaultPurchasePrice,
         purchaseToStockFactor: item.purchaseToStockFactor,
@@ -122,14 +206,14 @@ export async function resolvePositiveStockUnitCostInTx(
         throw new MissingCostBasisError(
           currentItemId,
           "material_default_price",
-          `Cannot resolve cost for ${item.name} because its purchase conversion is invalid.`
+          `Cannot resolve cost for ${item.name} because its current stock unit cost is blank and its purchase conversion is invalid.`
         );
       }
 
       throw new MissingCostBasisError(
         currentItemId,
         "material_default_price",
-        `Cannot resolve cost for ${item.name} without a default purchase price.`
+        `Cannot resolve cost for ${item.name} without a current stock unit cost or default purchase price.`
       );
     }
 
@@ -169,6 +253,38 @@ export async function resolvePositiveStockUnitCostInTx(
   }
 
   return deriveCost(params.itemId);
+}
+
+export async function updateMaterialCurrentStockUnitCostInTx(
+  tx: Tx,
+  params: {
+    itemId: string;
+    currentStockUnitCost: string | null;
+  }
+) {
+  const normalizedCurrentStockUnitCost =
+    params.currentStockUnitCost == null
+      ? null
+      : normalizeStockUnitCost(Number.parseFloat(params.currentStockUnitCost));
+
+  const [item] = await tx
+    .update(items)
+    .set({
+      currentStockUnitCost: normalizedCurrentStockUnitCost,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(items.id, params.itemId), eq(items.itemType, "material")))
+    .returning({
+      id: items.id,
+      itemType: items.itemType,
+      currentStockUnitCost: items.currentStockUnitCost,
+    });
+
+  if (!item || item.itemType !== "material") {
+    return null;
+  }
+
+  return item.currentStockUnitCost;
 }
 
 export async function createPositiveStockEventInTx(
@@ -291,6 +407,7 @@ async function getLockedFifoLotsInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.stockStatus, "available"),
         sql`${inventoryLotBalances.quantity} > 0`
       )
     )

@@ -4,6 +4,7 @@ import {
   inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
+  inventoryDemandSummary,
   inventoryReservationsSummary,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -14,6 +15,7 @@ export type ItemBalanceDelta = {
   itemId: string;
   onHandDelta?: number;
   committedDelta?: number;
+  demandDelta?: number;
   expectedDelta?: number;
   lastVerifiedAt?: Date | null;
 };
@@ -41,6 +43,7 @@ type SummaryDelta = {
 type AggregatedItemBalanceDelta = ItemBalanceDelta & {
   onHandDelta: number;
   committedDelta: number;
+  demandDelta: number;
   expectedDelta: number;
 };
 
@@ -53,6 +56,12 @@ type AggregatedLotBalanceDelta = {
   unitCost?: string | null;
   receivedAt?: Date;
   originEventId?: string;
+};
+
+type ItemBalanceKey = {
+  organizationId: string;
+  locationId: string;
+  itemId: string;
 };
 
 function itemBalanceKey(delta: {
@@ -84,6 +93,7 @@ function aggregateItemBalanceDeltas(deltas: ItemBalanceDelta[]) {
       itemId: delta.itemId,
       onHandDelta: 0,
       committedDelta: 0,
+      demandDelta: 0,
       expectedDelta: 0,
       lastVerifiedAt: undefined,
     };
@@ -93,6 +103,9 @@ function aggregateItemBalanceDeltas(deltas: ItemBalanceDelta[]) {
     );
     current.committedDelta = roundQuantity(
       current.committedDelta + (delta.committedDelta ?? 0)
+    );
+    current.demandDelta = roundQuantity(
+      current.demandDelta + (delta.demandDelta ?? 0)
     );
     current.expectedDelta = roundQuantity(
       current.expectedDelta + (delta.expectedDelta ?? 0)
@@ -147,24 +160,73 @@ function aggregateSummaryDeltas(deltas: SummaryDelta[]) {
   return [...aggregated.values()].filter((delta) => delta.quantity !== 0);
 }
 
-function computeAvailableToPromise(params: {
-  onHandQty: number;
+function computeShortageQty(params: {
+  demandQty: number;
   committedQty: number;
-  expectedQty: number;
 }) {
-  return roundQuantity(
-    params.onHandQty - params.committedQty + params.expectedQty
-  );
+  return Math.max(0, roundQuantity(params.demandQty - params.committedQty));
+}
+
+function uniqueItemBalanceKeys(keys: ItemBalanceKey[]) {
+  const unique = new Map<string, ItemBalanceKey>();
+
+  for (const key of keys) {
+    unique.set(itemBalanceKey(key), key);
+  }
+
+  return [...unique.values()];
+}
+
+export async function recomputeAvailableToPromiseForItemsInTx(
+  tx: Tx,
+  keys: ItemBalanceKey[]
+) {
+  for (const key of uniqueItemBalanceKeys(keys)) {
+    await tx
+      .update(inventoryItemBalances)
+      .set({
+        availableToPromise: sql`
+          COALESCE((
+            SELECT SUM(${inventoryLotBalances.quantity})
+            FROM ${inventoryLotBalances}
+            WHERE ${inventoryLotBalances.organizationId} = ${inventoryItemBalances.organizationId}
+              AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
+              AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
+              AND ${inventoryLotBalances.stockStatus} = 'available'
+              AND ${inventoryLotBalances.quantity} > 0
+          ), 0)
+          - ${inventoryItemBalances.demandQty}
+          + ${inventoryItemBalances.expectedQty}
+        `,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(inventoryItemBalances.organizationId, key.organizationId),
+          eq(inventoryItemBalances.locationId, key.locationId),
+          eq(inventoryItemBalances.itemId, key.itemId)
+        )
+      );
+  }
 }
 
 export async function applyItemBalanceDeltasInTx(
   tx: Tx,
   deltas: ItemBalanceDelta[]
 ) {
-  for (const delta of aggregateItemBalanceDeltas(deltas)) {
+  const aggregated = aggregateItemBalanceDeltas(deltas);
+
+  for (const delta of aggregated) {
     const onHandDelta = normalizeNumeric(delta.onHandDelta);
     const committedDelta = normalizeNumeric(delta.committedDelta);
+    const demandDelta = normalizeNumeric(delta.demandDelta);
     const expectedDelta = normalizeNumeric(delta.expectedDelta);
+    const shortageQty = normalizeNumeric(
+      computeShortageQty({
+        demandQty: delta.demandDelta,
+        committedQty: delta.committedDelta,
+      })
+    );
 
     await tx
       .insert(inventoryItemBalances)
@@ -174,14 +236,10 @@ export async function applyItemBalanceDeltasInTx(
         itemId: delta.itemId,
         onHandQty: onHandDelta,
         committedQty: committedDelta,
+        demandQty: demandDelta,
+        shortageQty,
         expectedQty: expectedDelta,
-        availableToPromise: normalizeNumeric(
-          computeAvailableToPromise({
-            onHandQty: delta.onHandDelta,
-            committedQty: delta.committedDelta,
-            expectedQty: delta.expectedDelta,
-          })
-        ),
+        availableToPromise: "0",
         lastVerifiedAt: delta.lastVerifiedAt ?? null,
         updatedAt: new Date(),
       })
@@ -194,12 +252,13 @@ export async function applyItemBalanceDeltasInTx(
         set: {
           onHandQty: sql`${inventoryItemBalances.onHandQty} + ${onHandDelta}`,
           committedQty: sql`${inventoryItemBalances.committedQty} + ${committedDelta}`,
-          expectedQty: sql`${inventoryItemBalances.expectedQty} + ${expectedDelta}`,
-          availableToPromise: sql`
-            (${inventoryItemBalances.onHandQty} + ${onHandDelta})
+          demandQty: sql`${inventoryItemBalances.demandQty} + ${demandDelta}`,
+          shortageQty: sql`GREATEST(
+            0,
+            (${inventoryItemBalances.demandQty} + ${demandDelta})
             - (${inventoryItemBalances.committedQty} + ${committedDelta})
-            + (${inventoryItemBalances.expectedQty} + ${expectedDelta})
-          `,
+          )`,
+          expectedQty: sql`${inventoryItemBalances.expectedQty} + ${expectedDelta}`,
           lastVerifiedAt:
             delta.lastVerifiedAt === undefined
               ? sql`${inventoryItemBalances.lastVerifiedAt}`
@@ -208,10 +267,14 @@ export async function applyItemBalanceDeltasInTx(
         },
       });
   }
+
+  await recomputeAvailableToPromiseForItemsInTx(tx, aggregated);
 }
 
 export async function applyLotBalanceDeltasInTx(tx: Tx, deltas: LotBalanceDelta[]) {
-  for (const delta of aggregateLotBalanceDeltas(deltas)) {
+  const aggregated = aggregateLotBalanceDeltas(deltas);
+
+  for (const delta of aggregated) {
     const quantityDelta = normalizeNumeric(delta.quantityDelta);
     const [updated] = await tx
       .update(inventoryLotBalances)
@@ -257,6 +320,8 @@ export async function applyLotBalanceDeltasInTx(tx: Tx, deltas: LotBalanceDelta[
       stillActive: delta.quantityDelta > 0,
     });
   }
+
+  await recomputeAvailableToPromiseForItemsInTx(tx, aggregated);
 }
 
 export async function applyReservationSummaryDeltasInTx(
@@ -392,6 +457,75 @@ export async function applyExpectedSummaryDeltasInTx(
           eq(inventoryExpectedSummary.itemId, delta.itemId),
           eq(inventoryExpectedSummary.referenceType, delta.referenceType),
           eq(inventoryExpectedSummary.referenceId, delta.referenceId)
+        )
+      );
+  }
+}
+
+export async function applyDemandSummaryDeltasInTx(
+  tx: Tx,
+  deltas: SummaryDelta[]
+) {
+  for (const delta of aggregateSummaryDeltas(deltas)) {
+    const quantity = normalizeNumeric(delta.quantity);
+
+    if (delta.quantity > 0) {
+      await tx
+        .insert(inventoryDemandSummary)
+        .values({
+          organizationId: delta.organizationId,
+          locationId: delta.locationId,
+          itemId: delta.itemId,
+          referenceType: delta.referenceType,
+          referenceId: delta.referenceId,
+          quantity,
+        })
+        .onConflictDoUpdate({
+          target: [
+            inventoryDemandSummary.organizationId,
+            inventoryDemandSummary.locationId,
+            inventoryDemandSummary.itemId,
+            inventoryDemandSummary.referenceType,
+            inventoryDemandSummary.referenceId,
+          ],
+          set: {
+            quantity: sql`${inventoryDemandSummary.quantity} + ${quantity}`,
+            updatedAt: new Date(),
+          },
+        });
+      continue;
+    }
+
+    const [updated] = await tx
+      .update(inventoryDemandSummary)
+      .set({
+        quantity: sql`${inventoryDemandSummary.quantity} + ${quantity}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(inventoryDemandSummary.organizationId, delta.organizationId),
+          eq(inventoryDemandSummary.locationId, delta.locationId),
+          eq(inventoryDemandSummary.itemId, delta.itemId),
+          eq(inventoryDemandSummary.referenceType, delta.referenceType),
+          eq(inventoryDemandSummary.referenceId, delta.referenceId)
+        )
+      )
+      .returning({ quantity: inventoryDemandSummary.quantity });
+
+    if (!updated || parseFloat(updated.quantity) > 0) {
+      continue;
+    }
+
+    await tx
+      .delete(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.organizationId, delta.organizationId),
+          eq(inventoryDemandSummary.locationId, delta.locationId),
+          eq(inventoryDemandSummary.itemId, delta.itemId),
+          eq(inventoryDemandSummary.referenceType, delta.referenceType),
+          eq(inventoryDemandSummary.referenceId, delta.referenceId)
         )
       );
   }

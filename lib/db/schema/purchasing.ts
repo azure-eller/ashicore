@@ -140,7 +140,7 @@ export const purchaseOrderLines = purchasingSchema
       }).notNull()
         .default("0"),
       unitCost: numeric("unit_cost", { precision: 10, scale: 4 }).notNull(),
-      stockUnitCost: numeric("stock_unit_cost", { precision: 10, scale: 4 }).notNull(),
+      stockUnitCost: numeric("stock_unit_cost", { precision: 18, scale: 6 }).notNull(),
       lineTotal: numeric("line_total", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at").notNull().defaultNow(),

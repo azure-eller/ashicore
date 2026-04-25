@@ -95,12 +95,14 @@ test.describe("Sales write-path smoke", () => {
 
     const customerInput = page.getByPlaceholder("Search customers...");
     await customerInput.click();
+    await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
     await selectDate(page, page.getByLabel("Requested Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
+    await itemInput.pressSequentially(productName);
     await page.getByRole("option", { name: new RegExp(productName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
     await page.locator('input[placeholder="0.00"]').first().fill("34.99");

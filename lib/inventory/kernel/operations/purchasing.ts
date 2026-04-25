@@ -1,9 +1,13 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
   inventoryExpectedSummary,
+  items,
   purchaseOrderLines,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
+import { trimScaleNullable } from "@/lib/db/numeric";
+import { calculateNextCurrentStockUnitCost } from "@/lib/inventory/cost";
+import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
   applyExpectedReferenceDeltasInTx,
@@ -11,7 +15,11 @@ import {
   finishInventoryOperationInTx,
   type QuantityReferenceDelta,
 } from "@/lib/inventory/kernel/operations/common";
-import { createPositiveStockEventInTx } from "@/lib/inventory/kernel/operations/stock-core";
+import {
+  createPositiveStockEventInTx,
+  getCurrentOnHandQtyInTx,
+  updateMaterialCurrentStockUnitCostInTx,
+} from "@/lib/inventory/kernel/operations/stock-core";
 
 export async function addExpectedFromPurchaseInTx(
   tx: Tx,
@@ -289,8 +297,54 @@ export async function receivePurchaseStockInTx(
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   const eventIds: string[] = [];
   const lotIds: string[] = [];
+  const itemIds = [...new Set(params.lines.map((line) => line.itemId))];
+  const incomingByItemId = new Map<
+    string,
+    { quantity: number; extendedCost: number }
+  >();
+
+  await lockItemsInTx(tx, itemIds);
+
+  const itemCostRows =
+    itemIds.length === 0
+      ? []
+      : await tx
+          .select({
+            id: items.id,
+            currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+              "currentStockUnitCost"
+            ),
+          })
+          .from(items)
+          .where(inArray(items.id, itemIds));
+  const priorStateByItemId = new Map(
+    itemCostRows.map((row) => [
+      row.id,
+      {
+        priorQuantity: 0,
+        priorUnitCost: row.currentStockUnitCost,
+      },
+    ])
+  );
+
+  for (const itemId of itemIds) {
+    const currentState = priorStateByItemId.get(itemId) ?? {
+      priorQuantity: 0,
+      priorUnitCost: null,
+    };
+    currentState.priorQuantity = await getCurrentOnHandQtyInTx(tx, itemId);
+    priorStateByItemId.set(itemId, currentState);
+  }
 
   for (const [index, line] of params.lines.entries()) {
+    const incoming = incomingByItemId.get(line.itemId) ?? {
+      quantity: 0,
+      extendedCost: 0,
+    };
+    incoming.quantity += line.quantity;
+    incoming.extendedCost += line.quantity * Number.parseFloat(line.unitCost);
+    incomingByItemId.set(line.itemId, incoming);
+
     const created = await createPositiveStockEventInTx(tx, {
       organizationId: params.organizationId,
       locationId: location.id,
@@ -323,6 +377,23 @@ export async function receivePurchaseStockInTx(
       quantity: -line.quantity,
     })),
   });
+
+  for (const [itemId, incoming] of incomingByItemId.entries()) {
+    const priorState = priorStateByItemId.get(itemId);
+    const nextCurrentStockUnitCost = calculateNextCurrentStockUnitCost({
+      priorQuantity: priorState?.priorQuantity ?? 0,
+      priorUnitCost: priorState?.priorUnitCost ?? null,
+      incomingQuantity: incoming.quantity,
+      incomingExtendedCost: incoming.extendedCost,
+    });
+
+    if (nextCurrentStockUnitCost != null) {
+      await updateMaterialCurrentStockUnitCostInTx(tx, {
+        itemId,
+        currentStockUnitCost: nextCurrentStockUnitCost,
+      });
+    }
+  }
 
   const result = { eventIds, lotIds };
 

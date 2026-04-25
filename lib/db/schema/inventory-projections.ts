@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   index,
   numeric,
   pgPolicy,
@@ -15,6 +16,13 @@ import { items } from "./items";
 import { lots } from "./lots";
 import { inventoryEvents } from "./inventory-events";
 import { inventoryLocations } from "./locations";
+
+export const INVENTORY_LOT_STOCK_STATUSES = [
+  "available",
+  "held",
+  "quarantined",
+] as const;
+export type InventoryLotStockStatus = (typeof INVENTORY_LOT_STOCK_STATUSES)[number];
 
 export const inventoryLotBalances = inventorySchema
   .table(
@@ -36,6 +44,7 @@ export const inventoryLotBalances = inventorySchema
       originEventId: uuid("origin_event_id")
         .notNull()
         .references(() => inventoryEvents.id),
+      stockStatus: varchar("stock_status", { length: 24 }).notNull().default("available"),
       stillActive: boolean("still_active").notNull().default(true),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -54,8 +63,13 @@ export const inventoryLotBalances = inventorySchema
         table.organizationId,
         table.locationId,
         table.itemId,
+        table.stockStatus,
         table.receivedAt,
         table.lotId
+      ),
+      check(
+        "inventory_lot_balances_stock_status_check",
+        sql`stock_status IN ('available', 'held', 'quarantined')`
       ),
       pgPolicy("inventory_lot_balances_org_isolation", {
         for: "all",
@@ -80,6 +94,8 @@ export const inventoryItemBalances = inventorySchema
         .references(() => items.id, { onDelete: "cascade" }),
       onHandQty: numeric("on_hand_qty", { precision: 18, scale: 4 }).notNull().default("0"),
       committedQty: numeric("committed_qty", { precision: 18, scale: 4 }).notNull().default("0"),
+      demandQty: numeric("demand_qty", { precision: 18, scale: 4 }).notNull().default("0"),
+      shortageQty: numeric("shortage_qty", { precision: 18, scale: 4 }).notNull().default("0"),
       expectedQty: numeric("expected_qty", { precision: 18, scale: 4 }).notNull().default("0"),
       availableToPromise: numeric("available_to_promise", {
         precision: 18,
@@ -181,6 +197,49 @@ export const inventoryExpectedSummary = inventorySchema
         table.referenceId
       ),
       pgPolicy("inventory_expected_summary_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const inventoryDemandSummary = inventorySchema
+  .table(
+    "inventory_demands_summary",
+    {
+      organizationId: text("organization_id").notNull(),
+      locationId: uuid("location_id")
+        .notNull()
+        .references(() => inventoryLocations.id),
+      itemId: uuid("item_id")
+        .notNull()
+        .references(() => items.id, { onDelete: "cascade" }),
+      referenceType: varchar("reference_type", { length: 64 }).notNull(),
+      referenceId: uuid("reference_id").notNull(),
+      quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull().default("0"),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      primaryKey({
+        name: "inventory_demands_summary_pk",
+        columns: [
+          table.organizationId,
+          table.locationId,
+          table.itemId,
+          table.referenceType,
+          table.referenceId,
+        ],
+      }),
+      index("inventory_demands_summary_reference_idx").on(
+        table.organizationId,
+        table.referenceType,
+        table.referenceId
+      ),
+      pgPolicy("inventory_demands_summary_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

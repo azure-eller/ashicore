@@ -35,7 +35,7 @@ test.describe("Inventory creation flow", () => {
     await page.waitForURL("**/inventory/products");
     await expect(page.getByText("Inventory")).toBeVisible();
     await expect(page.getByText("Test Org")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "ERP Agent message" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "ERP Agent message" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Notifications" })).toHaveCount(0);
     await expect(page.getByText("Add Location")).toHaveCount(0);
     await expect(page.getByText("Assign reviewer")).toHaveCount(0);

@@ -7,6 +7,7 @@ import {
   setReadabilityCookie,
 } from "@/lib/readability-cookie";
 import {
+  READABILITY_OPTIONS,
   normalizeReadabilityOption,
   type ReadabilityOption,
 } from "@/lib/schemas/account";
@@ -25,7 +26,11 @@ export function ReadabilityPreferenceBootstrap() {
     }
     hasAttemptedBootstrap.current = true;
 
-    if (getReadabilityCookie() != null) {
+    const cookieValue = getReadabilityCookie();
+    if (
+      cookieValue != null &&
+      READABILITY_OPTIONS.includes(cookieValue as ReadabilityOption)
+    ) {
       return;
     }
 

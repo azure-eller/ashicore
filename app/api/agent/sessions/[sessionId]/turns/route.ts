@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { assertAgentApiAccess } from "@/lib/agent/erp/access";
-import { createAgentTurnRequestSchema } from "@/lib/agent/erp/types";
-import { runAgentTurn } from "@/lib/agent/erp/session-service";
+import { isErpAgentEnabled } from "@/lib/feature-flags";
 
 export const runtime = "nodejs";
 
@@ -32,7 +30,24 @@ function encodeSseEvent(event: string, payload: unknown) {
   return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+function notFound() {
+  return NextResponse.json({ error: "Not found" }, { status: 404 });
+}
+
 export const POST = apiHandler(async (request, context: RouteContext) => {
+  if (!isErpAgentEnabled()) {
+    return notFound();
+  }
+
+  const [
+    { assertAgentApiAccess },
+    { createAgentTurnRequestSchema },
+    { runAgentTurn },
+  ] = await Promise.all([
+    import("@/lib/agent/erp/access"),
+    import("@/lib/agent/erp/types"),
+    import("@/lib/agent/erp/session-service"),
+  ]);
   const actor = await assertAgentApiAccess(request.headers);
   const { sessionId } = await context.params;
   const body = createAgentTurnRequestSchema.parse(await request.json());

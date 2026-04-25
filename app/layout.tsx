@@ -7,6 +7,7 @@ import {
   getRequestLogContext,
   logObservedEvent,
 } from "@/lib/observability/request-log";
+import { READABILITY_COOKIE_NAME } from "@/lib/readability-cookie";
 import { normalizeReadabilityOption } from "@/lib/schemas/account";
 import "./globals.css";
 
@@ -28,8 +29,10 @@ export default async function RootLayout({
 }>) {
   const requestContext = await getRequestLogContext();
   const cookieStore = await cookies();
-  const readability = normalizeReadabilityOption(cookieStore.get("readability")?.value);
-  const readabilityAttr = readability === "default" ? undefined : readability;
+  const readability = normalizeReadabilityOption(
+    cookieStore.get(READABILITY_COOKIE_NAME)?.value
+  );
+  const readabilityAttr = readability === "small" ? undefined : readability;
 
   after(() => {
     logObservedEvent("rsc.root_layout.complete", requestContext);

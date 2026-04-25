@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { assertAgentApiAccess } from "@/lib/agent/erp/access";
-import { createAgentUploads } from "@/lib/agent/erp/session-service";
+import { isErpAgentEnabled } from "@/lib/feature-flags";
 
 export const runtime = "nodejs";
 
@@ -11,7 +10,19 @@ type RouteContext = {
   }>;
 };
 
+function notFound() {
+  return NextResponse.json({ error: "Not found" }, { status: 404 });
+}
+
 export const POST = apiHandler(async (request, context: RouteContext) => {
+  if (!isErpAgentEnabled()) {
+    return notFound();
+  }
+
+  const [{ assertAgentApiAccess }, { createAgentUploads }] = await Promise.all([
+    import("@/lib/agent/erp/access"),
+    import("@/lib/agent/erp/session-service"),
+  ]);
   const actor = await assertAgentApiAccess(request.headers);
   const { sessionId } = await context.params;
   const formData = await request.formData();

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { normalizeNumeric, summarizeItems } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -10,6 +12,7 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import { normalizeStockUnitCost } from "@/lib/inventory/cost";
 import {
   lockItemsInTx,
 } from "@/lib/inventory/kernel/locking";
@@ -67,6 +70,7 @@ type MaterialValidationRow = {
   purchaseUnitName: string | null;
   purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
+  currentStockUnitCost: string | null;
 };
 
 export class PurchasingError extends DomainError {
@@ -150,6 +154,9 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
       ),
       defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
         "defaultPurchasePrice"
+      ),
+      currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+        "currentStockUnitCost"
       ),
     })
     .from(items)
@@ -247,7 +254,7 @@ async function preparePurchaseOrderPayload(
       stockQuantityOrdered: normalizeNumeric(stockQuantityOrdered),
       stockQuantityReceived: "0",
       unitCost: normalizeNumeric(unitCost),
-      stockUnitCost: normalizeNumeric(stockUnitCost),
+      stockUnitCost: normalizeStockUnitCost(stockUnitCost),
       lineTotal: normalizeNumeric(lineTotal),
       sortOrder: index,
     };
@@ -425,6 +432,9 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         ),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
+        ),
+        currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+          "currentStockUnitCost"
         ),
       })
       .from(items)

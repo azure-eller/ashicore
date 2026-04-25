@@ -45,6 +45,10 @@ export const items = inventorySchema
 
       // Pricing
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
+      currentStockUnitCost: numeric("current_stock_unit_cost", {
+        precision: 18,
+        scale: 6,
+      }),
       defaultSellingPrice: numeric("default_selling_price", { precision: 10, scale: 2 }),
       sellable: boolean("sellable"),
 
