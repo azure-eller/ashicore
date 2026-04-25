@@ -213,13 +213,25 @@ reservation_totals AS (
   FROM "inventory"."inventory_reservations_summary"
   GROUP BY "organization_id", "location_id", "item_id"
 ),
+reservable_totals AS (
+  SELECT
+    "organization_id",
+    "location_id",
+    "item_id",
+    COALESCE(SUM("quantity"), 0)::numeric(18, 4) AS "reservable_on_hand_qty"
+  FROM "inventory"."inventory_lot_balances"
+  WHERE "stock_status" = 'available'
+    AND "quantity" > 0
+  GROUP BY "organization_id", "location_id", "item_id"
+),
 balance_totals AS (
   SELECT
     balances."organization_id",
     balances."location_id",
     balances."item_id",
     COALESCE(demand_totals."demand_qty", 0)::numeric(18, 4) AS "demand_qty",
-    COALESCE(reservation_totals."committed_qty", 0)::numeric(18, 4) AS "committed_qty"
+    COALESCE(reservation_totals."committed_qty", 0)::numeric(18, 4) AS "committed_qty",
+    COALESCE(reservable_totals."reservable_on_hand_qty", 0)::numeric(18, 4) AS "reservable_on_hand_qty"
   FROM "inventory"."inventory_item_balances" balances
   LEFT JOIN demand_totals
     ON demand_totals."organization_id" = balances."organization_id"
@@ -229,6 +241,10 @@ balance_totals AS (
     ON reservation_totals."organization_id" = balances."organization_id"
    AND reservation_totals."location_id" = balances."location_id"
    AND reservation_totals."item_id" = balances."item_id"
+  LEFT JOIN reservable_totals
+    ON reservable_totals."organization_id" = balances."organization_id"
+   AND reservable_totals."location_id" = balances."location_id"
+   AND reservable_totals."item_id" = balances."item_id"
 )
 UPDATE "inventory"."inventory_item_balances" balances
 SET
@@ -239,7 +255,7 @@ SET
     balance_totals."demand_qty" - balance_totals."committed_qty"
   ),
   "available_to_promise" =
-    balances."on_hand_qty"
+    balance_totals."reservable_on_hand_qty"
     - balance_totals."demand_qty"
     + balances."expected_qty",
   "updated_at" = now()

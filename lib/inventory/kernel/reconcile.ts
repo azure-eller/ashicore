@@ -480,6 +480,21 @@ export async function diffProjections(
   const computedLotsByLotId = new Map(
     [...computedLots.values()].map((row) => [row.lotId, row])
   );
+  const reservableOnHandByItemKey = new Map<BalanceKey, number>();
+
+  for (const [key, lot] of computedLots.entries()) {
+    const storedLot = storedLotsByKey.get(key);
+
+    if ((storedLot?.stockStatus ?? "available") !== "available" || lot.quantity <= 0) {
+      continue;
+    }
+
+    const itemKey = balanceKey([lot.locationId, lot.itemId]);
+    reservableOnHandByItemKey.set(
+      itemKey,
+      roundQuantity((reservableOnHandByItemKey.get(itemKey) ?? 0) + lot.quantity)
+    );
+  }
 
   const itemKeys = new Set([
     ...computedItems.keys(),
@@ -538,7 +553,9 @@ export async function diffProjections(
         expectedQty: normalizeNumeric(computed.expectedQty),
         availableToPromise: normalizeNumeric(
           roundQuantity(
-            computed.onHandQty - computed.demandQty + computed.expectedQty
+            (reservableOnHandByItemKey.get(key) ?? 0)
+              - computed.demandQty
+              + computed.expectedQty
           )
         ),
       };

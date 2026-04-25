@@ -176,6 +176,7 @@ test.describe("Reservation correctness", () => {
     expect(balance.committedQty).toBe("4.0000");
     expect(balance.demandQty).toBe("10.0000");
     expect(balance.shortageQty).toBe("6.0000");
+    expect(balance.availableToPromise).toBe("-6.0000");
     expect(await getReservationTotal(db, itemId)).toBe("4.0000");
     expect(await getDemandTotal(db, itemId)).toBe("10.0000");
   });
@@ -199,6 +200,7 @@ test.describe("Reservation correctness", () => {
     expect(balance.committedQty).toBe("6.0000");
     expect(balance.demandQty).toBe("6.0000");
     expect(balance.shortageQty).toBe("0.0000");
+    expect(balance.availableToPromise).toBe("0.0000");
     expect(await getReservationTotal(db, itemId)).toBe("6.0000");
   });
 
@@ -225,6 +227,7 @@ test.describe("Reservation correctness", () => {
     expect(balance.committedQty).toBe("5.0000");
     expect(balance.demandQty).toBe("7.0000");
     expect(balance.shortageQty).toBe("2.0000");
+    expect(balance.availableToPromise).toBe("-2.0000");
     expect(await getReservationTotal(db, itemId)).toBe("5.0000");
 
     const heldItemId = await createMaterial(uniqueName("Held ATP material"), "5");
@@ -244,6 +247,7 @@ test.describe("Reservation correctness", () => {
     expect(heldBalance.committedQty).toBe("0.0000");
     expect(heldBalance.demandQty).toBe("5.0000");
     expect(heldBalance.shortageQty).toBe("5.0000");
+    expect(heldBalance.availableToPromise).toBe("-5.0000");
   });
 
   test("released lots can be reserved, while held and quarantined lots cannot", async ({
@@ -260,7 +264,9 @@ test.describe("Reservation correctness", () => {
       quantity: "4",
     });
     expect((await confirmSalesOrder(releasedOrderId)).status).toBe(200);
-    expect((await getItemBalance(db, releasedItemId)).committedQty).toBe("4.0000");
+    const releasedBalance = await getItemBalance(db, releasedItemId);
+    expect(releasedBalance.committedQty).toBe("4.0000");
+    expect(releasedBalance.availableToPromise).toBe("0.0000");
 
     for (const status of ["held", "quarantined"] as const) {
       const blockedItemId = await createMaterial(uniqueName(`${status} material`), "4");
@@ -274,6 +280,7 @@ test.describe("Reservation correctness", () => {
       const blockedBalance = await getItemBalance(db, blockedItemId);
       expect(blockedBalance.committedQty).toBe("0.0000");
       expect(blockedBalance.shortageQty).toBe("4.0000");
+      expect(blockedBalance.availableToPromise).toBe("-4.0000");
     }
   });
 
@@ -310,6 +317,7 @@ test.describe("Reservation correctness", () => {
     expect(balance.committedQty).toBe("3.0000");
     expect(balance.demandQty).toBe("6.0000");
     expect(balance.shortageQty).toBe("3.0000");
+    expect(balance.availableToPromise).toBe("-3.0000");
     expect(await getReservationTotal(db, materialId)).toBe("3.0000");
     expect(await getDemandTotal(db, materialId)).toBe("6.0000");
 
@@ -351,6 +359,7 @@ test.describe("Reservation correctness", () => {
     expect(balance.committedQty).toBe("5.0000");
     expect(balance.demandQty).toBe("10.0000");
     expect(balance.shortageQty).toBe("5.0000");
+    expect(balance.availableToPromise).toBe("-5.0000");
     expect(await getReservationTotal(db, itemId)).toBe("5.0000");
     expect(await getDemandTotal(db, itemId)).toBe("10.0000");
   });
@@ -404,6 +413,7 @@ test.describe("Reservation correctness", () => {
     expect(balance.committedQty).toBe("2.0000");
     expect(balance.demandQty).toBe("5.0000");
     expect(balance.shortageQty).toBe("3.0000");
+    expect(balance.availableToPromise).toBe("-3.0000");
     expect(await getReservationTotal(db, itemId)).toBe("2.0000");
 
     expect(customerId).toBeTruthy();
