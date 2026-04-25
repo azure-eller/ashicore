@@ -36,6 +36,10 @@ import {
   formatVariantDisplay,
 } from "@/lib/format";
 import {
+  ON_HAND_EVENT_TYPES,
+  ledgerOnHandDeltaExpr,
+} from "@/lib/inventory/kernel";
+import {
   formatInventoryLedgerEventLabel,
   getInventoryLedgerBalanceDimension,
   getInventoryLedgerEventClass,
@@ -587,6 +591,35 @@ export async function getInventoryLedger(
             .innerJoin(items, eq(inventoryEvents.itemId, items.id))
             .where(where);
     const totalCount = Number(countRows[0]?.totalCount ?? 0);
+    const balanceConditions: SQL[] = [
+      eq(inventoryEvents.organizationId, orgId),
+      isNotNull(inventoryEvents.lotId),
+      inArray(inventoryEvents.eventType, ON_HAND_EVENT_TYPES),
+    ];
+
+    if (filters.itemId) {
+      balanceConditions.push(eq(inventoryEvents.itemId, filters.itemId));
+    }
+
+    const balanceRows = tx
+      .select({
+        eventId: inventoryEvents.id,
+        onHandAfter: trimScale(sql`SUM(${ledgerOnHandDeltaExpr(
+          inventoryEvents.eventType,
+          inventoryEvents.quantity
+        )}) OVER (
+          PARTITION BY
+            ${inventoryEvents.organizationId},
+            ${inventoryEvents.locationId},
+            ${inventoryEvents.itemId},
+            ${inventoryEvents.lotId}
+          ORDER BY ${inventoryEvents.occurredAt} ASC, ${inventoryEvents.id} ASC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )`).as("onHandAfter"),
+      })
+      .from(inventoryEvents)
+      .where(and(...balanceConditions))
+      .as("ledger_balance_rows");
 
     const rows = await tx
       .select({
@@ -595,6 +628,7 @@ export async function getInventoryLedger(
         eventType: inventoryEvents.eventType,
         eventSubtype: inventoryEvents.eventSubtype,
         quantity: trimScale(inventoryEvents.quantity).as("quantity"),
+        onHandAfter: balanceRows.onHandAfter,
         unitCost: trimScaleNullable(inventoryEvents.unitCost).as("unitCost"),
         extendedCost: trimScaleNullable(inventoryEvents.extendedCost).as(
           "extendedCost"
@@ -636,6 +670,7 @@ export async function getInventoryLedger(
       .innerJoin(items, eq(inventoryEvents.itemId, items.id))
       .leftJoin(masterItems, eq(items.parentId, masterItems.id))
       .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
+      .leftJoin(balanceRows, eq(balanceRows.eventId, inventoryEvents.id))
       .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
       .leftJoin(
         directPurchaseOrders,
@@ -778,6 +813,7 @@ export async function getInventoryLedger(
         eventLabel: formatInventoryLedgerEventLabel(eventType),
         quantity: row.quantity,
         signedQuantity: getSignedInventoryLedgerQuantity(eventType, row.quantity),
+        onHandAfter: row.onHandAfter,
         balanceDimension: getInventoryLedgerBalanceDimension(eventType),
         lot:
           row.lotId && row.lotNumber

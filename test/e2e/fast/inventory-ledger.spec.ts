@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { filterList, test, expect } from "../fixtures";
 import { db as appDb } from "../../../lib/db";
 import {
   inventoryLocations,
   inventoryEvents,
+  inventoryLotBalances,
   items,
   lots,
   manufacturingOrderBatches,
@@ -27,7 +28,33 @@ import {
   getUnitId,
   submitPurchaseOrder,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
+
+const ownerConnectionString = process.env.DATABASE_URL;
+const ownerIsNeon = ownerConnectionString?.includes(".neon.tech") ?? false;
+
+function createOwnerDb() {
+  if (!ownerConnectionString) {
+    throw new Error("DATABASE_URL is required for inventory ledger balance setup.");
+  }
+
+  if (ownerIsNeon) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Pool } = require("@neondatabase/serverless") as typeof import("@neondatabase/serverless");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { drizzle } = require("drizzle-orm/neon-serverless") as typeof import("drizzle-orm/neon-serverless");
+    return drizzle(new Pool({ connectionString: ownerConnectionString }));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Pool } = require("pg") as typeof import("pg");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { drizzle } = require("drizzle-orm/node-postgres") as typeof import("drizzle-orm/node-postgres");
+  return drizzle(new Pool({ connectionString: ownerConnectionString }));
+}
+
+const ownerDb = createOwnerDb();
 
 test.describe("Inventory ledger explorer", () => {
   test.describe.configure({ mode: "serial" });
@@ -43,6 +70,15 @@ test.describe("Inventory ledger explorer", () => {
   const stocktakeLossMaterialName = `Ledger Stocktake Loss ${ts}`;
   const stocktakeVerifiedMaterialName = `Ledger Stocktake Verified ${ts}`;
   const stocktakeName = `Ledger Stocktake ${ts}`;
+  const balanceMaterialName = `Ledger Balance Material ${ts}`;
+  const balanceCategory = `Ledger Balance ${ts}`;
+  const balanceLotANumber = `LBA-${String(ts).slice(-10)}`;
+  const balanceLotBNumber = `LBB-${String(ts).slice(-10)}`;
+  const balanceYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const balanceYesterdayLater = new Date(
+    balanceYesterday.getTime() + 60 * 60 * 1000
+  );
+  const balanceToday = new Date();
 
   let purchaseMaterialId = "";
   let purchaseOrderId = "";
@@ -62,6 +98,35 @@ test.describe("Inventory ledger explorer", () => {
   let stocktakeId = "";
   let stocktakeLossLineId = "";
   let stocktakeVerifiedLineId = "";
+  let balanceItemId = "";
+  let balanceLotAId = "";
+  let balanceLotBId = "";
+  let balanceOpeningEventId = "";
+  let balanceIncreaseEventId = "";
+  let balanceDecreaseEventId = "";
+  let balanceOtherOrgEventId = "";
+  let balanceLocationId = "";
+
+  function balanceUpdatePayload(stock: string) {
+    return {
+      name: balanceMaterialName,
+      sku: `LEDGER-BAL-${ts}`,
+      category: balanceCategory,
+      description: "Ledger on-hand after fixture",
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      defaultPurchasePrice: "1.00",
+      currentStockUnitCost: null,
+      defaultSellingPrice: null,
+      sellable: true,
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      stock,
+      safetyStock: "0",
+      bom: [],
+      revisionNote: null,
+    };
+  }
 
   test("creates shared ledger fixtures", async ({ db }) => {
     const purchaseMaterialCreate = await createItem({
@@ -481,6 +546,241 @@ test.describe("Inventory ledger explorer", () => {
     ).toBe(false);
   });
 
+  test("creates on-hand-after balance fixtures across two lots", async ({ db }) => {
+    const createResponse = await createItem({
+      ...balanceUpdatePayload("20"),
+      itemType: "material",
+      unitDefinitionId: unitId,
+    });
+    expect(createResponse.status).toBe(201);
+    balanceItemId = createResponse.body.id as string;
+
+    const increaseResponse = await updateItem(
+      balanceItemId,
+      balanceUpdatePayload("25")
+    );
+    expect(increaseResponse.status).toBe(200);
+
+    const increaseEvents = await db
+      .select({
+        id: inventoryEvents.id,
+        lotId: inventoryEvents.lotId,
+        quantity: inventoryEvents.quantity,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, balanceItemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(asc(inventoryEvents.occurredAt), asc(inventoryEvents.id));
+
+    const openingEvent = increaseEvents.find(
+      (event) => parseFloat(event.quantity) === 20
+    );
+    const increaseEvent = increaseEvents.find(
+      (event) => parseFloat(event.quantity) === 5
+    );
+    expect(openingEvent?.lotId).toBeTruthy();
+    expect(increaseEvent?.lotId).toBeTruthy();
+
+    balanceOpeningEventId = openingEvent!.id;
+    balanceIncreaseEventId = increaseEvent!.id;
+    balanceLotAId = openingEvent!.lotId!;
+    balanceLotBId = increaseEvent!.lotId!;
+
+    await db
+      .update(lots)
+      .set({ lotNumber: balanceLotANumber })
+      .where(eq(lots.id, balanceLotAId));
+    await db
+      .update(lots)
+      .set({ lotNumber: balanceLotBNumber })
+      .where(eq(lots.id, balanceLotBId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: balanceYesterday })
+      .where(eq(inventoryLotBalances.lotId, balanceLotAId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: balanceYesterdayLater })
+      .where(eq(inventoryLotBalances.lotId, balanceLotBId));
+
+    const decreaseResponse = await updateItem(
+      balanceItemId,
+      balanceUpdatePayload("22")
+    );
+    expect(decreaseResponse.status).toBe(200);
+
+    const [decreaseEvent] = await db
+      .select({
+        id: inventoryEvents.id,
+        locationId: inventoryEvents.locationId,
+        lotId: inventoryEvents.lotId,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, balanceItemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease")
+        )
+      );
+    expect(decreaseEvent?.lotId).toBe(balanceLotAId);
+    balanceDecreaseEventId = decreaseEvent!.id;
+    balanceLocationId = decreaseEvent!.locationId;
+
+    await ownerDb
+      .update(inventoryEvents)
+      .set({ occurredAt: balanceYesterday })
+      .where(eq(inventoryEvents.id, balanceOpeningEventId));
+    await ownerDb
+      .update(inventoryEvents)
+      .set({ occurredAt: balanceYesterdayLater })
+      .where(eq(inventoryEvents.id, balanceIncreaseEventId));
+    await ownerDb
+      .update(inventoryEvents)
+      .set({ occurredAt: balanceToday })
+      .where(eq(inventoryEvents.id, balanceDecreaseEventId));
+
+    balanceOtherOrgEventId = randomUUID();
+    await ownerDb.insert(inventoryEvents).values({
+      id: balanceOtherOrgEventId,
+      organizationId: `ledger-balance-other-${ts}`,
+      locationId: balanceLocationId,
+      eventType: "manual_adjustment_increase",
+      itemId: balanceItemId,
+      lotId: balanceLotAId,
+      quantity: "999",
+      unitCost: "1",
+      extendedCost: "999",
+      occurredAt: new Date(balanceToday.getTime() - 1_000),
+    });
+  });
+
+  test("returns on-hand after from full event history, not only date-filtered rows", async () => {
+    const today = balanceToday.toISOString().slice(0, 10);
+    const todayResponse = await testFetch(
+      `/api/inventory-ledger?itemId=${balanceItemId}&dateFrom=${today}&dateTo=${today}&timeZone=UTC`
+    );
+    const todayBody = await todayResponse.json();
+
+    expect(todayResponse.status).toBe(200);
+    const todayRowIds = todayBody.rows.map((row: { id: string }) => row.id);
+    expect(todayRowIds).toContain(balanceDecreaseEventId);
+    expect(todayRowIds).not.toContain(balanceOpeningEventId);
+
+    const decreaseRow = todayBody.rows.find(
+      (row: { id: string }) => row.id === balanceDecreaseEventId
+    );
+    expect(decreaseRow).toMatchObject({
+      signedQuantity: "-3",
+      onHandAfter: "17",
+      lot: expect.objectContaining({ number: balanceLotANumber }),
+    });
+
+    const allResponse = await testFetch(
+      `/api/inventory-ledger?itemId=${balanceItemId}&scope=all`
+    );
+    const allBody = await allResponse.json();
+    const openingRow = allBody.rows.find(
+      (row: { id: string }) => row.id === balanceOpeningEventId
+    );
+    const increaseRow = allBody.rows.find(
+      (row: { id: string }) => row.id === balanceIncreaseEventId
+    );
+
+    expect(allResponse.status).toBe(200);
+    expect(openingRow).toMatchObject({ signedQuantity: "20", onHandAfter: "20" });
+    expect(increaseRow).toMatchObject({
+      signedQuantity: "5",
+      onHandAfter: "5",
+      lot: expect.objectContaining({ number: balanceLotBNumber }),
+    });
+    expect(
+      allBody.rows.some((row: { id: string }) => row.id === balanceOtherOrgEventId)
+    ).toBe(false);
+    expect(
+      allBody.rows.some(
+        (row: { onHandAfter: string | null }) => row.onHandAfter === "1016"
+      )
+    ).toBe(false);
+  });
+
+  test("shows on-hand-after as a dedicated ledger table column", async ({ page }) => {
+    await page.goto(`/inventory/ledger?itemId=${balanceItemId}`);
+
+    const tableBody = page.locator("tbody");
+    await expect(page.getByRole("columnheader", { name: "Change" })).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "On hand after" })
+    ).toBeVisible();
+
+    const decreaseRow = tableBody
+      .locator("tr")
+      .filter({ hasText: "Manual stock decrease" })
+      .filter({ hasText: balanceLotANumber })
+      .first();
+    await expect(decreaseRow.getByRole("cell").nth(5)).toHaveText("-3");
+    await expect(decreaseRow.getByRole("cell").nth(6)).toHaveText("17");
+
+    const openingRow = tableBody
+      .locator("tr")
+      .filter({ hasText: "Manual stock increase" })
+      .filter({ hasText: balanceLotANumber })
+      .filter({ hasText: "+20" })
+      .first();
+    await expect(openingRow.getByRole("cell").nth(6)).toHaveText("20");
+
+    const lotBRow = tableBody
+      .locator("tr")
+      .filter({ hasText: "Manual stock increase" })
+      .filter({ hasText: balanceLotBNumber })
+      .first();
+    await expect(lotBRow.getByRole("cell").nth(5)).toHaveText("+5");
+    await expect(lotBRow.getByRole("cell").nth(6)).toHaveText("5");
+    await expect(lotBRow.getByRole("cell").nth(6)).not.toHaveText("22");
+  });
+
+  test("uses event id as a same-timestamp tie-breaker and dashes unknown balances", async ({
+    page,
+  }) => {
+    const verificationEventId = `ffffffff-ffff-ffff-ffff-${String(ts)
+      .slice(-12)
+      .padStart(12, "0")}`;
+    const tieBreakAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    await ownerDb
+      .update(inventoryEvents)
+      .set({ occurredAt: tieBreakAt })
+      .where(eq(inventoryEvents.id, balanceDecreaseEventId));
+
+    await ownerDb.insert(inventoryEvents).values({
+      id: verificationEventId,
+      organizationId: getOrgId(),
+      locationId: balanceLocationId,
+      eventType: "stocktake_verification",
+      itemId: balanceItemId,
+      quantity: "0",
+      referenceType: "stocktake_line",
+      referenceId: randomUUID(),
+      occurredAt: tieBreakAt,
+      metadata: { stocktakeId: randomUUID() },
+    });
+
+    await page.goto(`/inventory/ledger?itemId=${balanceItemId}&scope=all`);
+
+    const firstDataRow = page.locator("tbody > tr").first();
+    await expect(firstDataRow).toContainText("Stocktake verification");
+    await expect(firstDataRow.getByRole("cell").nth(5)).toHaveText("—");
+    await expect(firstDataRow.getByRole("cell").nth(6)).toHaveText("—");
+
+    const secondDataRow = page.locator("tbody > tr").nth(1);
+    await expect(secondDataRow).toContainText("Manual stock decrease");
+    await expect(secondDataRow.getByRole("cell").nth(5)).toHaveText("-3");
+    await expect(secondDataRow.getByRole("cell").nth(6)).toHaveText("17");
+  });
+
   test("does not return another organization's ledger rows", async () => {
     const otherOrgId = randomUUID();
     const otherUnitId = randomUUID();
@@ -668,44 +968,66 @@ test.describe("Inventory ledger explorer", () => {
       throw new Error("Expected a product lot for manufacturing label coverage.");
     }
 
-    await db.insert(inventoryEvents).values([
-      {
-        organizationId: getOrgId(),
-        locationId: sourceEvent.locationId,
-        eventType: "manufacturing_ingredient_consumption",
-        eventSubtype: "pick",
-        itemId: purchaseMaterialId,
-        lotId: sourceEvent.lotId,
-        quantity: "1",
-        unitCost: "2.25",
-        extendedCost: "2.25",
-      },
-      {
-        organizationId: getOrgId(),
-        locationId: sourceEvent.locationId,
-        eventType: "manufacturing_output",
-        eventSubtype: "complete",
-        itemId: salesProductId,
-        lotId: productLot.id,
-        quantity: "1",
-        unitCost: "2.25",
-        extendedCost: "2.25",
-      },
-    ]);
+    const labelEvents = await db
+      .insert(inventoryEvents)
+      .values([
+        {
+          organizationId: getOrgId(),
+          locationId: sourceEvent.locationId,
+          eventType: "manufacturing_ingredient_consumption",
+          eventSubtype: "pick",
+          itemId: purchaseMaterialId,
+          lotId: sourceEvent.lotId,
+          quantity: "1",
+          unitCost: "2.25",
+          extendedCost: "2.25",
+        },
+        {
+          organizationId: getOrgId(),
+          locationId: sourceEvent.locationId,
+          eventType: "manufacturing_output",
+          eventSubtype: "complete",
+          itemId: salesProductId,
+          lotId: productLot.id,
+          quantity: "1",
+          unitCost: "2.25",
+          extendedCost: "2.25",
+        },
+      ])
+      .returning({ id: inventoryEvents.id });
 
-    await page.goto(
-      `/inventory/ledger?scope=all&eventType=manufacturing_ingredient_consumption&q=${encodeURIComponent(
-        purchaseMaterialName
-      )}`
-    );
-    await expect(page.locator("tbody").getByText("Manufacturing material used")).toBeVisible();
+    try {
+      await page.goto(
+        `/inventory/ledger?scope=all&eventType=manufacturing_ingredient_consumption&q=${encodeURIComponent(
+          purchaseMaterialName
+        )}`
+      );
+      await expect(page.locator("tbody").getByText("Manufacturing material used")).toBeVisible();
 
-    await page.goto(
-      `/inventory/ledger?scope=all&eventType=manufacturing_output&q=${encodeURIComponent(
-        salesProductName
-      )}`
-    );
-    await expect(page.locator("tbody").getByText("Manufacturing output")).toBeVisible();
+      await page.goto(
+        `/inventory/ledger?scope=all&eventType=manufacturing_output&q=${encodeURIComponent(
+          salesProductName
+        )}`
+      );
+      await expect(page.locator("tbody").getByText("Manufacturing output")).toBeVisible();
+    } finally {
+      const labelEventIds = labelEvents.map((event) => event.id);
+      if (labelEventIds.length > 0) {
+        await ownerDb.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT set_config('app.current_org_id', ${getOrgId()}, true)`
+          );
+          await tx.execute(sql`
+            DELETE FROM inventory.inventory_events
+            WHERE organization_id = ${getOrgId()}
+              AND id IN (${sql.join(
+                labelEventIds.map((id) => sql`${id}`),
+                sql`, `
+              )})
+          `);
+        });
+      }
+    }
   });
 
   test("shows full item activity when deep-linking from item detail", async ({ page }) => {

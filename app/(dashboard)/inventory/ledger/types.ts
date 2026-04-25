@@ -31,6 +31,7 @@ export type InventoryLedgerRow = {
   eventLabel: string;
   quantity: string;
   signedQuantity: string;
+  onHandAfter: string | null;
   balanceDimension: InventoryLedgerBalanceDimension;
   lot: {
     id: string;

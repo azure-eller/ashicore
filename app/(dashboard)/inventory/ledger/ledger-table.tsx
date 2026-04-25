@@ -106,6 +106,10 @@ function formatQuantityMagnitude(row: InventoryLedgerRow) {
   return `${formatQuantity(String(quantity))} units`;
 }
 
+function formatOnHandAfter(row: InventoryLedgerRow) {
+  return row.onHandAfter == null ? "—" : formatQuantity(row.onHandAfter);
+}
+
 function formatLedgerRowSummary(row: InventoryLedgerRow) {
   const actor = row.actor?.name ?? "System";
   const action = formatInventoryLedgerSummaryAction(row.eventType);
@@ -505,7 +509,7 @@ export function LedgerTable({
               No inventory events matched the current filters.
             </div>
           ) : (
-            <Table>
+            <Table className="min-w-[1120px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Occurred</TableHead>
@@ -514,6 +518,7 @@ export function LedgerTable({
                   <TableHead>Source</TableHead>
                   <TableHead>Lot</TableHead>
                   <TableHead className="text-right">Change</TableHead>
+                  <TableHead className="text-right">On hand after</TableHead>
                   <TableHead>Actor</TableHead>
                 </TableRow>
               </TableHeader>
@@ -521,6 +526,8 @@ export function LedgerTable({
                 {initialData.rows.map((row) => {
                   const isExpanded = expandedRows[row.id] ?? false;
                   const signedQuantity = parseFloat(row.signedQuantity);
+                  const onHandAfter =
+                    row.onHandAfter == null ? null : parseFloat(row.onHandAfter);
                   const quantityChange =
                     row.balanceDimension === "none"
                       ? "—"
@@ -588,12 +595,26 @@ export function LedgerTable({
                         >
                           {quantityChange}
                         </TableCell>
+                        <TableCell
+                          className={cn(
+                            "text-right font-mono",
+                            row.onHandAfter == null && "text-muted-foreground",
+                            onHandAfter != null &&
+                              onHandAfter < 0 &&
+                              "text-destructive"
+                          )}
+                        >
+                          {formatOnHandAfter(row)}
+                        </TableCell>
                         <TableCell>{row.actor ? row.actor.name : "—"}</TableCell>
                       </TableRow>
 
                       {isExpanded ? (
                         <TableRow className="bg-muted/20 hover:bg-muted/20">
-                          <TableCell colSpan={7} className="whitespace-normal px-6 py-4">
+                          <TableCell
+                            colSpan={8}
+                            className="whitespace-normal px-6 py-4"
+                          >
                             <div className="flex flex-col gap-4">
                               <p className="text-sm font-medium">
                                 {formatLedgerRowSummary(row)}
@@ -609,6 +630,23 @@ export function LedgerTable({
                                       </dt>
                                       <dd className="font-mono">
                                         {formatQuantityChange(row)}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        On hand after
+                                      </dt>
+                                      <dd
+                                        className={cn(
+                                          "font-mono",
+                                          row.onHandAfter == null &&
+                                            "text-muted-foreground",
+                                          onHandAfter != null &&
+                                            onHandAfter < 0 &&
+                                            "text-destructive"
+                                        )}
+                                      >
+                                        {formatOnHandAfter(row)}
                                       </dd>
                                     </div>
                                     <div>
