@@ -850,7 +850,7 @@ test.describe("Inventory ledger explorer", () => {
   }) => {
     await page.goto("/inventory/ledger");
     await expect(
-      page.getByRole("heading", { name: "Inventory Ledger" })
+      page.getByRole("heading", { name: "Inventory Activity" })
     ).toBeVisible();
     await expect(page.getByLabel("Search ledger")).toBeVisible();
     await expect(page.getByLabel("Filter from date")).toBeVisible();
