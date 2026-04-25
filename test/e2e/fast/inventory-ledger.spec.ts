@@ -543,7 +543,7 @@ test.describe("Inventory ledger explorer", () => {
     expect(body.rows).toEqual([]);
   });
 
-  test("loads with primary filters and collapses advanced filters", async ({
+  test("loads with primary filters and opens more filters popover", async ({
     page,
   }) => {
     await page.goto("/inventory/ledger");
@@ -574,7 +574,7 @@ test.describe("Inventory ledger explorer", () => {
           url.pathname === "/inventory/ledger" &&
           url.searchParams.get("q") === purchaseMaterialName
       ),
-      page.getByRole("button", { name: "Apply Filters" }).click(),
+      page.getByRole("button", { name: "Apply" }).click(),
     ]);
 
     const globalTableBody = page.locator("tbody");
@@ -592,14 +592,14 @@ test.describe("Inventory ledger explorer", () => {
           url.searchParams.get("eventClass") === "expected" &&
           url.searchParams.get("scope") === "all"
       ),
-      page.getByRole("button", { name: "Apply Filters" }).click(),
+      page.getByRole("button", { name: "Apply" }).click(),
     ]);
 
     await expect(globalTableBody.getByText("Expected supply increase").first()).toBeVisible();
     await expect(globalTableBody.getByText("Manual stock increase")).toHaveCount(0);
   });
 
-  test("expands manual adjustment rows with summary sections and advanced metadata", async ({
+  test("expands manual adjustment rows with compact summary sections", async ({
     page,
   }) => {
     await page.goto(`/inventory/ledger?itemId=${purchaseMaterialId}`);
@@ -626,23 +626,12 @@ test.describe("Inventory ledger explorer", () => {
     await expect(page.getByRole("heading", { name: "Audit" })).toBeVisible();
     await expect(page.getByText("test-agent@erp-test.local")).toBeVisible();
     await expect(page.getByText("Timestamp", { exact: true })).toBeVisible();
-
-    await expect(page.getByText("Advanced")).toBeVisible();
-    await expect(page.getByText("manual_adjustment_increase")).toBeHidden();
-    await page.getByText("Advanced").click();
-    const advancedDetails = page.locator("details").filter({ hasText: "Advanced" });
-    await expect(
-      advancedDetails.getByText("Movement category", { exact: true })
-    ).toBeVisible();
-    await expect(advancedDetails.getByText("Stock movements")).toBeVisible();
-    await expect(advancedDetails.getByText("Balance dimension")).toBeVisible();
-    await expect(advancedDetails.getByText("On-hand")).toBeVisible();
+    await expect(page.getByText("Advanced")).toHaveCount(0);
     await expect(
       page.getByText("manual_adjustment_increase", { exact: true })
-    ).toBeVisible();
-    await expect(page.getByText("manual_adjustment", { exact: true })).toBeVisible();
-    await expect(page.getByText("Metadata")).toBeVisible();
-    await expect(page.getByText("Lot number")).toBeVisible();
+    ).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "View Item" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "View Source" })).toHaveCount(0);
   });
 
   test("shows business-friendly manufacturing movement labels", async ({
@@ -735,9 +724,15 @@ test.describe("Inventory ledger explorer", () => {
       .filter({ hasText: "Expected supply increase" })
       .filter({ hasText: purchaseOrderNumber })
       .first();
+    await expect(
+      expectedSupplyRow.getByRole("link", { name: purchaseMaterialName })
+    ).toBeVisible();
+    await expect(
+      expectedSupplyRow.getByRole("link", { name: purchaseOrderNumber })
+    ).toBeVisible();
     await expectedSupplyRow.getByRole("button", { name: "Expand row" }).click();
-    await expect(page.getByRole("link", { name: "View Item" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "View Source" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "View Item" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "View Source" })).toHaveCount(0);
   });
 
   test("drills through from purchase and sales order detail pages", async ({ page }) => {
