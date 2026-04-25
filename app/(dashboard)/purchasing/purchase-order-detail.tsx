@@ -44,6 +44,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderDetail as PurchaseOrderDetailType } from "./types";
@@ -58,8 +59,10 @@ type ReceiveFormValues = z.input<typeof receivePurchaseOrderSchema>;
 
 export function PurchaseOrderDetail({
   order,
+  canViewLedger = false,
 }: {
   order: PurchaseOrderDetailType;
+  canViewLedger?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -235,6 +238,20 @@ export function PurchaseOrderDetail({
           <DetailPageActions
             editHref={canEdit ? `/purchasing/orders/${order.id}/edit` : undefined}
             menu={[
+              ...(canViewLedger
+                ? [
+                    {
+                      label: "View inventory activity",
+                      onSelect: () =>
+                        router.push(
+                          buildInventoryLedgerHref({
+                            documentType: "purchase_order",
+                            documentId: order.id,
+                          })
+                        ),
+                    },
+                  ]
+                : []),
               ...(canCancel
                 ? [
                     {

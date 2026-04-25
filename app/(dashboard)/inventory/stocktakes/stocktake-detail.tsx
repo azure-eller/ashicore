@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDateTime, formatQuantity, getFieldArrayError, normalizeNumeric } from "@/lib/format";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   type UpdateStocktakeCounts,
   updateStocktakeCountsSchema,
@@ -88,8 +89,10 @@ function formatSavedCountedQtyInput(value: string | null | undefined) {
 
 export function StocktakeDetail({
   stocktake,
+  canViewLedger = false,
 }: {
   stocktake: StocktakeDetailType;
+  canViewLedger?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -369,32 +372,54 @@ export function StocktakeDetail({
             </div>
           </div>
 
-          {canEditCounts && (
+          {(canEditCounts || canViewLedger) && (
             <DetailPageActions
               menu={[
-                {
-                  label: "Cancel stocktake",
-                  onSelect: () => setCancelOpen(true),
-                  disabled: cancelMutation.isPending,
-                  destructive: true,
-                },
+                ...(canViewLedger
+                  ? [
+                      {
+                        label: "View inventory activity",
+                        onSelect: () =>
+                          router.push(
+                            buildInventoryLedgerHref({
+                              documentType: "stocktake",
+                              documentId: stocktake.id,
+                            })
+                          ),
+                      },
+                    ]
+                  : []),
+                ...(canEditCounts
+                  ? [
+                      {
+                        label: "Cancel stocktake",
+                        onSelect: () => setCancelOpen(true),
+                        disabled: cancelMutation.isPending,
+                        destructive: true,
+                      },
+                    ]
+                  : []),
               ]}
             >
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSave}
-                disabled={!form.formState.isDirty || saveMutation.isPending}
-              >
-                {saveMutation.isPending ? "Saving..." : "Save Counts"}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleComplete}
-                disabled={!canComplete}
-              >
-                {completeMutation.isPending ? "Completing..." : "Complete"}
-              </Button>
+              {canEditCounts ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSave}
+                    disabled={!form.formState.isDirty || saveMutation.isPending}
+                  >
+                    {saveMutation.isPending ? "Saving..." : "Save Counts"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleComplete}
+                    disabled={!canComplete}
+                  >
+                    {completeMutation.isPending ? "Completing..." : "Complete"}
+                  </Button>
+                </>
+              ) : null}
             </DetailPageActions>
           )}
         </div>

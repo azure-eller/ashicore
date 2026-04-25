@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DetailPageActions } from "@/components/detail-page-actions";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { ITEM_TYPE_SEGMENTS, type ItemType } from "./types";
 
 type Props = {
@@ -22,9 +23,16 @@ type Props = {
   itemType: ItemType;
   canEdit: boolean;
   canDelete: boolean;
+  canViewLedger: boolean;
 };
 
-export function ItemDetailActions({ itemId, itemType, canEdit, canDelete }: Props) {
+export function ItemDetailActions({
+  itemId,
+  itemType,
+  canEdit,
+  canDelete,
+  canViewLedger,
+}: Props) {
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -58,8 +66,16 @@ export function ItemDetailActions({ itemId, itemType, canEdit, canDelete }: Prop
     <>
       <DetailPageActions
         editHref={canEdit ? `${basePath}/${itemId}/edit` : undefined}
-        menu={
-          canDelete
+        menu={[
+          ...(canViewLedger
+            ? [
+                {
+                  label: "View inventory activity",
+                  onSelect: () => router.push(buildInventoryLedgerHref({ itemId })),
+                },
+              ]
+            : []),
+          ...(canDelete
             ? [
                 {
                   label: "Delete",
@@ -70,8 +86,8 @@ export function ItemDetailActions({ itemId, itemType, canEdit, canDelete }: Prop
                   destructive: true,
                 },
               ]
-            : []
-        }
+            : []),
+        ]}
       />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

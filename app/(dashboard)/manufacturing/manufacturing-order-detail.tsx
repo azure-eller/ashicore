@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
@@ -37,8 +38,10 @@ import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from ".
 
 export function ManufacturingOrderDetail({
   order,
+  canViewLedger = false,
 }: {
   order: ManufacturingOrderDetailType;
+  canViewLedger?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -128,6 +131,20 @@ export function ManufacturingOrderDetail({
           <DetailPageActions
             editHref={canEdit ? `/manufacturing/orders/${order.id}/edit` : undefined}
             menu={[
+              ...(canViewLedger
+                ? [
+                    {
+                      label: "View inventory activity",
+                      onSelect: () =>
+                        router.push(
+                          buildInventoryLedgerHref({
+                            documentType: "manufacturing_order",
+                            documentId: order.id,
+                          })
+                        ),
+                    },
+                  ]
+                : []),
               ...(canCancel
                 ? [
                     {

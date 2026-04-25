@@ -1,6 +1,7 @@
 import { sql, type AnyColumn, type SQLWrapper } from "drizzle-orm";
 import {
   inventoryEvents,
+  type InventoryEventType,
   inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
@@ -8,6 +9,56 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 
 type SqlExpression = AnyColumn | SQLWrapper;
+
+export const ON_HAND_INCREASE_EVENT_TYPES = [
+  "opening_balance",
+  "purchase_receipt",
+  "manufacturing_output",
+  "manual_adjustment_increase",
+  "stocktake_gain",
+  "manufacturing_variance_gain",
+  "unpick_restock",
+] as const satisfies readonly InventoryEventType[];
+
+export const ON_HAND_DECREASE_EVENT_TYPES = [
+  "manual_adjustment_decrease",
+  "stocktake_loss",
+  "sales_consumption",
+  "manufacturing_ingredient_consumption",
+  "manufacturing_variance_loss",
+] as const satisfies readonly InventoryEventType[];
+
+export const ON_HAND_EVENT_TYPES = [
+  ...ON_HAND_INCREASE_EVENT_TYPES,
+  ...ON_HAND_DECREASE_EVENT_TYPES,
+] as const satisfies readonly InventoryEventType[];
+
+function sqlValueList(values: readonly string[]) {
+  return sql.join(values.map((value) => sql`${value}`), sql`, `);
+}
+
+function ledgerIncreaseEventExpr(eventType: SqlExpression) {
+  return sql`${eventType} IN (${sqlValueList(ON_HAND_INCREASE_EVENT_TYPES)})`;
+}
+
+function ledgerDecreaseEventExpr(eventType: SqlExpression) {
+  return sql`${eventType} IN (${sqlValueList(ON_HAND_DECREASE_EVENT_TYPES)})`;
+}
+
+export function ledgerOnHandEventExpr(eventType: SqlExpression) {
+  return sql`(${ledgerIncreaseEventExpr(eventType)} OR ${ledgerDecreaseEventExpr(eventType)})`;
+}
+
+export function ledgerOnHandDeltaExpr(
+  eventType: SqlExpression,
+  quantity: SqlExpression
+) {
+  return sql`CASE
+    WHEN ${ledgerIncreaseEventExpr(eventType)} THEN ${quantity}
+    WHEN ${ledgerDecreaseEventExpr(eventType)} THEN -${quantity}
+    ELSE 0
+  END`;
+}
 
 function defaultLocationIdSubquery(organizationId: SqlExpression) {
   return sql`(

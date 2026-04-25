@@ -51,6 +51,15 @@ export function isValidIsoDate(value: string) {
   );
 }
 
+export function isValidTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Zod string that must be a positive decimal number.
  * Use for quantity / price fields that arrive as strings from forms.

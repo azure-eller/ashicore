@@ -18,6 +18,7 @@ export function InventoryHeader({ counts }: InventoryHeaderProps) {
     { label: "Materials", href: "/inventory/materials", count: counts.materials },
     { label: "Sub-assemblies", href: "/inventory/sub-assemblies", count: counts.subAssemblies },
     { label: "Stocktakes", href: "/inventory/stocktakes" },
+    { label: "Ledger", href: "/inventory/ledger" },
   ];
 
   return (

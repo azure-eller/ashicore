@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
 import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
 import { SalesOrderStatusBadge } from "./status-badge";
 import type {
@@ -47,7 +48,13 @@ type ActionError = {
   oversell?: OversellWarningPayload;
 };
 
-export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
+export function OrderDetail({
+  order,
+  canViewLedger = false,
+}: {
+  order: SalesOrderDetailType;
+  canViewLedger?: boolean;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -234,6 +241,20 @@ export function OrderDetail({ order }: { order: SalesOrderDetailType }) {
           <DetailPageActions
             editHref={canEdit ? `/sales/orders/${order.id}/edit` : undefined}
             menu={[
+              ...(canViewLedger
+                ? [
+                    {
+                      label: "View inventory activity",
+                      onSelect: () =>
+                        router.push(
+                          buildInventoryLedgerHref({
+                            documentType: "sales_order",
+                            documentId: order.id,
+                          })
+                        ),
+                    },
+                  ]
+                : []),
               ...(canDownloadBol
                 ? [
                     {
