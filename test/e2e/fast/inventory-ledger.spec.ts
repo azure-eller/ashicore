@@ -711,7 +711,9 @@ test.describe("Inventory ledger explorer", () => {
     await page.goto(`/inventory/ledger?itemId=${balanceItemId}`);
 
     const tableBody = page.locator("tbody");
-    await expect(page.getByRole("columnheader", { name: "Change" })).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Change", exact: true })
+    ).toBeVisible();
     await expect(
       page.getByRole("columnheader", { name: "On hand after" })
     ).toBeVisible();
@@ -899,51 +901,25 @@ test.describe("Inventory ledger explorer", () => {
     await expect(globalTableBody.getByText("Manual stock increase")).toHaveCount(0);
   });
 
-  test("expands manual adjustment rows with compact summary sections", async ({
-    page,
-  }) => {
+  test("shows ledger as a lean table without expanded rows", async ({ page }) => {
     await page.goto(`/inventory/ledger?itemId=${purchaseMaterialId}`);
 
     const tableBody = page.locator("tbody");
+    await expect(
+      page.getByRole("columnheader", { name: "On hand after" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Value change" })
+    ).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Unit cost" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Expand row" })).toHaveCount(0);
+
     const manualRow = tableBody
       .locator("tr")
       .filter({ hasText: "Manual stock increase" })
       .filter({ hasText: purchaseMaterialName })
       .first();
-    await manualRow.getByRole("button", { name: "Expand row" }).click();
-    const expandedRow = manualRow.locator("xpath=following-sibling::tr[1]");
-
-    await expect(
-      expandedRow.getByText(new RegExp(`manually increased ${purchaseMaterialName} by`))
-    ).toBeVisible();
-    await expect(
-      expandedRow.getByText(
-        new RegExp(
-          `manually increased ${purchaseMaterialName} by ${parseFloat(
-            manualEventQuantity
-          )} units`
-        )
-      )
-    ).toHaveCount(0);
-    await expect(
-      expandedRow.getByRole("heading", { name: "Inventory impact" })
-    ).toBeVisible();
-    await expect(expandedRow.getByText("Before", { exact: true })).toBeVisible();
-    await expect(expandedRow.getByText("Change", { exact: true })).toBeVisible();
-    await expect(expandedRow.getByText("After", { exact: true })).toBeVisible();
-    await expect(expandedRow.getByRole("heading", { name: "Cost impact" })).toBeVisible();
-    await expect(expandedRow.getByText("Unit cost", { exact: true })).toBeVisible();
-    await expect(expandedRow.getByText("Value", { exact: true })).toBeVisible();
-    await expect(
-      expandedRow.getByRole("heading", { name: "Document context" })
-    ).toBeVisible();
-    await expect(expandedRow.getByText("SKU")).toBeVisible();
-    await expect(expandedRow.getByText(`LEDGER-PO-MAT-${ts}`)).toBeVisible();
-    await expect(expandedRow.getByText("Reference", { exact: true })).toHaveCount(0);
-    await expect(expandedRow.getByRole("heading", { name: "Audit" })).toHaveCount(0);
-    await expect(expandedRow.getByText("Recorded")).toBeVisible();
-    await expect(expandedRow.getByText("test-agent@erp-test.local")).toBeVisible();
-    await expect(expandedRow.getByText("Timestamp", { exact: true })).toHaveCount(0);
+    await expect(manualRow.getByRole("cell").nth(7)).toContainText("$");
     await expect(page.getByText("Advanced")).toHaveCount(0);
     await expect(
       page.getByText("manual_adjustment_increase", { exact: true })
@@ -1051,17 +1027,10 @@ test.describe("Inventory ledger explorer", () => {
         .filter({ hasText: "Manufacturing material used" })
         .filter({ hasText: purchaseMaterialName })
         .first();
-      await materialUseRow.getByRole("button", { name: "Expand row" }).click();
-      const materialUseDetail = materialUseRow.locator("xpath=following-sibling::tr[1]");
+      await expect(materialUseRow.getByRole("cell").nth(5)).toHaveText("-1");
+      await expect(materialUseRow.getByRole("cell").nth(7)).toHaveText("-$2.25");
       await expect(
-        materialUseDetail.getByText(
-          new RegExp(
-            `used 1 .* of ${purchaseMaterialName} to manufacture ${salesProductName}`
-          )
-        )
-      ).toBeVisible();
-      await expect(
-        materialUseDetail.getByRole("link", { name: manufacturingOrder.orderNumber })
+        materialUseRow.getByRole("link", { name: manufacturingOrder.orderNumber })
       ).toBeVisible();
 
       await page.goto(
@@ -1070,6 +1039,13 @@ test.describe("Inventory ledger explorer", () => {
         )}`
       );
       await expect(page.locator("tbody").getByText("Manufacturing output")).toBeVisible();
+      const outputRow = page
+        .locator("tbody")
+        .locator("tr")
+        .filter({ hasText: "Manufacturing output" })
+        .filter({ hasText: salesProductName })
+        .first();
+      await expect(outputRow.getByRole("cell").nth(7)).toHaveText("$2.25");
     } finally {
       const labelEventIds = labelEvents.map((event) => event.id);
       if (labelEventIds.length > 0) {
@@ -1112,7 +1088,7 @@ test.describe("Inventory ledger explorer", () => {
     await expect(
       expectedSupplyRow.getByRole("link", { name: purchaseOrderNumber })
     ).toBeVisible();
-    await expectedSupplyRow.getByRole("button", { name: "Expand row" }).click();
+    await expect(page.getByRole("button", { name: "Expand row" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "View Item" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "View Source" })).toHaveCount(0);
   });

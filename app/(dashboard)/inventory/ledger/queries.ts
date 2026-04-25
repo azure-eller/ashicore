@@ -28,7 +28,6 @@ import {
   salesOrders,
   stocktakeItems,
   stocktakes,
-  unitDefinitions,
   user,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -630,7 +629,6 @@ export async function getInventoryLedger(
         eventSubtype: inventoryEvents.eventSubtype,
         quantity: trimScale(inventoryEvents.quantity).as("quantity"),
         onHandAfter: balanceRows.onHandAfter,
-        unitCost: trimScaleNullable(inventoryEvents.unitCost).as("unitCost"),
         extendedCost: trimScaleNullable(inventoryEvents.extendedCost).as(
           "extendedCost"
         ),
@@ -641,7 +639,6 @@ export async function getInventoryLedger(
         itemName: items.name,
         itemSku: items.sku,
         itemType: items.itemType,
-        itemUnitName: unitDefinitions.name,
         variantAttrs: items.variantAttrs,
         masterName: masterItems.name,
         masterVariantAxes: masterItems.variantAxes,
@@ -652,38 +649,25 @@ export async function getInventoryLedger(
         actorEmail: actorUsers.email,
         directPurchaseOrderId: directPurchaseOrders.id,
         directPurchaseOrderNumber: directPurchaseOrders.orderNumber,
-        directPurchaseSupplierName: directPurchaseOrders.supplierName,
         purchaseOrderIdViaLine: purchaseOrdersViaLines.id,
         purchaseOrderNumberViaLine: purchaseOrdersViaLines.orderNumber,
-        purchaseSupplierNameViaLine: purchaseOrdersViaLines.supplierName,
         directSalesOrderId: directSalesOrders.id,
         directSalesOrderNumber: directSalesOrders.orderNumber,
-        directSalesCustomerName: directSalesOrders.customerName,
         salesOrderIdViaLine: salesOrdersViaLines.id,
         salesOrderNumberViaLine: salesOrdersViaLines.orderNumber,
-        salesCustomerNameViaLine: salesOrdersViaLines.customerName,
         directManufacturingOrderId: directManufacturingOrders.id,
         directManufacturingOrderNumber: directManufacturingOrders.orderNumber,
-        directManufacturingProductId: directManufacturingOrders.productId,
-        directManufacturingProductName: directManufacturingOrders.productName,
         manufacturingOrderIdViaIngredient: manufacturingOrdersViaIngredients.id,
         manufacturingOrderNumberViaIngredient:
           manufacturingOrdersViaIngredients.orderNumber,
-        manufacturingProductIdViaIngredient:
-          manufacturingOrdersViaIngredients.productId,
-        manufacturingProductNameViaIngredient:
-          manufacturingOrdersViaIngredients.productName,
         manufacturingOrderIdViaBatch: manufacturingOrdersViaBatches.id,
         manufacturingOrderNumberViaBatch: manufacturingOrdersViaBatches.orderNumber,
-        manufacturingProductIdViaBatch: manufacturingOrdersViaBatches.productId,
-        manufacturingProductNameViaBatch: manufacturingOrdersViaBatches.productName,
         stocktakeId: stocktakeDocs.id,
         stocktakeName: stocktakeDocs.name,
       })
       .from(inventoryEvents)
       .innerJoin(items, eq(inventoryEvents.itemId, items.id))
       .leftJoin(masterItems, eq(items.parentId, masterItems.id))
-      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
       .leftJoin(balanceRows, eq(balanceRows.eventId, inventoryEvents.id))
       .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
@@ -802,14 +786,6 @@ export async function getInventoryLedger(
         stocktakeId: row.stocktakeId,
         stocktakeName: row.stocktakeName,
       });
-      const manufacturingProductId =
-        row.directManufacturingProductId ??
-        row.manufacturingProductIdViaIngredient ??
-        row.manufacturingProductIdViaBatch;
-      const manufacturingProductName =
-        row.directManufacturingProductName ??
-        row.manufacturingProductNameViaIngredient ??
-        row.manufacturingProductNameViaBatch;
       const actor =
         row.actorUserId != null
           ? {
@@ -828,7 +804,6 @@ export async function getInventoryLedger(
           displayName,
           sku: row.itemSku,
           itemType,
-          unitName: row.itemUnitName,
           href: itemDetailHref(itemType, row.itemId),
         },
         eventClass: getInventoryLedgerEventClass(eventType),
@@ -847,22 +822,7 @@ export async function getInventoryLedger(
               }
             : null,
         sourceDocument,
-        sourceContext: {
-          supplierName:
-            row.directPurchaseSupplierName ?? row.purchaseSupplierNameViaLine,
-          customerName: row.directSalesCustomerName ?? row.salesCustomerNameViaLine,
-          manufacturingProduct: manufacturingProductName
-            ? {
-                id: manufacturingProductId,
-                name: manufacturingProductName,
-                href: manufacturingProductId
-                  ? itemDetailHref("product", manufacturingProductId)
-                  : null,
-              }
-            : null,
-        },
         actor,
-        unitCost: row.unitCost,
         extendedCost: row.extendedCost,
         referenceType: row.referenceType,
         referenceId: row.referenceId,

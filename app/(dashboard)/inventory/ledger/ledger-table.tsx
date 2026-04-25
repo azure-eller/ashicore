@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  ArrowDown01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
   FilterHorizontalIcon,
@@ -46,7 +45,6 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
-  formatInventoryLedgerBalanceDimension,
   formatInventoryLedgerEventLabel,
   formatInventoryLedgerMovementCategory,
   formatInventoryLedgerSourceType,
@@ -85,75 +83,8 @@ function withDateFilterTimeZone(filters: InventoryLedgerFilters) {
   };
 }
 
-function getQuantityUnit(row: InventoryLedgerRow) {
-  return row.item.unitName ?? "units";
-}
-
-function formatQuantityWithUnit(
-  quantity: string,
-  row: InventoryLedgerRow,
-  options: { absolute?: boolean; signed?: boolean } = {}
-) {
-  const parsed = parseFloat(quantity);
-  const numeric = Number.isFinite(parsed)
-    ? options.absolute
-      ? Math.abs(parsed)
-      : parsed
-    : 0;
-  const sign = options.signed && numeric > 0 ? "+" : "";
-
-  return `${sign}${formatQuantity(String(numeric))} ${getQuantityUnit(row)}`;
-}
-
-function formatQuantityChange(row: InventoryLedgerRow) {
-  if (row.balanceDimension === "none") {
-    return "No quantity change";
-  }
-
-  return formatQuantityWithUnit(row.signedQuantity, row, { signed: true });
-}
-
-function formatQuantityMagnitude(row: InventoryLedgerRow) {
-  const signedQuantity = parseFloat(row.signedQuantity);
-  const quantity = String(
-    Number.isFinite(signedQuantity) && signedQuantity !== 0
-      ? Math.abs(signedQuantity)
-      : Math.abs(parseFloat(row.quantity))
-  );
-
-  return formatQuantityWithUnit(quantity, row);
-}
-
 function formatOnHandAfter(row: InventoryLedgerRow) {
   return row.onHandAfter == null ? "—" : formatQuantity(row.onHandAfter);
-}
-
-function formatOnHandAfterWithUnit(row: InventoryLedgerRow) {
-  return row.onHandAfter == null
-    ? "—"
-    : `${formatQuantity(row.onHandAfter)} ${getQuantityUnit(row)}`;
-}
-
-function getOnHandBefore(row: InventoryLedgerRow) {
-  if (row.balanceDimension !== "on_hand" || row.onHandAfter == null) {
-    return null;
-  }
-
-  const onHandAfter = parseFloat(row.onHandAfter);
-  const signedQuantity = parseFloat(row.signedQuantity);
-
-  if (!Number.isFinite(onHandAfter) || !Number.isFinite(signedQuantity)) {
-    return null;
-  }
-
-  return String(onHandAfter - signedQuantity);
-}
-
-function formatOnHandBefore(row: InventoryLedgerRow) {
-  const onHandBefore = getOnHandBefore(row);
-  return onHandBefore == null
-    ? "—"
-    : `${formatQuantity(onHandBefore)} ${getQuantityUnit(row)}`;
 }
 
 function formatValueChange(row: InventoryLedgerRow) {
@@ -176,62 +107,6 @@ function formatValueChange(row: InventoryLedgerRow) {
   return formatPrice(String(signedValue));
 }
 
-function formatLedgerRowSummary(row: InventoryLedgerRow) {
-  const actor = row.actor?.name ?? "System";
-  const item = row.item.displayName;
-  const quantity = formatQuantityMagnitude(row);
-  const source = row.sourceDocument?.label;
-  const sourceSuffix = source ? ` on ${source}` : "";
-  const supplier = row.sourceContext.supplierName;
-  const customer = row.sourceContext.customerName;
-  const manufacturingProduct = row.sourceContext.manufacturingProduct;
-
-  switch (row.eventType) {
-    case "opening_balance":
-      return `${actor} recorded an opening balance of ${quantity} for ${item}.`;
-    case "purchase_receipt":
-      return `${actor} received ${quantity} of ${item}${
-        supplier ? ` from ${supplier}` : ""
-      }${sourceSuffix}.`;
-    case "manufacturing_output":
-      return `${actor} manufactured ${quantity} of ${item}${sourceSuffix}.`;
-    case "manufacturing_ingredient_consumption":
-      return manufacturingProduct
-        ? `${actor} used ${quantity} of ${item} to manufacture ${manufacturingProduct.name}${sourceSuffix}.`
-        : `${actor} used ${quantity} of ${item} for manufacturing${sourceSuffix}.`;
-    case "manual_adjustment_increase":
-      return `${actor} manually increased ${item} by ${quantity}.`;
-    case "manual_adjustment_decrease":
-      return `${actor} manually decreased ${item} by ${quantity}.`;
-    case "stocktake_gain":
-      return `${source ?? "Stocktake"} increased ${item} by ${quantity}.`;
-    case "stocktake_loss":
-      return `${source ?? "Stocktake"} decreased ${item} by ${quantity}.`;
-    case "manufacturing_variance_gain":
-      return `${actor} recorded a manufacturing variance gain of ${quantity} for ${item}${sourceSuffix}.`;
-    case "manufacturing_variance_loss":
-      return `${actor} recorded a manufacturing variance loss of ${quantity} for ${item}${sourceSuffix}.`;
-    case "unpick_restock":
-      return `${actor} returned ${quantity} of ${item} from manufacturing picks${sourceSuffix}.`;
-    case "sales_consumption":
-      return `${actor} shipped ${quantity} of ${item}${
-        customer ? ` to ${customer}` : ""
-      }${sourceSuffix}.`;
-    case "reservation_increase":
-      return `${actor} reserved ${quantity} of ${item}${sourceSuffix}.`;
-    case "reservation_release":
-      return `${actor} released a reservation for ${quantity} of ${item}${sourceSuffix}.`;
-    case "expected_increase":
-      return `${actor} added ${quantity} of expected supply for ${item}${sourceSuffix}.`;
-    case "expected_release":
-      return `${actor} released ${quantity} of expected supply for ${item}${sourceSuffix}.`;
-    case "cost_basis_change":
-      return `${actor} updated the cost basis for ${item}.`;
-    case "stocktake_verification":
-      return `${source ?? "Stocktake"} verified ${item}.`;
-  }
-}
-
 export function LedgerTable({
   initialData,
   initialFilters,
@@ -240,7 +115,6 @@ export function LedgerTable({
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
-  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState<DraftFilters>(initialFilters);
 
@@ -617,7 +491,7 @@ export function LedgerTable({
               No inventory events matched the current filters.
             </div>
           ) : (
-            <Table className="min-w-[1120px]">
+            <Table className="min-w-[1180px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Occurred</TableHead>
@@ -627,19 +501,17 @@ export function LedgerTable({
                   <TableHead>Lot</TableHead>
                   <TableHead className="text-right">Change</TableHead>
                   <TableHead className="text-right">On hand after</TableHead>
+                  <TableHead className="text-right">Value change</TableHead>
                   <TableHead>Actor</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {initialData.rows.map((row) => {
-                  const isExpanded = expandedRows[row.id] ?? false;
                   const signedQuantity = parseFloat(row.signedQuantity);
                   const onHandAfter =
                     row.onHandAfter == null ? null : parseFloat(row.onHandAfter);
                   const valueChange = formatValueChange(row);
                   const valueChangeIsNegative = valueChange?.startsWith("-") ?? false;
-                  const manufacturingProduct =
-                    row.sourceContext.manufacturingProduct;
                   const quantityChange =
                     row.balanceDimension === "none"
                       ? "—"
@@ -648,277 +520,66 @@ export function LedgerTable({
                         )}`;
 
                   return (
-                    <Fragment key={row.id}>
-                      <TableRow>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              className="inline-flex rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                              aria-label={isExpanded ? "Collapse row" : "Expand row"}
-                              onClick={() =>
-                                setExpandedRows((current) => ({
-                                  ...current,
-                                  [row.id]: !current[row.id],
-                                }))
-                              }
+                    <TableRow key={row.id}>
+                      <TableCell>{formatDateTime(row.occurredAt)}</TableCell>
+                      <TableCell>
+                        <Link
+                          href={row.item.href}
+                          className="font-medium hover:underline"
+                        >
+                          {row.item.displayName}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="font-medium">{row.eventLabel}</TableCell>
+                      <TableCell>
+                        {row.sourceDocument ? (
+                          row.sourceDocument.href ? (
+                            <Link
+                              href={row.sourceDocument.href}
+                              className="hover:underline"
                             >
-                              <HugeiconsIcon
-                                icon={isExpanded ? ArrowDown01Icon : ArrowRight01Icon}
-                                aria-hidden
-                              />
-                            </button>
-                            <span>{formatDateTime(row.occurredAt)}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            href={row.item.href}
-                            className="font-medium hover:underline"
-                          >
-                            {row.item.displayName}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="font-medium">{row.eventLabel}</TableCell>
-                        <TableCell>
-                          {row.sourceDocument ? (
-                            row.sourceDocument.href ? (
-                              <Link
-                                href={row.sourceDocument.href}
-                                className="hover:underline"
-                              >
-                                {row.sourceDocument.label}
-                              </Link>
-                            ) : (
-                              row.sourceDocument.label
-                            )
+                              {row.sourceDocument.label}
+                            </Link>
                           ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono">
-                          {row.lot?.number ?? "—"}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right font-mono",
-                            signedQuantity < 0 && "text-destructive"
-                          )}
-                        >
-                          {quantityChange}
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right font-mono",
-                            row.onHandAfter == null && "text-muted-foreground",
-                            onHandAfter != null &&
-                              onHandAfter < 0 &&
-                              "text-destructive"
-                          )}
-                        >
-                          {formatOnHandAfter(row)}
-                        </TableCell>
-                        <TableCell>{row.actor ? row.actor.name : "—"}</TableCell>
-                      </TableRow>
-
-                      {isExpanded ? (
-                        <TableRow className="bg-muted/20 hover:bg-muted/20">
-                          <TableCell
-                            colSpan={8}
-                            className="whitespace-normal px-6 py-4"
-                          >
-                            <div className="space-y-5">
-                              <p className="max-w-5xl text-sm font-medium leading-6">
-                                {formatLedgerRowSummary(row)}
-                              </p>
-
-                              <div className="grid gap-6 lg:grid-cols-[1.05fr_0.85fr_1.1fr]">
-                                <section className="space-y-3">
-                                  <h3 className="text-sm font-semibold">
-                                    Inventory impact
-                                  </h3>
-                                  <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Balance
-                                      </dt>
-                                      <dd>
-                                        {formatInventoryLedgerBalanceDimension(
-                                          row.balanceDimension
-                                        )}
-                                      </dd>
-                                    </div>
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Before
-                                      </dt>
-                                      <dd className="font-mono">
-                                        {formatOnHandBefore(row)}
-                                      </dd>
-                                    </div>
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Change
-                                      </dt>
-                                      <dd
-                                        className={cn(
-                                          "font-mono",
-                                          signedQuantity < 0 && "text-destructive"
-                                        )}
-                                      >
-                                        {formatQuantityChange(row)}
-                                      </dd>
-                                    </div>
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        After
-                                      </dt>
-                                      <dd
-                                        className={cn(
-                                          "font-mono",
-                                          row.onHandAfter == null &&
-                                            "text-muted-foreground",
-                                          onHandAfter != null &&
-                                            onHandAfter < 0 &&
-                                            "text-destructive"
-                                        )}
-                                      >
-                                        {formatOnHandAfterWithUnit(row)}
-                                      </dd>
-                                    </div>
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Lot
-                                      </dt>
-                                      <dd className="font-mono">{row.lot?.number ?? "—"}</dd>
-                                    </div>
-                                  </dl>
-                                </section>
-
-                                <section className="space-y-3">
-                                  <h3 className="text-sm font-semibold">
-                                    Cost impact
-                                  </h3>
-                                  <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Unit cost
-                                      </dt>
-                                      <dd>{formatPrice(row.unitCost) ?? "—"}</dd>
-                                    </div>
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Value
-                                      </dt>
-                                      <dd
-                                        className={cn(
-                                          valueChangeIsNegative &&
-                                            "text-destructive"
-                                        )}
-                                      >
-                                        {valueChange ?? "—"}
-                                      </dd>
-                                    </div>
-                                  </dl>
-                                </section>
-
-                                <section className="space-y-3">
-                                  <h3 className="text-sm font-semibold">
-                                    Document context
-                                  </h3>
-                                  <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Document
-                                      </dt>
-                                      <dd>
-                                        {row.sourceDocument ? (
-                                          row.sourceDocument.href ? (
-                                            <Link
-                                              href={row.sourceDocument.href}
-                                              className="font-medium hover:underline"
-                                            >
-                                              {row.sourceDocument.label}
-                                            </Link>
-                                          ) : (
-                                            row.sourceDocument.label
-                                          )
-                                        ) : (
-                                          "—"
-                                        )}
-                                      </dd>
-                                    </div>
-                                    <div className="contents">
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Type
-                                      </dt>
-                                      <dd>
-                                        {row.sourceDocument
-                                          ? formatInventoryLedgerSourceType(
-                                              row.sourceDocument.type
-                                            )
-                                          : "—"}
-                                      </dd>
-                                    </div>
-                                    {manufacturingProduct ? (
-                                      <div className="contents">
-                                        <dt className="text-xs font-medium text-muted-foreground">
-                                          Product
-                                        </dt>
-                                        <dd>
-                                          {manufacturingProduct.href ? (
-                                            <Link
-                                              href={manufacturingProduct.href}
-                                              className="font-medium hover:underline"
-                                            >
-                                              {manufacturingProduct.name}
-                                            </Link>
-                                          ) : (
-                                            manufacturingProduct.name
-                                          )}
-                                        </dd>
-                                      </div>
-                                    ) : null}
-                                    {row.sourceContext.supplierName ? (
-                                      <div className="contents">
-                                        <dt className="text-xs font-medium text-muted-foreground">
-                                          Supplier
-                                        </dt>
-                                        <dd>{row.sourceContext.supplierName}</dd>
-                                      </div>
-                                    ) : null}
-                                    {row.sourceContext.customerName ? (
-                                      <div className="contents">
-                                        <dt className="text-xs font-medium text-muted-foreground">
-                                          Customer
-                                        </dt>
-                                        <dd>{row.sourceContext.customerName}</dd>
-                                      </div>
-                                    ) : null}
-                                    {row.item.sku ? (
-                                      <div className="contents">
-                                        <dt className="text-xs font-medium text-muted-foreground">
-                                          SKU
-                                        </dt>
-                                        <dd className="break-all font-mono text-xs">
-                                          {row.item.sku}
-                                        </dd>
-                                      </div>
-                                    ) : null}
-                                  </dl>
-                                </section>
-                              </div>
-
-                              <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-                                <span>Recorded {formatDateTime(row.occurredAt)}</span>
-                                <span>By {row.actor?.name ?? "System"}</span>
-                                {row.actor?.email ? <span>{row.actor.email}</span> : null}
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </Fragment>
+                            row.sourceDocument.label
+                          )
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono">
+                        {row.lot?.number ?? "—"}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right font-mono",
+                          signedQuantity < 0 && "text-destructive"
+                        )}
+                      >
+                        {quantityChange}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right font-mono",
+                          row.onHandAfter == null && "text-muted-foreground",
+                          onHandAfter != null &&
+                            onHandAfter < 0 &&
+                            "text-destructive"
+                        )}
+                      >
+                        {formatOnHandAfter(row)}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right font-mono",
+                          valueChange == null && "text-muted-foreground",
+                          valueChangeIsNegative && "text-destructive"
+                        )}
+                      >
+                        {valueChange ?? "—"}
+                      </TableCell>
+                      <TableCell>{row.actor ? row.actor.name : "—"}</TableCell>
+                    </TableRow>
                   );
                 })}
               </TableBody>

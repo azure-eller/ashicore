@@ -23,7 +23,6 @@ export type InventoryLedgerRow = {
     displayName: string;
     sku: string | null;
     itemType: ItemType;
-    unitName: string | null;
     href: string;
   };
   eventClass: InventoryLedgerEventClass;
@@ -44,21 +43,11 @@ export type InventoryLedgerRow = {
     label: string;
     href: string | null;
   } | null;
-  sourceContext: {
-    supplierName: string | null;
-    customerName: string | null;
-    manufacturingProduct: {
-      id: string | null;
-      name: string;
-      href: string | null;
-    } | null;
-  };
   actor: {
     id: string;
     name: string;
     email: string;
   } | null;
-  unitCost: string | null;
   extendedCost: string | null;
   referenceType: string | null;
   referenceId: string | null;
