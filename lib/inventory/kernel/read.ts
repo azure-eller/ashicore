@@ -25,6 +25,8 @@ function itemBalanceSubquery(
   itemId: SqlExpression,
   column: typeof inventoryItemBalances.onHandQty
     | typeof inventoryItemBalances.committedQty
+    | typeof inventoryItemBalances.demandQty
+    | typeof inventoryItemBalances.shortageQty
     | typeof inventoryItemBalances.expectedQty
     | typeof inventoryItemBalances.availableToPromise
 ) {
@@ -79,6 +81,27 @@ export function projectedCommittedQty(
 
 export function projectedExpectedQty(organizationId: SqlExpression, itemId: SqlExpression) {
   return trimScale(projectedExpectedQtyExpr(
+    organizationId,
+    itemId,
+  ));
+}
+
+export function projectedDemandQty(organizationId: SqlExpression, itemId: SqlExpression) {
+  return trimScale(projectedDemandQtyExpr(
+    organizationId,
+    itemId,
+  ));
+}
+
+export function projectedShortageQty(organizationId: SqlExpression, itemId: SqlExpression) {
+  return trimScale(projectedShortageQtyExpr(
+    organizationId,
+    itemId,
+  ));
+}
+
+export function projectedAvailableQty(organizationId: SqlExpression, itemId: SqlExpression) {
+  return trimScale(projectedAvailableQtyExpr(
     organizationId,
     itemId,
   ));
@@ -173,13 +196,63 @@ export function projectedExpectedQtyExpr(
   )}, 0)`;
 }
 
-export function projectedAvailableToPromiseExpr(
+export function projectedDemandQtyExpr(
   organizationId: SqlExpression,
   itemId: SqlExpression
 ) {
   return sql`COALESCE(${itemBalanceSubquery(
     organizationId,
     itemId,
-    inventoryItemBalances.availableToPromise
+    inventoryItemBalances.demandQty
   )}, 0)`;
+}
+
+export function projectedShortageQtyExpr(
+  organizationId: SqlExpression,
+  itemId: SqlExpression
+) {
+  return sql`COALESCE(${itemBalanceSubquery(
+    organizationId,
+    itemId,
+    inventoryItemBalances.shortageQty
+  )}, 0)`;
+}
+
+export function projectedReservableOnHandQtyExpr(
+  organizationId: SqlExpression,
+  itemId: SqlExpression
+) {
+  return sql`COALESCE((
+    SELECT SUM(${inventoryLotBalances.quantity})
+    FROM ${inventoryLotBalances}
+    WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+        organizationId
+      )}
+      AND ${inventoryLotBalances.itemId} = ${itemId}
+      AND ${inventoryLotBalances.stockStatus} = 'available'
+      AND ${inventoryLotBalances.quantity} > 0
+  ), 0)`;
+}
+
+export function projectedAvailableQtyExpr(
+  organizationId: SqlExpression,
+  itemId: SqlExpression
+) {
+  return sql`GREATEST(
+    0,
+    ${projectedReservableOnHandQtyExpr(organizationId, itemId)}
+    - ${projectedCommittedQtyExpr(organizationId, itemId)}
+  )`;
+}
+
+export function projectedAvailableToPromiseExpr(
+  organizationId: SqlExpression,
+  itemId: SqlExpression
+) {
+  return sql`
+    ${projectedReservableOnHandQtyExpr(organizationId, itemId)}
+    - ${projectedDemandQtyExpr(organizationId, itemId)}
+    + ${projectedExpectedQtyExpr(organizationId, itemId)}
+  `;
 }

@@ -39,13 +39,15 @@ import {
   lockItemsInTx,
   manualDecreaseStockInTx,
   manualIncreaseStockInTx,
+  projectedAvailableQty,
+  projectedAvailableQtyExpr,
   projectedCommittedQty,
-  projectedCommittedQtyExpr,
+  projectedDemandQty,
   projectedExpectedQty,
   projectedLotQuantity,
   projectedLotUnitCost,
   projectedOnHandQty,
-  projectedOnHandQtyExpr,
+  projectedShortageQty,
   recordCostBasisChangeInTx,
 } from "@/lib/inventory/kernel";
 import {
@@ -74,6 +76,18 @@ const committedQtySubquery = projectedCommittedQty(
   items.organizationId,
   items.id
 ).as("committedQty");
+const demandQtySubquery = projectedDemandQty(
+  items.organizationId,
+  items.id
+).as("demandQty");
+const shortageQtySubquery = projectedShortageQty(
+  items.organizationId,
+  items.id
+).as("shortageQty");
+const availableQtySubquery = projectedAvailableQty(
+  items.organizationId,
+  items.id
+).as("availableQty");
 const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
@@ -82,7 +96,7 @@ const expectedQtySubquery = projectedExpectedQty(
 // Potential: how many finished units could be produced from current available ingredient stock.
 // For discrete products: floor(min(component_available / bom_qty))
 // For batch products: floor(min(component_available / bom_qty)) * expected_batch_yield
-// Available = lot stock - committed qty (stock already allocated to open orders)
+// Available = reservable lot stock - hard reservations.
 const potentialSubquery = sql<string | null>`(
   CASE WHEN ${items.itemType} = 'product' AND EXISTS (
     SELECT 1
@@ -97,8 +111,7 @@ const potentialSubquery = sql<string | null>`(
       (
         SELECT MIN(
           (
-            ${projectedOnHandQtyExpr(items.organizationId, sql`brc.component_id`)}
-            - ${projectedCommittedQtyExpr(items.organizationId, sql`brc.component_id`)}
+            ${projectedAvailableQtyExpr(items.organizationId, sql`brc.component_id`)}
           )
           / NULLIF(brc.quantity, 0)
         )
@@ -411,6 +424,9 @@ export async function getItems(filters?: {
               itemType: items.itemType,
               stock: stockSubquery,
               committedQty: committedQtySubquery,
+              demandQty: demandQtySubquery,
+              shortageQty: shortageQtySubquery,
+              availableQty: availableQtySubquery,
               expectedQty: expectedQtySubquery,
               safetyStock: trimScale(items.safetyStock).as("safetyStock"),
               currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
@@ -441,6 +457,9 @@ export async function getItems(filters?: {
             itemType: row.itemType as ItemType,
             stock: row.stock,
             committedQty: row.committedQty,
+            demandQty: row.demandQty,
+            shortageQty: row.shortageQty,
+            availableQty: row.availableQty,
             expectedQty: row.expectedQty,
             safetyStock: row.safetyStock,
             currentStockUnitCost: row.currentStockUnitCost,
@@ -475,6 +494,9 @@ export async function getItems(filters?: {
               itemType: items.itemType,
               stock: stockSubquery,
               committedQty: committedQtySubquery,
+              demandQty: demandQtySubquery,
+              shortageQty: shortageQtySubquery,
+              availableQty: availableQtySubquery,
               expectedQty: expectedQtySubquery,
               safetyStock: trimScale(items.safetyStock).as("safetyStock"),
               unit: unitDefinitions.name,
@@ -556,6 +578,9 @@ export async function getItems(filters?: {
                 itemType: row.itemType as ItemType,
                 stock: row.stock,
                 committedQty: row.committedQty,
+                demandQty: row.demandQty,
+                shortageQty: row.shortageQty,
+                availableQty: row.availableQty,
                 expectedQty: row.expectedQty,
                 safetyStock: row.safetyStock,
                 currentStockUnitCost: null,
@@ -593,6 +618,9 @@ export async function getItems(filters?: {
             parentId: items.parentId,
             stock: stockSubquery,
             committedQty: committedQtySubquery,
+            demandQty: demandQtySubquery,
+            shortageQty: shortageQtySubquery,
+            availableQty: availableQtySubquery,
             expectedQty: expectedQtySubquery,
             safetyStock: trimScale(items.safetyStock).as("safetyStock"),
             defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
@@ -627,6 +655,9 @@ export async function getItems(filters?: {
                 parentId: items.parentId,
                 stock: stockSubquery,
                 committedQty: committedQtySubquery,
+                demandQty: demandQtySubquery,
+                shortageQty: shortageQtySubquery,
+                availableQty: availableQtySubquery,
                 expectedQty: expectedQtySubquery,
                 safetyStock: trimScale(items.safetyStock).as("safetyStock"),
                 defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
@@ -676,6 +707,9 @@ export async function getItems(filters?: {
                 itemType: row.itemType as ItemType,
                 stock: row.stock,
                 committedQty: row.committedQty,
+                demandQty: row.demandQty,
+                shortageQty: row.shortageQty,
+                availableQty: row.availableQty,
                 expectedQty: row.expectedQty,
                 safetyStock: row.safetyStock,
                 currentStockUnitCost: null,
@@ -713,6 +747,15 @@ export async function getItems(filters?: {
             const committedQty = formatAggregateNumber(
               visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.committedQty), 0),
             );
+            const demandQty = formatAggregateNumber(
+              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.demandQty), 0),
+            );
+            const shortageQty = formatAggregateNumber(
+              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.shortageQty), 0),
+            );
+            const availableQty = formatAggregateNumber(
+              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.availableQty), 0),
+            );
             const expectedQty = formatAggregateNumber(
               visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.expectedQty), 0),
             );
@@ -736,6 +779,9 @@ export async function getItems(filters?: {
               itemType: row.itemType as ItemType,
               stock,
               committedQty,
+              demandQty,
+              shortageQty,
+              availableQty,
               expectedQty,
               safetyStock,
               currentStockUnitCost: null,
@@ -774,6 +820,9 @@ export async function getItems(filters?: {
                   itemType: variant.itemType as ItemType,
                   stock: variant.stock,
                   committedQty: variant.committedQty,
+                  demandQty: variant.demandQty,
+                  shortageQty: variant.shortageQty,
+                  availableQty: variant.availableQty,
                   expectedQty: variant.expectedQty,
                   safetyStock: variant.safetyStock,
                   currentStockUnitCost: null,
@@ -927,6 +976,9 @@ export async function getItem(id: string) {
         bomLockedByUserId: items.bomLockedByUserId,
         stock: stockSubquery,
         committedQty: committedQtySubquery,
+        demandQty: demandQtySubquery,
+        shortageQty: shortageQtySubquery,
+        availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         unitName: unitDefinitions.name,
@@ -2163,6 +2215,9 @@ export async function getVariants(parentId: string) {
         sku: items.sku,
         stock: stockSubquery,
         committedQty: committedQtySubquery,
+        demandQty: demandQtySubquery,
+        shortageQty: shortageQtySubquery,
+        availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),

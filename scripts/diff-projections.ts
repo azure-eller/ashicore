@@ -6,6 +6,7 @@ type ProjectionDiff = {
   itemDeltas: unknown[];
   lotDeltas: unknown[];
   reservationDeltas: unknown[];
+  demandDeltas: unknown[];
   expectedDeltas: unknown[];
   legacyLotDeltas: unknown[];
 };
@@ -36,6 +37,7 @@ function summarizeDiff(diff: ProjectionDiff) {
     itemDeltas: diff.itemDeltas.length,
     lotDeltas: diff.lotDeltas.length,
     reservationDeltas: diff.reservationDeltas.length,
+    demandDeltas: diff.demandDeltas.length,
     expectedDeltas: diff.expectedDeltas.length,
     legacyLotDeltas: diff.legacyLotDeltas.length,
   };
@@ -70,6 +72,7 @@ async function main() {
     console.log(`- item deltas: ${summary.itemDeltas}`);
     console.log(`- lot deltas: ${summary.lotDeltas}`);
     console.log(`- reservation deltas: ${summary.reservationDeltas}`);
+    console.log(`- demand deltas: ${summary.demandDeltas}`);
     console.log(`- expected deltas: ${summary.expectedDeltas}`);
     console.log(`- legacy lot deltas: ${summary.legacyLotDeltas}`);
 

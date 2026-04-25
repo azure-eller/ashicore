@@ -22,6 +22,38 @@ import { calcStock } from "./types";
 import type { InventoryProductView, ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
+function ReservationStatusBadge({ row }: { row: ItemRow }) {
+  const demand = parseFloat(row.demandQty);
+  const reserved = parseFloat(row.committedQty);
+  const shortage = parseFloat(row.shortageQty);
+
+  if (demand <= 0) {
+    return null;
+  }
+
+  if (shortage <= 0) {
+    return (
+      <Badge variant="secondary" className="text-xs">
+        Fully reserved
+      </Badge>
+    );
+  }
+
+  if (reserved > 0) {
+    return (
+      <Badge variant="outline" className="text-xs">
+        Partially reserved
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="destructive" className="text-xs">
+      Backordered
+    </Badge>
+  );
+}
+
 export function getColumns(
   itemType: ItemType,
   view?: InventoryProductView,
@@ -121,6 +153,7 @@ export function getColumns(
                 Not sellable
               </Badge>
             ) : null}
+            <ReservationStatusBadge row={row.original} />
           </div>
         );
       },
@@ -158,6 +191,49 @@ export function getColumns(
         parseFloat(rowA.getValue("stock")) - parseFloat(rowB.getValue("stock")),
       header: ({ column }) => <SortableHeader column={column} label="Stock" />,
       cell: ({ row }) => formatQuantity(row.getValue("stock")),
+    },
+    {
+      accessorKey: "availableQty",
+      sortDescFirst: false,
+      sortingFn: (rowA, rowB) =>
+        parseFloat(rowA.getValue("availableQty")) -
+        parseFloat(rowB.getValue("availableQty")),
+      header: ({ column }) => <SortableHeader column={column} label="Available" />,
+      cell: ({ row }) => formatQuantity(row.getValue("availableQty")),
+    },
+    {
+      accessorKey: "committedQty",
+      sortDescFirst: false,
+      sortingFn: (rowA, rowB) =>
+        parseFloat(rowA.getValue("committedQty")) -
+        parseFloat(rowB.getValue("committedQty")),
+      header: ({ column }) => <SortableHeader column={column} label="Reserved" />,
+      cell: ({ row }) => formatQuantity(row.getValue("committedQty")),
+    },
+    {
+      accessorKey: "demandQty",
+      sortDescFirst: false,
+      sortingFn: (rowA, rowB) =>
+        parseFloat(rowA.getValue("demandQty")) -
+        parseFloat(rowB.getValue("demandQty")),
+      header: ({ column }) => <SortableHeader column={column} label="Demand" />,
+      cell: ({ row }) => formatQuantity(row.getValue("demandQty")),
+    },
+    {
+      accessorKey: "shortageQty",
+      sortDescFirst: false,
+      sortingFn: (rowA, rowB) =>
+        parseFloat(rowA.getValue("shortageQty")) -
+        parseFloat(rowB.getValue("shortageQty")),
+      header: ({ column }) => <SortableHeader column={column} label="Backorder" />,
+      cell: ({ row }) => {
+        const value = row.getValue<string>("shortageQty");
+        return (
+          <span className={parseFloat(value) > 0 ? "text-destructive" : undefined}>
+            {formatQuantity(value)}
+          </span>
+        );
+      },
     },
     {
       id: "calculatedStock",

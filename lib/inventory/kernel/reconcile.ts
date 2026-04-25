@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
   inventoryEvents,
+  inventoryDemandSummary,
   inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
@@ -30,6 +31,8 @@ const STOCK_DECREASE_TYPES = new Set([
 
 const RESERVATION_INCREASE_TYPES = new Set(["reservation_increase"]);
 const RESERVATION_RELEASE_TYPES = new Set(["reservation_release"]);
+const DEMAND_INCREASE_TYPES = new Set(["demand_increase"]);
+const DEMAND_RELEASE_TYPES = new Set(["demand_release"]);
 const EXPECTED_INCREASE_TYPES = new Set(["expected_increase"]);
 const EXPECTED_RELEASE_TYPES = new Set(["expected_release"]);
 
@@ -40,6 +43,7 @@ type ComputedItemBalance = {
   itemId: string;
   onHandQty: number;
   committedQty: number;
+  demandQty: number;
   expectedQty: number;
 };
 
@@ -70,6 +74,7 @@ function buildFilters(
     inventoryItemBalances?: typeof inventoryItemBalances.itemId;
     inventoryLotBalances?: typeof inventoryLotBalances.itemId;
     inventoryReservationsSummary?: typeof inventoryReservationsSummary.itemId;
+    inventoryDemandSummary?: typeof inventoryDemandSummary.itemId;
     inventoryExpectedSummary?: typeof inventoryExpectedSummary.itemId;
   }
 ) {
@@ -113,6 +118,7 @@ export async function computeItemBalancesFromLedger(
       itemId: row.itemId,
       onHandQty: 0,
       committedQty: 0,
+      demandQty: 0,
       expectedQty: 0,
     };
     const quantity = parseFloat(row.quantity);
@@ -125,6 +131,10 @@ export async function computeItemBalancesFromLedger(
       current.committedQty = roundQuantity(current.committedQty + quantity);
     } else if (RESERVATION_RELEASE_TYPES.has(row.eventType)) {
       current.committedQty = roundQuantity(current.committedQty - quantity);
+    } else if (DEMAND_INCREASE_TYPES.has(row.eventType)) {
+      current.demandQty = roundQuantity(current.demandQty + quantity);
+    } else if (DEMAND_RELEASE_TYPES.has(row.eventType)) {
+      current.demandQty = roundQuantity(current.demandQty - quantity);
     } else if (EXPECTED_INCREASE_TYPES.has(row.eventType)) {
       current.expectedQty = roundQuantity(current.expectedQty + quantity);
     } else if (EXPECTED_RELEASE_TYPES.has(row.eventType)) {
@@ -186,6 +196,66 @@ export async function computeReservationSummaryFromLedger(
     const quantity = parseFloat(row.quantity);
 
     if (RESERVATION_INCREASE_TYPES.has(row.eventType)) {
+      current.quantity = roundQuantity(current.quantity + quantity);
+    } else {
+      current.quantity = roundQuantity(current.quantity - quantity);
+    }
+
+    computed.set(key, current);
+  }
+
+  return computed;
+}
+
+export async function computeDemandSummaryFromLedger(
+  tx: Tx,
+  organizationId: string,
+  itemIds?: string[]
+) {
+  const filters = buildFilters(organizationId, itemIds, {
+    inventoryEvents: inventoryEvents.itemId,
+  });
+
+  const rows = await tx
+    .select({
+      locationId: inventoryEvents.locationId,
+      itemId: inventoryEvents.itemId,
+      referenceType: inventoryEvents.referenceType,
+      referenceId: inventoryEvents.referenceId,
+      eventType: inventoryEvents.eventType,
+      quantity: inventoryEvents.quantity,
+    })
+    .from(inventoryEvents)
+    .where(and(...filters));
+
+  const computed = new Map<BalanceKey, ComputedReferenceBalance>();
+
+  for (const row of rows) {
+    if (
+      !row.referenceType ||
+      !row.referenceId ||
+      (!DEMAND_INCREASE_TYPES.has(row.eventType) &&
+        !DEMAND_RELEASE_TYPES.has(row.eventType))
+    ) {
+      continue;
+    }
+
+    const key = balanceKey([
+      row.locationId,
+      row.itemId,
+      row.referenceType,
+      row.referenceId,
+    ]);
+    const current = computed.get(key) ?? {
+      locationId: row.locationId,
+      itemId: row.itemId,
+      referenceType: row.referenceType,
+      referenceId: row.referenceId,
+      quantity: 0,
+    };
+    const quantity = parseFloat(row.quantity);
+
+    if (DEMAND_INCREASE_TYPES.has(row.eventType)) {
       current.quantity = roundQuantity(current.quantity + quantity);
     } else {
       current.quantity = roundQuantity(current.quantity - quantity);
@@ -313,6 +383,7 @@ export async function diffProjections(
   const itemBalanceFilters = [eq(inventoryItemBalances.organizationId, organizationId)];
   const lotBalanceFilters = [eq(inventoryLotBalances.organizationId, organizationId)];
   const reservationFilters = [eq(inventoryReservationsSummary.organizationId, organizationId)];
+  const demandFilters = [eq(inventoryDemandSummary.organizationId, organizationId)];
   const expectedFilters = [eq(inventoryExpectedSummary.organizationId, organizationId)];
   const legacyLotFilters = [eq(lots.organizationId, organizationId)];
 
@@ -320,6 +391,7 @@ export async function diffProjections(
     itemBalanceFilters.push(inArray(inventoryItemBalances.itemId, itemIds));
     lotBalanceFilters.push(inArray(inventoryLotBalances.itemId, itemIds));
     reservationFilters.push(inArray(inventoryReservationsSummary.itemId, itemIds));
+    demandFilters.push(inArray(inventoryDemandSummary.itemId, itemIds));
     expectedFilters.push(inArray(inventoryExpectedSummary.itemId, itemIds));
     legacyLotFilters.push(inArray(lots.itemId, itemIds));
   }
@@ -335,6 +407,11 @@ export async function diffProjections(
     itemIds
   );
   const computedReservations = await computeReservationSummaryFromLedger(
+    tx,
+    organizationId,
+    itemIds
+  );
+  const computedDemand = await computeDemandSummaryFromLedger(
     tx,
     organizationId,
     itemIds
@@ -356,6 +433,10 @@ export async function diffProjections(
     .select()
     .from(inventoryReservationsSummary)
     .where(and(...reservationFilters));
+  const storedDemand = await tx
+    .select()
+    .from(inventoryDemandSummary)
+    .where(and(...demandFilters));
   const storedExpected = await tx
     .select()
     .from(inventoryExpectedSummary)
@@ -381,6 +462,12 @@ export async function diffProjections(
       row,
     ])
   );
+  const storedDemandByKey = new Map(
+    storedDemand.map((row) => [
+      balanceKey([row.locationId, row.itemId, row.referenceType, row.referenceId]),
+      row,
+    ])
+  );
   const storedExpectedByKey = new Map(
     storedExpected.map((row) => [
       balanceKey([row.locationId, row.itemId, row.referenceType, row.referenceId]),
@@ -393,6 +480,21 @@ export async function diffProjections(
   const computedLotsByLotId = new Map(
     [...computedLots.values()].map((row) => [row.lotId, row])
   );
+  const reservableOnHandByItemKey = new Map<BalanceKey, number>();
+
+  for (const [key, lot] of computedLots.entries()) {
+    const storedLot = storedLotsByKey.get(key);
+
+    if ((storedLot?.stockStatus ?? "available") !== "available" || lot.quantity <= 0) {
+      continue;
+    }
+
+    const itemKey = balanceKey([lot.locationId, lot.itemId]);
+    reservableOnHandByItemKey.set(
+      itemKey,
+      roundQuantity((reservableOnHandByItemKey.get(itemKey) ?? 0) + lot.quantity)
+    );
+  }
 
   const itemKeys = new Set([
     ...computedItems.keys(),
@@ -405,6 +507,10 @@ export async function diffProjections(
   const reservationKeys = new Set([
     ...computedReservations.keys(),
     ...storedReservationsByKey.keys(),
+  ]);
+  const demandKeys = new Set([
+    ...computedDemand.keys(),
+    ...storedDemandByKey.keys(),
   ]);
   const expectedKeys = new Set([
     ...computedExpected.keys(),
@@ -424,12 +530,15 @@ export async function diffProjections(
         itemId: row?.itemId ?? "",
         onHandQty: 0,
         committedQty: 0,
+        demandQty: 0,
         expectedQty: 0,
       };
 
       const actual = {
         onHandQty: normalizeNumeric(parseFloat(row?.onHandQty ?? "0")),
         committedQty: normalizeNumeric(parseFloat(row?.committedQty ?? "0")),
+        demandQty: normalizeNumeric(parseFloat(row?.demandQty ?? "0")),
+        shortageQty: normalizeNumeric(parseFloat(row?.shortageQty ?? "0")),
         expectedQty: normalizeNumeric(parseFloat(row?.expectedQty ?? "0")),
         availableToPromise: normalizeNumeric(parseFloat(row?.availableToPromise ?? "0")),
       };
@@ -437,10 +546,16 @@ export async function diffProjections(
       const expected = {
         onHandQty: normalizeNumeric(computed.onHandQty),
         committedQty: normalizeNumeric(computed.committedQty),
+        demandQty: normalizeNumeric(computed.demandQty),
+        shortageQty: normalizeNumeric(
+          Math.max(0, roundQuantity(computed.demandQty - computed.committedQty))
+        ),
         expectedQty: normalizeNumeric(computed.expectedQty),
         availableToPromise: normalizeNumeric(
           roundQuantity(
-            computed.onHandQty - computed.committedQty + computed.expectedQty
+            (reservableOnHandByItemKey.get(key) ?? 0)
+              - computed.demandQty
+              + computed.expectedQty
           )
         ),
       };
@@ -448,6 +563,8 @@ export async function diffProjections(
       if (
         actual.onHandQty === expected.onHandQty &&
         actual.committedQty === expected.committedQty &&
+        actual.demandQty === expected.demandQty &&
+        actual.shortageQty === expected.shortageQty &&
         actual.expectedQty === expected.expectedQty &&
         actual.availableToPromise === expected.availableToPromise
       ) {
@@ -496,6 +613,33 @@ export async function diffProjections(
       .map((key) => {
         const row = storedReservationsByKey.get(key);
         const computed = computedReservations.get(key) ?? {
+          locationId: row?.locationId ?? "",
+          itemId: row?.itemId ?? "",
+          referenceType: row?.referenceType ?? "",
+          referenceId: row?.referenceId ?? "",
+          quantity: 0,
+        };
+        const actual = normalizeNumeric(parseFloat(row?.quantity ?? "0"));
+        const expected = normalizeNumeric(computed.quantity);
+
+        if (actual === expected) {
+          return null;
+        }
+
+        return {
+          locationId: row?.locationId ?? computed.locationId,
+          itemId: row?.itemId ?? computed.itemId,
+          referenceType: row?.referenceType ?? computed.referenceType,
+          referenceId: row?.referenceId ?? computed.referenceId,
+          actual,
+          expected,
+        };
+      })
+      .filter(Boolean),
+    demandDeltas: Array.from(demandKeys)
+      .map((key) => {
+        const row = storedDemandByKey.get(key);
+        const computed = computedDemand.get(key) ?? {
           locationId: row?.locationId ?? "",
           itemId: row?.itemId ?? "",
           referenceType: row?.referenceType ?? "",

@@ -9,6 +9,7 @@ export type InventoryProjectionDiffSummary = {
   itemDeltas: number;
   lotDeltas: number;
   reservationDeltas: number;
+  demandDeltas: number;
   expectedDeltas: number;
   legacyLotDeltas: number;
 };
@@ -27,6 +28,7 @@ export function summarizeProjectionDiff(
     itemDeltas: diff.itemDeltas.length,
     lotDeltas: diff.lotDeltas.length,
     reservationDeltas: diff.reservationDeltas.length,
+    demandDeltas: diff.demandDeltas.length,
     expectedDeltas: diff.expectedDeltas.length,
     legacyLotDeltas: diff.legacyLotDeltas.length,
   };

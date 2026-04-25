@@ -1,14 +1,18 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  inventoryDemandSummary,
   inventoryExpectedSummary,
   inventoryReservationsSummary,
   manufacturingOrderIngredients,
   manufacturingPickAllocations,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
+import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { normalizeNumericScale } from "@/lib/format";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
+  applyDemandReferenceDeltasInTx,
   applyExpectedReferenceDeltasInTx,
   applyReservationReferenceDeltasInTx,
   beginInventoryOperationInTx,
@@ -17,6 +21,7 @@ import {
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
+  getCurrentAvailableQtyAtLocationInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
 
@@ -171,18 +176,26 @@ export async function reserveIngredientsForManufacturingInTx(
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const events = await applyReservationReferenceDeltasInTx(tx, {
+  const deltas = params.ingredients.map((ingredient) => ({
+    itemId: ingredient.itemId,
+    referenceType: "manufacturing_order_ingredient",
+    referenceId: ingredient.ingredientId,
+    quantity: ingredient.quantity,
+  }));
+  const demandEvents = await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
     eventSubtype: "manufacturing_release",
-    deltas: params.ingredients.map((ingredient) => ({
-      itemId: ingredient.itemId,
-      referenceType: "manufacturing_order_ingredient",
-      referenceId: ingredient.ingredientId,
-      quantity: ingredient.quantity,
-    })),
+    deltas,
+  });
+  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: "manufacturing_release",
+    deltas,
   });
 
   const result = {
@@ -192,7 +205,7 @@ export async function reserveIngredientsForManufacturingInTx(
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
     idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: events[0]?.id ?? null,
+    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
     result,
   });
 
@@ -226,7 +239,7 @@ export async function releaseIngredientReservationForManufacturingInTx(
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const existingRows = await tx
+  const existingReservationRows = await tx
     .select({
       itemId: inventoryReservationsSummary.itemId,
       referenceId: inventoryReservationsSummary.referenceId,
@@ -241,14 +254,29 @@ export async function releaseIngredientReservationForManufacturingInTx(
         inArray(inventoryReservationsSummary.referenceId, params.ingredientIds)
       )
     );
+  const existingDemandRows = await tx
+    .select({
+      itemId: inventoryDemandSummary.itemId,
+      referenceId: inventoryDemandSummary.referenceId,
+      quantity: inventoryDemandSummary.quantity,
+    })
+    .from(inventoryDemandSummary)
+    .where(
+      and(
+        eq(inventoryDemandSummary.organizationId, params.organizationId),
+        eq(inventoryDemandSummary.locationId, location.id),
+        eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+        inArray(inventoryDemandSummary.referenceId, params.ingredientIds)
+      )
+    );
 
-  const events = await applyReservationReferenceDeltasInTx(tx, {
+  const demandEvents = await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
     eventSubtype: params.reason,
-    deltas: existingRows.map((row) => ({
+    deltas: existingDemandRows.map((row) => ({
       itemId: row.itemId,
       referenceType: "manufacturing_order_ingredient",
       referenceId: row.referenceId,
@@ -256,12 +284,32 @@ export async function releaseIngredientReservationForManufacturingInTx(
     })),
   });
 
-  const result = { referenceIds: existingRows.map((row) => row.referenceId) };
+  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: params.reason,
+    deltas: existingReservationRows.map((row) => ({
+      itemId: row.itemId,
+      referenceType: "manufacturing_order_ingredient",
+      referenceId: row.referenceId,
+      quantity: -parseFloat(row.quantity),
+    })),
+  });
+
+  const result = {
+    referenceIds: [
+      ...new Set([
+        ...existingDemandRows.map((row) => row.referenceId),
+        ...existingReservationRows.map((row) => row.referenceId),
+      ]),
+    ],
+  };
 
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
     idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: events[0]?.id ?? null,
+    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
     result,
   });
 
@@ -297,6 +345,33 @@ export async function pickManufacturingIngredientInTx(
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  await lockItemsInTx(tx, [params.itemId]);
+  const [ownReservationRow] = await tx
+    .select({ quantity: inventoryReservationsSummary.quantity })
+    .from(inventoryReservationsSummary)
+    .where(
+      and(
+        eq(inventoryReservationsSummary.organizationId, params.organizationId),
+        eq(inventoryReservationsSummary.locationId, location.id),
+        eq(inventoryReservationsSummary.referenceType, "manufacturing_order_ingredient"),
+        eq(inventoryReservationsSummary.referenceId, params.ingredientId)
+      )
+    );
+  const available = await getCurrentAvailableQtyAtLocationInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    itemId: params.itemId,
+  });
+  const ownReservation = parseFloat(ownReservationRow?.quantity ?? "0");
+
+  if (available + ownReservation < params.quantity) {
+    throw new InsufficientStockError({
+      itemId: params.itemId,
+      available: available + ownReservation,
+      requested: params.quantity,
+    });
+  }
+
   const consumed = await consumeStockFifoInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
@@ -321,7 +396,7 @@ export async function pickManufacturingIngredientInTx(
     }))
   );
 
-  await applyReservationReferenceDeltasInTx(tx, {
+  await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
     actorUserId: params.actorUserId ?? null,
@@ -334,6 +409,35 @@ export async function pickManufacturingIngredientInTx(
         quantity: -params.quantity,
       },
     ],
+  });
+
+  const existingReservationRows = await tx
+    .select({
+      itemId: inventoryReservationsSummary.itemId,
+      referenceId: inventoryReservationsSummary.referenceId,
+      quantity: inventoryReservationsSummary.quantity,
+    })
+    .from(inventoryReservationsSummary)
+    .where(
+      and(
+        eq(inventoryReservationsSummary.organizationId, params.organizationId),
+        eq(inventoryReservationsSummary.locationId, location.id),
+        eq(inventoryReservationsSummary.referenceType, "manufacturing_order_ingredient"),
+        eq(inventoryReservationsSummary.referenceId, params.ingredientId)
+      )
+    );
+
+  await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: "picked",
+    deltas: existingReservationRows.map((row) => ({
+      itemId: row.itemId,
+      referenceType: "manufacturing_order_ingredient",
+      referenceId: row.referenceId,
+      quantity: -parseFloat(row.quantity),
+    })),
   });
 
   const result = { eventIds: consumed.eventIds };
@@ -417,6 +521,23 @@ export async function unpickManufacturingIngredientInTx(
   );
 
   await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: "unpicked",
+    deltas: totalQuantity
+      ? [
+          {
+            itemId: params.itemId,
+            referenceType: "manufacturing_order_ingredient",
+            referenceId: params.ingredientId,
+            quantity: totalQuantity,
+          },
+        ]
+      : [],
+  });
+
+  await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
     actorUserId: params.actorUserId ?? null,

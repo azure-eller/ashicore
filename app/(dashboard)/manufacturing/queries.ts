@@ -34,8 +34,10 @@ import {
   cancelReleasedManufacturingOrderInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
-  getCurrentOnHandQtyInTx,
+  getCurrentAvailableQtyAtLocationInTx,
+  getDefaultInventoryLocationInTx,
   getManufacturingIngredientReservationRowsInTx,
+  lockItemsInTx,
   pickManufacturingIngredientInTx,
   produceManufacturedStockInTx,
   projectedLotUnitCost,
@@ -708,8 +710,10 @@ async function validateActiveIngredientItemsInTx(
 
 async function getReleaseShortagesInTx(
   tx: Tx,
+  organizationId: string,
   orderId: string
 ): Promise<ManufacturingReleaseWarningPayload["ingredients"]> {
+  const location = await getDefaultInventoryLocationInTx(tx, organizationId);
   const ingredients = await tx
     .select({
       itemId: manufacturingOrderIngredients.itemId,
@@ -728,7 +732,11 @@ async function getReleaseShortagesInTx(
   for (const ingredient of ingredients) {
     const needed = normalizeQuantityNumber(parseFloat(ingredient.plannedQuantity));
     const available = normalizeQuantityNumber(
-      await getCurrentOnHandQtyInTx(tx, ingredient.itemId)
+      await getCurrentAvailableQtyAtLocationInTx(tx, {
+        organizationId,
+        locationId: location.id,
+        itemId: ingredient.itemId,
+      })
     );
 
     if (available < needed) {
@@ -1828,8 +1836,12 @@ export async function releaseManufacturingOrder(
       tx,
       ingredientRows.map((row) => row.itemId)
     );
+    await lockItemsInTx(
+      tx,
+      ingredientRows.map((row) => row.itemId)
+    );
 
-    const shortages = await getReleaseShortagesInTx(tx, id);
+    const shortages = await getReleaseShortagesInTx(tx, orgId, id);
 
     if (shortages.length > 0 && !confirmShortage) {
       throw new ManufacturingError(
