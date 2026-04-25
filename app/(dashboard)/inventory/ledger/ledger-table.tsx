@@ -45,7 +45,6 @@ import {
 } from "@/lib/format";
 import {
   formatInventoryLedgerBalanceDimension,
-  formatInventoryLedgerEventClass,
   formatInventoryLedgerEventLabel,
   formatInventoryLedgerMovementCategory,
   formatInventoryLedgerSourceType,
@@ -552,29 +551,12 @@ export function LedgerTable({
                         </TableCell>
                         <TableCell>{formatDateTime(row.occurredAt)}</TableCell>
                         <TableCell>
-                          <div className="space-y-1">
-                            <Link href={row.item.href} className="font-medium hover:underline">
-                              {row.item.displayName}
-                            </Link>
-                            {row.item.sku ? (
-                              <div className="text-xs text-muted-foreground">{row.item.sku}</div>
-                            ) : null}
-                          </div>
+                          <Link href={row.item.href} className="font-medium hover:underline">
+                            {row.item.displayName}
+                          </Link>
                         </TableCell>
                         <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">{row.eventLabel}</div>
-                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              <Badge variant="outline">
-                                {formatInventoryLedgerEventClass(row.eventClass)}
-                              </Badge>
-                              <span>
-                                {formatInventoryLedgerBalanceDimension(
-                                  row.balanceDimension
-                                )}
-                              </span>
-                            </div>
-                          </div>
+                          <div className="font-medium">{row.eventLabel}</div>
                         </TableCell>
                         <TableCell>
                           {row.sourceDocument ? (
@@ -608,14 +590,7 @@ export function LedgerTable({
                         </TableCell>
                         <TableCell>
                           {row.actor ? (
-                            <div className="space-y-1">
-                              <div>{row.actor.name}</div>
-                              {row.actor.email ? (
-                                <div className="text-xs text-muted-foreground">
-                                  {row.actor.email}
-                                </div>
-                              ) : null}
-                            </div>
+                            row.actor.name
                           ) : (
                             "—"
                           )}
@@ -703,6 +678,16 @@ export function LedgerTable({
                                           : "—"}
                                       </dd>
                                     </div>
+                                    {row.item.sku ? (
+                                      <div>
+                                        <dt className="text-xs font-medium text-muted-foreground">
+                                          Item SKU
+                                        </dt>
+                                        <dd className="font-mono text-xs">
+                                          {row.item.sku}
+                                        </dd>
+                                      </div>
+                                    ) : null}
                                     <div>
                                       <dt className="text-xs font-medium text-muted-foreground">
                                         Reference
@@ -763,6 +748,26 @@ export function LedgerTable({
                                   Advanced
                                 </summary>
                                 <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                  <div className="space-y-1">
+                                    <div className="text-xs font-medium text-muted-foreground">
+                                      Movement category
+                                    </div>
+                                    <div className="text-sm">
+                                      {formatInventoryLedgerMovementCategory(
+                                        row.eventClass
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-xs font-medium text-muted-foreground">
+                                      Balance dimension
+                                    </div>
+                                    <div className="text-sm">
+                                      {formatInventoryLedgerBalanceDimension(
+                                        row.balanceDimension
+                                      )}
+                                    </div>
+                                  </div>
                                   <div className="space-y-1">
                                     <div className="text-xs font-medium text-muted-foreground">
                                       Event type

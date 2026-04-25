@@ -556,6 +556,9 @@ test.describe("Inventory ledger explorer", () => {
     await expect(page.getByLabel("Filter by movement category")).toBeVisible();
     await expect(page.getByLabel("Filter by item type")).toBeVisible();
     await expect(page.getByLabel("Filter by lot")).toBeHidden();
+    await expect(page.locator("tbody").getByText("On-hand")).toHaveCount(0);
+    await expect(page.locator("tbody").getByText("test-agent@erp-test.local")).toHaveCount(0);
+    await expect(page.locator("tbody").getByText(`LEDGER-PO-MAT-${ts}`)).toHaveCount(0);
 
     await page.getByRole("button", { name: "More filters" }).click();
     await expect(page.getByLabel("Filter by lot")).toBeVisible();
@@ -617,13 +620,23 @@ test.describe("Inventory ledger explorer", () => {
     await expect(page.getByText("Unit cost", { exact: true })).toBeVisible();
     await expect(page.getByText("Value change", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
+    await expect(page.getByText("Item SKU")).toBeVisible();
+    await expect(page.getByText(`LEDGER-PO-MAT-${ts}`)).toBeVisible();
     await expect(page.getByText("Reference", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Audit" })).toBeVisible();
+    await expect(page.getByText("test-agent@erp-test.local")).toBeVisible();
     await expect(page.getByText("Timestamp", { exact: true })).toBeVisible();
 
     await expect(page.getByText("Advanced")).toBeVisible();
     await expect(page.getByText("manual_adjustment_increase")).toBeHidden();
     await page.getByText("Advanced").click();
+    const advancedDetails = page.locator("details").filter({ hasText: "Advanced" });
+    await expect(
+      advancedDetails.getByText("Movement category", { exact: true })
+    ).toBeVisible();
+    await expect(advancedDetails.getByText("Stock movements")).toBeVisible();
+    await expect(advancedDetails.getByText("Balance dimension")).toBeVisible();
+    await expect(advancedDetails.getByText("On-hand")).toBeVisible();
     await expect(
       page.getByText("manual_adjustment_increase", { exact: true })
     ).toBeVisible();
