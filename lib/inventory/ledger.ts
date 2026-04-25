@@ -7,6 +7,7 @@ export type InventoryLedgerScope = (typeof INVENTORY_LEDGER_SCOPE_VALUES)[number
 export const INVENTORY_LEDGER_EVENT_CLASSES = [
   "stock",
   "reservation",
+  "demand",
   "expected",
   "verification",
   "cost",
@@ -28,6 +29,7 @@ export type InventoryLedgerSourceType =
 export const INVENTORY_LEDGER_BALANCE_DIMENSIONS = [
   "on_hand",
   "committed",
+  "demand",
   "expected",
   "none",
 ] as const;
@@ -62,6 +64,11 @@ const RESERVATION_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "reservation_release",
 ]);
 
+const DEMAND_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
+  "demand_increase",
+  "demand_release",
+]);
+
 const EXPECTED_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "expected_increase",
   "expected_release",
@@ -87,6 +94,8 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   unpick_restock: "Unpick restock",
   reservation_increase: "Reservation increase",
   reservation_release: "Reservation release",
+  demand_increase: "Customer demand increase",
+  demand_release: "Customer demand release",
   expected_increase: "Expected supply increase",
   expected_release: "Expected supply release",
   cost_basis_change: "Cost basis change",
@@ -108,6 +117,8 @@ const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
   unpick_restock: "returned picked material for",
   reservation_increase: "reserved",
   reservation_release: "released reservation for",
+  demand_increase: "added customer demand for",
+  demand_release: "released customer demand for",
   expected_increase: "expected",
   expected_release: "released expected supply for",
   cost_basis_change: "updated cost basis for",
@@ -117,6 +128,7 @@ const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
 const EVENT_CLASS_LABELS: Record<InventoryLedgerEventClass, string> = {
   stock: "Stock",
   reservation: "Reservation",
+  demand: "Demand",
   expected: "Expected",
   verification: "Verification",
   cost: "Cost",
@@ -125,6 +137,7 @@ const EVENT_CLASS_LABELS: Record<InventoryLedgerEventClass, string> = {
 const MOVEMENT_CATEGORY_LABELS: Record<InventoryLedgerEventClass, string> = {
   stock: "Stock movements",
   reservation: "Reservations",
+  demand: "Demand",
   expected: "Expected supply",
   verification: "Verification",
   cost: "Cost changes",
@@ -133,6 +146,7 @@ const MOVEMENT_CATEGORY_LABELS: Record<InventoryLedgerEventClass, string> = {
 const BALANCE_DIMENSION_LABELS: Record<InventoryLedgerBalanceDimension, string> = {
   on_hand: "On-hand",
   committed: "Committed",
+  demand: "Demand",
   expected: "Expected",
   none: "No quantity change",
 };
@@ -155,6 +169,10 @@ export function getInventoryLedgerEventClass(
 
   if (RESERVATION_EVENT_TYPES.has(eventType)) {
     return "reservation";
+  }
+
+  if (DEMAND_EVENT_TYPES.has(eventType)) {
+    return "demand";
   }
 
   if (EXPECTED_EVENT_TYPES.has(eventType)) {
@@ -183,6 +201,10 @@ export function getInventoryLedgerBalanceDimension(
     return "committed";
   }
 
+  if (DEMAND_EVENT_TYPES.has(eventType)) {
+    return "demand";
+  }
+
   if (EXPECTED_EVENT_TYPES.has(eventType)) {
     return "expected";
   }
@@ -203,6 +225,7 @@ export function getSignedInventoryLedgerQuantity(
   if (
     STOCK_DECREASE_TYPES.has(eventType) ||
     eventType === "reservation_release" ||
+    eventType === "demand_release" ||
     eventType === "expected_release"
   ) {
     return normalizeNumeric(-Math.abs(parsed));

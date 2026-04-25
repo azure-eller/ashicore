@@ -281,7 +281,7 @@ test.describe("Inventory ledger explorer", () => {
           .where(eq(inventoryEvents.itemId, salesProductCreate.body.id as string));
         return rows.map((row) => row.eventType).sort().join(",");
       })
-      .toContain("reservation_increase");
+      .toContain("demand_increase");
 
     const [salesOrder] = await db
       .select({ orderNumber: salesOrders.orderNumber })
@@ -1134,7 +1134,7 @@ test.describe("Inventory ledger explorer", () => {
     ]);
 
     const salesTableBody = page.locator("tbody");
-    await expect(salesTableBody.getByText("Reservation increase")).toBeVisible();
+    await expect(salesTableBody.getByText("Customer demand increase")).toBeVisible();
     await expect(salesTableBody.getByText("Manual stock increase")).toHaveCount(0);
     await expect(salesTableBody.getByText(salesOrderNumber)).toBeVisible();
   });
