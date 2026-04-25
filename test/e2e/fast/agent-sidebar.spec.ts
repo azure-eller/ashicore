@@ -1,7 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
 import { type Page } from "@playwright/test";
 import { test, expect } from "../fixtures";
-import { agentSessions } from "../../../lib/db/schema";
+import { agentSessions } from "../../../lib/db/schema/agent";
+import { ERP_AGENT_ENABLED } from "../../../lib/feature-flags";
 
 // The sidebar chat panel collapses its header and transcript when the composer
 // is unfocused (pointer-events-none, opacity 0). Only the composer textarea
@@ -12,6 +13,8 @@ async function expandPanel(page: Page) {
 }
 
 test.describe("Agent sidebar smoke", () => {
+  test.skip(!ERP_AGENT_ENABLED, "ERP agent is disabled; see docs/erp-agent.md to re-enable.");
+
   test("creates a persistent thread from the sidebar and restores it across page changes and refreshes", async ({
     page,
     db,

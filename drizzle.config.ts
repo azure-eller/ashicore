@@ -13,7 +13,7 @@ if (!databaseUrl) {
 
 export default defineConfig({
   out: "./drizzle",
-  schema: "./lib/db/schema/index.ts",
+  schema: "./lib/db/schema/migrations.ts",
   dialect: "postgresql",
   schemaFilter: ["inventory", "sales", "purchasing", "manufacturing", "system", "xero", "agent"],
   dbCredentials: {
