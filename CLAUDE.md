@@ -52,6 +52,7 @@ When you discover a new pattern or gotcha:
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
+| ERP agent reactivation / overhead | `docs/erp-agent.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
@@ -84,6 +85,10 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 ## Coding Patterns
 
 These are gotchas that have caused real bugs. Follow them exactly.
+
+### ERP agent parked
+
+The ERP agent is intentionally disabled. Read `docs/erp-agent.md` before reconnecting it. While disabled, keep `lib/db/schema/agent.ts` out of the runtime schema barrel; only the migration schema should export it.
 
 ### UI text minimalism
 

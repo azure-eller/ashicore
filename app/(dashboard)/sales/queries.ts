@@ -44,7 +44,7 @@ import {
   projectedOnHandQtyExpr,
   reserveForSalesInTx,
 } from "@/lib/inventory/kernel";
-import { invalidateOrgPromptSectionCache } from "@/lib/agent/core/promptSections";
+import { isErpAgentEnabled } from "@/lib/feature-flags";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -93,6 +93,17 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
+
+async function invalidateAgentOrgPromptCache(orgId: string) {
+  if (!isErpAgentEnabled()) {
+    return;
+  }
+
+  const { invalidateOrgPromptSectionCache } = await import(
+    "@/lib/agent/core/promptSections"
+  );
+  invalidateOrgPromptSectionCache(orgId);
+}
 
 type PreparedOrderLineBase = {
   itemId: string;
@@ -1191,7 +1202,7 @@ export async function createCustomerCategory(data: InsertCustomerCategory) {
     return { category, orgId };
   });
 
-  invalidateOrgPromptSectionCache(result.orgId);
+  await invalidateAgentOrgPromptCache(result.orgId);
   return result.category;
 }
 
@@ -1219,7 +1230,7 @@ export async function updateCustomerCategory(id: string, data: UpdateCustomerCat
     return { category: category ?? null, orgId };
   });
 
-  invalidateOrgPromptSectionCache(result.orgId);
+  await invalidateAgentOrgPromptCache(result.orgId);
   return result.category;
 }
 
@@ -1297,7 +1308,7 @@ export async function deleteCustomerCategory(id: string) {
   });
 
   if (result.deleted) {
-    invalidateOrgPromptSectionCache(result.orgId);
+    await invalidateAgentOrgPromptCache(result.orgId);
   }
 
   return { deleted: result.deleted };
@@ -1311,7 +1322,7 @@ export async function deleteCustomerCategories(ids: string[]) {
   });
 
   if (result.deletedCount > 0) {
-    invalidateOrgPromptSectionCache(result.orgId);
+    await invalidateAgentOrgPromptCache(result.orgId);
   }
 
   return { deletedCount: result.deletedCount };

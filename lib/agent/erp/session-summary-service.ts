@@ -1,5 +1,10 @@
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
-import { agentPendingRequests, agentSessions, agentTurns, agentUploads } from "@/lib/db/schema";
+import {
+  agentPendingRequests,
+  agentSessions,
+  agentTurns,
+  agentUploads,
+} from "@/lib/db/schema/agent";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { AgentMessage } from "@/lib/agent/core/messages";
 import type { AgentActor } from "@/lib/agent/core/Tool";

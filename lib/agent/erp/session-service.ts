@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
-import { agentPendingRequests, agentSessions, agentToolCalls, agentTurns, agentUploads } from "@/lib/db/schema";
+import {
+  agentPendingRequests,
+  agentSessions,
+  agentToolCalls,
+  agentTurns,
+  agentUploads,
+} from "@/lib/db/schema/agent";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { createUserTurnMessage } from "@/lib/agent/core/processUserInput";
 import { QueryEngine } from "@/lib/agent/core/QueryEngine";

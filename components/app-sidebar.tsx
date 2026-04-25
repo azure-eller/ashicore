@@ -1,5 +1,6 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import * as React from "react"
 
 import {
@@ -7,7 +8,6 @@ import {
 } from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { AgentChatPanel } from "@/components/agent/agent-chat-panel"
 import {
   Sidebar,
   SidebarContent,
@@ -24,6 +24,14 @@ import {
   Store04Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
+
+const AgentChatPanel = dynamic(
+  () =>
+    import("@/components/agent/agent-chat-panel").then(
+      (module) => module.AgentChatPanel
+    ),
+  { ssr: false }
+)
 
 type NavMainItem = {
   title: string

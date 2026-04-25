@@ -1,4 +1,5 @@
 import { expect, test } from "../fixtures";
+import { ERP_AGENT_ENABLED } from "../../../lib/feature-flags";
 
 const LIVE_AGENT_MODEL = process.env.LIVE_AGENT_MODEL?.trim() || "claude-haiku-4-5";
 const LIVE_AGENT_PROMPT =
@@ -38,6 +39,10 @@ test.describe("Agent live smoke", () => {
   test("completes one live Anthropic turn on Haiku without stream errors", async ({
     page,
   }) => {
+    test.skip(
+      !ERP_AGENT_ENABLED,
+      "ERP agent is disabled; see docs/erp-agent.md to re-enable."
+    );
     test.skip(
       !process.env.LIVE_AGENT_SMOKE,
       "Set LIVE_AGENT_SMOKE=1 to run the live Anthropic smoke test."
