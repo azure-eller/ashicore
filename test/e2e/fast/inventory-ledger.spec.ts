@@ -911,21 +911,39 @@ test.describe("Inventory ledger explorer", () => {
       .filter({ hasText: purchaseMaterialName })
       .first();
     await manualRow.getByRole("button", { name: "Expand row" }).click();
+    const expandedRow = manualRow.locator("xpath=following-sibling::tr[1]");
 
     await expect(
-      page.getByText(new RegExp(`manually increased ${purchaseMaterialName} by`))
+      expandedRow.getByText(new RegExp(`manually increased ${purchaseMaterialName} by`))
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Movement" })).toBeVisible();
-    await expect(page.getByText("Quantity change", { exact: true })).toBeVisible();
-    await expect(page.getByText("Unit cost", { exact: true })).toBeVisible();
-    await expect(page.getByText("Value change", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
-    await expect(page.getByText("Item SKU")).toBeVisible();
-    await expect(page.getByText(`LEDGER-PO-MAT-${ts}`)).toBeVisible();
-    await expect(page.getByText("Reference", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Audit" })).toBeVisible();
-    await expect(page.getByText("test-agent@erp-test.local")).toBeVisible();
-    await expect(page.getByText("Timestamp", { exact: true })).toBeVisible();
+    await expect(
+      expandedRow.getByText(
+        new RegExp(
+          `manually increased ${purchaseMaterialName} by ${parseFloat(
+            manualEventQuantity
+          )} units`
+        )
+      )
+    ).toHaveCount(0);
+    await expect(
+      expandedRow.getByRole("heading", { name: "Inventory impact" })
+    ).toBeVisible();
+    await expect(expandedRow.getByText("Before", { exact: true })).toBeVisible();
+    await expect(expandedRow.getByText("Change", { exact: true })).toBeVisible();
+    await expect(expandedRow.getByText("After", { exact: true })).toBeVisible();
+    await expect(expandedRow.getByRole("heading", { name: "Cost impact" })).toBeVisible();
+    await expect(expandedRow.getByText("Unit cost", { exact: true })).toBeVisible();
+    await expect(expandedRow.getByText("Value", { exact: true })).toBeVisible();
+    await expect(
+      expandedRow.getByRole("heading", { name: "Document context" })
+    ).toBeVisible();
+    await expect(expandedRow.getByText("SKU")).toBeVisible();
+    await expect(expandedRow.getByText(`LEDGER-PO-MAT-${ts}`)).toBeVisible();
+    await expect(expandedRow.getByText("Reference", { exact: true })).toHaveCount(0);
+    await expect(expandedRow.getByRole("heading", { name: "Audit" })).toHaveCount(0);
+    await expect(expandedRow.getByText("Recorded")).toBeVisible();
+    await expect(expandedRow.getByText("test-agent@erp-test.local")).toBeVisible();
+    await expect(expandedRow.getByText("Timestamp", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Advanced")).toHaveCount(0);
     await expect(
       page.getByText("manual_adjustment_increase", { exact: true })
@@ -968,6 +986,24 @@ test.describe("Inventory ledger explorer", () => {
       throw new Error("Expected a product lot for manufacturing label coverage.");
     }
 
+    const [manufacturingOrder] = await db
+      .insert(manufacturingOrders)
+      .values({
+        organizationId: getOrgId(),
+        orderNumber: `MO-LEDGER-${String(ts).slice(-10)}`,
+        productId: salesProductId,
+        productName: salesProductName,
+        productSku: `LEDGER-SALES-${ts}`,
+        unitName: "Each",
+        requestedQuantity: "1",
+        plannedQuantity: "1",
+        status: "released",
+      })
+      .returning({ id: manufacturingOrders.id, orderNumber: manufacturingOrders.orderNumber });
+    if (!manufacturingOrder) {
+      throw new Error("Expected a manufacturing order for ledger label coverage.");
+    }
+
     const labelEvents = await db
       .insert(inventoryEvents)
       .values([
@@ -981,6 +1017,9 @@ test.describe("Inventory ledger explorer", () => {
           quantity: "1",
           unitCost: "2.25",
           extendedCost: "2.25",
+          referenceType: "manufacturing_order",
+          referenceId: manufacturingOrder.id,
+          actorUserId: manualEventActorUserId,
         },
         {
           organizationId: getOrgId(),
@@ -992,6 +1031,9 @@ test.describe("Inventory ledger explorer", () => {
           quantity: "1",
           unitCost: "2.25",
           extendedCost: "2.25",
+          referenceType: "manufacturing_order",
+          referenceId: manufacturingOrder.id,
+          actorUserId: manualEventActorUserId,
         },
       ])
       .returning({ id: inventoryEvents.id });
@@ -1003,6 +1045,24 @@ test.describe("Inventory ledger explorer", () => {
         )}`
       );
       await expect(page.locator("tbody").getByText("Manufacturing material used")).toBeVisible();
+      const materialUseRow = page
+        .locator("tbody")
+        .locator("tr")
+        .filter({ hasText: "Manufacturing material used" })
+        .filter({ hasText: purchaseMaterialName })
+        .first();
+      await materialUseRow.getByRole("button", { name: "Expand row" }).click();
+      const materialUseDetail = materialUseRow.locator("xpath=following-sibling::tr[1]");
+      await expect(
+        materialUseDetail.getByText(
+          new RegExp(
+            `used 1 .* of ${purchaseMaterialName} to manufacture ${salesProductName}`
+          )
+        )
+      ).toBeVisible();
+      await expect(
+        materialUseDetail.getByRole("link", { name: manufacturingOrder.orderNumber })
+      ).toBeVisible();
 
       await page.goto(
         `/inventory/ledger?scope=all&eventType=manufacturing_output&q=${encodeURIComponent(

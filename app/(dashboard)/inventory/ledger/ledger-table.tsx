@@ -40,17 +40,16 @@ import {
   INVENTORY_EVENT_TYPES,
 } from "@/lib/db/schema";
 import {
-  formatDate,
   formatDateTime,
   formatPrice,
   formatQuantity,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
+  formatInventoryLedgerBalanceDimension,
   formatInventoryLedgerEventLabel,
   formatInventoryLedgerMovementCategory,
   formatInventoryLedgerSourceType,
-  formatInventoryLedgerSummaryAction,
   INVENTORY_LEDGER_EVENT_CLASSES,
   INVENTORY_LEDGER_SCOPE_VALUES,
   INVENTORY_LEDGER_SOURCE_TYPES,
@@ -86,42 +85,151 @@ function withDateFilterTimeZone(filters: InventoryLedgerFilters) {
   };
 }
 
+function getQuantityUnit(row: InventoryLedgerRow) {
+  return row.item.unitName ?? "units";
+}
+
+function formatQuantityWithUnit(
+  quantity: string,
+  row: InventoryLedgerRow,
+  options: { absolute?: boolean; signed?: boolean } = {}
+) {
+  const parsed = parseFloat(quantity);
+  const numeric = Number.isFinite(parsed)
+    ? options.absolute
+      ? Math.abs(parsed)
+      : parsed
+    : 0;
+  const sign = options.signed && numeric > 0 ? "+" : "";
+
+  return `${sign}${formatQuantity(String(numeric))} ${getQuantityUnit(row)}`;
+}
+
 function formatQuantityChange(row: InventoryLedgerRow) {
   if (row.balanceDimension === "none") {
     return "No quantity change";
   }
 
-  const signedQuantity = parseFloat(row.signedQuantity);
-  const sign = signedQuantity > 0 ? "+" : "";
-  return `${sign}${formatQuantity(row.signedQuantity)} units`;
+  return formatQuantityWithUnit(row.signedQuantity, row, { signed: true });
 }
 
 function formatQuantityMagnitude(row: InventoryLedgerRow) {
   const signedQuantity = parseFloat(row.signedQuantity);
-  const quantity =
+  const quantity = String(
     Number.isFinite(signedQuantity) && signedQuantity !== 0
       ? Math.abs(signedQuantity)
-      : Math.abs(parseFloat(row.quantity));
+      : Math.abs(parseFloat(row.quantity))
+  );
 
-  return `${formatQuantity(String(quantity))} units`;
+  return formatQuantityWithUnit(quantity, row);
 }
 
 function formatOnHandAfter(row: InventoryLedgerRow) {
   return row.onHandAfter == null ? "—" : formatQuantity(row.onHandAfter);
 }
 
-function formatLedgerRowSummary(row: InventoryLedgerRow) {
-  const actor = row.actor?.name ?? "System";
-  const action = formatInventoryLedgerSummaryAction(row.eventType);
-  const date = formatDate(row.occurredAt);
+function formatOnHandAfterWithUnit(row: InventoryLedgerRow) {
+  return row.onHandAfter == null
+    ? "—"
+    : `${formatQuantity(row.onHandAfter)} ${getQuantityUnit(row)}`;
+}
 
-  if (row.balanceDimension === "none") {
-    return `${actor} ${action} ${row.item.displayName} on ${date}.`;
+function getOnHandBefore(row: InventoryLedgerRow) {
+  if (row.balanceDimension !== "on_hand" || row.onHandAfter == null) {
+    return null;
   }
 
-  return `${actor} ${action} ${row.item.displayName} by ${formatQuantityMagnitude(
-    row
-  )} on ${date}.`;
+  const onHandAfter = parseFloat(row.onHandAfter);
+  const signedQuantity = parseFloat(row.signedQuantity);
+
+  if (!Number.isFinite(onHandAfter) || !Number.isFinite(signedQuantity)) {
+    return null;
+  }
+
+  return String(onHandAfter - signedQuantity);
+}
+
+function formatOnHandBefore(row: InventoryLedgerRow) {
+  const onHandBefore = getOnHandBefore(row);
+  return onHandBefore == null
+    ? "—"
+    : `${formatQuantity(onHandBefore)} ${getQuantityUnit(row)}`;
+}
+
+function formatValueChange(row: InventoryLedgerRow) {
+  if (!row.extendedCost) {
+    return null;
+  }
+
+  const signedQuantity = parseFloat(row.signedQuantity);
+  const extendedCost = parseFloat(row.extendedCost);
+
+  if (!Number.isFinite(extendedCost)) {
+    return formatPrice(row.extendedCost);
+  }
+
+  const signedValue =
+    row.balanceDimension === "on_hand" && signedQuantity < 0
+      ? -Math.abs(extendedCost)
+      : extendedCost;
+
+  return formatPrice(String(signedValue));
+}
+
+function formatLedgerRowSummary(row: InventoryLedgerRow) {
+  const actor = row.actor?.name ?? "System";
+  const item = row.item.displayName;
+  const quantity = formatQuantityMagnitude(row);
+  const source = row.sourceDocument?.label;
+  const sourceSuffix = source ? ` on ${source}` : "";
+  const supplier = row.sourceContext.supplierName;
+  const customer = row.sourceContext.customerName;
+  const manufacturingProduct = row.sourceContext.manufacturingProduct;
+
+  switch (row.eventType) {
+    case "opening_balance":
+      return `${actor} recorded an opening balance of ${quantity} for ${item}.`;
+    case "purchase_receipt":
+      return `${actor} received ${quantity} of ${item}${
+        supplier ? ` from ${supplier}` : ""
+      }${sourceSuffix}.`;
+    case "manufacturing_output":
+      return `${actor} manufactured ${quantity} of ${item}${sourceSuffix}.`;
+    case "manufacturing_ingredient_consumption":
+      return manufacturingProduct
+        ? `${actor} used ${quantity} of ${item} to manufacture ${manufacturingProduct.name}${sourceSuffix}.`
+        : `${actor} used ${quantity} of ${item} for manufacturing${sourceSuffix}.`;
+    case "manual_adjustment_increase":
+      return `${actor} manually increased ${item} by ${quantity}.`;
+    case "manual_adjustment_decrease":
+      return `${actor} manually decreased ${item} by ${quantity}.`;
+    case "stocktake_gain":
+      return `${source ?? "Stocktake"} increased ${item} by ${quantity}.`;
+    case "stocktake_loss":
+      return `${source ?? "Stocktake"} decreased ${item} by ${quantity}.`;
+    case "manufacturing_variance_gain":
+      return `${actor} recorded a manufacturing variance gain of ${quantity} for ${item}${sourceSuffix}.`;
+    case "manufacturing_variance_loss":
+      return `${actor} recorded a manufacturing variance loss of ${quantity} for ${item}${sourceSuffix}.`;
+    case "unpick_restock":
+      return `${actor} returned ${quantity} of ${item} from manufacturing picks${sourceSuffix}.`;
+    case "sales_consumption":
+      return `${actor} shipped ${quantity} of ${item}${
+        customer ? ` to ${customer}` : ""
+      }${sourceSuffix}.`;
+    case "reservation_increase":
+      return `${actor} reserved ${quantity} of ${item}${sourceSuffix}.`;
+    case "reservation_release":
+      return `${actor} released a reservation for ${quantity} of ${item}${sourceSuffix}.`;
+    case "expected_increase":
+      return `${actor} added ${quantity} of expected supply for ${item}${sourceSuffix}.`;
+    case "expected_release":
+      return `${actor} released ${quantity} of expected supply for ${item}${sourceSuffix}.`;
+    case "cost_basis_change":
+      return `${actor} updated the cost basis for ${item}.`;
+    case "stocktake_verification":
+      return `${source ?? "Stocktake"} verified ${item}.`;
+  }
 }
 
 export function LedgerTable({
@@ -528,6 +636,10 @@ export function LedgerTable({
                   const signedQuantity = parseFloat(row.signedQuantity);
                   const onHandAfter =
                     row.onHandAfter == null ? null : parseFloat(row.onHandAfter);
+                  const valueChange = formatValueChange(row);
+                  const valueChangeIsNegative = valueChange?.startsWith("-") ?? false;
+                  const manufacturingProduct =
+                    row.sourceContext.manufacturingProduct;
                   const quantityChange =
                     row.balanceDimension === "none"
                       ? "—"
@@ -615,26 +727,51 @@ export function LedgerTable({
                             colSpan={8}
                             className="whitespace-normal px-6 py-4"
                           >
-                            <div className="flex flex-col gap-4">
-                              <p className="text-sm font-medium">
+                            <div className="space-y-5">
+                              <p className="max-w-5xl text-sm font-medium leading-6">
                                 {formatLedgerRowSummary(row)}
                               </p>
 
-                              <div className="grid gap-5 md:grid-cols-3">
-                                <section className="flex flex-col gap-3">
-                                  <h3 className="text-sm font-semibold">Movement</h3>
-                                  <dl className="flex flex-col gap-2 text-sm">
-                                    <div>
+                              <div className="grid gap-6 lg:grid-cols-[1.05fr_0.85fr_1.1fr]">
+                                <section className="space-y-3">
+                                  <h3 className="text-sm font-semibold">
+                                    Inventory impact
+                                  </h3>
+                                  <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                                    <div className="contents">
                                       <dt className="text-xs font-medium text-muted-foreground">
-                                        Quantity change
+                                        Balance
+                                      </dt>
+                                      <dd>
+                                        {formatInventoryLedgerBalanceDimension(
+                                          row.balanceDimension
+                                        )}
+                                      </dd>
+                                    </div>
+                                    <div className="contents">
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Before
                                       </dt>
                                       <dd className="font-mono">
+                                        {formatOnHandBefore(row)}
+                                      </dd>
+                                    </div>
+                                    <div className="contents">
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Change
+                                      </dt>
+                                      <dd
+                                        className={cn(
+                                          "font-mono",
+                                          signedQuantity < 0 && "text-destructive"
+                                        )}
+                                      >
                                         {formatQuantityChange(row)}
                                       </dd>
                                     </div>
-                                    <div>
+                                    <div className="contents">
                                       <dt className="text-xs font-medium text-muted-foreground">
-                                        On hand after
+                                        After
                                       </dt>
                                       <dd
                                         className={cn(
@@ -646,40 +783,53 @@ export function LedgerTable({
                                             "text-destructive"
                                         )}
                                       >
-                                        {formatOnHandAfter(row)}
+                                        {formatOnHandAfterWithUnit(row)}
                                       </dd>
                                     </div>
-                                    <div>
+                                    <div className="contents">
                                       <dt className="text-xs font-medium text-muted-foreground">
                                         Lot
                                       </dt>
                                       <dd className="font-mono">{row.lot?.number ?? "—"}</dd>
                                     </div>
-                                    {row.unitCost ? (
-                                      <div>
-                                        <dt className="text-xs font-medium text-muted-foreground">
-                                          Unit cost
-                                        </dt>
-                                        <dd>{formatPrice(row.unitCost) ?? "—"}</dd>
-                                      </div>
-                                    ) : null}
-                                    {row.extendedCost ? (
-                                      <div>
-                                        <dt className="text-xs font-medium text-muted-foreground">
-                                          Value change
-                                        </dt>
-                                        <dd>{formatPrice(row.extendedCost) ?? "—"}</dd>
-                                      </div>
-                                    ) : null}
                                   </dl>
                                 </section>
 
-                                <section className="flex flex-col gap-3">
-                                  <h3 className="text-sm font-semibold">Source</h3>
-                                  <dl className="flex flex-col gap-2 text-sm">
-                                    <div>
+                                <section className="space-y-3">
+                                  <h3 className="text-sm font-semibold">
+                                    Cost impact
+                                  </h3>
+                                  <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                                    <div className="contents">
                                       <dt className="text-xs font-medium text-muted-foreground">
-                                        Source
+                                        Unit cost
+                                      </dt>
+                                      <dd>{formatPrice(row.unitCost) ?? "—"}</dd>
+                                    </div>
+                                    <div className="contents">
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Value
+                                      </dt>
+                                      <dd
+                                        className={cn(
+                                          valueChangeIsNegative &&
+                                            "text-destructive"
+                                        )}
+                                      >
+                                        {valueChange ?? "—"}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                </section>
+
+                                <section className="space-y-3">
+                                  <h3 className="text-sm font-semibold">
+                                    Document context
+                                  </h3>
+                                  <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                                    <div className="contents">
+                                      <dt className="text-xs font-medium text-muted-foreground">
+                                        Document
                                       </dt>
                                       <dd>
                                         {row.sourceDocument ? (
@@ -698,7 +848,7 @@ export function LedgerTable({
                                         )}
                                       </dd>
                                     </div>
-                                    <div>
+                                    <div className="contents">
                                       <dt className="text-xs font-medium text-muted-foreground">
                                         Type
                                       </dt>
@@ -710,57 +860,59 @@ export function LedgerTable({
                                           : "—"}
                                       </dd>
                                     </div>
-                                    {row.item.sku ? (
-                                      <div>
+                                    {manufacturingProduct ? (
+                                      <div className="contents">
                                         <dt className="text-xs font-medium text-muted-foreground">
-                                          Item SKU
+                                          Product
+                                        </dt>
+                                        <dd>
+                                          {manufacturingProduct.href ? (
+                                            <Link
+                                              href={manufacturingProduct.href}
+                                              className="font-medium hover:underline"
+                                            >
+                                              {manufacturingProduct.name}
+                                            </Link>
+                                          ) : (
+                                            manufacturingProduct.name
+                                          )}
+                                        </dd>
+                                      </div>
+                                    ) : null}
+                                    {row.sourceContext.supplierName ? (
+                                      <div className="contents">
+                                        <dt className="text-xs font-medium text-muted-foreground">
+                                          Supplier
+                                        </dt>
+                                        <dd>{row.sourceContext.supplierName}</dd>
+                                      </div>
+                                    ) : null}
+                                    {row.sourceContext.customerName ? (
+                                      <div className="contents">
+                                        <dt className="text-xs font-medium text-muted-foreground">
+                                          Customer
+                                        </dt>
+                                        <dd>{row.sourceContext.customerName}</dd>
+                                      </div>
+                                    ) : null}
+                                    {row.item.sku ? (
+                                      <div className="contents">
+                                        <dt className="text-xs font-medium text-muted-foreground">
+                                          SKU
                                         </dt>
                                         <dd className="break-all font-mono text-xs">
                                           {row.item.sku}
                                         </dd>
                                       </div>
                                     ) : null}
-                                    <div>
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Reference
-                                      </dt>
-                                      <dd className="break-all font-mono text-xs">
-                                        {row.referenceType ?? "—"} / {row.referenceId ?? "—"}
-                                      </dd>
-                                    </div>
                                   </dl>
                                 </section>
+                              </div>
 
-                                <section className="flex flex-col gap-3">
-                                  <h3 className="text-sm font-semibold">Audit</h3>
-                                  <dl className="flex flex-col gap-2 text-sm">
-                                    <div>
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Actor
-                                      </dt>
-                                      <dd>
-                                        {row.actor ? (
-                                          <div className="flex flex-col gap-0.5">
-                                            <span>{row.actor.name}</span>
-                                            {row.actor.email ? (
-                                              <span className="text-xs text-muted-foreground">
-                                                {row.actor.email}
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                        ) : (
-                                          "—"
-                                        )}
-                                      </dd>
-                                    </div>
-                                    <div>
-                                      <dt className="text-xs font-medium text-muted-foreground">
-                                        Timestamp
-                                      </dt>
-                                      <dd>{formatDateTime(row.occurredAt)}</dd>
-                                    </div>
-                                  </dl>
-                                </section>
+                              <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+                                <span>Recorded {formatDateTime(row.occurredAt)}</span>
+                                <span>By {row.actor?.name ?? "System"}</span>
+                                {row.actor?.email ? <span>{row.actor.email}</span> : null}
                               </div>
                             </div>
                           </TableCell>
