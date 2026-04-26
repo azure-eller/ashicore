@@ -213,10 +213,32 @@ export function createEmptySalesImportReport(): SalesImportReport {
   };
 }
 
-import type { Paonia2026OrderSeed } from "../paonia/sales-2026";
+export type OrderSeedLine =
+  | {
+      kind: "mapped";
+      product: string;
+      quantity: string;
+      raw: string;
+      priceOverride?: string;
+    }
+  | {
+      kind: "unmapped";
+      raw: string;
+      reason: string;
+    };
+
+export type OrderSeed = {
+  sourceRows: number[];
+  customerName: string;
+  reference: string | null;
+  address: string | null;
+  contact: string | null;
+  specialInstructions: string | null;
+  lines: OrderSeedLine[];
+};
 
 export type SalesImportConfig = {
-  orderSeeds: Paonia2026OrderSeed[];
+  orderSeeds: OrderSeed[];
   productAliasToSeedKey: Record<string, string>;
   requestedDateBySourceRow: Record<number, string>;
   customerNotesDefault: string;
@@ -231,5 +253,6 @@ export type LoaderConfig = {
   seeds: ItemSeed[];
   initialStockByKey: Record<string, string>;
   openingLotPrefix: string;
+  internalOnlyProductCategories?: Set<string>;
   salesImport?: SalesImportConfig;
 };

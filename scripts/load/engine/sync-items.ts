@@ -128,7 +128,8 @@ export async function applyItemsSyncInTx(
   itemBySku: Map<string, ExistingItem>,
   itemByName: Map<string, ExistingItem>,
   itemIdByKey: Map<string, string>,
-  report: Report
+  report: Report,
+  internalOnlyProductCategories?: Set<string>
 ) {
   const orderedSeeds = orderSeedsForSync(seeds);
 
@@ -149,7 +150,7 @@ export async function applyItemsSyncInTx(
       allowNameMatch: !seed.isMaster,
     });
     if (!existing) {
-      const sellable = resolveSeedSellable(seed);
+      const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
       const [created] = await tx
         .insert(items)
         .values({
@@ -178,7 +179,7 @@ export async function applyItemsSyncInTx(
       itemIdByKey.set(seed.key, created.id);
       report.createdItems.push(seed.name);
     } else {
-      const sellable = resolveSeedSellable(seed);
+      const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
       const nextValues: Record<string, unknown> = {
         sku: seed.sku,
         name: seed.name,

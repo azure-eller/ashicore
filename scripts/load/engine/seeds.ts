@@ -4,12 +4,10 @@ import {
 } from "@/lib/inventory/cost";
 import type { ExistingItem, ItemSeed } from "./types";
 
-const INTERNAL_ONLY_PRODUCT_CATEGORIES = new Set([
-  "Packaging Assemblies",
-  "Nutrient Packs",
-]);
-
-export function resolveSeedSellable(seed: ItemSeed) {
+export function resolveSeedSellable(
+  seed: ItemSeed,
+  internalOnlyProductCategories?: Set<string>
+) {
   if (seed.isMaster) {
     return null;
   }
@@ -20,7 +18,7 @@ export function resolveSeedSellable(seed: ItemSeed) {
 
   if (
     seed.itemType === "product" &&
-    INTERNAL_ONLY_PRODUCT_CATEGORIES.has(seed.category)
+    internalOnlyProductCategories?.has(seed.category)
   ) {
     return false;
   }

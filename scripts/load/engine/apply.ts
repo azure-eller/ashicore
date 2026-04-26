@@ -56,7 +56,8 @@ export async function applyChanges(
       itemBySku,
       itemByName,
       itemIdByKey,
-      report
+      report,
+      config.internalOnlyProductCategories
     );
 
     await applyBomsSyncInTx(tx, config.seeds, orgId, itemIdByKey, report);

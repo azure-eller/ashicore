@@ -1,4 +1,4 @@
-import { eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   items,
   salesOrderLines,
@@ -43,10 +43,15 @@ function buildOrderLabel(order: SalesImportConfig["orderSeeds"][number]) {
     : `${order.customerName} (rows ${order.sourceRows.join(",")})`;
 }
 
-function buildOrderNotes(order: SalesImportConfig["orderSeeds"][number]) {
-  const parts: string[] = [];
-  const specialInstructions = order.specialInstructions?.trim();
+function buildOrderNotes(
+  prefix: string,
+  sourceRows: number[],
+  order: SalesImportConfig["orderSeeds"][number]
+) {
+  // Marker must be the first line so extractOrderMarker can find it on re-import.
+  const parts: string[] = [buildOrderMarker(prefix, sourceRows)];
 
+  const specialInstructions = order.specialInstructions?.trim();
   if (specialInstructions) {
     parts.push(specialInstructions);
   }
@@ -63,7 +68,7 @@ function buildOrderNotes(order: SalesImportConfig["orderSeeds"][number]) {
     parts.push(`Needs manual entry: ${unresolvedLines.join(" | ")}`);
   }
 
-  return parts.length > 0 ? parts.join("\n") : null;
+  return parts.join("\n");
 }
 
 function buildLineSignature(line: {
@@ -158,7 +163,9 @@ export async function evaluateSalesImportInTx(
     .from(salesOrders)
     .leftJoin(salesOrderLines, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .leftJoin(items, eq(items.id, salesOrderLines.itemId))
-    .where(isNull(salesOrders.deletedAt));
+    // Only draft orders are eligible to be overwritten by re-import.
+    // Confirmed/shipped/cancelled orders are historical and stay untouched.
+    .where(and(isNull(salesOrders.deletedAt), eq(salesOrders.status, "draft")));
 
   const existingOrdersById = new Map<
     string,
@@ -356,7 +363,7 @@ export async function evaluateSalesImportInTx(
       existingOrderNumber: existingOrder?.orderNumber ?? null,
       customerKey: normalizeCustomerKey(order.customerName),
       customerName: order.customerName,
-      notes: buildOrderNotes(order),
+      notes: buildOrderNotes(config.orderMarkerPrefix, order.sourceRows, order),
       totalAmount,
       lines: preparedLines,
       requestedDate,
@@ -400,6 +407,17 @@ export async function applySalesImportOrdersInTx(
 
     if (apply) {
       if (order.existingId) {
+        // Skip the rewrite entirely if there are no mapped lines to insert —
+        // otherwise the unconditional delete would silently strip the order's existing lines.
+        if (order.lines.length === 0) {
+          report.skippedOrders.push({
+            label: order.label,
+            sourceRows: order.sourceRows,
+            issues: ["No mapped lines to write; existing order left untouched."],
+          });
+          continue;
+        }
+
         await tx
           .update(salesOrders)
           .set({
@@ -416,14 +434,12 @@ export async function applySalesImportOrdersInTx(
           .delete(salesOrderLines)
           .where(eq(salesOrderLines.salesOrderId, order.existingId));
 
-        if (order.lines.length > 0) {
-          await tx.insert(salesOrderLines).values(
-            order.lines.map((line) => ({
-              salesOrderId: order.existingId!,
-              ...line,
-            }))
-          );
-        }
+        await tx.insert(salesOrderLines).values(
+          order.lines.map((line) => ({
+            salesOrderId: order.existingId!,
+            ...line,
+          }))
+        );
 
         report.existingOrders.push(
           `${order.existingOrderNumber ?? order.existingId} - ${order.label}`
