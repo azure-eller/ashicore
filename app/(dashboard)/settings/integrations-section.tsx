@@ -71,6 +71,18 @@ function XeroRow({
   const [autoEmailInvoices, setAutoEmailInvoices] = useState(
     connection?.autoEmailSalesInvoices ?? false
   );
+  const [poAccountCode, setPoAccountCode] = useState(
+    connection?.purchaseOrderDefaultAccountCode ?? ""
+  );
+  const [poTaxType, setPoTaxType] = useState(
+    connection?.purchaseOrderDefaultTaxType ?? ""
+  );
+  const [poStatus, setPoStatus] = useState<"DRAFT" | "SUBMITTED" | "AUTHORISED">(
+    (connection?.purchaseOrderStatusPreference as
+      | "DRAFT"
+      | "SUBMITTED"
+      | "AUTHORISED") ?? "DRAFT"
+  );
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -94,6 +106,9 @@ function XeroRow({
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
           autoEmailSalesInvoices: autoEmailInvoices,
+          purchaseOrderDefaultAccountCode: poAccountCode.trim() || null,
+          purchaseOrderDefaultTaxType: poTaxType.trim() || null,
+          purchaseOrderStatusPreference: poStatus,
         }),
       });
       if (!res.ok) {
@@ -186,63 +201,114 @@ function XeroRow({
           {formError ? <FieldError>{formError}</FieldError> : null}
 
           {canManageConnection ? (
-            <FieldGroup className="gap-4">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field>
-                  <FieldLabel htmlFor="xero-account-code">Account code</FieldLabel>
-                  <Input
-                    id="xero-account-code"
-                    value={accountCode}
-                    onChange={(event) => setAccountCode(event.target.value)}
-                    placeholder="200"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="xero-tax-type">Tax type</FieldLabel>
-                  <Input
-                    id="xero-tax-type"
-                    value={taxType}
-                    onChange={(event) => setTaxType(event.target.value)}
-                    placeholder="NONE"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="xero-invoice-status">Invoice status</FieldLabel>
-                  <Select
-                    value={invoiceStatus}
-                    onValueChange={(value) =>
-                      setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
+            <FieldGroup className="gap-6">
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-foreground">
+                  Sales invoice defaults
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field>
+                    <FieldLabel htmlFor="xero-account-code">Account code</FieldLabel>
+                    <Input
+                      id="xero-account-code"
+                      value={accountCode}
+                      onChange={(event) => setAccountCode(event.target.value)}
+                      placeholder="200"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-tax-type">Tax type</FieldLabel>
+                    <Input
+                      id="xero-tax-type"
+                      value={taxType}
+                      onChange={(event) => setTaxType(event.target.value)}
+                      placeholder="NONE"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-invoice-status">Invoice status</FieldLabel>
+                    <Select
+                      value={invoiceStatus}
+                      onValueChange={(value) =>
+                        setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
+                      }
+                    >
+                      <SelectTrigger id="xero-invoice-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
+                        <SelectItem value="DRAFT">DRAFT</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+
+                <Field orientation="horizontal">
+                  <Switch
+                    id="xero-auto-email"
+                    checked={autoEmailInvoices}
+                    onCheckedChange={(checked) =>
+                      setAutoEmailInvoices(Boolean(checked))
                     }
-                  >
-                    <SelectTrigger id="xero-invoice-status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
-                      <SelectItem value="DRAFT">DRAFT</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  />
+                  <FieldContent>
+                    <FieldLabel htmlFor="xero-auto-email">
+                      Auto-email sales invoices
+                    </FieldLabel>
+                    <FieldDescription>
+                      Xero emails the customer after invoice creation. Requires
+                      AUTHORISED status and an email on the customer record.
+                    </FieldDescription>
+                  </FieldContent>
                 </Field>
               </div>
 
-              <Field orientation="horizontal">
-                <Switch
-                  id="xero-auto-email"
-                  checked={autoEmailInvoices}
-                  onCheckedChange={(checked) =>
-                    setAutoEmailInvoices(Boolean(checked))
-                  }
-                />
-                <FieldContent>
-                  <FieldLabel htmlFor="xero-auto-email">
-                    Auto-email sales invoices
-                  </FieldLabel>
-                  <FieldDescription>
-                    Xero emails the customer after invoice creation. Requires
-                    AUTHORISED status and an email on the customer record.
-                  </FieldDescription>
-                </FieldContent>
-              </Field>
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-foreground">
+                  Purchase order defaults
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field>
+                    <FieldLabel htmlFor="xero-po-account-code">
+                      Account code
+                    </FieldLabel>
+                    <Input
+                      id="xero-po-account-code"
+                      value={poAccountCode}
+                      onChange={(event) => setPoAccountCode(event.target.value)}
+                      placeholder="Falls back to invoice code"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-po-tax-type">Tax type</FieldLabel>
+                    <Input
+                      id="xero-po-tax-type"
+                      value={poTaxType}
+                      onChange={(event) => setPoTaxType(event.target.value)}
+                      placeholder="Falls back to invoice tax type"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-po-status">PO status</FieldLabel>
+                    <Select
+                      value={poStatus}
+                      onValueChange={(value) =>
+                        setPoStatus(value as "DRAFT" | "SUBMITTED" | "AUTHORISED")
+                      }
+                    >
+                      <SelectTrigger id="xero-po-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DRAFT">DRAFT</SelectItem>
+                        <SelectItem value="SUBMITTED">SUBMITTED</SelectItem>
+                        <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
 
               <div className="flex justify-end">
                 <Button

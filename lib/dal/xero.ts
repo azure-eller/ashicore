@@ -13,6 +13,9 @@ export type XeroConnectionSummary = {
   defaultTaxType: string | null;
   invoiceStatusPreference: string;
   autoEmailSalesInvoices: boolean;
+  purchaseOrderDefaultAccountCode: string | null;
+  purchaseOrderDefaultTaxType: string | null;
+  purchaseOrderStatusPreference: string;
   updatedAt: Date;
 };
 
@@ -25,6 +28,9 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     defaultTaxType: row.defaultTaxType,
     invoiceStatusPreference: row.invoiceStatusPreference,
     autoEmailSalesInvoices: row.autoEmailSalesInvoices,
+    purchaseOrderDefaultAccountCode: row.purchaseOrderDefaultAccountCode,
+    purchaseOrderDefaultTaxType: row.purchaseOrderDefaultTaxType,
+    purchaseOrderStatusPreference: row.purchaseOrderStatusPreference,
     updatedAt: row.updatedAt,
   };
 }
@@ -52,6 +58,9 @@ export async function updateXeroSettings(params: {
   defaultTaxType: string | null;
   invoiceStatusPreference: "DRAFT" | "AUTHORISED";
   autoEmailSalesInvoices: boolean;
+  purchaseOrderDefaultAccountCode: string | null;
+  purchaseOrderDefaultTaxType: string | null;
+  purchaseOrderStatusPreference: "DRAFT" | "SUBMITTED" | "AUTHORISED";
 }) {
   return withAuthedOrgContext(async (tx, orgId) => {
     const [row] = await tx
@@ -61,6 +70,9 @@ export async function updateXeroSettings(params: {
         defaultTaxType: params.defaultTaxType,
         invoiceStatusPreference: params.invoiceStatusPreference,
         autoEmailSalesInvoices: params.autoEmailSalesInvoices,
+        purchaseOrderDefaultAccountCode: params.purchaseOrderDefaultAccountCode,
+        purchaseOrderDefaultTaxType: params.purchaseOrderDefaultTaxType,
+        purchaseOrderStatusPreference: params.purchaseOrderStatusPreference,
         updatedAt: new Date(),
       })
       .where(eq(xeroConnections.organizationId, orgId))

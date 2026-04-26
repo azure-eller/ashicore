@@ -9,6 +9,7 @@ import { XeroError, redactXeroError } from "./errors";
 const REQUIRED_SCOPES = [
   "accounting.contacts",
   "accounting.invoices",
+  "accounting.transactions",
   "offline_access",
 ];
 

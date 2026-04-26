@@ -131,6 +131,31 @@ export function PurchaseOrderDetail({
     },
   });
 
+  const xeroPushMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        `/api/purchase-orders/${order.id}/xero-push`,
+        { method: "POST" }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          body?.error ?? "Failed to push purchase order to Xero."
+        );
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await refreshQueries();
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const receiveMutation = useMutation({
     mutationFn: async (values: ReceiveFormValues) => {
       const response = await fetch(`/api/purchase-orders/${order.id}/receive`, {
@@ -225,6 +250,10 @@ export function PurchaseOrderDetail({
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canCancel = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canDelete = !isDeleted && !["ordered", "partial"].includes(order.status);
+  const canRetryXeroPush =
+    !isDeleted &&
+    ["ordered", "partial"].includes(order.status) &&
+    (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
   const receiveLinesError = getFieldArrayError(receiveForm.formState.errors.lines);
 
   return (
@@ -259,6 +288,15 @@ export function PurchaseOrderDetail({
                             documentId: order.id,
                           })
                         ),
+                    },
+                  ]
+                : []),
+              ...(canRetryXeroPush
+                ? [
+                    {
+                      label: "Retry Xero push",
+                      onSelect: () => xeroPushMutation.mutate(),
+                      disabled: xeroPushMutation.isPending,
                     },
                   ]
                 : []),
@@ -358,6 +396,25 @@ export function PurchaseOrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.cancelledAt)}</dd>
           </div>
+          {order.xeroPushStatus && (
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">Xero PO</dt>
+              <dd className="mt-1 space-y-1 text-sm">
+                <div>
+                  {order.xeroPushStatus === "pushed" && order.xeroPurchaseOrderNumber
+                    ? `Pushed — ${order.xeroPurchaseOrderNumber}`
+                    : order.xeroPushStatus === "failed"
+                      ? `Failed — ${order.xeroPushError ?? "unknown error"}`
+                      : "Pending"}
+                </div>
+                {order.xeroRetryCount > 1 && (
+                  <div className="text-xs text-muted-foreground">
+                    Push attempts: {order.xeroRetryCount}
+                  </div>
+                )}
+              </dd>
+            </div>
+          )}
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>

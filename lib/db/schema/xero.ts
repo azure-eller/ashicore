@@ -31,6 +31,19 @@ export const xeroConnections = xeroSchema
       autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
         .notNull()
         .default(false),
+      purchaseOrderDefaultAccountCode: varchar(
+        "purchase_order_default_account_code",
+        { length: 20 }
+      ),
+      purchaseOrderDefaultTaxType: varchar("purchase_order_default_tax_type", {
+        length: 50,
+      }),
+      purchaseOrderStatusPreference: varchar(
+        "purchase_order_status_preference",
+        { length: 20 }
+      )
+        .notNull()
+        .default("DRAFT"),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },

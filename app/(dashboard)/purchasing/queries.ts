@@ -531,6 +531,14 @@ export async function getPurchaseOrder(
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
         cancelledAt: purchaseOrders.cancelledAt,
+        xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
+        xeroPurchaseOrderNumber: purchaseOrders.xeroPurchaseOrderNumber,
+        xeroPushStatus: purchaseOrders.xeroPushStatus,
+        xeroPushError: purchaseOrders.xeroPushError,
+        xeroPushedAt: purchaseOrders.xeroPushedAt,
+        xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
+        xeroLastPushAttemptAt: purchaseOrders.xeroLastPushAttemptAt,
+        xeroRetryCount: purchaseOrders.xeroRetryCount,
         deletedAt: purchaseOrders.deletedAt,
         createdAt: purchaseOrders.createdAt,
         updatedAt: purchaseOrders.updatedAt,
@@ -547,6 +555,8 @@ export async function getPurchaseOrder(
     return {
       ...order,
       status: order.status as PurchaseOrderStatus,
+      xeroPushStatus:
+        order.xeroPushStatus as PurchaseOrderDetail["xeroPushStatus"],
       lines: lines.map((line) => ({
         ...line,
         quantityRemaining: normalizeNumeric(
@@ -674,7 +684,7 @@ export async function submitPurchaseOrder(
   id: string,
   options?: { idempotencyKey?: string }
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "submitPurchaseOrder",
@@ -683,7 +693,11 @@ export async function submitPurchaseOrder(
     });
 
     if (replay.replayed) {
-      return replay.result;
+      return {
+        replayed: true as const,
+        submitted: replay.result,
+        orgId,
+      };
     }
 
     const order = await getLockedPurchaseOrderInTx(tx, id);
@@ -694,7 +708,11 @@ export async function submitPurchaseOrder(
         idempotencyKey: options?.idempotencyKey ?? null,
         result: null,
       });
-      return null;
+      return {
+        replayed: false as const,
+        submitted: null,
+        orgId,
+      };
     }
 
     if (order.status !== "draft") {
@@ -727,15 +745,73 @@ export async function submitPurchaseOrder(
       })),
     });
 
-    const result = { id };
+    const submitted = { id };
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
-      result,
+      result: submitted,
     });
 
-    return result;
+    return {
+      replayed: false as const,
+      submitted,
+      orgId,
+    };
+  });
+
+  if (!result.submitted) {
+    return null;
+  }
+
+  if (result.replayed) {
+    return result.submitted;
+  }
+
+  // Stock + expected-supply tx has committed. Attempt the Xero PO push;
+  // a failure must NOT roll back the submit — the order is ordered
+  // regardless of accounting state.
+  const { pushPurchaseOrderToXero, markXeroPurchaseOrderPushFailed } =
+    await import("@/lib/xero/push-purchase-order");
+  const { XeroError } = await import("@/lib/xero/errors");
+
+  try {
+    await pushPurchaseOrderToXero(result.orgId, id);
+  } catch (error) {
+    if (
+      error instanceof XeroError &&
+      (error.message.includes("not connected") ||
+        error.status === 409 ||
+        error.status === 500)
+    ) {
+      if (!error.message.includes("not connected")) {
+        await markXeroPurchaseOrderPushFailed(result.orgId, id, error);
+      }
+    } else {
+      await markXeroPurchaseOrderPushFailed(result.orgId, id, error);
+    }
+  }
+
+  return result.submitted;
+}
+
+export async function retryXeroPushForPurchaseOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { pushPurchaseOrderToXero, markXeroPurchaseOrderPushFailed } =
+      await import("@/lib/xero/push-purchase-order");
+    const { XeroError } = await import("@/lib/xero/errors");
+
+    try {
+      const result = await pushPurchaseOrderToXero(orgId, id);
+      return { ok: true as const, result };
+    } catch (error) {
+      if (error instanceof XeroError && (error.status === 404 || error.status === 409)) {
+        throw error;
+      }
+
+      await markXeroPurchaseOrderPushFailed(orgId, id, error);
+      throw error;
+    }
   });
 }
 

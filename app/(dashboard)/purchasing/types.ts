@@ -86,6 +86,14 @@ export type PurchaseOrderDetail = {
   orderedAt: Date | null;
   receivedAt: Date | null;
   cancelledAt: Date | null;
+  xeroPurchaseOrderId: string | null;
+  xeroPurchaseOrderNumber: string | null;
+  xeroPushStatus: "pending" | "pushed" | "failed" | null;
+  xeroPushError: string | null;
+  xeroPushedAt: Date | null;
+  xeroPushPayloadHash: string | null;
+  xeroLastPushAttemptAt: Date | null;
+  xeroRetryCount: number;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
