@@ -9,6 +9,7 @@ export const INVENTORY_LEDGER_EVENT_CLASSES = [
   "reservation",
   "demand",
   "expected",
+  "quality",
   "verification",
   "cost",
 ] as const;
@@ -57,6 +58,12 @@ const STOCK_DECREASE_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "sales_consumption",
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
+  "quality_scrap",
+]);
+
+const QUALITY_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
+  "quality_disposition_change",
+  "quality_scrap",
 ]);
 
 const RESERVATION_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
@@ -77,6 +84,7 @@ const EXPECTED_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
 const NON_DELTA_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "stocktake_verification",
   "cost_basis_change",
+  "quality_disposition_change",
 ]);
 
 const EVENT_LABELS: Record<InventoryEventType, string> = {
@@ -91,7 +99,9 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   sales_consumption: "Sales shipment",
   manufacturing_ingredient_consumption: "Manufacturing material used",
   manufacturing_variance_loss: "Manufacturing variance loss",
+  quality_scrap: "Quality scrap",
   unpick_restock: "Unpick restock",
+  quality_disposition_change: "Quality disposition change",
   reservation_increase: "Reservation increase",
   reservation_release: "Reservation release",
   demand_increase: "Customer demand increase",
@@ -114,7 +124,9 @@ const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
   sales_consumption: "shipped",
   manufacturing_ingredient_consumption: "used",
   manufacturing_variance_loss: "recorded manufacturing variance loss for",
+  quality_scrap: "scrapped",
   unpick_restock: "returned picked material for",
+  quality_disposition_change: "changed quality disposition for",
   reservation_increase: "reserved",
   reservation_release: "released reservation for",
   demand_increase: "added customer demand for",
@@ -130,6 +142,7 @@ const EVENT_CLASS_LABELS: Record<InventoryLedgerEventClass, string> = {
   reservation: "Reservation",
   demand: "Demand",
   expected: "Expected",
+  quality: "Quality",
   verification: "Verification",
   cost: "Cost",
 };
@@ -139,6 +152,7 @@ const MOVEMENT_CATEGORY_LABELS: Record<InventoryLedgerEventClass, string> = {
   reservation: "Reservations",
   demand: "Demand",
   expected: "Expected supply",
+  quality: "Quality decisions",
   verification: "Verification",
   cost: "Cost changes",
 };
@@ -163,6 +177,10 @@ const SOURCE_TYPE_LABELS: Record<InventoryLedgerSourceType, string> = {
 export function getInventoryLedgerEventClass(
   eventType: InventoryEventType
 ): InventoryLedgerEventClass {
+  if (QUALITY_EVENT_TYPES.has(eventType)) {
+    return "quality";
+  }
+
   if (STOCK_INCREASE_TYPES.has(eventType) || STOCK_DECREASE_TYPES.has(eventType)) {
     return "stock";
   }
@@ -314,8 +332,8 @@ export function summarizeInventoryLedgerMetadata(
     add("Lot number", metadata.lotNumber, "lotNumber");
   }
 
-  if ("note" in metadata) {
-    add("Internal note", "Hidden", "note");
+  if ("note" in metadata || "notes" in metadata) {
+    add("Internal note", "Hidden", "note", "notes");
   }
 
   if ("revisionNote" in metadata) {

@@ -21,7 +21,7 @@ V1 is intentionally small:
 - blank counted quantities mean "leave unchanged"
 - completion automatically sets inventory to counted truth
 
-Stocktakes are item-total counts only. They do not count lots individually, do not support locations, and do not have a separate review/apply phase.
+Stocktakes are item-total counts only. They reconcile the `available` disposition for V1. Blocked and rejected stock remains managed by disposition actions and is not collapsed into available by a stocktake. Stocktakes do not count lots individually, do not support locations, and do not have a separate review/apply phase.
 
 Category scopes must encode both the item type and the category name in `inventory.stocktakes.scope`, for example `material:category:Soil`. This avoids ambiguous category names shared by both materials and products while keeping list/detail labels readable.
 
@@ -73,9 +73,9 @@ Completion applies counted truth from **current live stock**, not from the old s
 
 1. lock the stocktake row
 2. lock all counted items in stable order
-3. read current live stock
-4. if current live stock differs from the snapshot `expectedQty`, return `409` with a stale payload unless the caller confirmed
-5. apply delta from current live stock to `countedQty`
+3. read current live available stock
+4. if current live available stock differs from the snapshot `expectedQty`, return `409` with a stale payload unless the caller confirmed
+5. apply delta from current live available stock to `countedQty`
 6. store `appliedDeltaQty`
 7. mark the stocktake `completed`
 
@@ -83,7 +83,7 @@ This keeps stocktakes safe when purchasing, manufacturing, or manual adjustments
 
 ## Inventory Integration
 
-Stocktake completion reuses the inventory kernel:
+Stocktake completion reuses the inventory kernel and reconciles the available bucket only:
 
 - positive deltas create lots
 - negative deltas FIFO-consume lots

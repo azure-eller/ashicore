@@ -152,7 +152,7 @@ async function getReservableAvailableByItemInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         inArray(inventoryLotBalances.itemId, itemIds),
-        eq(inventoryLotBalances.stockStatus, "available"),
+        eq(inventoryLotBalances.disposition, "available"),
         sql`${inventoryLotBalances.quantity} > 0`
       )
     )

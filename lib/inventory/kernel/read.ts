@@ -26,6 +26,7 @@ export const ON_HAND_DECREASE_EVENT_TYPES = [
   "sales_consumption",
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
+  "quality_scrap",
 ] as const satisfies readonly InventoryEventType[];
 
 export const ON_HAND_EVENT_TYPES = [
@@ -93,11 +94,10 @@ function itemBalanceSubquery(
   )`;
 }
 
-function lotBalanceSubquery(
+function activeLotBalanceSubquery(
   organizationId: SqlExpression,
   lotId: SqlExpression,
   column:
-    | typeof inventoryLotBalances.quantity
     | typeof inventoryLotBalances.unitCost
     | typeof inventoryLotBalances.receivedAt
 ) {
@@ -109,6 +109,8 @@ function lotBalanceSubquery(
         organizationId
       )}
       AND ${inventoryLotBalances.lotId} = ${lotId}
+      AND ${inventoryLotBalances.quantity} > 0
+    ORDER BY ${inventoryLotBalances.receivedAt} ASC, ${inventoryLotBalances.disposition} ASC
     LIMIT 1
   )`;
 }
@@ -169,15 +171,19 @@ export function projectedAvailableToPromise(
 }
 
 export function projectedLotQuantity(organizationId: SqlExpression, lotId: SqlExpression) {
-  return trimScale(sql`COALESCE(${lotBalanceSubquery(
-    organizationId,
-    lotId,
-    inventoryLotBalances.quantity
-  )}, 0)`);
+  return trimScale(sql`COALESCE((
+    SELECT SUM(${inventoryLotBalances.quantity})
+    FROM ${inventoryLotBalances}
+    WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+        organizationId
+      )}
+      AND ${inventoryLotBalances.lotId} = ${lotId}
+  ), 0)`);
 }
 
 export function projectedLotUnitCost(organizationId: SqlExpression, lotId: SqlExpression) {
-  return trimScaleNullable(lotBalanceSubquery(
+  return trimScaleNullable(activeLotBalanceSubquery(
     organizationId,
     lotId,
     inventoryLotBalances.unitCost
@@ -188,7 +194,7 @@ export function projectedLotReceivedAt(
   organizationId: SqlExpression,
   lotId: SqlExpression
 ) {
-  return lotBalanceSubquery(organizationId, lotId, inventoryLotBalances.receivedAt);
+  return activeLotBalanceSubquery(organizationId, lotId, inventoryLotBalances.receivedAt);
 }
 
 export function ledgerLotUnitCostByOrigin(
@@ -281,7 +287,7 @@ export function projectedReservableOnHandQtyExpr(
         organizationId
       )}
       AND ${inventoryLotBalances.itemId} = ${itemId}
-      AND ${inventoryLotBalances.stockStatus} = 'available'
+      AND ${inventoryLotBalances.disposition} = 'available'
       AND ${inventoryLotBalances.quantity} > 0
   ), 0)`;
 }

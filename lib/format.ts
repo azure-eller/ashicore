@@ -1,3 +1,5 @@
+import type { InventoryDisposition } from "@/lib/db/schema";
+
 const priceFormat = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const costFormat = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -161,11 +163,23 @@ const MOVEMENT_TYPE_LABELS: Record<string, string> = {
   manufacturing_variance: "MO variance",
   sales_shipped: "Sale",
   stocktake_adjustment: "Stocktake",
+  quality_disposition: "Disposition",
+  quality_scrap: "Scrap",
 };
 
 export function formatMovementType(type: string | null): string {
   if (!type) return "\u2014";
   return MOVEMENT_TYPE_LABELS[type] ?? type;
+}
+
+const INVENTORY_DISPOSITION_LABELS: Record<InventoryDisposition, string> = {
+  available: "Available",
+  blocked: "Blocked",
+  rejected: "Rejected",
+};
+
+export function formatInventoryDisposition(disposition: InventoryDisposition) {
+  return INVENTORY_DISPOSITION_LABELS[disposition];
 }
 
 /**

@@ -33,7 +33,7 @@ test.describe("Inventory creation flow", () => {
     await page.goto("/");
 
     await page.waitForURL("**/inventory/products");
-    await expect(page.getByText("Inventory")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Inventory", exact: true })).toBeVisible();
     await expect(page.getByText("Test Org")).toBeVisible();
     await expect(page.getByRole("textbox", { name: "ERP Agent message" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Notifications" })).toHaveCount(0);
@@ -106,9 +106,9 @@ test.describe("Inventory creation flow", () => {
     await expect(page.getByText("Fine grain river sand")).toBeVisible();
     await expect(page.getByText(sku)).toBeVisible();
     await expect(page.locator("dl").getByText(`Bag ${ts} (25 kg)`, { exact: true })).toBeVisible();
-    await expect(page.locator("dl").getByText("$3.50", { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("$3.50", { exact: true }).first()).toBeVisible();
     await expect(page.locator("dl").getByText("$6.00", { exact: true })).toBeVisible();
-    await expect(page.locator("dl").getByText(`200 Bag ${ts}`, { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText(`200 Bag ${ts}`, { exact: true }).first()).toBeVisible();
     await expect(page.locator("dl").getByText(`25 Bag ${ts}`, { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
@@ -283,7 +283,7 @@ test.describe("Inventory creation flow", () => {
     });
     await calculatedStockHeader.hover();
     await expect(
-      page.getByText("Stock - committed + expected - safety stock.")
+      page.getByText("Stock - demand + expected - safety stock.")
     ).toBeVisible();
 
     await page.mouse.move(0, 0);
@@ -308,7 +308,7 @@ test.describe("Inventory creation flow", () => {
 
     await page.getByText("Calculated Stock", { exact: true }).hover();
     await expect(
-      page.getByText("Stock - committed + expected - safety stock.")
+      page.getByText("Stock - demand + expected - safety stock.")
     ).toBeVisible();
 
     await page.keyboard.press("Escape");

@@ -28,7 +28,9 @@ export const INVENTORY_EVENT_TYPES = [
   "sales_consumption",
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
+  "quality_scrap",
   "unpick_restock",
+  "quality_disposition_change",
   "reservation_increase",
   "reservation_release",
   "demand_increase",
@@ -59,6 +61,9 @@ export const inventoryEvents = inventorySchema
       quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
       unitCost: numeric("unit_cost", { precision: 18, scale: 6 }),
       extendedCost: numeric("extended_cost", { precision: 18, scale: 6 }),
+      disposition: varchar("disposition", { length: 24 }),
+      fromDisposition: varchar("from_disposition", { length: 24 }),
+      toDisposition: varchar("to_disposition", { length: 24 }),
       referenceType: varchar("reference_type", { length: 64 }),
       referenceId: uuid("reference_id"),
       parentEventId: uuid("parent_event_id"),
@@ -95,7 +100,7 @@ export const inventoryEvents = inventorySchema
         .where(sql`${table.idempotencyKey} IS NOT NULL`),
       check(
         "inventory_events_event_type_check",
-        sql`event_type IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'unpick_restock', 'reservation_increase', 'reservation_release', 'demand_increase', 'demand_release', 'expected_increase', 'expected_release', 'cost_basis_change', 'stocktake_verification')`
+        sql`event_type IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'quality_disposition_change', 'reservation_increase', 'reservation_release', 'demand_increase', 'demand_release', 'expected_increase', 'expected_release', 'cost_basis_change', 'stocktake_verification')`
       ),
       check(
         "inventory_events_quantity_check",
@@ -106,11 +111,11 @@ export const inventoryEvents = inventorySchema
       ),
       check(
         "inventory_events_lot_required_check",
-        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'unpick_restock') OR lot_id IS NOT NULL`
+        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'quality_disposition_change') OR lot_id IS NOT NULL`
       ),
       check(
         "inventory_events_cost_required_check",
-        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'unpick_restock') OR (unit_cost IS NOT NULL AND extended_cost IS NOT NULL AND extended_cost = ROUND(quantity * unit_cost, 6))`
+        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'quality_disposition_change') OR (unit_cost IS NOT NULL AND extended_cost IS NOT NULL AND extended_cost = ROUND(quantity * unit_cost, 6))`
       ),
       check(
         "inventory_events_non_stock_cost_blank_check",
@@ -119,6 +124,25 @@ export const inventoryEvents = inventorySchema
       check(
         "inventory_events_stocktake_reference_check",
         sql`event_type NOT IN ('stocktake_gain', 'stocktake_loss', 'stocktake_verification') OR reference_type = 'stocktake_line'`
+      ),
+      check(
+        "inventory_events_disposition_check",
+        sql`(disposition IS NULL OR disposition IN ('available', 'blocked', 'rejected'))
+          AND (from_disposition IS NULL OR from_disposition IN ('available', 'blocked', 'rejected'))
+          AND (to_disposition IS NULL OR to_disposition IN ('available', 'blocked', 'rejected'))`
+      ),
+      check(
+        "inventory_events_quality_disposition_check",
+        sql`CASE
+          WHEN event_type = 'quality_disposition_change'
+            THEN from_disposition IS NOT NULL
+              AND to_disposition IS NOT NULL
+              AND from_disposition <> to_disposition
+          WHEN event_type = 'quality_scrap'
+            THEN from_disposition IS NOT NULL
+              AND to_disposition IS NULL
+          ELSE true
+        END`
       ),
       pgPolicy("inventory_events_org_isolation", {
         for: "all",

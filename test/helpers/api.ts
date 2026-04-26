@@ -550,6 +550,7 @@ export async function receivePurchaseOrder(
     lines: Array<{
       lineId: string;
       quantityReceived: string;
+      disposition?: "available" | "blocked";
     }>;
   }
 ) {
@@ -617,11 +618,15 @@ export async function releaseManufacturingOrder(
  */
 export async function completeManufacturingOrder(
   id: string,
-  actualQuantity: string
+  actualQuantity: string,
+  options?: { outputDisposition?: "available" | "blocked" }
 ) {
   const res = await testFetch(`/api/manufacturing-orders/${id}/complete`, {
     method: "POST",
-    body: JSON.stringify({ actualQuantity }),
+    body: JSON.stringify({
+      actualQuantity,
+      outputDisposition: options?.outputDisposition ?? "available",
+    }),
   });
   const body = await res.json().catch(() => null);
   return { status: res.status, body };

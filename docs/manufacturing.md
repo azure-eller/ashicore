@@ -153,7 +153,7 @@ Discrete completion is still one-shot, but it is now pick-gated:
 - every ingredient must already be fully picked
 - completion uses persisted pick allocations for quantity and cost
 - completion must not deduct ingredient stock a second time
-- one finished-product lot is created
+- one finished-product lot is created with `available` or `blocked` disposition
 - one `manufacturing_output` event is written
 - completion releases the output-side expected supply
 - the order stores `actualQuantity`, `actualMaterialCost`, and `actualCostPerUnit`
@@ -173,7 +173,7 @@ Each completed batch:
 
 - uses only that batch’s pick allocations
 - writes ingredient actuals/costs for that batch’s ingredient rows
-- creates one finished-product lot
+- creates one finished-product lot with `available` or `blocked` disposition
 - writes one `manufacturing_output` event
 - stores the batch’s actual quantity
 

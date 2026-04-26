@@ -2084,6 +2084,7 @@ export async function completeManufacturingOrder(
       productId: order.productId,
       quantity: actualQuantity,
       actorUserId: userId,
+      outputDisposition: payload.outputDisposition,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
         "complete-output"
@@ -2298,6 +2299,7 @@ export async function completeManufacturingBatch(
       productId: order.productId,
       quantity: actualQuantity,
       actorUserId: userId,
+      outputDisposition: payload.outputDisposition,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
         `complete-batch:${batchId}`

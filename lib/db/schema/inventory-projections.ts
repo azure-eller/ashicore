@@ -17,12 +17,12 @@ import { lots } from "./lots";
 import { inventoryEvents } from "./inventory-events";
 import { inventoryLocations } from "./locations";
 
-export const INVENTORY_LOT_STOCK_STATUSES = [
+export const INVENTORY_DISPOSITIONS = [
   "available",
-  "held",
-  "quarantined",
+  "blocked",
+  "rejected",
 ] as const;
-export type InventoryLotStockStatus = (typeof INVENTORY_LOT_STOCK_STATUSES)[number];
+export type InventoryDisposition = (typeof INVENTORY_DISPOSITIONS)[number];
 
 export const inventoryLotBalances = inventorySchema
   .table(
@@ -44,7 +44,7 @@ export const inventoryLotBalances = inventorySchema
       originEventId: uuid("origin_event_id")
         .notNull()
         .references(() => inventoryEvents.id),
-      stockStatus: varchar("stock_status", { length: 24 }).notNull().default("available"),
+      disposition: varchar("disposition", { length: 24 }).notNull().default("available"),
       stillActive: boolean("still_active").notNull().default(true),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -52,24 +52,31 @@ export const inventoryLotBalances = inventorySchema
     (table) => [
       primaryKey({
         name: "inventory_lot_balances_pk",
-        columns: [table.organizationId, table.locationId, table.lotId],
+        columns: [
+          table.organizationId,
+          table.itemId,
+          table.locationId,
+          table.lotId,
+          table.disposition,
+        ],
       }),
       index("inventory_lot_balances_item_idx").on(
         table.organizationId,
+        table.itemId,
         table.locationId,
-        table.itemId
+        table.disposition
       ),
       index("inventory_lot_balances_fifo_idx").on(
         table.organizationId,
         table.locationId,
         table.itemId,
-        table.stockStatus,
+        table.disposition,
         table.receivedAt,
         table.lotId
       ),
       check(
-        "inventory_lot_balances_stock_status_check",
-        sql`stock_status IN ('available', 'held', 'quarantined')`
+        "inventory_lot_balances_disposition_check",
+        sql`disposition IN ('available', 'blocked', 'rejected')`
       ),
       pgPolicy("inventory_lot_balances_org_isolation", {
         for: "all",

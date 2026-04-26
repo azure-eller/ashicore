@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  type InventoryDisposition,
   inventoryDemandSummary,
   inventoryExpectedSummary,
   inventoryReservationsSummary,
@@ -575,6 +576,7 @@ export async function produceManufacturedStockInTx(
     quantity: number;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    outputDisposition?: Extract<InventoryDisposition, "available" | "blocked">;
     overheadCostTotal?: number;
     expectedReleaseQuantity?: number | null;
     ingredientRows: Array<{
@@ -593,6 +595,7 @@ export async function produceManufacturedStockInTx(
       productId: params.productId,
       quantity: params.quantity,
       overheadCostTotal: params.overheadCostTotal ?? 0,
+      outputDisposition: params.outputDisposition ?? "available",
       expectedReleaseQuantity: params.expectedReleaseQuantity ?? null,
       ingredientRows: params.ingredientRows,
     },
@@ -616,6 +619,7 @@ export async function produceManufacturedStockInTx(
     itemId: params.productId,
     quantity: params.quantity,
     unitCost,
+    disposition: params.outputDisposition ?? "available",
     eventType: "manufacturing_output",
     eventSubtype: "manufacturing_complete",
     referenceType: "manufacturing_order",

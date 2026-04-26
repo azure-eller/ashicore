@@ -5,6 +5,7 @@ import {
   roundQuantity,
 } from "@/lib/format";
 import {
+  type InventoryDisposition,
   inventoryItemBalances,
   inventoryLotBalances,
   items,
@@ -44,6 +45,8 @@ type NegativeStockEventType =
 
 type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 
+const DEFAULT_DISPOSITION: InventoryDisposition = "available";
+
 export type FifoAllocation = {
   lotId: string;
   lotNumber: string;
@@ -71,6 +74,23 @@ export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
   return parseFloat(row?.quantity ?? "0");
 }
 
+export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
+  const [row] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+
+  return parseFloat(row?.quantity ?? "0");
+}
+
 export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
   const [reservable] = await tx
     .select({
@@ -80,7 +100,7 @@ export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
     .where(
       and(
         eq(inventoryLotBalances.itemId, itemId),
-        eq(inventoryLotBalances.stockStatus, "available"),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
         sql`${inventoryLotBalances.quantity} > 0`
       )
     );
@@ -117,7 +137,7 @@ export async function getCurrentAvailableQtyAtLocationInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.stockStatus, "available"),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
         sql`${inventoryLotBalances.quantity} > 0`
       )
     );
@@ -305,6 +325,7 @@ export async function createPositiveStockEventInTx(
     occurredAt?: Date;
     receivedAt?: Date;
     metadata?: Record<string, unknown> | null;
+    disposition?: InventoryDisposition;
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
@@ -315,6 +336,7 @@ export async function createPositiveStockEventInTx(
     parseFloat(quantity) * parseFloat(unitCost),
     6
   );
+  const disposition = params.disposition ?? DEFAULT_DISPOSITION;
   const lotNumber = params.lotNumber?.trim() || (await generateLotNumberInTx(tx));
   const receivedAt = params.receivedAt ?? params.occurredAt ?? new Date();
 
@@ -344,6 +366,8 @@ export async function createPositiveStockEventInTx(
       quantity,
       unitCost,
       extendedCost,
+      disposition,
+      toDisposition: disposition,
       referenceType: params.referenceType ?? null,
       referenceId: params.referenceId ?? null,
       actorUserId: params.actorUserId ?? null,
@@ -362,6 +386,7 @@ export async function createPositiveStockEventInTx(
       locationId: params.locationId,
       lotId: lot.id,
       itemId: params.itemId,
+      disposition,
       quantityDelta: parseFloat(quantity),
       unitCost,
       receivedAt: lot.receivedAt,
@@ -407,7 +432,7 @@ async function getLockedFifoLotsInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.stockStatus, "available"),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
         sql`${inventoryLotBalances.quantity} > 0`
       )
     )
@@ -471,8 +496,10 @@ export async function consumeStockFifoInTx(
       .where(
         and(
           eq(inventoryLotBalances.organizationId, params.organizationId),
+          eq(inventoryLotBalances.itemId, params.itemId),
           eq(inventoryLotBalances.locationId, params.locationId),
           eq(inventoryLotBalances.lotId, lot.lotId),
+          eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
           sql`${inventoryLotBalances.quantity} >= ${deduction}`
         )
       )
@@ -519,6 +546,8 @@ export async function consumeStockFifoInTx(
         allocation.quantity * allocation.unitCost,
         6
       ),
+      disposition: DEFAULT_DISPOSITION,
+      fromDisposition: DEFAULT_DISPOSITION,
       referenceType: params.referenceType ?? null,
       referenceId: params.referenceId ?? null,
       actorUserId: params.actorUserId ?? null,
@@ -561,9 +590,11 @@ export async function restockExistingLotInTx(
     occurredAt?: Date;
     parentEventId?: string | null;
     metadata?: Record<string, unknown> | null;
+    disposition?: InventoryDisposition;
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
+  const disposition = params.disposition ?? DEFAULT_DISPOSITION;
 
   await tx
     .update(lots)
@@ -587,6 +618,8 @@ export async function restockExistingLotInTx(
         params.quantity * parseFloat(params.unitCost),
         6
       ),
+      disposition,
+      toDisposition: disposition,
       referenceType: params.referenceType ?? null,
       referenceId: params.referenceId ?? null,
       parentEventId: params.parentEventId ?? null,
@@ -603,6 +636,7 @@ export async function restockExistingLotInTx(
       locationId: params.locationId,
       lotId: params.lotId,
       itemId: params.itemId,
+      disposition,
       quantityDelta: params.quantity,
     },
   ]);
@@ -617,4 +651,32 @@ export async function restockExistingLotInTx(
   ]);
 
   return { eventId: event.id };
+}
+
+export async function decrementPhysicalLotQuantityInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    lotId: string;
+    quantity: number;
+  }
+) {
+  const [updated] = await tx
+    .update(lots)
+    .set({
+      quantity: sql`${lots.quantity} - ${params.quantity}`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(lots.organizationId, params.organizationId),
+        eq(lots.itemId, params.itemId),
+        eq(lots.id, params.lotId),
+        sql`${lots.quantity} >= ${params.quantity}`
+      )
+    )
+    .returning({ id: lots.id });
+
+  return updated != null;
 }

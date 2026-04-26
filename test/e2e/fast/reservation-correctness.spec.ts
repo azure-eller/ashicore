@@ -16,6 +16,7 @@ import {
   createSalesOrder,
   getUnitId,
   releaseManufacturingOrder,
+  testFetch,
 } from "../../helpers/api";
 import type { TestDb } from "../fixtures";
 
@@ -129,15 +130,48 @@ async function getDemandTotal(db: TestDb, itemId: string) {
   return row?.quantity ?? "0";
 }
 
-async function setLotStockStatus(
+async function setLotDisposition(
   db: TestDb,
   itemId: string,
-  stockStatus: "available" | "held" | "quarantined"
+  disposition: "available" | "blocked" | "rejected"
 ) {
-  await db
-    .update(inventoryLotBalances)
-    .set({ stockStatus })
-    .where(eq(inventoryLotBalances.itemId, itemId));
+  const [current] = await db
+    .select({
+      lotId: inventoryLotBalances.lotId,
+      currentDisposition: inventoryLotBalances.disposition,
+      quantity: inventoryLotBalances.quantity,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+
+  if (!current || current.currentDisposition === disposition) {
+    return;
+  }
+
+  const action = {
+    available: "release",
+    blocked: "block",
+    rejected: "reject",
+  }[disposition];
+  const response = await testFetch(
+    `/api/items/${itemId}/lots/${current.lotId}/disposition`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        fromDisposition: current.currentDisposition,
+        quantity: current.quantity,
+        notes: null,
+      }),
+    }
+  );
+
+  expect(response.status).toBe(200);
 }
 
 test.describe("Reservation correctness", () => {
@@ -204,7 +238,7 @@ test.describe("Reservation correctness", () => {
     expect(await getReservationTotal(db, itemId)).toBe("6.0000");
   });
 
-  test("available stock excludes existing reservations and held lots", async ({
+  test("available stock excludes existing reservations and blocked lots", async ({
     db,
   }) => {
     const customerId = await createCustomerFixture(uniqueName("ATP customer"));
@@ -230,34 +264,34 @@ test.describe("Reservation correctness", () => {
     expect(balance.availableToPromise).toBe("-2.0000");
     expect(await getReservationTotal(db, itemId)).toBe("5.0000");
 
-    const heldItemId = await createMaterial(uniqueName("Held ATP material"), "5");
-    await setLotStockStatus(db, heldItemId, "held");
-    const heldOrderId = await createDraftSalesOrder({
+    const blockedItemId = await createMaterial(uniqueName("Blocked ATP material"), "5");
+    await setLotDisposition(db, blockedItemId, "blocked");
+    const blockedOrderId = await createDraftSalesOrder({
       customerId,
-      itemId: heldItemId,
+      itemId: blockedItemId,
       quantity: "5",
     });
 
-    const heldWarning = await confirmSalesOrder(heldOrderId);
-    expect(heldWarning.status).toBe(409);
-    expect(heldWarning.body.oversell.products[0].availableQty).toBe(0);
-    expect((await confirmSalesOrder(heldOrderId, { confirmOversell: true })).status).toBe(200);
+    const blockedWarning = await confirmSalesOrder(blockedOrderId);
+    expect(blockedWarning.status).toBe(409);
+    expect(blockedWarning.body.oversell.products[0].availableQty).toBe(0);
+    expect((await confirmSalesOrder(blockedOrderId, { confirmOversell: true })).status).toBe(200);
 
-    const heldBalance = await getItemBalance(db, heldItemId);
-    expect(heldBalance.committedQty).toBe("0.0000");
-    expect(heldBalance.demandQty).toBe("5.0000");
-    expect(heldBalance.shortageQty).toBe("5.0000");
-    expect(heldBalance.availableToPromise).toBe("-5.0000");
+    const blockedBalance = await getItemBalance(db, blockedItemId);
+    expect(blockedBalance.committedQty).toBe("0.0000");
+    expect(blockedBalance.demandQty).toBe("5.0000");
+    expect(blockedBalance.shortageQty).toBe("5.0000");
+    expect(blockedBalance.availableToPromise).toBe("-5.0000");
   });
 
-  test("released lots can be reserved, while held and quarantined lots cannot", async ({
+  test("released lots can be reserved, while blocked lots cannot", async ({
     db,
   }) => {
     const customerId = await createCustomerFixture(uniqueName("Lot status customer"));
 
     const releasedItemId = await createMaterial(uniqueName("Released material"), "4");
-    await setLotStockStatus(db, releasedItemId, "held");
-    await setLotStockStatus(db, releasedItemId, "available");
+    await setLotDisposition(db, releasedItemId, "blocked");
+    await setLotDisposition(db, releasedItemId, "available");
     const releasedOrderId = await createDraftSalesOrder({
       customerId,
       itemId: releasedItemId,
@@ -268,20 +302,18 @@ test.describe("Reservation correctness", () => {
     expect(releasedBalance.committedQty).toBe("4.0000");
     expect(releasedBalance.availableToPromise).toBe("0.0000");
 
-    for (const status of ["held", "quarantined"] as const) {
-      const blockedItemId = await createMaterial(uniqueName(`${status} material`), "4");
-      await setLotStockStatus(db, blockedItemId, status);
-      const blockedOrderId = await createDraftSalesOrder({
-        customerId,
-        itemId: blockedItemId,
-        quantity: "4",
-      });
-      expect((await confirmSalesOrder(blockedOrderId, { confirmOversell: true })).status).toBe(200);
-      const blockedBalance = await getItemBalance(db, blockedItemId);
-      expect(blockedBalance.committedQty).toBe("0.0000");
-      expect(blockedBalance.shortageQty).toBe("4.0000");
-      expect(blockedBalance.availableToPromise).toBe("-4.0000");
-    }
+    const blockedItemId = await createMaterial(uniqueName("Blocked material"), "4");
+    await setLotDisposition(db, blockedItemId, "blocked");
+    const blockedOrderId = await createDraftSalesOrder({
+      customerId,
+      itemId: blockedItemId,
+      quantity: "4",
+    });
+    expect((await confirmSalesOrder(blockedOrderId, { confirmOversell: true })).status).toBe(200);
+    const blockedBalance = await getItemBalance(db, blockedItemId);
+    expect(blockedBalance.committedQty).toBe("0.0000");
+    expect(blockedBalance.shortageQty).toBe("4.0000");
+    expect(blockedBalance.availableToPromise).toBe("-4.0000");
   });
 
   test("manufacturing release records raw-material shortage without over-reserving", async ({

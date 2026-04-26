@@ -133,6 +133,7 @@ export type UpdatePurchaseOrder = z.infer<typeof updatePurchaseOrderSchema>;
 const rawReceiveLineSchema = z.object({
   lineId: z.string().min(1),
   quantityReceived: nullableString,
+  disposition: z.enum(["available", "blocked"]).default("available"),
 });
 
 export const receivePurchaseOrderSchema = z
@@ -144,6 +145,7 @@ export const receivePurchaseOrderSchema = z
       .map((line) => ({
         lineId: line.lineId,
         quantityReceived: line.quantityReceived?.trim() ?? "",
+        disposition: line.disposition ?? "available",
       }))
       .filter((line) => line.quantityReceived !== ""),
   }))
@@ -183,4 +185,3 @@ export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
     },
   ],
 };
-

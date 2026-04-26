@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  type InventoryDisposition,
   inventoryEvents,
   inventoryDemandSummary,
   inventoryExpectedSummary,
@@ -27,6 +28,7 @@ const STOCK_DECREASE_TYPES = new Set([
   "sales_consumption",
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
+  "quality_scrap",
 ]);
 
 const RESERVATION_INCREASE_TYPES = new Set(["reservation_increase"]);
@@ -51,6 +53,7 @@ type ComputedLotBalance = {
   locationId: string;
   lotId: string;
   itemId: string;
+  disposition: InventoryDisposition;
   quantity: number;
 };
 
@@ -102,6 +105,9 @@ export async function computeItemBalancesFromLedger(
       locationId: inventoryEvents.locationId,
       eventType: inventoryEvents.eventType,
       quantity: inventoryEvents.quantity,
+      disposition: inventoryEvents.disposition,
+      fromDisposition: inventoryEvents.fromDisposition,
+      toDisposition: inventoryEvents.toDisposition,
     })
     .from(inventoryEvents)
     .where(and(...filters));
@@ -343,33 +349,76 @@ export async function computeLotBalancesFromLedger(
       itemId: inventoryEvents.itemId,
       eventType: inventoryEvents.eventType,
       quantity: inventoryEvents.quantity,
+      disposition: inventoryEvents.disposition,
+      fromDisposition: inventoryEvents.fromDisposition,
+      toDisposition: inventoryEvents.toDisposition,
     })
     .from(inventoryEvents)
     .where(and(...filters));
 
   const computed = new Map<BalanceKey, ComputedLotBalance>();
 
-  for (const row of rows) {
-    if (!row.lotId) {
-      continue;
-    }
-
-    const key = balanceKey([row.locationId, row.lotId]);
+  function getCurrent(
+    row: {
+      locationId: string;
+      lotId: string | null;
+      itemId: string;
+    },
+    disposition: InventoryDisposition
+  ) {
+    if (!row.lotId) return null;
+    const key = balanceKey([row.locationId, row.itemId, row.lotId, disposition]);
     const current = computed.get(key) ?? {
       locationId: row.locationId,
       lotId: row.lotId,
       quantity: 0,
       itemId: row.itemId,
+      disposition,
     };
+
+    return { key, current };
+  }
+
+  for (const row of rows) {
+    if (!row.lotId) {
+      continue;
+    }
+
     const quantity = parseFloat(row.quantity);
 
     if (STOCK_INCREASE_TYPES.has(row.eventType)) {
+      const disposition =
+        (row.toDisposition ?? row.disposition ?? "available") as InventoryDisposition;
+      const target = getCurrent(row, disposition);
+      if (!target) continue;
+      const { key, current } = target;
       current.quantity = roundQuantity(current.quantity + quantity);
+      computed.set(key, current);
     } else if (STOCK_DECREASE_TYPES.has(row.eventType)) {
+      const disposition =
+        (row.fromDisposition ?? row.disposition ?? "available") as InventoryDisposition;
+      const target = getCurrent(row, disposition);
+      if (!target) continue;
+      const { key, current } = target;
       current.quantity = roundQuantity(current.quantity - quantity);
+      computed.set(key, current);
+    } else if (row.eventType === "quality_disposition_change") {
+      const fromDisposition =
+        (row.fromDisposition ?? "available") as InventoryDisposition;
+      const toDisposition =
+        (row.toDisposition ?? "available") as InventoryDisposition;
+      const source = getCurrent(row, fromDisposition);
+      const target = getCurrent(row, toDisposition);
+      if (source) {
+        source.current.quantity = roundQuantity(source.current.quantity - quantity);
+        computed.set(source.key, source.current);
+      }
+      if (target) {
+        target.current.quantity = roundQuantity(target.current.quantity + quantity);
+        computed.set(target.key, target.current);
+      }
+      continue;
     }
-
-    computed.set(key, current);
   }
 
   return computed;
@@ -454,7 +503,10 @@ export async function diffProjections(
     storedItems.map((row) => [balanceKey([row.locationId, row.itemId]), row])
   );
   const storedLotsByKey = new Map(
-    storedLots.map((row) => [balanceKey([row.locationId, row.lotId]), row])
+    storedLots.map((row) => [
+      balanceKey([row.locationId, row.itemId, row.lotId, row.disposition]),
+      row,
+    ])
   );
   const storedReservationsByKey = new Map(
     storedReservations.map((row) => [
@@ -477,15 +529,20 @@ export async function diffProjections(
   const storedLegacyLotsByKey = new Map(
     storedLegacyLots.map((row) => [row.lotId, row])
   );
-  const computedLotsByLotId = new Map(
-    [...computedLots.values()].map((row) => [row.lotId, row])
-  );
+  const computedLotsByLotId = new Map<string, ComputedLotBalance>();
+  for (const row of computedLots.values()) {
+    const current = computedLotsByLotId.get(row.lotId) ?? {
+      ...row,
+      disposition: "available",
+      quantity: 0,
+    };
+    current.quantity = roundQuantity(current.quantity + row.quantity);
+    computedLotsByLotId.set(row.lotId, current);
+  }
   const reservableOnHandByItemKey = new Map<BalanceKey, number>();
 
-  for (const [key, lot] of computedLots.entries()) {
-    const storedLot = storedLotsByKey.get(key);
-
-    if ((storedLot?.stockStatus ?? "available") !== "available" || lot.quantity <= 0) {
+  for (const lot of computedLots.values()) {
+    if (lot.disposition !== "available" || lot.quantity <= 0) {
       continue;
     }
 
@@ -587,6 +644,7 @@ export async function diffProjections(
         locationId: row?.locationId ?? "",
         lotId: row?.lotId ?? "",
         itemId: row?.itemId ?? "",
+        disposition: (row?.disposition ?? "available") as InventoryDisposition,
         quantity: 0,
       };
       const actual = normalizeNumeric(parseFloat(row?.quantity ?? "0"));
@@ -600,6 +658,7 @@ export async function diffProjections(
         locationId: row?.locationId ?? computed.locationId,
         lotId: row?.lotId ?? computed.lotId,
         itemId: row?.itemId ?? computed.itemId,
+        disposition: row?.disposition ?? computed.disposition,
         actual,
         expected,
       };

@@ -181,6 +181,7 @@ const ingredientActualSchema = z.object({
 
 export const completeManufacturingOrderSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity"),
+  outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
 });
 export type CompleteManufacturingOrder = z.infer<
@@ -189,6 +190,7 @@ export type CompleteManufacturingOrder = z.infer<
 
 export const completeManufacturingBatchSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity"),
+  outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
 });
 export type CompleteManufacturingBatch = z.infer<

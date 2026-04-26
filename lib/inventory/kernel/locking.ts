@@ -34,6 +34,8 @@ const INVENTORY_LOCK_SPECS: Record<InventoryOperationName, SourceLockSpec | null
   cancelManufacturingOrder: { table: "manufacturing_orders", required: true },
   manualIncreaseStock: null,
   manualDecreaseStock: null,
+  changeLotDisposition: null,
+  scrapLotDisposition: null,
   reconcileStocktakeCount: { table: "stocktakes", required: true },
   recordCostBasisChange: null,
   repairProjections: null,

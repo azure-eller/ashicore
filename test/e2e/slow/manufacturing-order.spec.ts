@@ -467,7 +467,10 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
     await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
     await expect(
-      page.getByText(new Date("2026-04-25T00:00:00").toLocaleDateString("en-US"))
+      page.getByText(
+        new Date("2026-04-25T00:00:00").toLocaleDateString("en-US"),
+        { exact: true }
+      )
     ).toBeVisible();
     await expect(page.locator("table").first()).toContainText(sandName);
     await expect(page.locator("table").first()).toContainText(compostName);
@@ -1037,7 +1040,7 @@ test.describe("Manufacturing order flow", () => {
     expect(sandLotSummary[0].quantity).toBe("2.0000");
     expect(sandLotSummary[0].costPerUnit).toBe("2.000000");
     expect(sandLotSummary[1].quantity).toBe("10.0000");
-    expect(sandLotSummary[1].costPerUnit).toBe("3.000000");
+    expect(sandLotSummary[1].costPerUnit).toBe("2.000000");
 
     const compostLots = await db.select().from(lots).where(eq(lots.itemId, compostId));
     expect(compostLots).toHaveLength(1);

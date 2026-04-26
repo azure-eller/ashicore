@@ -15,9 +15,9 @@ import {
   beginInventoryOperationInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
-  getCurrentOnHandQtyInTx,
+  getCurrentAvailableOnHandQtyInTx,
   lockItemsInTx,
-  projectedOnHandQty,
+  projectedReservableOnHandQtyExpr,
   reconcileStocktakeCountInTx,
 } from "@/lib/inventory/kernel";
 import {
@@ -165,7 +165,9 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
-      currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
+      currentQty: trimScale(
+        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+      ).as("currentQty"),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -500,7 +502,9 @@ export async function completeStocktake(
     const currentQtyByItemId = new Map<string, string>();
 
     for (const line of countedLines) {
-      const currentQty = normalizeNumeric(await getCurrentOnHandQtyInTx(tx, line.itemId));
+      const currentQty = normalizeNumeric(
+        await getCurrentAvailableOnHandQtyInTx(tx, line.itemId)
+      );
       currentQtyByItemId.set(line.itemId, currentQty);
 
       if (currentQty !== normalizeNumeric(parseFloat(line.expectedQty))) {

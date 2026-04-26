@@ -73,6 +73,14 @@ export class InsufficientStockError extends DomainError<{
   }
 }
 
+export class InventoryDispositionError extends DomainError<{
+  itemId?: string;
+  lotId?: string;
+  disposition?: string;
+  available?: number;
+  requested?: number;
+}> {}
+
 export class ProjectionDriftError extends DomainError<{
   deltas: Record<string, unknown>;
 }> {

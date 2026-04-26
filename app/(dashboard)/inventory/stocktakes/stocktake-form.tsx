@@ -220,9 +220,10 @@ export function StocktakeForm({
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>How It Works</FieldLegend>
             <FieldDescription>
-              The stocktake snapshots current stock for every active item in the
+              The stocktake snapshots available stock for every active item in the
               chosen scope. Blank counted quantities are left unchanged. Completing
-              the stocktake automatically applies counted totals back to live stock.
+              the stocktake automatically applies counted totals back to available
+              stock.
             </FieldDescription>
           </FieldSet>
         </FieldGroup>

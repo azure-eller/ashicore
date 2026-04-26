@@ -435,7 +435,7 @@ export function StocktakeDetail({
 
         {canEditCounts && liveCountedCount === 0 && (
           <p className="text-sm text-muted-foreground">
-            Enter at least one counted quantity before completing this stocktake.
+            Enter at least one available count before completing this stocktake.
           </p>
         )}
 
@@ -461,7 +461,7 @@ export function StocktakeDetail({
             <dd className="mt-1 text-sm">{stocktake.lines.length}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Counted</dt>
+            <dt className="text-sm font-medium text-muted-foreground">Available Count</dt>
             <dd className="mt-1 text-sm">
               {canEditCounts ? liveCountedCount : savedCountedCount} / {stocktake.lines.length}
             </dd>
@@ -489,10 +489,10 @@ export function StocktakeDetail({
         <div className="space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="space-y-1">
-              <h2 className="text-lg font-semibold tracking-tight">Counts</h2>
+              <h2 className="text-lg font-semibold tracking-tight">Available Counts</h2>
               <p className="text-sm text-muted-foreground">
-                Expected quantities are the snapshot taken when this stocktake was
-                created.
+                Count available stock only. Blocked and rejected stock stay managed
+                from lot disposition actions.
               </p>
             </div>
 
@@ -521,9 +521,9 @@ export function StocktakeDetail({
                   <TableHead>Item</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Expected</TableHead>
-                  <TableHead className="text-right">Counted</TableHead>
-                  <TableHead className="text-right">Variance</TableHead>
+                  <TableHead className="text-right">Available Snapshot</TableHead>
+                  <TableHead className="text-right">Available Count</TableHead>
+                  <TableHead className="text-right">Available Variance</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -633,8 +633,9 @@ export function StocktakeDetail({
           <DialogHeader>
             <DialogTitle>Complete with changed stock?</DialogTitle>
             <DialogDescription>
-              Some live stock changed after this stocktake was created. Completing now
-              will adjust from current live stock to the saved counted totals.
+              Some live available stock changed after this stocktake was created.
+              Completing now will adjust from current available stock to the saved
+              counted totals.
             </DialogDescription>
           </DialogHeader>
 
@@ -644,9 +645,9 @@ export function StocktakeDetail({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Snapshot</TableHead>
-                    <TableHead className="text-right">Current</TableHead>
-                    <TableHead className="text-right">Counted</TableHead>
+                    <TableHead className="text-right">Available Snapshot</TableHead>
+                    <TableHead className="text-right">Available Current</TableHead>
+                    <TableHead className="text-right">Available Count</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

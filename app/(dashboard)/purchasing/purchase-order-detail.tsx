@@ -43,6 +43,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
@@ -78,6 +86,7 @@ export function PurchaseOrderDetail({
       lines: order.lines.map((line) => ({
         lineId: line.id,
         quantityReceived: null,
+        disposition: "available",
       })),
     },
   });
@@ -87,6 +96,7 @@ export function PurchaseOrderDetail({
       lines: order.lines.map((line) => ({
         lineId: line.id,
         quantityReceived: null,
+        disposition: "available",
       })),
     });
   }, [order.lines, receiveForm, receiveOpen]);
@@ -463,7 +473,7 @@ export function PurchaseOrderDetail({
       </AlertDialog>
 
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
-        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground sm:max-w-4xl">
+        <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground">
           <DialogHeader>
             <DialogTitle>Receive Purchase Order</DialogTitle>
             <DialogDescription>
@@ -486,6 +496,7 @@ export function PurchaseOrderDetail({
                     <TableHead className="text-right">Received</TableHead>
                     <TableHead className="text-right">Remaining</TableHead>
                     <TableHead>Purchase Unit</TableHead>
+                    <TableHead className="w-44">Disposition</TableHead>
                     <TableHead className="w-44">Receive Now</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -521,6 +532,28 @@ export function PurchaseOrderDetail({
                             </p>
                           ) : null}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Controller
+                          control={receiveForm.control}
+                          name={`lines.${index}.disposition`}
+                          render={({ field, fieldState }) => (
+                            <Select
+                              value={field.value ?? "available"}
+                              onValueChange={field.onChange}
+                            >
+                              <SelectTrigger aria-invalid={fieldState.invalid}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  <SelectItem value="available">Available</SelectItem>
+                                  <SelectItem value="blocked">Blocked</SelectItem>
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
                       </TableCell>
                       <TableCell>
                         <Controller

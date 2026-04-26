@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
+  type InventoryDisposition,
   inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
@@ -25,6 +26,7 @@ export type LotBalanceDelta = {
   locationId: string;
   lotId: string;
   itemId: string;
+  disposition?: InventoryDisposition;
   quantityDelta: number;
   unitCost?: string | null;
   receivedAt?: Date;
@@ -52,6 +54,7 @@ type AggregatedLotBalanceDelta = {
   locationId: string;
   lotId: string;
   itemId: string;
+  disposition: InventoryDisposition;
   quantityDelta: number;
   unitCost?: string | null;
   receivedAt?: Date;
@@ -125,12 +128,20 @@ function aggregateLotBalanceDeltas(deltas: LotBalanceDelta[]) {
   const aggregated = new Map<string, AggregatedLotBalanceDelta>();
 
   for (const delta of deltas) {
-    const key = `${delta.organizationId}:${delta.locationId}:${delta.lotId}`;
+    const disposition = delta.disposition ?? "available";
+    const key = [
+      delta.organizationId,
+      delta.itemId,
+      delta.locationId,
+      delta.lotId,
+      disposition,
+    ].join(":");
     const current = aggregated.get(key) ?? {
       organizationId: delta.organizationId,
       locationId: delta.locationId,
       lotId: delta.lotId,
       itemId: delta.itemId,
+      disposition,
       quantityDelta: 0,
       unitCost: delta.unitCost,
       receivedAt: delta.receivedAt,
@@ -192,7 +203,7 @@ export async function recomputeAvailableToPromiseForItemsInTx(
             WHERE ${inventoryLotBalances.organizationId} = ${inventoryItemBalances.organizationId}
               AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
               AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
-              AND ${inventoryLotBalances.stockStatus} = 'available'
+              AND ${inventoryLotBalances.disposition} = 'available'
               AND ${inventoryLotBalances.quantity} > 0
           ), 0)
           - ${inventoryItemBalances.demandQty}
@@ -286,8 +297,10 @@ export async function applyLotBalanceDeltasInTx(tx: Tx, deltas: LotBalanceDelta[
       .where(
         and(
           eq(inventoryLotBalances.organizationId, delta.organizationId),
+          eq(inventoryLotBalances.itemId, delta.itemId),
           eq(inventoryLotBalances.locationId, delta.locationId),
-          eq(inventoryLotBalances.lotId, delta.lotId)
+          eq(inventoryLotBalances.lotId, delta.lotId),
+          eq(inventoryLotBalances.disposition, delta.disposition)
         )
       )
       .returning({ lotId: inventoryLotBalances.lotId });
@@ -313,6 +326,7 @@ export async function applyLotBalanceDeltasInTx(tx: Tx, deltas: LotBalanceDelta[
       locationId: delta.locationId,
       lotId: delta.lotId,
       itemId: delta.itemId,
+      disposition: delta.disposition,
       quantity: quantityDelta,
       unitCost: delta.unitCost ?? null,
       receivedAt: delta.receivedAt,

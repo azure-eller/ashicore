@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  type InventoryDisposition,
   inventoryExpectedSummary,
   items,
   purchaseOrderLines,
@@ -273,6 +274,7 @@ export async function receivePurchaseStockInTx(
       itemId: string;
       quantity: number;
       unitCost: string;
+      disposition?: Extract<InventoryDisposition, "available" | "blocked">;
       receivedAt?: Date;
     }>;
   }
@@ -351,6 +353,7 @@ export async function receivePurchaseStockInTx(
       itemId: line.itemId,
       quantity: line.quantity,
       unitCost: line.unitCost,
+      disposition: line.disposition ?? "available",
       eventType: "purchase_receipt",
       eventSubtype: "purchase_receive",
       referenceType: "purchase_order",

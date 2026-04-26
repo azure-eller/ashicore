@@ -23,6 +23,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
@@ -42,6 +50,8 @@ export type IngredientActualInput = {
   ingredientId: string;
   actualConsumedQuantity: string;
 };
+
+type OutputDispositionInput = "available" | "blocked";
 
 type CompleteDialogIngredient = {
   id: string;
@@ -69,14 +79,21 @@ function CompleteDialog({
   ingredients: CompleteDialogIngredient[];
   isCompleting: boolean;
   error: string | null;
-  onSubmit: (value: string, ingredientActuals: IngredientActualInput[]) => void;
+  onSubmit: (
+    value: string,
+    outputDisposition: OutputDispositionInput,
+    ingredientActuals: IngredientActualInput[]
+  ) => void;
 }) {
   const [actualQuantity, setActualQuantity] = useState(defaultActualQuantity);
+  const [outputDisposition, setOutputDisposition] =
+    useState<OutputDispositionInput>("available");
   const [actualsById, setActualsById] = useState<Record<string, string>>({});
 
   const handleConfirm = () => {
     onSubmit(
       actualQuantity,
+      outputDisposition,
       ingredients.map((ingredient) => ({
         ingredientId: ingredient.id,
         actualConsumedQuantity:
@@ -110,6 +127,28 @@ function CompleteDialog({
               value={actualQuantity}
               onChange={(event) => setActualQuantity(event.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="output-disposition">
+              Output Disposition
+            </label>
+            <Select
+              value={outputDisposition}
+              onValueChange={(value) =>
+                setOutputDisposition(value as OutputDispositionInput)
+              }
+            >
+              <SelectTrigger id="output-disposition">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="available">Available</SelectItem>
+                  <SelectItem value="blocked">Blocked</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
 
           {isBatchMode && ingredients.length > 0 && (
@@ -267,6 +306,7 @@ export function ManufacturingExecution({
   const completeOrderMutation = useMutation({
     mutationFn: async (input: {
       actualQuantity: string;
+      outputDisposition: OutputDispositionInput;
       ingredientActuals: IngredientActualInput[];
     }) => {
       const response = await fetch(`/api/manufacturing-orders/${execution.id}/complete`, {
@@ -276,6 +316,7 @@ export function ManufacturingExecution({
         }),
         body: JSON.stringify({
           actualQuantity: input.actualQuantity,
+          outputDisposition: input.outputDisposition,
           ingredientActuals: input.ingredientActuals,
         }),
       });
@@ -299,6 +340,7 @@ export function ManufacturingExecution({
   const completeBatchMutation = useMutation({
     mutationFn: async (input: {
       actualQuantity: string;
+      outputDisposition: OutputDispositionInput;
       ingredientActuals: IngredientActualInput[];
     }) => {
       if (!execution.currentBatchId) {
@@ -314,6 +356,7 @@ export function ManufacturingExecution({
           }),
           body: JSON.stringify({
             actualQuantity: input.actualQuantity,
+            outputDisposition: input.outputDisposition,
             ingredientActuals: input.ingredientActuals,
           }),
         }
@@ -579,10 +622,11 @@ export function ManufacturingExecution({
           }))}
           isCompleting={isCompleting}
           error={completeError}
-          onSubmit={(value, ingredientActuals) => {
+          onSubmit={(value, outputDisposition, ingredientActuals) => {
             if (execution.manufacturingMode === "batch") {
               completeBatchMutation.mutate({
                 actualQuantity: value,
+                outputDisposition,
                 ingredientActuals,
               });
               return;
@@ -590,6 +634,7 @@ export function ManufacturingExecution({
 
             completeOrderMutation.mutate({
               actualQuantity: value,
+              outputDisposition,
               ingredientActuals,
             });
           }}

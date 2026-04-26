@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ItemDetailActions } from "./item-detail-actions";
+import { LotDispositionActions } from "./lot-disposition-actions";
 import {
   Tooltip,
   TooltipContent,
@@ -19,7 +20,13 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, itemDetailHref, type ItemType } from "@/app/(dashboard)/inventory/types";
-import { formatCost, formatPrice, formatMovementType, formatQuantity } from "@/lib/format";
+import {
+  formatCost,
+  formatInventoryDisposition,
+  formatMovementType,
+  formatPrice,
+  formatQuantity,
+} from "@/lib/format";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
@@ -82,6 +89,10 @@ interface ItemDetailProps {
     quantity: string;
     costPerUnit: string | null;
     receivedAt: Date;
+    dispositionBalances: Array<{
+      disposition: "available" | "blocked" | "rejected";
+      quantity: string;
+    }>;
   }[];
   movements: {
     id: string;
@@ -443,7 +454,7 @@ export function ItemDetail({
         {!isMaster && (
         <>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Stock</dt>
+          <dt className="text-sm font-medium text-muted-foreground">Physical Stock</dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.stock)} {item.unitName}</dd>
         </div>
         <div>
@@ -650,18 +661,52 @@ export function ItemDetail({
               <TableHeader>
                 <TableRow>
                   <TableHead>Lot Number</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Physical</TableHead>
+                  <TableHead>Disposition</TableHead>
                   <TableHead className="text-right">Cost / Unit</TableHead>
                   <TableHead className="text-right">Received</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {lots.map((lot) => (
                   <TableRow key={lot.id}>
                     <TableCell className="font-mono">{lot.lotNumber}</TableCell>
-                    <TableCell className="text-right">{lot.quantity}</TableCell>
+                    <TableCell className="text-right">{formatQuantity(lot.quantity)}</TableCell>
+                    <TableCell>
+                      {lot.dispositionBalances.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {lot.dispositionBalances.map((balance) => (
+                            <div
+                              key={`${lot.id}-${balance.disposition}`}
+                              className="flex items-center justify-between gap-3"
+                            >
+                              <span>{formatInventoryDisposition(balance.disposition)}</span>
+                              <span className="font-mono text-muted-foreground">
+                                {formatQuantity(balance.quantity)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        "\u2014"
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{formatCost(lot.costPerUnit) ?? "\u2014"}</TableCell>
                     <TableCell className="text-right">{lot.receivedAt.toLocaleDateString("en-US")}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-2">
+                        {lot.dispositionBalances.map((balance) => (
+                          <LotDispositionActions
+                            key={`${lot.id}-${balance.disposition}-actions`}
+                            itemId={item.id}
+                            lotId={lot.id}
+                            fromDisposition={balance.disposition}
+                            maxQuantity={balance.quantity}
+                          />
+                        ))}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

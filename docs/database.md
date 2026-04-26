@@ -207,6 +207,26 @@ use this workflow before calling the change done:
 
 Run `pnpm verify:inventory` after the tests you want to validate. It depends on the latest Playwright global setup having refreshed `test/.test-env.json`.
 
+## Inventory Disposition
+
+Inventory lot balances include disposition as part of their grain:
+
+```text
+organizationId + itemId + locationId + lotId + disposition
+```
+
+V1 dispositions are `available`, `blocked`, and `rejected`.
+
+Physical on-hand and `lots.quantity` include every disposition. Available stock, ATP, FIFO consumption, sales shipment, and manufacturing material picking use only `available` lot balances. Blocked and rejected stock remains physically visible but cannot be promised or consumed by normal flows.
+
+Purchase receipts and manufacturing output may create `available` or `blocked` stock. Disposition decisions use kernel operations, not direct quantity mutation:
+
+- `quality_disposition_change` moves quantity between lot-balance disposition buckets.
+- `quality_scrap` removes physical quantity from a specific disposition bucket.
+- `quality_disposition_events` records the decision and links back to the inventory event.
+
+Mobile-facing stock writes must carry idempotency keys so retries do not duplicate receipts, releases, rejects, or scrap.
+
 ## Purchasing
 
 Purchasing uses the same header/line snapshot pattern as sales and manufacturing:

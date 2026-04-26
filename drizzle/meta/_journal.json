@@ -344,6 +344,13 @@
       "when": 1777057859253,
       "tag": "0048_tired_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1777149384075,
+      "tag": "0049_safe_shotgun",
+      "breakpoints": true
     }
   ]
 }

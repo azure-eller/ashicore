@@ -832,6 +832,7 @@ export async function receivePurchaseOrder(
         line: existingLine,
         quantityReceived,
         stockQuantityReceived,
+        disposition: line.disposition,
       };
     });
 
@@ -894,6 +895,7 @@ export async function receivePurchaseOrder(
         itemId: entry.line.itemId,
         quantity: entry.stockQuantityReceived,
         unitCost: entry.line.stockUnitCost,
+        disposition: entry.disposition,
       })),
     });
 

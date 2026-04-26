@@ -108,6 +108,7 @@ Receiving is lot-backed and positive-only:
 
 - each non-zero received line creates one new internal lot
 - lot quantity = received quantity
+- lot disposition may be `available` or `blocked`; default is `available`
 - lot cost per unit = purchase-order line unit cost
 - one `purchase_receipt` inventory event is written per received lot
 - receiving also emits `expected_release` for the received remainder and flushes the item/expected projections in the same transaction

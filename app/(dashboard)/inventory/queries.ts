@@ -7,7 +7,9 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle
 import {
   bomRevisionComponents,
   bomRevisions,
+  type InventoryDisposition,
   inventoryEvents,
+  inventoryLotBalances,
   items,
   lots,
   manufacturingOrderIngredients,
@@ -21,7 +23,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { formatVariantDisplay } from "@/lib/format";
+import { formatVariantDisplay, normalizeNumeric } from "@/lib/format";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
@@ -33,6 +35,7 @@ import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
+  changeLotDispositionInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   getCurrentOnHandQtyInTx,
@@ -44,17 +47,18 @@ import {
   projectedCommittedQty,
   projectedDemandQty,
   projectedExpectedQty,
-  projectedLotQuantity,
   projectedLotUnitCost,
   projectedOnHandQty,
   projectedShortageQty,
   recordCostBasisChangeInTx,
+  scrapLotDispositionInTx,
 } from "@/lib/inventory/kernel";
 import {
   normalizeStockUnitCost,
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
+import type { QualityDispositionAction } from "@/lib/schemas/inventory-disposition";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
@@ -1348,17 +1352,115 @@ export async function getCategories(): Promise<string[]> {
 
 export async function getLots(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
-    return tx
+    const rows = await tx
       .select({
         id: lots.id,
         lotNumber: lots.lotNumber,
-        quantity: projectedLotQuantity(lots.organizationId, lots.id).as("quantity"),
+        balanceQuantity: trimScaleNullable(inventoryLotBalances.quantity).as(
+          "balanceQuantity"
+        ),
+        disposition: inventoryLotBalances.disposition,
         costPerUnit: projectedLotUnitCost(lots.organizationId, lots.id).as("costPerUnit"),
         receivedAt: lots.receivedAt,
       })
       .from(lots)
+      .leftJoin(
+        inventoryLotBalances,
+        and(
+          eq(inventoryLotBalances.organizationId, lots.organizationId),
+          eq(inventoryLotBalances.itemId, lots.itemId),
+          eq(inventoryLotBalances.lotId, lots.id),
+          sql`${inventoryLotBalances.quantity} > 0`
+        )
+      )
       .where(eq(lots.itemId, itemId))
       .orderBy(lots.receivedAt);
+
+    const byLot = new Map<
+      string,
+      {
+        id: string;
+        lotNumber: string;
+        quantity: string;
+        costPerUnit: string | null;
+        receivedAt: Date;
+        dispositionBalances: Array<{
+          disposition: InventoryDisposition;
+          quantity: string;
+        }>;
+      }
+    >();
+
+    for (const row of rows) {
+      const current = byLot.get(row.id) ?? {
+        id: row.id,
+        lotNumber: row.lotNumber,
+        quantity: "0",
+        costPerUnit: row.costPerUnit,
+        receivedAt: row.receivedAt,
+        dispositionBalances: [],
+      };
+
+      if (row.disposition && row.balanceQuantity != null) {
+        current.dispositionBalances.push({
+          disposition: row.disposition as InventoryDisposition,
+          quantity: row.balanceQuantity,
+        });
+        current.quantity = normalizeNumeric(
+          parseFloat(current.quantity) + parseFloat(row.balanceQuantity)
+        );
+      }
+
+      byLot.set(row.id, current);
+    }
+
+    return [...byLot.values()];
+  });
+}
+
+function dispositionForAction(
+  action: QualityDispositionAction["action"]
+): InventoryDisposition | null {
+  if (action === "release") return "available";
+  if (action === "block") return "blocked";
+  if (action === "reject") return "rejected";
+  return null;
+}
+
+export async function applyLotDispositionAction(
+  itemId: string,
+  lotId: string,
+  action: QualityDispositionAction,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const quantity = Number(action.quantity);
+    const toDisposition = dispositionForAction(action.action);
+
+    if (toDisposition == null) {
+      return scrapLotDispositionInTx(tx, {
+        organizationId: orgId,
+        itemId,
+        lotId,
+        fromDisposition: action.fromDisposition,
+        quantity,
+        actorUserId: userId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        notes: action.notes,
+      });
+    }
+
+    return changeLotDispositionInTx(tx, {
+      organizationId: orgId,
+      itemId,
+      lotId,
+      fromDisposition: action.fromDisposition,
+      toDisposition,
+      quantity,
+      actorUserId: userId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      notes: action.notes,
+    });
   });
 }
 
@@ -1375,6 +1477,8 @@ export async function getStockMovements(itemId: string) {
           WHEN ${inventoryEvents.eventType} = 'manufacturing_ingredient_consumption' THEN 'manufacturing_picked'
           WHEN ${inventoryEvents.eventType} IN ('manufacturing_variance_loss', 'manufacturing_variance_gain') THEN 'manufacturing_variance'
           WHEN ${inventoryEvents.eventType} IN ('stocktake_gain', 'stocktake_loss', 'stocktake_verification') THEN 'stocktake_adjustment'
+          WHEN ${inventoryEvents.eventType} = 'quality_disposition_change' THEN 'quality_disposition'
+          WHEN ${inventoryEvents.eventType} = 'quality_scrap' THEN 'quality_scrap'
           ELSE 'manual_adjustment'
         END`.as("movementType"),
         referenceType: sql<string | null>`CASE
@@ -1410,6 +1514,8 @@ export async function getStockMovements(itemId: string) {
             "manufacturing_variance_loss",
             "unpick_restock",
             "stocktake_verification",
+            "quality_disposition_change",
+            "quality_scrap",
           ])
         )
       )

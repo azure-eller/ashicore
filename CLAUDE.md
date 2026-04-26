@@ -598,6 +598,10 @@ await createPositiveLotAndMovementInTx(tx, {
 })
 ```
 
+### Inventory disposition
+
+Lot balances are keyed by `organizationId + itemId + locationId + lotId + disposition`. Physical on-hand sums all dispositions; available/ATP/FIFO use only `available`. Receipts and MO output may create `available` or `blocked`. Release/block/reject/scrap must go through the inventory kernel and write `quality_disposition_events`.
+
 ### Stock and aggregate locking
 
 Any mutation that changes lot stock, `items.committedQty`, or `items.expectedQty` must lock affected `items` rows first. FIFO deductions must also lock candidate lot rows before reading balances.

@@ -1,4 +1,4 @@
-import type { InventoryEventType } from "@/lib/db/schema";
+import type { InventoryDisposition, InventoryEventType } from "@/lib/db/schema";
 
 export const INVENTORY_OPERATION_NAMES = [
   "seedOpeningBalance",
@@ -19,6 +19,8 @@ export const INVENTORY_OPERATION_NAMES = [
   "cancelManufacturingOrder",
   "manualIncreaseStock",
   "manualDecreaseStock",
+  "changeLotDisposition",
+  "scrapLotDisposition",
   "reconcileStocktakeCount",
   "recordCostBasisChange",
   "repairProjections",
@@ -36,6 +38,9 @@ export type InventoryEventInput = {
   quantity: string;
   unitCost?: string | null;
   extendedCost?: string | null;
+  disposition?: InventoryDisposition | null;
+  fromDisposition?: InventoryDisposition | null;
+  toDisposition?: InventoryDisposition | null;
   referenceType?: string | null;
   referenceId?: string | null;
   parentEventId?: string | null;
