@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import {
   items,
   salesOrderLines,
@@ -152,6 +152,7 @@ export async function evaluateSalesImportInTx(
     .select({
       id: salesOrders.id,
       orderNumber: salesOrders.orderNumber,
+      status: salesOrders.status,
       customerName: salesOrders.customerName,
       requestedDate: salesOrders.requestedDate,
       notes: salesOrders.notes,
@@ -163,9 +164,7 @@ export async function evaluateSalesImportInTx(
     .from(salesOrders)
     .leftJoin(salesOrderLines, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .leftJoin(items, eq(items.id, salesOrderLines.itemId))
-    // Only draft orders are eligible to be overwritten by re-import.
-    // Confirmed/shipped/cancelled orders are historical and stay untouched.
-    .where(and(isNull(salesOrders.deletedAt), eq(salesOrders.status, "draft")));
+    .where(isNull(salesOrders.deletedAt));
 
   const existingOrdersById = new Map<
     string,
@@ -184,6 +183,7 @@ export async function evaluateSalesImportInTx(
       {
         id: row.id,
         orderNumber: row.orderNumber,
+        status: row.status,
         customerName: row.customerName,
         requestedDate: row.requestedDate,
         notes: row.notes,
@@ -205,6 +205,7 @@ export async function evaluateSalesImportInTx(
   const existingOrders = [...existingOrdersById.values()].map((order) => ({
     id: order.id,
     orderNumber: order.orderNumber,
+    status: order.status,
     customerName: order.customerName,
     requestedDate: order.requestedDate,
     notes: order.notes,
@@ -355,6 +356,18 @@ export async function evaluateSalesImportInTx(
     const existingOrder =
       existingOrdersByMarker.get(marker) ?? existingOrdersBySignature.get(signature) ?? null;
 
+    if (existingOrder && existingOrder.status !== "draft") {
+      orders.push({
+        kind: "skipped",
+        label,
+        sourceRows: order.sourceRows,
+        issues: [
+          `Existing order ${existingOrder.orderNumber} is ${existingOrder.status}; import leaves non-draft orders untouched.`,
+        ],
+      });
+      continue;
+    }
+
     orders.push({
       kind: "ready",
       label: readyLabel,
@@ -414,6 +427,28 @@ export async function applySalesImportOrdersInTx(
             label: order.label,
             sourceRows: order.sourceRows,
             issues: ["No mapped lines to write; existing order left untouched."],
+          });
+          continue;
+        }
+
+        const [lockedOrder] = await tx
+          .select({
+            orderNumber: salesOrders.orderNumber,
+            status: salesOrders.status,
+          })
+          .from(salesOrders)
+          .where(eq(salesOrders.id, order.existingId))
+          .for("update");
+
+        if (!lockedOrder || lockedOrder.status !== "draft") {
+          report.skippedOrders.push({
+            label: order.label,
+            sourceRows: order.sourceRows,
+            issues: [
+              lockedOrder
+                ? `Existing order ${lockedOrder.orderNumber} is ${lockedOrder.status}; import leaves non-draft orders untouched.`
+                : "Existing order could not be locked; it may have been deleted.",
+            ],
           });
           continue;
         }

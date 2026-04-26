@@ -85,6 +85,7 @@ export type ExistingCustomer = {
 export type ExistingSalesOrder = {
   id: string;
   orderNumber: string;
+  status: string;
   customerName: string;
   requestedDate: string | null;
   notes: string | null;
@@ -254,5 +255,6 @@ export type LoaderConfig = {
   initialStockByKey: Record<string, string>;
   openingLotPrefix: string;
   internalOnlyProductCategories?: Set<string>;
+  bomRevisionNote?: string;
   salesImport?: SalesImportConfig;
 };

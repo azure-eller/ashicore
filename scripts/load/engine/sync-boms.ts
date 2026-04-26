@@ -52,6 +52,8 @@ export async function createLoaderBomRevisionInTx(
     orgId: string;
     productId: string;
     bom: BomSeedRow[];
+    createdBy: string;
+    note: string;
   }
 ) {
   const [currentRevision] = await tx
@@ -79,8 +81,8 @@ export async function createLoaderBomRevisionInTx(
       productId: params.productId,
       revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
       isCurrent: true,
-      note: "Managed by Paonia loader",
-      createdBy: "paonia-loader",
+      note: params.note,
+      createdBy: params.createdBy,
     })
     .returning({ id: bomRevisions.id });
 
@@ -178,7 +180,9 @@ export async function applyBomsSyncInTx(
   seeds: ItemSeed[],
   orgId: string,
   itemIdByKey: Map<string, string>,
-  report: Report
+  report: Report,
+  createdBy: string,
+  revisionNote: string
 ) {
   const managedBomSeeds = getManagedProductSeedsWithBom(seeds);
   const managedBomItemIds = managedBomSeeds
@@ -230,6 +234,8 @@ export async function applyBomsSyncInTx(
       orgId,
       productId: itemId,
       bom: nextRows,
+      createdBy,
+      note: revisionNote,
     });
     report.syncedBoms.push(seed.name);
   }

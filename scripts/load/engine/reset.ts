@@ -1,8 +1,14 @@
 import { sql } from "drizzle-orm";
-import { withOrgContext } from "@/lib/db/with-org-context";
+import { Pool as NeonPool } from "@neondatabase/serverless";
+import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
+import { Pool as PgPool } from "pg";
+import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
+import type { db as appDb } from "@/lib/db";
+import * as schema from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export type ResetCounts = Array<{ table: string; rows: number }>;
+type AppDb = typeof appDb;
 
 type CountStep = {
   table: string;
@@ -455,8 +461,48 @@ const STEPS: CountStep[] = [
   },
 ];
 
+function createResetDb(): { db: AppDb; close: () => Promise<void> } {
+  const connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is required for reset because reset deletes append-only inventory events."
+    );
+  }
+
+  if (connectionString.includes(".neon.tech")) {
+    const pool = new NeonPool({ connectionString });
+    return {
+      db: drizzleNeon({ client: pool, schema }) as unknown as AppDb,
+      close: () => pool.end(),
+    };
+  }
+
+  const pool = new PgPool({ connectionString });
+  return {
+    db: drizzlePg({ client: pool, schema }) as unknown as AppDb,
+    close: () => pool.end(),
+  };
+}
+
+async function withResetOrgContext<T>(
+  orgId: string,
+  callback: (tx: Tx) => Promise<T>
+): Promise<T> {
+  const resetDb = createResetDb();
+
+  try {
+    return await resetDb.db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
+      return callback(tx as unknown as Tx);
+    });
+  } finally {
+    await resetDb.close();
+  }
+}
+
 export async function previewReset(orgId: string): Promise<ResetCounts> {
-  return withOrgContext(orgId, async (tx) => {
+  return withResetOrgContext(orgId, async (tx) => {
     const counts: ResetCounts = [];
     for (const step of STEPS) {
       counts.push({ table: step.table, rows: await step.count(tx, orgId) });
@@ -466,7 +512,7 @@ export async function previewReset(orgId: string): Promise<ResetCounts> {
 }
 
 export async function applyReset(orgId: string): Promise<ResetCounts> {
-  return withOrgContext(orgId, async (tx) => {
+  return withResetOrgContext(orgId, async (tx) => {
     const counts: ResetCounts = [];
     for (const step of STEPS) {
       const rows = await step.count(tx, orgId);

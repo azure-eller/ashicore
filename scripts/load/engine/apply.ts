@@ -60,7 +60,15 @@ export async function applyChanges(
       config.internalOnlyProductCategories
     );
 
-    await applyBomsSyncInTx(tx, config.seeds, orgId, itemIdByKey, report);
+    await applyBomsSyncInTx(
+      tx,
+      config.seeds,
+      orgId,
+      itemIdByKey,
+      report,
+      actorUserId,
+      config.bomRevisionNote ?? "Managed by data loader"
+    );
 
     await applyStockSyncInTx(
       tx,
