@@ -405,15 +405,18 @@ export async function pushSalesOrderToXero(
   if (data.order.xeroInvoiceId) {
     invoiceId = data.order.xeroInvoiceId;
     invoiceNumber = data.order.xeroInvoiceNumber ?? data.order.orderNumber;
-    if (data.order.xeroPushPayloadHash !== payloadHash) {
-      await persistPushSuccess(
-        orgId,
-        orderId,
-        invoiceId,
-        invoiceNumber,
-        payloadHash
-      );
-    }
+    // Always re-stamp success state. The cron forces xero_push_status to
+    // 'failed' on rows it wants retried; reaching this branch means the
+    // Xero invoice still exists by reference, so the row should land at
+    // 'pushed' regardless of the prior status. A hash-only compare would
+    // skip the persist and leave a stuck 'failed' status.
+    await persistPushSuccess(
+      orgId,
+      orderId,
+      invoiceId,
+      invoiceNumber,
+      payloadHash
+    );
   } else {
     const existing = await findXeroInvoiceForSalesOrder(
       orgId,

@@ -70,14 +70,20 @@ async function persistTokenSet(
     .where(eq(xeroConnections.organizationId, orgId));
 }
 
-function tokenSetToPersistable(tokenSet: {
-  access_token?: string;
-  refresh_token?: string;
-  expires_at?: number;
-  expires_in?: number;
-}) {
+function tokenSetToPersistable(
+  tokenSet: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_at?: number;
+    expires_in?: number;
+  },
+  fallbackRefreshToken?: string
+) {
   const accessToken = tokenSet.access_token;
-  const refreshToken = tokenSet.refresh_token;
+  // Xero rotates refresh tokens on every refresh, but a few OAuth flows
+  // don't return a new one when nothing changed. Fall back to the old
+  // refresh token so we don't accidentally throw away a still-valid grant.
+  const refreshToken = tokenSet.refresh_token ?? fallbackRefreshToken;
 
   if (!accessToken || !refreshToken) {
     throw new XeroError("Xero returned an incomplete token set.", 502);
@@ -88,6 +94,56 @@ function tokenSetToPersistable(tokenSet: {
     : new Date(Date.now() + (tokenSet.expires_in ?? 1800) * 1000);
 
   return { accessToken, refreshToken, expiresAt };
+}
+
+/** Xero access tokens live ~30 min. Refresh proactively at the 25-min mark
+ *  so callers never race against expiry, and a transient failure has a
+ *  ~5-min retry window before the access token actually dies. */
+const PROACTIVE_REFRESH_THRESHOLD_SECONDS = 5 * 60;
+
+function isPermanentRefreshFailure(error: unknown): boolean {
+  // openid-client surfaces token-endpoint errors with `error: "invalid_grant"`
+  // when the refresh token has been revoked, used twice, or expired. Anything
+  // else (network blips, 5xx, timeouts) is treated as transient — we do NOT
+  // tell the user to reconnect on those.
+  const code =
+    (error as { error?: string })?.error ??
+    (error as { code?: string })?.code;
+  if (code === "invalid_grant") return true;
+
+  const status =
+    (error as { response?: { statusCode?: number } })?.response?.statusCode ??
+    (error as { statusCode?: number })?.statusCode;
+  // Some OAuth servers return 400 with an invalid_grant body; others surface
+  // it as 401. Treat both as permanent only if we couldn't see the code.
+  if (code == null && (status === 400 || status === 401)) return true;
+
+  return false;
+}
+
+async function refreshWithRetry(
+  client: XeroClient,
+  fallbackRefreshToken: string
+) {
+  // xero-node's refreshToken() is the one method that doesn't lazy-init
+  // the underlying openid-client. Without explicit initialize(), the
+  // refresh call throws `Cannot read properties of undefined (reading
+  // 'refresh')`. Other methods (apiCallback, buildConsentUrl, ...) all
+  // call initialize() internally, so this is a known SDK gap, not a
+  // race in our code.
+  await client.initialize();
+
+  try {
+    const refreshed = await client.refreshToken();
+    return tokenSetToPersistable(refreshed, fallbackRefreshToken);
+  } catch (error) {
+    if (isPermanentRefreshFailure(error)) throw error;
+    // Transient — one retry after a short backoff. Keeps us resilient to
+    // network blips without amplifying real outages.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const refreshed = await client.refreshToken();
+    return tokenSetToPersistable(refreshed, fallbackRefreshToken);
+  }
 }
 
 /**
@@ -122,18 +178,50 @@ export async function getAuthedXeroClient(orgId: string): Promise<{
       scope: REQUIRED_SCOPES.join(" "),
     });
 
-    const shouldRefresh = expiresInSeconds <= 60;
+    const shouldRefresh =
+      expiresInSeconds <= PROACTIVE_REFRESH_THRESHOLD_SECONDS;
 
     if (shouldRefresh) {
       try {
-        const refreshed = await client.refreshToken();
-        const persistable = tokenSetToPersistable(refreshed);
+        const persistable = await refreshWithRetry(
+          client,
+          existing.refreshToken
+        );
         await persistTokenSet(tx, orgId, persistable);
       } catch (error) {
+        // Surface the actual reason in the server log so we never debug
+        // blind again. Error fields are non-enumerable so plain redaction
+        // leaves us with `{}`; pull the useful pieces explicitly.
+        console.error("Xero token refresh failed:", {
+          message: (error as Error)?.message,
+          name: (error as Error)?.name,
+          oauthError: (error as { error?: string })?.error,
+          oauthErrorDescription: (error as { error_description?: string })
+            ?.error_description,
+          status:
+            (error as { response?: { statusCode?: number } })?.response
+              ?.statusCode ?? (error as { statusCode?: number })?.statusCode,
+          body: redactXeroError(
+            (error as { response?: { body?: unknown } })?.response?.body ??
+              (error as { body?: unknown })?.body
+          ),
+        });
+
+        if (isPermanentRefreshFailure(error)) {
+          throw new XeroError(
+            "Xero refresh token is no longer valid. Reconnect Xero in settings.",
+            401,
+            { validationErrors: extractValidationErrors(error) }
+          );
+        }
+
+        // Transient. The stored access token might still work for the next
+        // ~5 min thanks to the proactive refresh window. Surface as 503
+        // (try again) instead of 401 so the UI doesn't push the user toward
+        // a needless reconnect.
         throw new XeroError(
-          "Failed to refresh the Xero access token. Reconnect Xero in settings.",
-          401,
-          { validationErrors: extractValidationErrors(error) }
+          "Could not reach Xero to refresh the access token. Try again in a moment.",
+          503
         );
       }
     }

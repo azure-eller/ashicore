@@ -1,7 +1,8 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
+  organization,
   purchaseOrders,
   salesOrders,
   xeroConnections,
@@ -43,10 +44,27 @@ export type XeroRetrySummary = {
 };
 
 async function listConnectedOrgs(): Promise<string[]> {
-  const rows = await db
-    .select({ orgId: xeroConnections.organizationId })
-    .from(xeroConnections);
-  return rows.map((row) => row.orgId);
+  // The xero schema has RLS, and the app role can't read across orgs
+  // without `app.current_org_id` set. Walk the RLS-free `organization`
+  // table instead and per-org probe inside withOrgContext.
+  const orgs = await db
+    .select({ id: organization.id })
+    .from(organization)
+    .orderBy(asc(organization.createdAt));
+
+  const connected: string[] = [];
+  for (const { id } of orgs) {
+    const hasConnection = await withOrgContext(id, async (tx) => {
+      const [row] = await tx
+        .select({ orgId: xeroConnections.organizationId })
+        .from(xeroConnections)
+        .where(eq(xeroConnections.organizationId, id))
+        .limit(1);
+      return row != null;
+    });
+    if (hasConnection) connected.push(id);
+  }
+  return connected;
 }
 
 async function listFailedSalesOrders(orgId: string): Promise<string[]> {

@@ -35,6 +35,11 @@ function classifyError(error: unknown): TestResult {
     if (error.status === 403) {
       return { state: "missing_scope", message: error.message };
     }
+    if (error.status === 503) {
+      // Transient — Xero unreachable, refresh blip, etc. Don't push the
+      // user toward a reconnect they don't need.
+      return { state: "unknown_error", message: error.message };
+    }
     return { state: "unknown_error", message: error.message };
   }
 
