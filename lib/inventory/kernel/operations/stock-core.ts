@@ -11,7 +11,7 @@ import {
   items,
   lots,
 } from "@/lib/db/schema";
-import { getCurrentActiveBomIngredientsInTx } from "@/lib/bom/revisions";
+import { getCurrentActiveBomIngredientsInTx } from "@/lib/bom/active-ingredients";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   applyItemBalanceDeltasInTx,
