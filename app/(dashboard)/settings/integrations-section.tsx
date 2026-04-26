@@ -145,6 +145,28 @@ function XeroRow({
       | "unknown_error";
     message: string;
   } | null>(null);
+  const [pendingTenantId, setPendingTenantId] = useState(
+    connection?.tenantId ?? ""
+  );
+
+  const switchTenantMutation = useMutation({
+    mutationFn: async (tenantId: string) => {
+      const res = await fetch("/api/xero/switch-tenant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to switch tenant.");
+      }
+    },
+    onSuccess: () => {
+      setFormError(null);
+      router.refresh();
+    },
+    onError: (err) => setFormError((err as Error).message),
+  });
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -307,6 +329,47 @@ function XeroRow({
                     : "—"}
                 </span>
               )}
+            </div>
+          ) : null}
+
+          {canManageConnection &&
+          (connection?.authorizedTenants?.length ?? 0) > 1 ? (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-foreground">
+                Active Xero organisation
+              </h3>
+              <div className="flex flex-wrap items-center gap-3">
+                <Select
+                  value={pendingTenantId}
+                  onValueChange={setPendingTenantId}
+                >
+                  <SelectTrigger className="max-w-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {connection?.authorizedTenants.map((tenant) => (
+                      <SelectItem key={tenant.tenantId} value={tenant.tenantId}>
+                        {tenant.tenantName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => switchTenantMutation.mutate(pendingTenantId)}
+                  disabled={
+                    switchTenantMutation.isPending ||
+                    pendingTenantId === connection?.tenantId
+                  }
+                >
+                  {switchTenantMutation.isPending ? "Switching…" : "Switch"}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Pushes go to this organisation. Token already covers all
+                  authorised tenants — no re-OAuth needed to swap.
+                </span>
+              </div>
             </div>
           ) : null}
 

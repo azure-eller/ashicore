@@ -1,6 +1,7 @@
 import {
   boolean,
   index,
+  jsonb,
   pgPolicy,
   pgSchema,
   text,
@@ -8,6 +9,11 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+export type XeroAuthorizedTenant = {
+  tenantId: string;
+  tenantName: string;
+};
 
 export const xeroSchema = pgSchema("xero");
 
@@ -18,6 +24,10 @@ export const xeroConnections = xeroSchema
       organizationId: text("organization_id").primaryKey(),
       tenantId: text("tenant_id").notNull(),
       tenantName: text("tenant_name").notNull(),
+      authorizedTenants: jsonb("authorized_tenants")
+        .$type<XeroAuthorizedTenant[]>()
+        .notNull()
+        .default(sql`'[]'::jsonb`),
       accessToken: text("access_token").notNull(),
       refreshToken: text("refresh_token").notNull(),
       tokenExpiresAt: timestamp("token_expires_at").notNull(),

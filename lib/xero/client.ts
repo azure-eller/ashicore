@@ -183,6 +183,7 @@ export async function upsertXeroConnection(
     accessToken: string;
     refreshToken: string;
     expiresAt: Date;
+    authorizedTenants: Array<{ tenantId: string; tenantName: string }>;
   }
 ) {
   await withOrgContext(orgId, async (tx) => {
@@ -195,6 +196,7 @@ export async function upsertXeroConnection(
         accessToken: params.accessToken,
         refreshToken: params.refreshToken,
         tokenExpiresAt: params.expiresAt,
+        authorizedTenants: params.authorizedTenants,
       })
       .onConflictDoUpdate({
         target: xeroConnections.organizationId,
@@ -204,6 +206,7 @@ export async function upsertXeroConnection(
           accessToken: params.accessToken,
           refreshToken: params.refreshToken,
           tokenExpiresAt: params.expiresAt,
+          authorizedTenants: params.authorizedTenants,
           updatedAt: new Date(),
         },
       });

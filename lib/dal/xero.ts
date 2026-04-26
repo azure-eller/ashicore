@@ -16,6 +16,7 @@ export type XeroConnectionSummary = {
   purchaseOrderDefaultAccountCode: string | null;
   purchaseOrderDefaultTaxType: string | null;
   purchaseOrderStatusPreference: string;
+  authorizedTenants: Array<{ tenantId: string; tenantName: string }>;
   updatedAt: Date;
 };
 
@@ -31,6 +32,7 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     purchaseOrderDefaultAccountCode: row.purchaseOrderDefaultAccountCode,
     purchaseOrderDefaultTaxType: row.purchaseOrderDefaultTaxType,
     purchaseOrderStatusPreference: row.purchaseOrderStatusPreference,
+    authorizedTenants: row.authorizedTenants ?? [],
     updatedAt: row.updatedAt,
   };
 }
@@ -50,6 +52,47 @@ export async function deleteXeroConnection() {
     await tx
       .delete(xeroConnections)
       .where(eq(xeroConnections.organizationId, orgId));
+  });
+}
+
+/**
+ * Switch the active Xero tenant for the current org. The new tenant must
+ * be one of the tenants the user authorized at OAuth time
+ * (`authorized_tenants`); the stored token already has access to all of
+ * them, so no re-OAuth is required.
+ */
+export async function switchActiveXeroTenant(tenantId: string) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [existing] = await tx
+      .select()
+      .from(xeroConnections)
+      .where(eq(xeroConnections.organizationId, orgId))
+      .for("update");
+
+    if (!existing) return null;
+
+    const candidate = (existing.authorizedTenants ?? []).find(
+      (entry) => entry.tenantId === tenantId
+    );
+    if (!candidate) {
+      return { ok: false as const, reason: "unauthorized_tenant" };
+    }
+
+    if (existing.tenantId === candidate.tenantId) {
+      return { ok: true as const, summary: toSummary(existing) };
+    }
+
+    const [updated] = await tx
+      .update(xeroConnections)
+      .set({
+        tenantId: candidate.tenantId,
+        tenantName: candidate.tenantName,
+        updatedAt: new Date(),
+      })
+      .where(eq(xeroConnections.organizationId, orgId))
+      .returning();
+
+    return { ok: true as const, summary: updated ? toSummary(updated) : null };
   });
 }
 

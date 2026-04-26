@@ -1,0 +1,1 @@
+ALTER TABLE "xero"."xero_connections" ADD COLUMN IF NOT EXISTS "authorized_tenants" jsonb DEFAULT '[]'::jsonb NOT NULL;

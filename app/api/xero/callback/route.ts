@@ -1,6 +1,9 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { xeroConnections } from "@/lib/db/schema";
+import { withOrgContext } from "@/lib/db/with-org-context";
 import {
   createXeroClient,
   tokenSetToPersistable,
@@ -36,6 +39,13 @@ export const GET = apiHandler(async (request: Request) => {
   }
 
   const client = createXeroClient();
+  // The xero-node SDK validates the OAuth state against client.config.state
+  // before exchanging the code for a token set. Each route creates a fresh
+  // XeroClient instance (no shared session storage), so we have to copy the
+  // cookie-stored state in here for the SDK's check to pass.
+  if (client.config) {
+    client.config.state = cookieState;
+  }
 
   try {
     const tokenSet = await client.apiCallback(request.url);
@@ -47,23 +57,53 @@ export const GET = apiHandler(async (request: Request) => {
     });
 
     await client.updateTenants(false);
-    const tenant = client.tenants[0];
-    if (!tenant) {
+    const authorizedTenants = client.tenants.map((tenant) => ({
+      tenantId: tenant.tenantId,
+      tenantName: tenant.tenantName,
+    }));
+    if (authorizedTenants.length === 0) {
       throw new XeroError("No Xero tenants are connected to this account.", 409);
     }
 
+    // On reconnect, preserve the previously-active tenant if it still
+    // appears in the authorized list. Otherwise fall back to the first
+    // tenant Xero returned. Avoids silently swapping the user from one
+    // tenant to another when they re-OAuth.
+    const existing = await withOrgContext(context.orgId, async (tx) => {
+      const [row] = await tx
+        .select({ tenantId: xeroConnections.tenantId })
+        .from(xeroConnections)
+        .where(eq(xeroConnections.organizationId, context.orgId));
+      return row ?? null;
+    });
+
+    const primary =
+      (existing &&
+        authorizedTenants.find((t) => t.tenantId === existing.tenantId)) ??
+      authorizedTenants[0];
+
     await upsertXeroConnection(context.orgId, {
-      tenantId: tenant.tenantId,
-      tenantName: tenant.tenantName,
+      tenantId: primary.tenantId,
+      tenantName: primary.tenantName,
       accessToken: persistable.accessToken,
       refreshToken: persistable.refreshToken,
       expiresAt: persistable.expiresAt,
+      authorizedTenants,
     });
   } catch (error) {
-    console.error(
-      "Xero OAuth callback failed:",
-      redactXeroError(error)
-    );
+    console.error("Xero OAuth callback failed:", {
+      message: (error as Error)?.message,
+      name: (error as Error)?.name,
+      status:
+        (error as { response?: { statusCode?: number } })?.response
+          ?.statusCode ??
+        (error as { statusCode?: number })?.statusCode,
+      body: redactXeroError(
+        (error as { response?: { body?: unknown } })?.response?.body ??
+          (error as { body?: unknown })?.body
+      ),
+      redacted: redactXeroError(error),
+    });
     return settingsRedirect(request.url, "callback_failed");
   }
 
