@@ -94,6 +94,26 @@ These are gotchas that have caused real bugs. Follow them exactly.
 
 The ERP agent is intentionally disabled. Read `docs/erp-agent.md` before reconnecting it. While disabled, keep `lib/db/schema/agent.ts` out of the runtime schema barrel; only the migration schema should export it.
 
+### Paonia data loader
+
+`scripts/load/` holds the pilot-customer loader. Engine in `engine/` is generic; data in `paonia/`. Edits go in `paonia/` — never put Paonia specifics in `engine/`.
+
+```
+scripts/load/
+  paonia.ts                  # CLI entry
+  engine/                    # generic: sync-units/items/boms/stock/customers/sales-orders, plan, apply, reset, report
+  paonia/
+    index.ts                 # LoaderConfig bundle
+    units.ts | materials.ts | initial-stock.ts | constants.ts
+    products/                # family-definitions, family-builder, sticker-builder, dynamic-dressing, standalone, bom-helpers, sku-builders
+    sales-2026.ts | customers-2026.ts
+```
+
+Idempotency is signature-based (unit `name|size|uom`, item SKU/legacy SKU/name, BOM component+quantity hash, opening lot prefix `INIT-<sku>`, sales-order marker line in notes). Re-runs are safe and report unchanged rows.
+
+Reset wipes ALL org-scoped data (not just loader-managed rows): `pnpm load:paonia:reset -- --confirm <org-slug>`. Add `--dry-run` to preview row counts. Blocked in `NODE_ENV=production` unless `--i-know-what-im-doing`.
+
+
 ### UI text minimalism
 
 Don't write descriptive subtitles that restate what a heading, label, or button already says. Skip "Manage your X" / "Create a new Y" / "Update this Z" blurbs under page titles. Skip `<p>` descriptions under section headings when the heading is already clear. Skip `FieldDescription` text that repeats a field label. Headings, field labels, and button labels are enough.
