@@ -530,6 +530,10 @@ Invite, verification, and password-reset emails must use the configured canonica
 const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL
 ```
 
+### Xero PO emails
+
+Xero has no API endpoint to email purchase orders. Fetch the Xero-rendered PDF, send it through `sendTransactionalEmail`, and track `xero_po_email_status`.
+
 ### Playwright email outbox
 
 Playwright email assertions must force outbox mode with the runtime flag file, not only process env. The dev server may inherit repo-root Resend vars before tests start.

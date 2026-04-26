@@ -19,6 +19,9 @@ read_when:
   `getPurchaseOrderByNumber`. Pushes a Xero Purchase Order, **not** an
   ACCPAY Bill — Bills represent supplier invoices and are deferred to a
   future AP workflow.
+- **PO email** — Xero has no API send endpoint for purchase orders. The
+  app fetches the Xero-rendered PDF with `getPurchaseOrderAsPdf` and sends
+  it through the transactional email pipeline.
 - **Contact upsert** — `lib/xero/contacts.ts`. Shared by both push paths.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
@@ -63,6 +66,8 @@ Demo Company properties:
 - Pre-loaded with fake contacts, items, accounts, tax codes
 - Demo contacts have throwaway emails, so even with
   `auto_email_sales_invoices=true` nothing reaches a real customer
+- Purchase-order emails use the app email pipeline, so Demo Company can
+  render the PDF while Resend/outbox handles delivery.
 - **Auto-resets every 28 days** — your `xero_invoice_id`,
   `xero_purchase_order_id`, and `xero_contact_id` columns will start
   pointing to documents that no longer exist. If `Pushed` rows go
@@ -78,7 +83,9 @@ Once Demo Company smoke is green:
 1. Disconnect from Demo Company.
 2. Reconnect, picking the pilot tenant.
 3. **Keep `auto_email_sales_invoices` OFF** for any test runs against
-   the pilot — we don't want test invoices reaching real customers.
+   the pilot — we don't want test invoices reaching real customers. Also
+   keep `auto_email_purchase_orders` OFF unless you are intentionally testing
+   supplier email delivery.
 4. Use a TEST- prefix on order numbers so they're easy to find and
    void/delete in Xero afterwards.
 
@@ -93,6 +100,8 @@ After any change in `lib/xero/` or in either push hook
    is on, expect `xero_email_status='sent'`.
 2. **Purchase happy path.** Submit a draft PO. Expect a row in Xero
    under Business → Purchase orders, with the same fields populated.
+   If `auto_email_purchase_orders` is on and PO status is SUBMITTED or
+   AUTHORISED, expect `xero_po_email_status='sent'`.
 3. **Failure path.** Revoke the access token from inside Xero
    (Settings → Connected apps → revoke). Ship another order. Expect
    `xero_push_status='failed'`, the order detail page to show the

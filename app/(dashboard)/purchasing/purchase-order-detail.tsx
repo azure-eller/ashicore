@@ -156,6 +156,29 @@ export function PurchaseOrderDetail({
     },
   });
 
+  const xeroEmailMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        `/api/purchase-orders/${order.id}/xero-email`,
+        { method: "POST" }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to email purchase order.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const receiveMutation = useMutation({
     mutationFn: async (values: ReceiveFormValues) => {
       const response = await fetch(`/api/purchase-orders/${order.id}/receive`, {
@@ -254,6 +277,11 @@ export function PurchaseOrderDetail({
     !isDeleted &&
     ["ordered", "partial"].includes(order.status) &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
+  const canRetryXeroEmail =
+    !isDeleted &&
+    ["ordered", "partial", "received"].includes(order.status) &&
+    order.xeroPushStatus === "pushed" &&
+    order.xeroPoEmailStatus === "failed";
   const receiveLinesError = getFieldArrayError(receiveForm.formState.errors.lines);
 
   return (
@@ -297,6 +325,15 @@ export function PurchaseOrderDetail({
                       label: "Retry Xero push",
                       onSelect: () => xeroPushMutation.mutate(),
                       disabled: xeroPushMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canRetryXeroEmail
+                ? [
+                    {
+                      label: "Retry PO email",
+                      onSelect: () => xeroEmailMutation.mutate(),
+                      disabled: xeroEmailMutation.isPending,
                     },
                   ]
                 : []),
@@ -410,6 +447,21 @@ export function PurchaseOrderDetail({
                 {order.xeroRetryCount > 1 && (
                   <div className="text-xs text-muted-foreground">
                     Push attempts: {order.xeroRetryCount}
+                  </div>
+                )}
+                {order.xeroPushStatus === "pushed" && order.xeroPoEmailStatus && (
+                  <div className="text-xs text-muted-foreground">
+                    {order.xeroPoEmailStatus === "sent"
+                      ? `Supplier emailed${
+                          order.xeroPoEmailedAt
+                            ? ` ${formatDateTime(order.xeroPoEmailedAt)}`
+                            : ""
+                        }.`
+                      : order.xeroPoEmailStatus === "failed"
+                        ? `Email failed — ${
+                            order.xeroPoEmailError ?? "unknown error"
+                          }`
+                        : "Email not sent (auto-email off, draft PO, or no supplier email)."}
                   </div>
                 )}
               </dd>

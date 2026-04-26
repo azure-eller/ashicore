@@ -539,6 +539,9 @@ export async function getPurchaseOrder(
         xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
         xeroLastPushAttemptAt: purchaseOrders.xeroLastPushAttemptAt,
         xeroRetryCount: purchaseOrders.xeroRetryCount,
+        xeroPoEmailStatus: purchaseOrders.xeroPoEmailStatus,
+        xeroPoEmailError: purchaseOrders.xeroPoEmailError,
+        xeroPoEmailedAt: purchaseOrders.xeroPoEmailedAt,
         deletedAt: purchaseOrders.deletedAt,
         createdAt: purchaseOrders.createdAt,
         updatedAt: purchaseOrders.updatedAt,
@@ -557,6 +560,8 @@ export async function getPurchaseOrder(
       status: order.status as PurchaseOrderStatus,
       xeroPushStatus:
         order.xeroPushStatus as PurchaseOrderDetail["xeroPushStatus"],
+      xeroPoEmailStatus:
+        order.xeroPoEmailStatus as PurchaseOrderDetail["xeroPoEmailStatus"],
       lines: lines.map((line) => ({
         ...line,
         quantityRemaining: normalizeNumeric(
@@ -812,6 +817,16 @@ export async function retryXeroPushForPurchaseOrder(id: string) {
       await markXeroPurchaseOrderPushFailed(orgId, id, error);
       throw error;
     }
+  });
+}
+
+export async function retryXeroEmailForPurchaseOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { emailPurchaseOrderForOrder } = await import(
+      "@/lib/xero/push-purchase-order"
+    );
+    const result = await emailPurchaseOrderForOrder(orgId, id);
+    return { ok: true as const, result };
   });
 }
 

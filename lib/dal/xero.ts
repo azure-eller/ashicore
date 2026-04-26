@@ -17,6 +17,7 @@ export type XeroConnectionSummary = {
   defaultTaxType: string | null;
   invoiceStatusPreference: string;
   autoEmailSalesInvoices: boolean;
+  autoEmailPurchaseOrders: boolean;
   purchaseOrderDefaultAccountCode: string | null;
   purchaseOrderDefaultTaxType: string | null;
   purchaseOrderStatusPreference: string;
@@ -33,6 +34,7 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     defaultTaxType: row.defaultTaxType,
     invoiceStatusPreference: row.invoiceStatusPreference,
     autoEmailSalesInvoices: row.autoEmailSalesInvoices,
+    autoEmailPurchaseOrders: row.autoEmailPurchaseOrders,
     purchaseOrderDefaultAccountCode: row.purchaseOrderDefaultAccountCode,
     purchaseOrderDefaultTaxType: row.purchaseOrderDefaultTaxType,
     purchaseOrderStatusPreference: row.purchaseOrderStatusPreference,
@@ -130,6 +132,7 @@ export async function updateXeroSettings(params: {
   defaultTaxType: string | null;
   invoiceStatusPreference: "DRAFT" | "AUTHORISED";
   autoEmailSalesInvoices: boolean;
+  autoEmailPurchaseOrders: boolean;
   purchaseOrderDefaultAccountCode: string | null;
   purchaseOrderDefaultTaxType: string | null;
   purchaseOrderStatusPreference: "DRAFT" | "SUBMITTED" | "AUTHORISED";
@@ -142,6 +145,7 @@ export async function updateXeroSettings(params: {
         defaultTaxType: params.defaultTaxType,
         invoiceStatusPreference: params.invoiceStatusPreference,
         autoEmailSalesInvoices: params.autoEmailSalesInvoices,
+        autoEmailPurchaseOrders: params.autoEmailPurchaseOrders,
         purchaseOrderDefaultAccountCode: params.purchaseOrderDefaultAccountCode,
         purchaseOrderDefaultTaxType: params.purchaseOrderDefaultTaxType,
         purchaseOrderStatusPreference: params.purchaseOrderStatusPreference,

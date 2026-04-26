@@ -94,6 +94,9 @@ export type PurchaseOrderDetail = {
   xeroPushPayloadHash: string | null;
   xeroLastPushAttemptAt: Date | null;
   xeroRetryCount: number;
+  xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
+  xeroPoEmailError: string | null;
+  xeroPoEmailedAt: Date | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

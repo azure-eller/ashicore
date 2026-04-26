@@ -41,6 +41,9 @@ export const xeroConnections = xeroSchema
       autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
         .notNull()
         .default(false),
+      autoEmailPurchaseOrders: boolean("auto_email_purchase_orders")
+        .notNull()
+        .default(false),
       purchaseOrderDefaultAccountCode: varchar(
         "purchase_order_default_account_code",
         { length: 20 }

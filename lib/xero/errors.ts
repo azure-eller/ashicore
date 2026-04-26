@@ -22,10 +22,32 @@ const REDACTED_KEYS = new Set([
   "id_token",
   "idtoken",
   "authorization",
+  "cookie",
+  "set-cookie",
   "client_secret",
   "clientsecret",
   "code",
 ]);
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getErrorObject(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value === "string") return parseJsonObject(value);
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
 
 /**
  * Recursively redact secrets before the value is thrown, logged, or sent
@@ -33,7 +55,10 @@ const REDACTED_KEYS = new Set([
  */
 export function redactXeroError(value: unknown): unknown {
   if (value == null) return value;
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    const parsed = parseJsonObject(value);
+    return parsed ? redactXeroError(parsed) : value;
+  }
   if (typeof value !== "object") return value;
 
   if (Array.isArray(value)) {
@@ -51,8 +76,43 @@ export function redactXeroError(value: unknown): unknown {
   return copy;
 }
 
+export function extractXeroStatusCode(error: unknown): number | null {
+  const object = getErrorObject(error);
+  if (!object) return null;
+
+  const response = object.response;
+  const responseStatus =
+    response && typeof response === "object"
+      ? (response as { statusCode?: unknown; status?: unknown })
+      : null;
+  const status =
+    responseStatus?.statusCode ??
+    responseStatus?.status ??
+    object.statusCode ??
+    object.status;
+
+  return typeof status === "number" ? status : null;
+}
+
 export function extractXeroMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
+  const object = getErrorObject(error);
+  if (object) {
+    const response = object.response;
+    const body =
+      response && typeof response === "object"
+        ? (response as { body?: unknown }).body
+        : object.body;
+    if (typeof body === "string" && body.trim() !== "") return body;
+    if (typeof object.message === "string" && object.message.trim() !== "") {
+      return object.message;
+    }
+  }
+  if (typeof error === "string") {
+    if (/authorization|access_token|refresh_token|bearer\s+/i.test(error)) {
+      return "Xero request failed.";
+    }
+    return error;
+  }
   return "Xero request failed.";
 }

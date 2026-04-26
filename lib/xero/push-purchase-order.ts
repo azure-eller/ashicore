@@ -8,10 +8,12 @@ import {
 } from "xero-node";
 import { purchaseOrderLines, purchaseOrders, suppliers } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
 import {
   XeroError,
   extractXeroMessage,
+  extractXeroStatusCode,
   redactXeroError,
 } from "./errors";
 import { upsertXeroContact, type XeroContactInput } from "./contacts";
@@ -30,6 +32,7 @@ type OrderForPush = {
   xeroPurchaseOrderId: string | null;
   xeroPurchaseOrderNumber: string | null;
   xeroPushPayloadHash: string | null;
+  xeroPoEmailStatus: string | null;
 };
 
 type SupplierForPush = {
@@ -61,6 +64,7 @@ export type PushPurchaseOrderResult = {
   status: "pushed";
   created: boolean;
   adopted: boolean;
+  emailStatus: "sent" | "failed" | "skipped" | null;
 };
 
 function supplierToXeroContact(supplier: SupplierForPush): XeroContactInput {
@@ -104,6 +108,7 @@ async function loadOrderForPushInTx(
       xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
       xeroPurchaseOrderNumber: purchaseOrders.xeroPurchaseOrderNumber,
       xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
+      xeroPoEmailStatus: purchaseOrders.xeroPoEmailStatus,
     })
     .from(purchaseOrders)
     .where(
@@ -214,8 +219,7 @@ export async function findXeroPurchaseOrderForPurchaseOrder(
     // Xero returns 404 when the PO number does not exist. Don't treat as
     // a fatal error — just signal "no match" so the caller falls through
     // to create.
-    const status = (error as { response?: { statusCode?: number } })?.response
-      ?.statusCode;
+    const status = extractXeroStatusCode(error);
     if (status === 404) return null;
 
     console.error("Xero PO lookup failed:", redactXeroError(error));
@@ -234,6 +238,130 @@ function resolveStatusPreference(
     case "DRAFT":
     default:
       return PurchaseOrder.StatusEnum.DRAFT;
+  }
+}
+
+type EmailDecision =
+  | { action: "send"; reason: null }
+  | { action: "skip"; reason: "draft" | "auto_off" | "no_email" | "already_sent" };
+
+function decidePurchaseOrderEmail(params: {
+  statusPref: PurchaseOrder.StatusEnum;
+  autoEmailEnabled: boolean;
+  supplierEmail: string | null;
+  existingEmailStatus: string | null;
+}): EmailDecision {
+  if (params.existingEmailStatus === "sent") {
+    return { action: "skip", reason: "already_sent" };
+  }
+  if (params.statusPref === PurchaseOrder.StatusEnum.DRAFT) {
+    return { action: "skip", reason: "draft" };
+  }
+  if (!params.autoEmailEnabled) {
+    return { action: "skip", reason: "auto_off" };
+  }
+  if (!params.supplierEmail || params.supplierEmail.trim() === "") {
+    return { action: "skip", reason: "no_email" };
+  }
+  return { action: "send", reason: null };
+}
+
+async function persistPurchaseOrderEmailOutcome(
+  orgId: string,
+  orderId: string,
+  outcome:
+    | { status: "sent"; error?: never }
+    | { status: "failed"; error: string }
+    | { status: "skipped"; error?: never }
+): Promise<void> {
+  await withOrgContext(orgId, async (tx) => {
+    await tx
+      .update(purchaseOrders)
+      .set({
+        xeroPoEmailStatus: outcome.status,
+        xeroPoEmailError: outcome.status === "failed" ? outcome.error : null,
+        xeroPoEmailedAt: outcome.status === "sent" ? new Date() : undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, orderId));
+  });
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizePdfFileSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function sendPurchaseOrderPdfEmail(params: {
+  orgId: string;
+  orderId: string;
+  orderNumber: string;
+  purchaseOrderId: string;
+  supplierName: string;
+  supplierEmail: string;
+  tenantId: string;
+  accountingApi: import("xero-node").AccountingApi;
+}): Promise<void> {
+  try {
+    const response = await params.accountingApi.getPurchaseOrderAsPdf(
+      params.tenantId,
+      params.purchaseOrderId
+    );
+    const pdf = Buffer.isBuffer(response.body)
+      ? response.body
+      : Buffer.from(response.body);
+    const safeOrderNumber =
+      sanitizePdfFileSegment(params.orderNumber) || "purchase-order";
+    const subject = `Purchase order ${params.orderNumber}`;
+    const escapedOrderNumber = escapeHtml(params.orderNumber);
+    const escapedSupplierName = escapeHtml(params.supplierName);
+
+    await sendTransactionalEmail({
+      tag: "purchase-order",
+      to: params.supplierEmail.trim(),
+      subject,
+      html: [
+        `<p>${escapedSupplierName},</p>`,
+        `<p>Please find purchase order ${escapedOrderNumber} attached.</p>`,
+      ].join(""),
+      text: [
+        `${params.supplierName},`,
+        "",
+        `Please find purchase order ${params.orderNumber} attached.`,
+      ].join("\n"),
+      attachments: [
+        {
+          filename: `${safeOrderNumber}.pdf`,
+          content: pdf.toString("base64"),
+        },
+      ],
+      idempotencyKey: buildXeroIdempotencyKey(
+        params.orgId,
+        "purchase-order-email",
+        params.orderId,
+        "send"
+      ),
+    });
+
+    await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
+      status: "sent",
+    });
+  } catch (error) {
+    const message = extractXeroMessage(error).slice(0, 500);
+    console.error("Xero purchase order email failed:", redactXeroError(error));
+    await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
+      status: "failed",
+      error: message,
+    });
+    throw new XeroError(`Failed to email purchase order: ${message}`, 502);
   }
 }
 
@@ -418,13 +546,104 @@ export async function pushPurchaseOrderToXero(
     }
   }
 
+  let emailStatus: PushPurchaseOrderResult["emailStatus"] = null;
+  if (created) {
+    const decision = decidePurchaseOrderEmail({
+      statusPref,
+      autoEmailEnabled: connection.autoEmailPurchaseOrders,
+      supplierEmail: data.supplier.email,
+      existingEmailStatus: data.order.xeroPoEmailStatus,
+    });
+
+    if (decision.action === "send") {
+      try {
+        await sendPurchaseOrderPdfEmail({
+          orgId,
+          orderId,
+          orderNumber: data.order.orderNumber,
+          purchaseOrderId,
+          supplierName: data.supplier.name,
+          supplierEmail: data.supplier.email ?? "",
+          tenantId: authed.tenantId,
+          accountingApi,
+        });
+        emailStatus = "sent";
+      } catch {
+        emailStatus = "failed";
+      }
+    } else {
+      if (decision.reason !== "already_sent") {
+        await persistPurchaseOrderEmailOutcome(orgId, orderId, {
+          status: "skipped",
+        });
+      }
+      emailStatus = "skipped";
+    }
+  }
+
   return {
     xeroPurchaseOrderId: purchaseOrderId,
     xeroPurchaseOrderNumber: purchaseOrderNumber,
     status: "pushed",
     created,
     adopted,
+    emailStatus,
   };
+}
+
+/**
+ * Manually retry the supplier email for an already-pushed Xero purchase order.
+ */
+export async function emailPurchaseOrderForOrder(
+  orgId: string,
+  orderId: string
+): Promise<{ status: "sent" }> {
+  const authed = await getAuthedXeroClient(orgId);
+
+  const order = await withOrgContext(orgId, async (tx) => {
+    const [row] = await tx
+      .select({
+        id: purchaseOrders.id,
+        orderNumber: purchaseOrders.orderNumber,
+        xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
+        xeroPushStatus: purchaseOrders.xeroPushStatus,
+        supplierName: suppliers.name,
+        supplierEmail: suppliers.email,
+      })
+      .from(purchaseOrders)
+      .innerJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
+      .where(and(eq(purchaseOrders.id, orderId), isNull(purchaseOrders.deletedAt)));
+    return row ?? null;
+  });
+
+  if (!order) {
+    throw new XeroError("Purchase order not found.", 404);
+  }
+  if (!order.xeroPurchaseOrderId || order.xeroPushStatus !== "pushed") {
+    throw new XeroError(
+      "Push the purchase order to Xero before sending the email.",
+      409
+    );
+  }
+  if (!order.supplierEmail || order.supplierEmail.trim() === "") {
+    throw new XeroError(
+      "Supplier has no email on file. Add one before retrying the send.",
+      409
+    );
+  }
+
+  await sendPurchaseOrderPdfEmail({
+    orgId,
+    orderId,
+    orderNumber: order.orderNumber,
+    purchaseOrderId: order.xeroPurchaseOrderId,
+    supplierName: order.supplierName,
+    supplierEmail: order.supplierEmail,
+    tenantId: authed.tenantId,
+    accountingApi: authed.client.accountingApi,
+  });
+
+  return { status: "sent" };
 }
 
 /**

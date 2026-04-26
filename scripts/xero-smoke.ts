@@ -134,6 +134,7 @@ async function ensureXeroSettings(baseUrl: string, cookies: Cookies) {
       defaultTaxType: salesTaxType,
       invoiceStatusPreference: "AUTHORISED",
       autoEmailSalesInvoices: false,
+      autoEmailPurchaseOrders: false,
       purchaseOrderDefaultAccountCode: picks.purchase.code,
       purchaseOrderDefaultTaxType: purchaseTaxType,
       purchaseOrderStatusPreference: "DRAFT",
@@ -177,14 +178,21 @@ async function createMaterial(
   });
 }
 
+/** Override default test contact emails so live email-delivery checks
+ *  can route to a real inbox. */
+const CUSTOMER_EMAIL_OVERRIDE = process.env.XERO_SMOKE_CUSTOMER_EMAIL;
+const SUPPLIER_EMAIL_OVERRIDE = process.env.XERO_SMOKE_SUPPLIER_EMAIL;
+
 async function createCustomer(baseUrl: string, cookies: Cookies, ts: number) {
   type Customer = { id: string };
+  const email =
+    CUSTOMER_EMAIL_OVERRIDE ?? `test+xero-${ts}@example.com`;
   return apiFetch<Customer>(baseUrl, cookies, "/api/customers", {
     method: "POST",
     idempotencyKey: `xero-smoke:customer:${ts}`,
     body: JSON.stringify({
       name: `TEST-XERO-CUST-${ts}`,
-      email: `test+xero-${ts}@example.com`,
+      email,
       billingLine1: "1 Test Street",
       billingCity: "Testville",
       billingPostcode: "12345",
@@ -195,12 +203,14 @@ async function createCustomer(baseUrl: string, cookies: Cookies, ts: number) {
 
 async function createSupplier(baseUrl: string, cookies: Cookies, ts: number) {
   type Supplier = { id: string };
+  const email =
+    SUPPLIER_EMAIL_OVERRIDE ?? `test+xero-sup-${ts}@example.com`;
   return apiFetch<Supplier>(baseUrl, cookies, "/api/suppliers", {
     method: "POST",
     idempotencyKey: `xero-smoke:supplier:${ts}`,
     body: JSON.stringify({
       name: `TEST-XERO-SUP-${ts}`,
-      email: `test+xero-sup-${ts}@example.com`,
+      email,
       billingLine1: "1 Supplier Lane",
       billingCity: "Testville",
       billingPostcode: "12345",
@@ -220,6 +230,8 @@ type OrderDetail = {
   xeroPurchaseOrderNumber?: string | null;
   xeroEmailStatus?: string | null;
   xeroEmailError?: string | null;
+  xeroPoEmailStatus?: string | null;
+  xeroPoEmailError?: string | null;
   xeroRetryCount?: number;
 };
 
@@ -239,9 +251,31 @@ async function setAutoEmail(baseUrl: string, cookies: Cookies, enabled: boolean)
       defaultTaxType: picks.sales.taxType ?? "NONE",
       invoiceStatusPreference: "AUTHORISED",
       autoEmailSalesInvoices: enabled,
+      autoEmailPurchaseOrders: false,
       purchaseOrderDefaultAccountCode: picks.purchase.code,
       purchaseOrderDefaultTaxType: picks.purchase.taxType ?? "NONE",
       purchaseOrderStatusPreference: "DRAFT",
+    }),
+  });
+}
+
+async function setAutoPurchaseOrderEmail(
+  baseUrl: string,
+  cookies: Cookies,
+  enabled: boolean
+) {
+  const picks = await pickAccounts(baseUrl, cookies);
+  await apiFetch(baseUrl, cookies, "/api/xero/settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      defaultAccountCode: picks.sales.code,
+      defaultTaxType: picks.sales.taxType ?? "NONE",
+      invoiceStatusPreference: "AUTHORISED",
+      autoEmailSalesInvoices: false,
+      autoEmailPurchaseOrders: enabled,
+      purchaseOrderDefaultAccountCode: picks.purchase.code,
+      purchaseOrderDefaultTaxType: picks.purchase.taxType ?? "NONE",
+      purchaseOrderStatusPreference: enabled ? "SUBMITTED" : "DRAFT",
     }),
   });
 }
@@ -285,6 +319,50 @@ async function shipFreshSalesOrder(
     baseUrl,
     cookies,
     `/api/sales-orders/${created.id}`
+  );
+}
+
+async function submitFreshPurchaseOrder(
+  baseUrl: string,
+  cookies: Cookies,
+  unitId: string,
+  ts: number,
+  suffix: string
+): Promise<OrderDetail> {
+  const item = await createMaterial(baseUrl, cookies, unitId, ts, suffix);
+  const supplier = await createSupplier(baseUrl, cookies, ts + 2);
+  type CreateResult = { id: string };
+  const created = await apiFetch<CreateResult>(
+    baseUrl,
+    cookies,
+    "/api/purchase-orders",
+    {
+      method: "POST",
+      idempotencyKey: `xero-smoke:po:${suffix}:${ts}`,
+      body: JSON.stringify({
+        supplierId: supplier.id,
+        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
+        lines: [
+          {
+            itemId: item.id,
+            quantityOrdered: "50",
+            unitCost: "10",
+          },
+        ],
+      }),
+    }
+  );
+  await apiFetch(baseUrl, cookies, `/api/purchase-orders/${created.id}/submit`, {
+    method: "POST",
+    body: JSON.stringify({}),
+    idempotencyKey: `xero-smoke:po-submit:${suffix}:${ts}`,
+  });
+  return apiFetch<OrderDetail>(
+    baseUrl,
+    cookies,
+    `/api/purchase-orders/${created.id}`
   );
 }
 
@@ -342,6 +420,50 @@ async function smokeAutoEmail(
   } finally {
     // Always restore the safety default.
     await setAutoEmail(baseUrl, cookies, false);
+    console.log("  • Toggle OFF (restored)");
+  }
+}
+
+async function smokePurchaseOrderAutoEmail(
+  baseUrl: string,
+  cookies: Cookies,
+  unitId: string,
+  ts: number
+): Promise<boolean> {
+  console.log("─── PO auto-email check ────────────────────");
+  await setAutoPurchaseOrderEmail(baseUrl, cookies, true);
+  console.log("  • Toggle ON");
+  try {
+    const order = await submitFreshPurchaseOrder(
+      baseUrl,
+      cookies,
+      unitId,
+      ts,
+      "POEMAIL"
+    );
+    console.log(`  • Purchase order ${order.orderNumber} submitted`);
+    if (order.xeroPushStatus !== "pushed") {
+      console.error(`  ✗ FAIL: push failed: ${order.xeroPushError}`);
+      return false;
+    }
+    if (order.xeroPoEmailStatus === "sent") {
+      console.log(
+        "  ✓ xero_po_email_status = sent (Resend accepted the Xero PDF email)"
+      );
+      return true;
+    }
+    if (order.xeroPoEmailStatus === "failed") {
+      console.error(
+        `  ✗ FAIL: PO email failed: ${order.xeroPoEmailError ?? "(none)"}`
+      );
+      return false;
+    }
+    console.error(
+      `  ✗ FAIL: expected xero_po_email_status='sent', got '${order.xeroPoEmailStatus}'`
+    );
+    return false;
+  } finally {
+    await setAutoPurchaseOrderEmail(baseUrl, cookies, false);
     console.log("  • Toggle OFF (restored)");
   }
 }
@@ -728,6 +850,13 @@ async function main() {
       );
       results.push({ flow: "purchasing reconcile", ok: idem });
     }
+    const email = await smokePurchaseOrderAutoEmail(
+      auth.baseUrl,
+      auth.cookies,
+      auth.unitId,
+      ts
+    );
+    results.push({ flow: "PO auto-email", ok: email });
   }
 
   console.log("");

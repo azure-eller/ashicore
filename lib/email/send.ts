@@ -5,12 +5,24 @@ import path from "node:path";
 import { getEmailSenderConfig } from "@/lib/email/config";
 import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "@/lib/email/outbox";
 
+export type TransactionalEmailAttachment = {
+  filename: string;
+  /** Base64-encoded content. */
+  content: string;
+};
+
 export type TransactionalEmailInput = {
-  tag: "email-verification" | "password-reset" | "team-invite";
+  tag:
+    | "email-verification"
+    | "password-reset"
+    | "team-invite"
+    | "purchase-order";
   to: string;
   subject: string;
   html: string;
   text: string;
+  attachments?: TransactionalEmailAttachment[];
+  idempotencyKey?: string;
 };
 
 function sanitizeFileSegment(value: string) {
@@ -62,18 +74,27 @@ export async function sendTransactionalEmail(email: TransactionalEmailInput) {
     return;
   }
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${senderConfig.resendApiKey}`,
+    "Content-Type": "application/json",
+  };
+  if (email.idempotencyKey) {
+    headers["Idempotency-Key"] = email.idempotencyKey;
+  }
+
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${senderConfig.resendApiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       from: senderConfig.from,
       to: email.to,
       subject: email.subject,
       html: email.html,
       text: email.text,
+      attachments: email.attachments?.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+      })),
     }),
   });
 

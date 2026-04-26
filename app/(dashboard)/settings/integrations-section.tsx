@@ -100,6 +100,9 @@ function XeroRow({
   const [autoEmailInvoices, setAutoEmailInvoices] = useState(
     connection?.autoEmailSalesInvoices ?? false
   );
+  const [autoEmailPurchaseOrders, setAutoEmailPurchaseOrders] = useState(
+    connection?.autoEmailPurchaseOrders ?? false
+  );
   const [poAccountCode, setPoAccountCode] = useState(
     connection?.purchaseOrderDefaultAccountCode ?? ""
   );
@@ -165,6 +168,7 @@ function XeroRow({
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
           autoEmailSalesInvoices: autoEmailInvoices,
+          autoEmailPurchaseOrders,
           purchaseOrderDefaultAccountCode: poAccountCode.trim() || null,
           purchaseOrderDefaultTaxType: poTaxType.trim() || null,
           purchaseOrderStatusPreference: poStatus,
@@ -407,6 +411,25 @@ function XeroRow({
                     </Select>
                   </Field>
                 </div>
+
+                <Field orientation="horizontal">
+                  <Switch
+                    id="xero-auto-email-po"
+                    checked={autoEmailPurchaseOrders}
+                    onCheckedChange={(checked) =>
+                      setAutoEmailPurchaseOrders(Boolean(checked))
+                    }
+                  />
+                  <FieldContent>
+                    <FieldLabel htmlFor="xero-auto-email-po">
+                      Auto-email purchase orders
+                    </FieldLabel>
+                    <FieldDescription>
+                      Sends the Xero PDF through ERP email. Requires SUBMITTED
+                      or AUTHORISED status and a supplier email.
+                    </FieldDescription>
+                  </FieldContent>
+                </Field>
               </div>
 
               <div className="flex justify-end">
