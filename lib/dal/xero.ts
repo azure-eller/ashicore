@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm";
 import { xeroConnections } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "./auth";
 import type { XeroConnectionRow } from "@/lib/xero/client";
+import {
+  probeXeroConnectionHealth,
+  type XeroConnectionHealth,
+} from "@/lib/xero/health";
 
 export type XeroConnectionSummary = {
   tenantId: string;
@@ -45,6 +49,31 @@ export async function getXeroConnection(): Promise<XeroConnectionSummary | null>
       .where(eq(xeroConnections.organizationId, orgId));
     return row ? toSummary(row) : null;
   });
+}
+
+export type XeroConnectionWithHealth = XeroConnectionSummary & {
+  health: XeroConnectionHealth;
+};
+
+/**
+ * Same as getXeroConnection, but additionally probes Xero with a
+ * cheap read so the caller can show whether the stored tokens still
+ * work (Connected / Reconnect required / Missing scope / Transient).
+ * Used by the settings page render so the status badge reflects
+ * reality without making the user click anything.
+ */
+export async function getXeroConnectionWithHealth(): Promise<XeroConnectionWithHealth | null> {
+  const result = await withAuthedOrgContext(async (tx, orgId) => {
+    const [row] = await tx
+      .select()
+      .from(xeroConnections)
+      .where(eq(xeroConnections.organizationId, orgId));
+    return row ? { summary: toSummary(row), orgId } : null;
+  });
+  if (!result) return null;
+
+  const health = await probeXeroConnectionHealth(result.orgId);
+  return { ...result.summary, health };
 }
 
 export async function deleteXeroConnection() {

@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import type { XeroConnectionSummary } from "@/lib/dal/xero";
+import type { XeroConnectionWithHealth } from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -34,55 +34,32 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "You declined the Xero authorization request.",
 };
 
-type ConnectionState =
-  | "connected"
-  | "disconnected"
-  | "needs_reauthorization"
-  | "missing_scope"
-  | "token_refresh_failed"
-  | "unknown_error";
+type HealthState = "connected" | "needs_reauthorization" | "missing_scope" | "transient_error";
 
-const CONNECTION_STATE_LABEL: Record<ConnectionState, string> = {
+const HEALTH_LABEL: Record<HealthState | "disconnected", string> = {
   connected: "Connected",
   disconnected: "Not connected",
   needs_reauthorization: "Reconnect required",
   missing_scope: "Missing scope",
-  token_refresh_failed: "Token refresh failed",
-  unknown_error: "Connection error",
+  transient_error: "Connection issue",
 };
 
-function ConnectionStateBadge({
-  result,
-}: {
-  result: { state: ConnectionState; message: string };
-}) {
-  const ok = result.state === "connected";
-  const needsReconnect =
-    result.state === "needs_reauthorization" ||
-    result.state === "missing_scope" ||
-    result.state === "token_refresh_failed";
-
+function StatusPill({ state }: { state: HealthState | "disconnected" }) {
+  const tone =
+    state === "connected"
+      ? "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400"
+      : state === "disconnected"
+        ? "border-muted-foreground/30 text-muted-foreground"
+        : "border-destructive/40 bg-destructive/10 text-destructive";
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span
-        className={cn(
-          "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-          ok
-            ? "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400"
-            : "border-destructive/40 bg-destructive/10 text-destructive"
-        )}
-      >
-        {CONNECTION_STATE_LABEL[result.state]}
-      </span>
-      {result.message ? (
-        <span className="text-xs text-muted-foreground">{result.message}</span>
-      ) : null}
-      {needsReconnect ? (
-        <Button asChild size="sm" variant="outline">
-          <a href="/api/xero/connect">Reconnect</a>
-        </Button>
-      ) : null}
-    </div>
+    <span
+      className={cn(
+        "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+        tone
+      )}
+    >
+      {HEALTH_LABEL[state]}
+    </span>
   );
 }
 
@@ -104,7 +81,7 @@ function XeroRow({
   canImportCustomers,
   canImportSuppliers,
 }: {
-  connection: XeroConnectionSummary | null;
+  connection: XeroConnectionWithHealth | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
@@ -135,19 +112,17 @@ function XeroRow({
       | "SUBMITTED"
       | "AUTHORISED") ?? "DRAFT"
   );
-  const [testResult, setTestResult] = useState<{
-    state:
-      | "connected"
-      | "disconnected"
-      | "needs_reauthorization"
-      | "missing_scope"
-      | "token_refresh_failed"
-      | "unknown_error";
-    message: string;
-  } | null>(null);
   const [pendingTenantId, setPendingTenantId] = useState(
     connection?.tenantId ?? ""
   );
+
+  const healthState: HealthState | "disconnected" = connection
+    ? connection.health.state
+    : "disconnected";
+  const healthMessage = connection?.health.message ?? null;
+  const needsReconnect =
+    healthState === "needs_reauthorization" ||
+    healthState === "missing_scope";
 
   const switchTenantMutation = useMutation({
     mutationFn: async (tenantId: string) => {
@@ -178,29 +153,6 @@ function XeroRow({
       queryClient.invalidateQueries();
     },
     onError: (err) => setFormError((err as Error).message),
-  });
-
-  const testConnectionMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/xero/test-connection", { method: "POST" });
-      const body = (await res.json().catch(() => null)) as {
-        state?:
-          | "connected"
-          | "disconnected"
-          | "needs_reauthorization"
-          | "missing_scope"
-          | "token_refresh_failed"
-          | "unknown_error";
-        message?: string;
-      } | null;
-      if (!body?.state) {
-        throw new Error("Connection test returned an unexpected response.");
-      }
-      return { state: body.state, message: body.message ?? "" };
-    },
-    onSuccess: (data) => setTestResult(data),
-    onError: (error) =>
-      setTestResult({ state: "unknown_error", message: (error as Error).message }),
   });
 
   const saveMutation = useMutation({
@@ -239,20 +191,19 @@ function XeroRow({
         <div className="flex min-w-0 items-center gap-3">
           <XeroLogo />
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">Xero</span>
-              {isConnected ? (
-                <span className="rounded-full border border-green-600/40 bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
-                  Connected
-                </span>
-              ) : (
-                <span className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  Not connected
-                </span>
-              )}
+              <StatusPill state={healthState} />
+              {needsReconnect && canManageConnection ? (
+                <Button asChild size="sm" variant="outline" className="h-6 px-2 text-xs">
+                  <a href="/api/xero/connect">Reconnect</a>
+                </Button>
+              ) : null}
             </div>
             <div className="truncate text-xs text-muted-foreground">
-              Accounting{connection?.tenantName ? ` · ${connection.tenantName}` : ""}
+              {healthMessage
+                ? healthMessage
+                : `Accounting${connection?.tenantName ? ` · ${connection.tenantName}` : ""}`}
             </div>
           </div>
         </div>
@@ -306,31 +257,6 @@ function XeroRow({
       {expanded && hasConfigurableContent ? (
         <div className="space-y-6 border-t bg-muted/30 px-6 py-5">
           {formError ? <FieldError>{formError}</FieldError> : null}
-
-          {canManageConnection ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => testConnectionMutation.mutate()}
-                disabled={testConnectionMutation.isPending}
-              >
-                {testConnectionMutation.isPending
-                  ? "Testing…"
-                  : "Test connection"}
-              </Button>
-
-              {testResult ? (
-                <ConnectionStateBadge result={testResult} />
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  Last saved {connection?.updatedAt
-                    ? new Date(connection.updatedAt).toLocaleString()
-                    : "—"}
-                </span>
-              )}
-            </div>
-          ) : null}
 
           {canManageConnection &&
           (connection?.authorizedTenants?.length ?? 0) > 1 ? (
@@ -512,7 +438,7 @@ export function IntegrationsSection({
   canImportCustomers,
   canImportSuppliers,
 }: {
-  connection: XeroConnectionSummary | null;
+  connection: XeroConnectionWithHealth | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
