@@ -212,6 +212,12 @@ export const salesOrders = salesSchema
       xeroPushStatus: varchar("xero_push_status", { length: 20 }),
       xeroPushError: text("xero_push_error"),
       xeroPushedAt: timestamp("xero_pushed_at"),
+      xeroPushPayloadHash: text("xero_push_payload_hash"),
+      xeroLastPushAttemptAt: timestamp("xero_last_push_attempt_at"),
+      xeroRetryCount: integer("xero_retry_count").notNull().default(0),
+      xeroEmailStatus: varchar("xero_email_status", { length: 20 }),
+      xeroEmailError: text("xero_email_error"),
+      xeroEmailedAt: timestamp("xero_emailed_at"),
       totalAmount: numeric("total_amount", { precision: 12, scale: 2 })
         .notNull()
         .default("0"),

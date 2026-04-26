@@ -12,6 +12,7 @@ export type XeroConnectionSummary = {
   defaultAccountCode: string | null;
   defaultTaxType: string | null;
   invoiceStatusPreference: string;
+  autoEmailSalesInvoices: boolean;
   updatedAt: Date;
 };
 
@@ -23,6 +24,7 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     defaultAccountCode: row.defaultAccountCode,
     defaultTaxType: row.defaultTaxType,
     invoiceStatusPreference: row.invoiceStatusPreference,
+    autoEmailSalesInvoices: row.autoEmailSalesInvoices,
     updatedAt: row.updatedAt,
   };
 }
@@ -49,6 +51,7 @@ export async function updateXeroSettings(params: {
   defaultAccountCode: string | null;
   defaultTaxType: string | null;
   invoiceStatusPreference: "DRAFT" | "AUTHORISED";
+  autoEmailSalesInvoices: boolean;
 }) {
   return withAuthedOrgContext(async (tx, orgId) => {
     const [row] = await tx
@@ -57,6 +60,7 @@ export async function updateXeroSettings(params: {
         defaultAccountCode: params.defaultAccountCode,
         defaultTaxType: params.defaultTaxType,
         invoiceStatusPreference: params.invoiceStatusPreference,
+        autoEmailSalesInvoices: params.autoEmailSalesInvoices,
         updatedAt: new Date(),
       })
       .where(eq(xeroConnections.organizationId, orgId))

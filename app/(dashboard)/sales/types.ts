@@ -197,6 +197,12 @@ export type SalesOrderDetail = {
   xeroPushStatus: "pending" | "pushed" | "failed" | null;
   xeroPushError: string | null;
   xeroPushedAt: Date | null;
+  xeroPushPayloadHash: string | null;
+  xeroLastPushAttemptAt: Date | null;
+  xeroRetryCount: number;
+  xeroEmailStatus: "sent" | "failed" | "skipped" | null;
+  xeroEmailError: string | null;
+  xeroEmailedAt: Date | null;
   totalAmount: string;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;

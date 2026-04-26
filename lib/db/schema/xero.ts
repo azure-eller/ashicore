@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   pgPolicy,
   pgSchema,
@@ -27,6 +28,9 @@ export const xeroConnections = xeroSchema
       })
         .notNull()
         .default("AUTHORISED"),
+      autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
+        .notNull()
+        .default(false),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },

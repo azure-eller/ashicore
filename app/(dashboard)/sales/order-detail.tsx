@@ -207,6 +207,29 @@ export function OrderDetail({
     },
   });
 
+  const xeroEmailMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/xero-email`,
+        { method: "POST" }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to email invoice via Xero.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
   const canConfirm = !isDeleted && order.status === "draft";
@@ -217,6 +240,10 @@ export function OrderDetail({
   const canRetryXeroPush =
     order.status === "shipped" &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
+  const canRetryXeroEmail =
+    order.status === "shipped" &&
+    order.xeroPushStatus === "pushed" &&
+    order.xeroEmailStatus === "failed";
   const canCreateMOs = !isDeleted && order.status === "confirmed";
   const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
 
@@ -275,6 +302,15 @@ export function OrderDetail({
                       label: "Retry Xero push",
                       onSelect: () => xeroPushMutation.mutate(),
                       disabled: xeroPushMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canRetryXeroEmail
+                ? [
+                    {
+                      label: "Retry Xero email",
+                      onSelect: () => xeroEmailMutation.mutate(),
+                      disabled: xeroEmailMutation.isPending,
                     },
                   ]
                 : []),
@@ -376,12 +412,34 @@ export function OrderDetail({
           {order.xeroPushStatus && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Xero Invoice</dt>
-              <dd className="mt-1 text-sm">
-                {order.xeroPushStatus === "pushed" && order.xeroInvoiceNumber
-                  ? `Pushed — ${order.xeroInvoiceNumber}`
-                  : order.xeroPushStatus === "failed"
-                    ? `Failed — ${order.xeroPushError ?? "unknown error"}`
-                    : "Pending"}
+              <dd className="mt-1 space-y-1 text-sm">
+                <div>
+                  {order.xeroPushStatus === "pushed" && order.xeroInvoiceNumber
+                    ? `Pushed — ${order.xeroInvoiceNumber}`
+                    : order.xeroPushStatus === "failed"
+                      ? `Failed — ${order.xeroPushError ?? "unknown error"}`
+                      : "Pending"}
+                </div>
+                {order.xeroPushStatus === "pushed" && order.xeroEmailStatus && (
+                  <div className="text-xs text-muted-foreground">
+                    {order.xeroEmailStatus === "sent"
+                      ? `Customer emailed${
+                          order.xeroEmailedAt
+                            ? ` ${formatDateTime(order.xeroEmailedAt)}`
+                            : ""
+                        }.`
+                      : order.xeroEmailStatus === "failed"
+                        ? `Email failed — ${
+                            order.xeroEmailError ?? "unknown error"
+                          }`
+                        : "Email not sent (auto-email off, draft invoice, or no customer email)."}
+                  </div>
+                )}
+                {order.xeroRetryCount > 1 && (
+                  <div className="text-xs text-muted-foreground">
+                    Push attempts: {order.xeroRetryCount}
+                  </div>
+                )}
               </dd>
             </div>
           )}

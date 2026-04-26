@@ -8,6 +8,8 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   Field,
+  FieldContent,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -20,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { XeroConnectionSummary } from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
@@ -65,6 +68,9 @@ function XeroRow({
   const [invoiceStatus, setInvoiceStatus] = useState<"DRAFT" | "AUTHORISED">(
     (connection?.invoiceStatusPreference as "DRAFT" | "AUTHORISED") ?? "AUTHORISED"
   );
+  const [autoEmailInvoices, setAutoEmailInvoices] = useState(
+    connection?.autoEmailSalesInvoices ?? false
+  );
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -87,6 +93,7 @@ function XeroRow({
           defaultAccountCode: accountCode.trim() || null,
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
+          autoEmailSalesInvoices: autoEmailInvoices,
         }),
       });
       if (!res.ok) {
@@ -217,6 +224,25 @@ function XeroRow({
                   </Select>
                 </Field>
               </div>
+
+              <Field orientation="horizontal">
+                <Switch
+                  id="xero-auto-email"
+                  checked={autoEmailInvoices}
+                  onCheckedChange={(checked) =>
+                    setAutoEmailInvoices(Boolean(checked))
+                  }
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor="xero-auto-email">
+                    Auto-email sales invoices
+                  </FieldLabel>
+                  <FieldDescription>
+                    Xero emails the customer after invoice creation. Requires
+                    AUTHORISED status and an email on the customer record.
+                  </FieldDescription>
+                </FieldContent>
+              </Field>
 
               <div className="flex justify-end">
                 <Button

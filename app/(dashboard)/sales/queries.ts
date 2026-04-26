@@ -1985,6 +1985,12 @@ export async function getSalesOrder(
         xeroPushStatus: salesOrders.xeroPushStatus,
         xeroPushError: salesOrders.xeroPushError,
         xeroPushedAt: salesOrders.xeroPushedAt,
+        xeroPushPayloadHash: salesOrders.xeroPushPayloadHash,
+        xeroLastPushAttemptAt: salesOrders.xeroLastPushAttemptAt,
+        xeroRetryCount: salesOrders.xeroRetryCount,
+        xeroEmailStatus: salesOrders.xeroEmailStatus,
+        xeroEmailError: salesOrders.xeroEmailError,
+        xeroEmailedAt: salesOrders.xeroEmailedAt,
         totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -2107,6 +2113,8 @@ export async function getSalesOrder(
       ...order,
       status: order.status as SalesOrderDetail["status"],
       xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
+      xeroEmailStatus:
+        order.xeroEmailStatus as SalesOrderDetail["xeroEmailStatus"],
       lines: lines as SalesOrderDetailLine[],
       hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
       manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
@@ -2723,6 +2731,16 @@ export async function retryXeroPushForSalesOrder(id: string) {
       await markXeroPushFailed(orgId, id, error);
       throw error;
     }
+  });
+}
+
+export async function retryXeroEmailForSalesOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { emailSalesInvoiceForOrder } = await import(
+      "@/lib/xero/push-invoice"
+    );
+    const result = await emailSalesInvoiceForOrder(orgId, id);
+    return { ok: true as const, result };
   });
 }
 
