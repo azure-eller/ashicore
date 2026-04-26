@@ -22,6 +22,10 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
 - `pnpm dev:seed-user` — create/update the canonical local login (`test@test.com` / `TestPassword123!`) for the running dev server
 - `pnpm seed` — seed demo inventory data through the running dev server into the canonical local/test org
+- `pnpm load:paonia` — load the Paonia pilot-customer catalog (units, items, BOMs, opening stock) into the resolved org. Supports `--org <ref>`, `--dry-run`, `--sales-2026`, `--customers-only`.
+- `pnpm load:paonia:dry-run` — plan-only run of the Paonia loader; no writes
+- `pnpm load:paonia:reset -- --confirm <org-slug>` — wipe all customer data in the resolved org. Requires the typed-back org slug; blocked in `NODE_ENV=production` unless `--i-know-what-im-doing`. Add `--dry-run` to preview row counts.
+- `pnpm load:paonia:reload -- --confirm <org-slug>` — reset then load the Paonia catalog in one invocation
 - `pnpm diff:projections -- --org-id <org-id>` — diff ledger-derived inventory projections for one org
 - `pnpm verify:inventory-state` — diff projections for the current Playwright test org from `test/.test-env.json`
 - `pnpm verify:inventory-kernel` — fail if bridge-only stock helpers leak into new call sites
