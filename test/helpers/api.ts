@@ -642,6 +642,26 @@ export async function getPlanningSnapshot() {
   return { status: res.status, body };
 }
 
+export async function updatePlanningRules(
+  itemId: string,
+  data: Record<string, unknown>
+) {
+  const res = await testFetch(`/api/planning/items/${itemId}/rules`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+export async function autoPlanDrafts() {
+  const res = await testFetch("/api/planning/actions/auto-plan", {
+    method: "POST",
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
 export async function createPlanningPurchaseOrderDraft(data: Record<string, unknown>) {
   const res = await testFetch("/api/planning/actions/purchase-order", {
     method: "POST",

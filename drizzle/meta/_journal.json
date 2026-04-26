@@ -355,36 +355,8 @@
     {
       "idx": 50,
       "version": "7",
-      "when": 1777227065958,
-      "tag": "0050_short_mattie_franklin",
-      "breakpoints": true
-    },
-    {
-      "idx": 51,
-      "version": "7",
-      "when": 1777231161198,
-      "tag": "0051_eminent_leper_queen",
-      "breakpoints": true
-    },
-    {
-      "idx": 52,
-      "version": "7",
-      "when": 1777241163264,
-      "tag": "0052_flaky_shen",
-      "breakpoints": true
-    },
-    {
-      "idx": 53,
-      "version": "7",
-      "when": 1777246456679,
-      "tag": "0053_gifted_omega_flight",
-      "breakpoints": true
-    },
-    {
-      "idx": 54,
-      "version": "7",
-      "when": 1777343775364,
-      "tag": "0054_lowly_hulk",
+      "when": 1777257943435,
+      "tag": "0050_chemical_moira_mactaggert",
       "breakpoints": true
     }
   ]

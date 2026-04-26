@@ -9,8 +9,10 @@ import {
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  organizationPlanningSettings,
   purchaseOrderLines,
   purchaseOrders,
+  supplierItems,
   salesOrderLines,
   salesOrders,
   suppliers,
@@ -28,17 +30,23 @@ import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import type {
   BomRequirementFact,
   DemandFact,
+  DaysOfCoverStatus,
   InventoryFact,
   PlanningItemRow,
   PlanningRecommendation,
   PlanningReasonCode,
+  PlanningRuleSource,
   PlanningSnapshot,
   PlanningSourceRef,
   PlanningWarning,
+  ProductionBlockerFact,
+  ProductionBucket,
+  ScheduleConfidence,
   SupplyFact,
 } from "./types";
 
 const MAX_BOM_EXPLOSION_LEVEL = 8;
+const DEFAULT_COVER_HORIZON_DAYS = 90;
 
 type PlanningItemRecord = {
   id: string;
@@ -46,12 +54,23 @@ type PlanningItemRecord = {
   sku: string | null;
   itemType: string;
   unitName: string | null;
+  unitUom: string | null;
   safetyStock: string;
+  reorderPoint: string | null;
+  targetCoverDays: string | null;
+  planningEnabled: boolean;
+  leadTimeDaysOverride: string | null;
   onHandQuantity: string;
   reservedQuantity: string;
   expectedQuantity: string;
   defaultPurchasePrice: string | null;
+  purchaseUnitDefinitionId: string | null;
+  purchaseUnitName: string | null;
   purchaseToStockFactor: string | null;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
+  productionLeadTimeDays: string | null;
+  dailyCapacity: string | null;
 };
 
 type BomComponentRecord = {
@@ -73,7 +92,33 @@ type CurrentBomRecord = {
 type SupplierSuggestion = {
   supplierId: string | null;
   supplierName: string | null;
+  supplierSku: string | null;
+  supplierSource: PlanningRuleSource;
+  unitCost: string | null;
+  unitCostSource: PlanningRuleSource;
+  purchaseUnitDefinitionId: string | null;
+  purchaseUnitName: string | null;
+  purchaseToStockFactor: string | null;
+  purchaseRuleSource: PlanningRuleSource;
+  leadTimeDaysOverride: number | null;
+  minimumOrderQuantity: string | null;
+  orderMultiple: string | null;
   reasonCodes: PlanningReasonCode[];
+};
+
+type LeadTimeHistory = {
+  leadTimeDays: number;
+  sampleCount: number;
+};
+
+type OrgPlanningSettings = {
+  defaultDailyManufacturingCapacity: string | null;
+};
+
+type ScheduledManufacturingLoad = {
+  productId: string;
+  plannedDate: string | null;
+  plannedQuantity: string;
 };
 
 type InternalDemandFact = DemandFact & {
@@ -97,6 +142,68 @@ function normalizeQuantity(value: number) {
 
 function positiveQuantity(value: number) {
   return Math.max(0, roundQuantity(value));
+}
+
+function nullableNumber(value: string | null | undefined) {
+  if (value == null) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoDate(date);
+}
+
+function subtractDays(value: string, days: number) {
+  return addDays(value, -days);
+}
+
+function daysBetween(start: string, end: string) {
+  const startDate = new Date(`${start}T00:00:00.000Z`);
+  const endDate = new Date(`${end}T00:00:00.000Z`);
+  return Math.max(
+    0,
+    Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000)
+  );
+}
+
+function productionBucketForDate(
+  value: string | null,
+  horizonStart: string
+): ProductionBucket {
+  if (!value) return "later";
+  const days = daysBetween(horizonStart, value);
+  if (value <= horizonStart) return "now";
+  if (days <= 7) return "this-week";
+  if (days <= 14) return "next-week";
+  return "later";
+}
+
+function bucketCapacityDays(bucket: ProductionBucket) {
+  if (bucket === "now") return 1;
+  if (bucket === "this-week") return 7;
+  if (bucket === "next-week") return 7;
+  return 30;
+}
+
+function percentile(values: number[], p: number) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)
+  );
+  return sorted[index];
+}
+
+function roundPercent(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function sourceRefKey(ref: PlanningSourceRef) {
@@ -187,7 +294,14 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
+      unitUom: unitDefinitions.uom,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
+      reorderPoint: trimScaleNullable(items.reorderPoint).as("reorderPoint"),
+      targetCoverDays: trimScaleNullable(items.targetCoverDays).as("targetCoverDays"),
+      planningEnabled: items.planningEnabled,
+      leadTimeDaysOverride: trimScaleNullable(items.leadTimeDaysOverride).as(
+        "leadTimeDaysOverride"
+      ),
       onHandQuantity: projectedOnHandQty(items.organizationId, items.id).as(
         "onHandQuantity"
       ),
@@ -200,9 +314,23 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
         "defaultPurchasePrice"
       ),
+      purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
+      purchaseUnitName: sql<string | null>`(
+        SELECT ${unitDefinitions.name}
+        FROM ${unitDefinitions}
+        WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
+      )`,
       purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
         "purchaseToStockFactor"
       ),
+      manufacturingMode: items.manufacturingMode,
+      expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+        "expectedBatchYield"
+      ),
+      productionLeadTimeDays: trimScaleNullable(items.productionLeadTimeDays).as(
+        "productionLeadTimeDays"
+      ),
+      dailyCapacity: trimScaleNullable(items.dailyCapacity).as("dailyCapacity"),
     })
     .from(items)
     .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -601,8 +729,14 @@ async function getCurrentBomsInTx(
 
 async function getSupplierSuggestionsInTx(
   tx: Tx,
-  itemIds: string[]
+  itemsList: PlanningItemRecord[]
 ): Promise<Map<string, SupplierSuggestion>> {
+  const uniqueItemIds = [
+    ...new Set(
+      itemsList.filter((item) => item.itemType === "material").map((item) => item.id)
+    ),
+  ];
+  const itemById = new Map(itemsList.map((item) => [item.id, item]));
   const activeSuppliers = await tx
     .select({
       id: suppliers.id,
@@ -613,9 +747,104 @@ async function getSupplierSuggestionsInTx(
     .orderBy(asc(suppliers.name), asc(suppliers.id));
 
   const suggestions = new Map<string, SupplierSuggestion>();
-  const uniqueItemIds = [...new Set(itemIds)];
 
   if (uniqueItemIds.length > 0) {
+    const supplierRuleRows = await tx
+      .select({
+        itemId: supplierItems.itemId,
+        supplierId: supplierItems.supplierId,
+        supplierName: suppliers.name,
+        supplierSku: supplierItems.supplierSku,
+        unitCost: trimScaleNullable(supplierItems.unitCost).as("unitCost"),
+        purchaseUnitDefinitionId: supplierItems.purchaseUnitDefinitionId,
+        purchaseUnitName: unitDefinitions.name,
+        purchaseToStockFactor: trimScaleNullable(
+          supplierItems.purchaseToStockFactor
+        ).as("purchaseToStockFactor"),
+        leadTimeDaysOverride: trimScaleNullable(
+          supplierItems.leadTimeDaysOverride
+        ).as("leadTimeDaysOverride"),
+        minimumOrderQuantity: trimScaleNullable(
+          supplierItems.minimumOrderQuantity
+        ).as("minimumOrderQuantity"),
+        orderMultiple: trimScaleNullable(supplierItems.orderMultiple).as(
+          "orderMultiple"
+        ),
+        isPreferred: supplierItems.isPreferred,
+        createdAt: supplierItems.createdAt,
+      })
+      .from(supplierItems)
+      .innerJoin(suppliers, eq(supplierItems.supplierId, suppliers.id))
+      .leftJoin(
+        unitDefinitions,
+        eq(supplierItems.purchaseUnitDefinitionId, unitDefinitions.id)
+      )
+      .where(
+        and(
+          inArray(supplierItems.itemId, uniqueItemIds),
+          isNull(supplierItems.deletedAt),
+          isNull(suppliers.deletedAt)
+        )
+      )
+      .orderBy(
+        desc(supplierItems.isPreferred),
+        asc(suppliers.name),
+        desc(supplierItems.createdAt)
+      );
+
+    const supplierRulesByItem = new Map<string, typeof supplierRuleRows>();
+    for (const row of supplierRuleRows) {
+      const bucket = supplierRulesByItem.get(row.itemId) ?? [];
+      bucket.push(row);
+      supplierRulesByItem.set(row.itemId, bucket);
+    }
+
+    for (const [itemId, rules] of supplierRulesByItem) {
+      const preferredRules = rules.filter((rule) => rule.isPreferred);
+      const candidate =
+        preferredRules.length === 1
+          ? preferredRules[0]
+          : preferredRules.length === 0 && rules.length === 1
+            ? rules[0]
+            : null;
+
+      if (!candidate) {
+        continue;
+      }
+
+      const item = itemById.get(itemId);
+      suggestions.set(itemId, {
+        supplierId: candidate.supplierId,
+        supplierName: candidate.supplierName,
+        supplierSku: candidate.supplierSku,
+        supplierSource: "supplier_item",
+        unitCost: candidate.unitCost ?? item?.defaultPurchasePrice ?? null,
+        unitCostSource:
+          candidate.unitCost != null
+            ? "supplier_item"
+            : item?.defaultPurchasePrice != null
+              ? "item_default"
+              : "unknown",
+        purchaseUnitDefinitionId:
+          candidate.purchaseUnitDefinitionId ?? item?.purchaseUnitDefinitionId ?? null,
+        purchaseUnitName: candidate.purchaseUnitName ?? item?.purchaseUnitName ?? null,
+        purchaseToStockFactor:
+          candidate.purchaseToStockFactor ?? item?.purchaseToStockFactor ?? "1",
+        purchaseRuleSource:
+          candidate.purchaseUnitDefinitionId != null ||
+          candidate.purchaseToStockFactor != null
+            ? "supplier_item"
+            : item?.purchaseUnitDefinitionId != null ||
+                item?.purchaseToStockFactor != null
+              ? "item_default"
+              : "default",
+        leadTimeDaysOverride: nullableNumber(candidate.leadTimeDaysOverride),
+        minimumOrderQuantity: candidate.minimumOrderQuantity,
+        orderMultiple: candidate.orderMultiple,
+        reasonCodes: [],
+      });
+    }
+
     const supplierHistory = await tx
       .select({
         itemId: purchaseOrderLines.itemId,
@@ -643,9 +872,24 @@ async function getSupplierSuggestionsInTx(
         continue;
       }
 
+      const item = itemById.get(row.itemId);
       suggestions.set(row.itemId, {
         supplierId: row.supplierId,
         supplierName: row.supplierName,
+        supplierSku: null,
+        supplierSource: "history",
+        unitCost: item?.defaultPurchasePrice ?? null,
+        unitCostSource: item?.defaultPurchasePrice != null ? "item_default" : "unknown",
+        purchaseUnitDefinitionId: item?.purchaseUnitDefinitionId ?? null,
+        purchaseUnitName: item?.purchaseUnitName ?? null,
+        purchaseToStockFactor: item?.purchaseToStockFactor ?? "1",
+        purchaseRuleSource:
+          item?.purchaseUnitDefinitionId != null || item?.purchaseToStockFactor != null
+            ? "item_default"
+            : "default",
+        leadTimeDaysOverride: null,
+        minimumOrderQuantity: null,
+        orderMultiple: null,
         reasonCodes: [],
       });
     }
@@ -658,9 +902,24 @@ async function getSupplierSuggestionsInTx(
 
     if (activeSuppliers.length === 1) {
       const [supplier] = activeSuppliers;
+      const item = itemById.get(itemId);
       suggestions.set(itemId, {
         supplierId: supplier.id,
         supplierName: supplier.name,
+        supplierSku: null,
+        supplierSource: "default",
+        unitCost: item?.defaultPurchasePrice ?? null,
+        unitCostSource: item?.defaultPurchasePrice != null ? "item_default" : "unknown",
+        purchaseUnitDefinitionId: item?.purchaseUnitDefinitionId ?? null,
+        purchaseUnitName: item?.purchaseUnitName ?? null,
+        purchaseToStockFactor: item?.purchaseToStockFactor ?? "1",
+        purchaseRuleSource:
+          item?.purchaseUnitDefinitionId != null || item?.purchaseToStockFactor != null
+            ? "item_default"
+            : "default",
+        leadTimeDaysOverride: null,
+        minimumOrderQuantity: null,
+        orderMultiple: null,
         reasonCodes: [],
       });
       continue;
@@ -669,12 +928,119 @@ async function getSupplierSuggestionsInTx(
     suggestions.set(itemId, {
       supplierId: null,
       supplierName: null,
+      supplierSku: null,
+      supplierSource: "unknown",
+      unitCost: itemById.get(itemId)?.defaultPurchasePrice ?? null,
+      unitCostSource:
+        itemById.get(itemId)?.defaultPurchasePrice != null
+          ? "item_default"
+          : "unknown",
+      purchaseUnitDefinitionId: itemById.get(itemId)?.purchaseUnitDefinitionId ?? null,
+      purchaseUnitName: itemById.get(itemId)?.purchaseUnitName ?? null,
+      purchaseToStockFactor: itemById.get(itemId)?.purchaseToStockFactor ?? "1",
+      purchaseRuleSource:
+        itemById.get(itemId)?.purchaseUnitDefinitionId != null ||
+        itemById.get(itemId)?.purchaseToStockFactor != null
+          ? "item_default"
+          : "default",
+      leadTimeDaysOverride: null,
+      minimumOrderQuantity: null,
+      orderMultiple: null,
       reasonCodes:
         activeSuppliers.length === 0 ? ["missing_supplier"] : ["ambiguous_supplier"],
     });
   }
 
   return suggestions;
+}
+
+async function getLeadTimeHistoryInTx(
+  tx: Tx,
+  itemIds: string[]
+): Promise<Map<string, LeadTimeHistory>> {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: purchaseOrderLines.itemId,
+      orderedAt: purchaseOrders.orderedAt,
+      receivedAt: purchaseOrders.receivedAt,
+    })
+    .from(purchaseOrderLines)
+    .innerJoin(purchaseOrders, eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id))
+    .where(
+      and(
+        inArray(purchaseOrderLines.itemId, uniqueItemIds),
+        isNull(purchaseOrders.deletedAt),
+        sql`${purchaseOrders.orderedAt} IS NOT NULL`,
+        sql`${purchaseOrders.receivedAt} IS NOT NULL`,
+        sql`${purchaseOrderLines.quantityReceived} > 0`
+      )
+    );
+
+  const samplesByItem = new Map<string, number[]>();
+  for (const row of rows) {
+    if (!row.orderedAt || !row.receivedAt) continue;
+    const diffDays = Math.ceil(
+      (row.receivedAt.getTime() - row.orderedAt.getTime()) / 86_400_000
+    );
+    if (!Number.isFinite(diffDays) || diffDays < 0) continue;
+    const bucket = samplesByItem.get(row.itemId) ?? [];
+    bucket.push(Math.max(1, diffDays));
+    samplesByItem.set(row.itemId, bucket);
+  }
+
+  const history = new Map<string, LeadTimeHistory>();
+  for (const [itemId, samples] of samplesByItem) {
+    const leadTimeDays = percentile(samples, 75);
+    if (leadTimeDays == null) continue;
+    history.set(itemId, { leadTimeDays, sampleCount: samples.length });
+  }
+
+  return history;
+}
+
+async function getOrgPlanningSettingsInTx(
+  tx: Tx
+): Promise<OrgPlanningSettings> {
+  const [settings] = await tx
+    .select({
+      defaultDailyManufacturingCapacity: trimScaleNullable(
+        organizationPlanningSettings.defaultDailyManufacturingCapacity
+      ).as("defaultDailyManufacturingCapacity"),
+    })
+    .from(organizationPlanningSettings)
+    .limit(1);
+
+  return {
+    defaultDailyManufacturingCapacity:
+      settings?.defaultDailyManufacturingCapacity ?? null,
+  };
+}
+
+async function getScheduledManufacturingLoadsInTx(
+  tx: Tx
+): Promise<ScheduledManufacturingLoad[]> {
+  const rows = await tx
+    .select({
+      productId: manufacturingOrders.productId,
+      plannedDate: manufacturingOrders.plannedDate,
+      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        inArray(manufacturingOrders.status, ["draft", "released"]),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    );
+
+  return rows;
 }
 
 function buildQuantityBuckets(
@@ -720,11 +1086,295 @@ function buildQuantityBuckets(
   return buckets;
 }
 
+function resolveLeadTime(args: {
+  item: PlanningItemRecord;
+  supplierSuggestion: SupplierSuggestion | undefined;
+  history: LeadTimeHistory | undefined;
+}) {
+  if (args.supplierSuggestion?.leadTimeDaysOverride != null) {
+    return {
+      leadTimeDays: args.supplierSuggestion.leadTimeDaysOverride,
+      leadTimeSource: "supplier_item" as PlanningRuleSource,
+      leadTimeSampleCount: 0,
+    };
+  }
+
+  const itemLeadTime = nullableNumber(args.item.leadTimeDaysOverride);
+  if (itemLeadTime != null) {
+    return {
+      leadTimeDays: itemLeadTime,
+      leadTimeSource: "manual" as PlanningRuleSource,
+      leadTimeSampleCount: 0,
+    };
+  }
+
+  if (args.history) {
+    return {
+      leadTimeDays: args.history.leadTimeDays,
+      leadTimeSource: "history" as PlanningRuleSource,
+      leadTimeSampleCount: args.history.sampleCount,
+    };
+  }
+
+  return {
+    leadTimeDays: null,
+    leadTimeSource: "unknown" as PlanningRuleSource,
+    leadTimeSampleCount: 0,
+  };
+}
+
+function applyOrderRounding(args: {
+  stockQuantity: number;
+  minimumOrderQuantity: string | null | undefined;
+  orderMultiple: string | null | undefined;
+  purchaseToStockFactor: string | null | undefined;
+}) {
+  let quantity = positiveQuantity(args.stockQuantity);
+  const factor = Math.max(1, toQuantity(args.purchaseToStockFactor ?? "1"));
+  const minimum = nullableNumber(args.minimumOrderQuantity);
+  const multiple = nullableNumber(args.orderMultiple);
+
+  if (minimum != null && minimum > 0) {
+    quantity = Math.max(quantity, minimum * factor);
+  }
+
+  if (multiple != null && multiple > 0) {
+    const stockMultiple = multiple * factor;
+    quantity = Math.ceil(quantity / stockMultiple) * stockMultiple;
+  }
+
+  return positiveQuantity(quantity);
+}
+
+function demandWithinWindow(
+  demandFacts: DemandFact[],
+  windowEnd: string | null
+) {
+  return demandFacts.reduce((sum, fact) => {
+    if (windowEnd == null || fact.requiredDate == null || fact.requiredDate <= windowEnd) {
+      return roundQuantity(sum + toQuantity(fact.quantity));
+    }
+    return sum;
+  }, 0);
+}
+
+function supplyWithinWindow(
+  supplyFacts: SupplyFact[],
+  windowEnd: string | null
+) {
+  return supplyFacts.reduce((sum, fact) => {
+    if (fact.supplyType === "available_inventory") {
+      return sum;
+    }
+
+    if (windowEnd != null && fact.expectedDate != null && fact.expectedDate <= windowEnd) {
+      return roundQuantity(sum + toQuantity(fact.quantity));
+    }
+
+    return sum;
+  }, 0);
+}
+
+function computeReplenishmentMetadata(args: {
+  item: PlanningItemRecord;
+  itemDemandFacts: DemandFact[];
+  itemSupplyFacts: SupplyFact[];
+  availableStock: number;
+  shortageQuantity: number;
+  supplierSuggestion: SupplierSuggestion | undefined;
+  leadTimeHistory: LeadTimeHistory | undefined;
+  horizonStart: string;
+}) {
+  const reorderPoint = args.item.reorderPoint;
+  const targetCoverDays = nullableNumber(args.item.targetCoverDays);
+  const reorderThreshold = nullableNumber(reorderPoint) ?? 0;
+  const leadTime = resolveLeadTime({
+    item: args.item,
+    supplierSuggestion: args.supplierSuggestion,
+    history: args.leadTimeHistory,
+  });
+  const events = [
+    ...args.itemDemandFacts
+      .filter((fact) => fact.requiredDate != null)
+      .map((fact) => ({
+        date: fact.requiredDate!,
+        quantity: -toQuantity(fact.quantity),
+      })),
+    ...args.itemSupplyFacts
+      .filter((fact) => fact.supplyType !== "available_inventory" && fact.expectedDate != null)
+      .map((fact) => ({
+        date: fact.expectedDate!,
+        quantity: toQuantity(fact.quantity),
+      })),
+  ].sort((left, right) => left.date.localeCompare(right.date));
+  const hasUndatedDemand = args.itemDemandFacts.some(
+    (fact) => fact.requiredDate == null && toQuantity(fact.quantity) > 0
+  );
+  let projected = args.availableStock;
+  let crossingDate: string | null = projected <= Math.max(reorderThreshold, 0) ? args.horizonStart : null;
+
+  for (const event of events) {
+    if (crossingDate != null) break;
+    projected = roundQuantity(projected + event.quantity);
+    if (projected <= reorderThreshold || projected <= 0) {
+      crossingDate = event.date;
+    }
+  }
+
+  const latestFactDate = events.at(-1)?.date ?? null;
+  const horizonEnd = latestFactDate ?? addDays(args.horizonStart, DEFAULT_COVER_HORIZON_DAYS);
+  const daysOfCover =
+    crossingDate != null
+      ? daysBetween(args.horizonStart, crossingDate)
+      : hasUndatedDemand
+        ? null
+        : daysBetween(args.horizonStart, horizonEnd);
+  let daysOfCoverStatus: DaysOfCoverStatus = "unknown";
+
+  if (args.shortageQuantity > 0) {
+    daysOfCoverStatus = "order_now";
+  } else if (daysOfCover != null && leadTime.leadTimeDays != null) {
+    const orderSoonWindow = leadTime.leadTimeDays + (targetCoverDays ?? 0);
+    daysOfCoverStatus =
+      daysOfCover <= leadTime.leadTimeDays
+        ? "order_now"
+        : daysOfCover <= orderSoonWindow
+          ? "order_soon"
+          : "stocked";
+  } else if (daysOfCover != null && crossingDate == null) {
+    daysOfCoverStatus = "stocked";
+  }
+
+  const windowEnd =
+    leadTime.leadTimeDays != null && targetCoverDays != null
+      ? addDays(args.horizonStart, Math.ceil(leadTime.leadTimeDays + targetCoverDays))
+      : null;
+  const targetQuantity =
+    windowEnd == null
+      ? args.shortageQuantity
+      : demandWithinWindow(args.itemDemandFacts, windowEnd) +
+        reorderThreshold -
+        args.availableStock -
+        supplyWithinWindow(args.itemSupplyFacts, windowEnd);
+  const roundedSuggestion = applyOrderRounding({
+    stockQuantity: Math.max(args.shortageQuantity, targetQuantity),
+    minimumOrderQuantity: args.supplierSuggestion?.minimumOrderQuantity,
+    orderMultiple: args.supplierSuggestion?.orderMultiple,
+    purchaseToStockFactor: args.supplierSuggestion?.purchaseToStockFactor,
+  });
+
+  return {
+    reorderPoint,
+    targetCoverDays,
+    daysOfCover,
+    daysOfCoverStatus,
+    suggestedOrderQuantity:
+      roundedSuggestion > 0 ? normalizeQuantity(roundedSuggestion) : null,
+    ...leadTime,
+    minimumOrderQuantity: args.supplierSuggestion?.minimumOrderQuantity ?? null,
+    orderMultiple: args.supplierSuggestion?.orderMultiple ?? null,
+  };
+}
+
+function computeBatchCount(item: PlanningItemRecord, quantity: number) {
+  const expectedBatchYield = nullableNumber(item.expectedBatchYield);
+  if (item.manufacturingMode !== "batch" || expectedBatchYield == null || expectedBatchYield <= 0) {
+    return null;
+  }
+
+  return Math.ceil(quantity / expectedBatchYield);
+}
+
+function computeProductionMetadata(args: {
+  item: PlanningItemRecord;
+  shortageQuantity: number;
+  earliestRequiredDate: string | null;
+  orgSettings: OrgPlanningSettings;
+  scheduledLoads: ScheduledManufacturingLoad[];
+  horizonStart: string;
+  hasMissingBom: boolean;
+  hasMaterialShortage: boolean;
+}) {
+  const productionLeadTimeDays = nullableNumber(args.item.productionLeadTimeDays);
+  const productionLeadTimeSource: PlanningRuleSource =
+    productionLeadTimeDays != null ? "manual" : "unknown";
+  const latestStartDate =
+    args.earliestRequiredDate != null && productionLeadTimeDays != null
+      ? subtractDays(args.earliestRequiredDate, Math.ceil(productionLeadTimeDays))
+      : null;
+  const productionBucket = productionBucketForDate(
+    latestStartDate,
+    args.horizonStart
+  );
+  const dailyCapacity =
+    args.item.dailyCapacity ?? args.orgSettings.defaultDailyManufacturingCapacity;
+  const capacitySource: PlanningRuleSource =
+    args.item.dailyCapacity != null
+      ? "manual"
+      : args.orgSettings.defaultDailyManufacturingCapacity != null
+        ? "default"
+        : "unknown";
+  const bucketScheduledLoad = args.scheduledLoads
+    .filter(
+      (load) =>
+        load.productId === args.item.id &&
+        productionBucketForDate(load.plannedDate, args.horizonStart) === productionBucket
+    )
+    .reduce((sum, load) => roundQuantity(sum + toQuantity(load.plannedQuantity)), 0);
+  const capacity = nullableNumber(dailyCapacity);
+  const bucketCapacity = capacity == null ? null : capacity * bucketCapacityDays(productionBucket);
+  const capacityUtilizationPct =
+    bucketCapacity != null && bucketCapacity > 0
+      ? roundPercent(((bucketScheduledLoad + args.shortageQuantity) / bucketCapacity) * 100)
+      : null;
+  const scheduleConfidenceReasons: PlanningReasonCode[] = [];
+
+  if (args.hasMaterialShortage) scheduleConfidenceReasons.push("projected_shortage");
+  if (args.hasMissingBom) scheduleConfidenceReasons.push("missing_bom");
+  if (productionLeadTimeDays == null) scheduleConfidenceReasons.push("missing_production_lead_time");
+  if (dailyCapacity == null) scheduleConfidenceReasons.push("missing_capacity");
+  if (capacityUtilizationPct != null && capacityUtilizationPct > 100) {
+    scheduleConfidenceReasons.push("capacity_overrun");
+  }
+
+  const scheduleConfidence: ScheduleConfidence =
+    args.hasMaterialShortage || args.hasMissingBom
+      ? "blocked"
+      : scheduleConfidenceReasons.includes("capacity_overrun") ||
+          scheduleConfidenceReasons.includes("missing_production_lead_time")
+        ? "low"
+        : scheduleConfidenceReasons.length > 0
+          ? "medium"
+          : "high";
+
+  return {
+    productionLeadTimeDays,
+    productionLeadTimeSource,
+    latestStartDate,
+    productionBucket,
+    manufacturingMode: args.item.manufacturingMode,
+    expectedBatchYield: args.item.expectedBatchYield,
+    plannedBatchCount: computeBatchCount(args.item, args.shortageQuantity),
+    dailyCapacity,
+    capacitySource,
+    bucketScheduledLoad: normalizeQuantity(bucketScheduledLoad),
+    capacityUtilizationPct,
+    scheduleConfidence,
+    scheduleConfidenceReasons: uniqueReasonCodes(scheduleConfidenceReasons),
+  };
+}
+
 function buildPlanningRows(args: {
   itemsList: PlanningItemRecord[];
   demandFacts: DemandFact[];
   supplyFacts: SupplyFact[];
   inventoryFacts: InventoryFact[];
+  supplierSuggestions: Map<string, SupplierSuggestion>;
+  leadTimeHistory: Map<string, LeadTimeHistory>;
+  orgSettings: OrgPlanningSettings;
+  scheduledLoads: ScheduledManufacturingLoad[];
+  horizonStart: string;
+  bomByProductId?: Map<string, CurrentBomRecord>;
 }): PlanningItemRow[] {
   const buckets = buildQuantityBuckets(args.demandFacts, args.supplyFacts);
   const demandFactsByItem = new Map<string, DemandFact[]>();
@@ -764,27 +1414,78 @@ function buildPlanningRows(args: {
     const shortageQuantity = positiveQuantity(-projectedQuantity);
     const itemDemandFacts = demandFactsByItem.get(item.id) ?? [];
     const itemSupplyFacts = supplyFactsByItem.get(item.id) ?? [];
-    const reasonCodes = uniqueReasonCodes([
-      ...itemDemandFacts.flatMap((fact) => fact.reasonCodes),
-      ...itemSupplyFacts.flatMap((fact) => fact.reasonCodes),
-      ...(onHandQuantity > 0 ? ["inventory_available" as const] : []),
-      ...(reservedQuantity > 0 ? ["reserved_stock" as const] : []),
-      shortageQuantity > 0 ? "projected_shortage" : "no_shortage",
-    ]);
+    const earliestRequiredDate = earliestDate(
+      itemDemandFacts.map((fact) => fact.requiredDate)
+    );
+    const supplierSuggestion = args.supplierSuggestions.get(item.id);
+    const replenishment = computeReplenishmentMetadata({
+      item,
+      itemDemandFacts,
+      itemSupplyFacts,
+      availableStock,
+      shortageQuantity,
+      supplierSuggestion,
+      leadTimeHistory: args.leadTimeHistory.get(item.id),
+      horizonStart: args.horizonStart,
+    });
     const planningType =
       item.itemType === "material"
         ? "buy"
         : item.itemType === "product"
           ? "make"
           : "unknown";
+    const production =
+      planningType === "make"
+        ? computeProductionMetadata({
+            item,
+            shortageQuantity,
+            earliestRequiredDate,
+            orgSettings: args.orgSettings,
+            scheduledLoads: args.scheduledLoads,
+            horizonStart: args.horizonStart,
+            hasMissingBom:
+              shortageQuantity > 0 &&
+              !(args.bomByProductId?.get(item.id)?.components.length ?? 0),
+            hasMaterialShortage: false,
+          })
+        : {
+            productionLeadTimeDays: null,
+            productionLeadTimeSource: "unknown" as PlanningRuleSource,
+            latestStartDate: null,
+            productionBucket: "later" as ProductionBucket,
+            manufacturingMode: null,
+            expectedBatchYield: null,
+            plannedBatchCount: null,
+            dailyCapacity: null,
+            capacitySource: "unknown" as PlanningRuleSource,
+            bucketScheduledLoad: null,
+            capacityUtilizationPct: null,
+            scheduleConfidence: "high" as ScheduleConfidence,
+            scheduleConfidenceReasons: [] as PlanningReasonCode[],
+          };
+    const reasonCodes = uniqueReasonCodes([
+      ...itemDemandFacts.flatMap((fact) => fact.reasonCodes),
+      ...itemSupplyFacts.flatMap((fact) => fact.reasonCodes),
+      ...(onHandQuantity > 0 ? ["inventory_available" as const] : []),
+      ...(reservedQuantity > 0 ? ["reserved_stock" as const] : []),
+      shortageQuantity > 0 ? "projected_shortage" : "no_shortage",
+      ...(!item.planningEnabled ? ["planning_disabled" as const] : []),
+      ...production.scheduleConfidenceReasons,
+    ]);
+    const hasSuggestedBuy =
+      planningType === "buy" &&
+      toQuantity(replenishment.suggestedOrderQuantity) > 0 &&
+      ["order_now", "order_soon"].includes(replenishment.daysOfCoverStatus);
     const suggestedAction =
-      shortageQuantity <= 0
+      !item.planningEnabled
         ? "none"
-        : planningType === "buy"
+        : planningType === "buy" && (shortageQuantity > 0 || hasSuggestedBuy)
           ? "buy"
-          : planningType === "make"
-            ? "make"
-            : "review";
+          : shortageQuantity <= 0
+            ? "none"
+            : planningType === "make"
+              ? "make"
+              : "review";
 
     return {
       item: {
@@ -793,6 +1494,7 @@ function buildPlanningRows(args: {
         sku: item.sku,
         itemType: item.itemType,
         unitName: item.unitName,
+        unitUom: item.unitUom,
       },
       planningType,
       demandQuantity: normalizeQuantity(bucket.demandQuantity),
@@ -806,7 +1508,49 @@ function buildPlanningRows(args: {
       ),
       projectedQuantity: normalizeQuantity(projectedQuantity),
       shortageQuantity: normalizeQuantity(shortageQuantity),
-      earliestRequiredDate: earliestDate(itemDemandFacts.map((fact) => fact.requiredDate)),
+      earliestRequiredDate,
+      reorderPoint: replenishment.reorderPoint,
+      targetCoverDays: replenishment.targetCoverDays,
+      daysOfCover: replenishment.daysOfCover,
+      daysOfCoverStatus: replenishment.daysOfCoverStatus,
+      suggestedOrderQuantity: replenishment.suggestedOrderQuantity,
+      leadTimeDays: replenishment.leadTimeDays,
+      leadTimeSource: replenishment.leadTimeSource,
+      leadTimeSampleCount: replenishment.leadTimeSampleCount,
+      minimumOrderQuantity: replenishment.minimumOrderQuantity,
+      orderMultiple: replenishment.orderMultiple,
+      preferredSupplierId: supplierSuggestion?.supplierId ?? null,
+      preferredSupplierName: supplierSuggestion?.supplierName ?? null,
+      preferredSupplierSku: supplierSuggestion?.supplierSku ?? null,
+      preferredSupplierSource: supplierSuggestion?.supplierSource ?? "unknown",
+      purchaseUnitDefinitionId:
+        supplierSuggestion?.purchaseUnitDefinitionId ??
+        item.purchaseUnitDefinitionId ??
+        null,
+      purchaseUnitName:
+        supplierSuggestion?.purchaseUnitName ?? item.purchaseUnitName ?? null,
+      purchaseToStockFactor:
+        supplierSuggestion?.purchaseToStockFactor ??
+        item.purchaseToStockFactor ??
+        "1",
+      purchaseRuleSource: supplierSuggestion?.purchaseRuleSource ?? "default",
+      unitCost: supplierSuggestion?.unitCost ?? item.defaultPurchasePrice,
+      unitCostSource:
+        supplierSuggestion?.unitCostSource ??
+        (item.defaultPurchasePrice != null ? "item_default" : "unknown"),
+      productionLeadTimeDays: production.productionLeadTimeDays,
+      productionLeadTimeSource: production.productionLeadTimeSource,
+      latestStartDate: production.latestStartDate,
+      productionBucket: production.productionBucket,
+      manufacturingMode: production.manufacturingMode,
+      expectedBatchYield: production.expectedBatchYield,
+      plannedBatchCount: production.plannedBatchCount,
+      dailyCapacity: production.dailyCapacity,
+      capacitySource: production.capacitySource,
+      bucketScheduledLoad: production.bucketScheduledLoad,
+      capacityUtilizationPct: production.capacityUtilizationPct,
+      scheduleConfidence: production.scheduleConfidence,
+      scheduleConfidenceReasons: production.scheduleConfidenceReasons,
       suggestedAction,
       reasonCodes,
       sourceRefs: uniqueSourceRefs([
@@ -934,6 +1678,11 @@ function buildRowsWithBomExplosion(args: {
   supplyFacts: SupplyFact[];
   inventoryFacts: InventoryFact[];
   bomByProductId: Map<string, CurrentBomRecord>;
+  supplierSuggestions: Map<string, SupplierSuggestion>;
+  leadTimeHistory: Map<string, LeadTimeHistory>;
+  orgSettings: OrgPlanningSettings;
+  scheduledLoads: ScheduledManufacturingLoad[];
+  horizonStart: string;
   warnings: PlanningWarning[];
 }) {
   const itemById = new Map(args.itemsList.map((item) => [item.id, item]));
@@ -945,6 +1694,12 @@ function buildRowsWithBomExplosion(args: {
     demandFacts,
     supplyFacts: args.supplyFacts,
     inventoryFacts: args.inventoryFacts,
+    supplierSuggestions: args.supplierSuggestions,
+    leadTimeHistory: args.leadTimeHistory,
+    orgSettings: args.orgSettings,
+    scheduledLoads: args.scheduledLoads,
+    horizonStart: args.horizonStart,
+    bomByProductId: args.bomByProductId,
   });
 
   for (let level = 1; level <= MAX_BOM_EXPLOSION_LEVEL; level += 1) {
@@ -991,6 +1746,12 @@ function buildRowsWithBomExplosion(args: {
       demandFacts,
       supplyFacts: args.supplyFacts,
       inventoryFacts: args.inventoryFacts,
+      supplierSuggestions: args.supplierSuggestions,
+      leadTimeHistory: args.leadTimeHistory,
+      orgSettings: args.orgSettings,
+      scheduledLoads: args.scheduledLoads,
+      horizonStart: args.horizonStart,
+      bomByProductId: args.bomByProductId,
     });
 
     if (addedFacts === 0) {
@@ -1006,6 +1767,190 @@ function buildRowsWithBomExplosion(args: {
   });
 
   return { rows, demandFacts, bomRequirementFacts };
+}
+
+function applyProductionBlockerConfidence(
+  rows: PlanningItemRow[],
+  bomRequirementFacts: BomRequirementFact[]
+) {
+  const rowsByItemId = new Map(rows.map((row) => [row.item.id, row]));
+  const parentsWithMaterialShortages = new Set<string>();
+
+  for (const fact of bomRequirementFacts) {
+    const component = rowsByItemId.get(fact.componentItemId);
+    if (component && toQuantity(component.shortageQuantity) > 0) {
+      parentsWithMaterialShortages.add(fact.parentItemId);
+    }
+  }
+
+  return rows.map((row) => {
+    if (row.planningType !== "make" || !parentsWithMaterialShortages.has(row.item.id)) {
+      return row;
+    }
+
+    const scheduleConfidenceReasons = uniqueReasonCodes([
+      ...row.scheduleConfidenceReasons,
+      "projected_shortage",
+    ]);
+
+    return {
+      ...row,
+      scheduleConfidence: "blocked" as ScheduleConfidence,
+      scheduleConfidenceReasons,
+      reasonCodes: uniqueReasonCodes([...row.reasonCodes, ...scheduleConfidenceReasons]),
+    };
+  });
+}
+
+function buildProductionBlockerFacts(args: {
+  rows: PlanningItemRow[];
+  bomRequirementFacts: BomRequirementFact[];
+  bomByProductId: Map<string, CurrentBomRecord>;
+  warnings: PlanningWarning[];
+}): ProductionBlockerFact[] {
+  const rowsByItemId = new Map(args.rows.map((row) => [row.item.id, row]));
+  const blockers: ProductionBlockerFact[] = [];
+
+  for (const fact of args.bomRequirementFacts) {
+    const parent = rowsByItemId.get(fact.parentItemId);
+    const component = rowsByItemId.get(fact.componentItemId);
+    if (!parent || !component || toQuantity(component.shortageQuantity) <= 0) {
+      continue;
+    }
+
+    blockers.push({
+      id: `production:blocker:material:${fact.id}`,
+      parentItemId: parent.item.id,
+      parentItemName: parent.item.name,
+      parentRecommendationId: parent.recommendationId,
+      componentItemId: component.item.id,
+      componentItemName: component.item.name,
+      componentUnitName: component.item.unitName,
+      requiredQuantity: fact.requiredQuantity,
+      availableQuantity: component.availableStock,
+      shortageQuantity: component.shortageQuantity,
+      blockerType: "material_shortage",
+      earliestRequiredDate: parent.earliestRequiredDate,
+      sourceRefs: fact.sourceRefs,
+    });
+  }
+
+  for (const row of args.rows.filter((entry) => entry.planningType === "make")) {
+    const hasShortage = toQuantity(row.shortageQuantity) > 0;
+    const bom = args.bomByProductId.get(row.item.id);
+    if (hasShortage && (!bom || bom.components.length === 0)) {
+      blockers.push({
+        id: `production:blocker:missing-bom:${row.item.id}`,
+        parentItemId: row.item.id,
+        parentItemName: row.item.name,
+        parentRecommendationId: row.recommendationId,
+        componentItemId: null,
+        componentItemName: null,
+        componentUnitName: null,
+        requiredQuantity: row.shortageQuantity,
+        availableQuantity: row.availableStock,
+        shortageQuantity: row.shortageQuantity,
+        blockerType: "missing_bom",
+        earliestRequiredDate: row.earliestRequiredDate,
+        sourceRefs: row.sourceRefs,
+      });
+    }
+
+    for (const reason of row.scheduleConfidenceReasons) {
+      const blockerType =
+        reason === "missing_production_lead_time"
+          ? "missing_production_lead_time"
+          : reason === "missing_capacity"
+            ? "missing_capacity"
+            : reason === "capacity_overrun"
+              ? "capacity_overrun"
+              : null;
+
+      if (!blockerType) continue;
+
+      blockers.push({
+        id: `production:blocker:${blockerType}:${row.item.id}`,
+        parentItemId: row.item.id,
+        parentItemName: row.item.name,
+        parentRecommendationId: row.recommendationId,
+        componentItemId: null,
+        componentItemName: null,
+        componentUnitName: null,
+        requiredQuantity: row.shortageQuantity,
+        availableQuantity: row.availableStock,
+        shortageQuantity: row.shortageQuantity,
+        blockerType,
+        earliestRequiredDate: row.earliestRequiredDate,
+        sourceRefs: row.sourceRefs,
+      });
+    }
+  }
+
+  for (const warning of args.warnings) {
+    const blockerType =
+      warning.code === "bom_cycle_detected"
+        ? "bom_cycle_detected"
+        : warning.code === "bom_depth_limit"
+          ? "bom_depth_limit"
+          : null;
+    if (!blockerType || !warning.itemId) continue;
+    const parent = rowsByItemId.get(warning.itemId);
+    if (!parent) continue;
+
+    blockers.push({
+      id: `production:blocker:${blockerType}:${warning.itemId}`,
+      parentItemId: parent.item.id,
+      parentItemName: parent.item.name,
+      parentRecommendationId: parent.recommendationId,
+      componentItemId: null,
+      componentItemName: null,
+      componentUnitName: null,
+      requiredQuantity: parent.shortageQuantity,
+      availableQuantity: parent.availableStock,
+      shortageQuantity: parent.shortageQuantity,
+      blockerType,
+      earliestRequiredDate: parent.earliestRequiredDate,
+      sourceRefs: warning.sourceRefs,
+    });
+  }
+
+  return blockers;
+}
+
+function buildProductionCapacityBuckets(args: {
+  rows: PlanningItemRow[];
+  scheduledLoads: ScheduledManufacturingLoad[];
+  orgSettings: OrgPlanningSettings;
+  horizonStart: string;
+}) {
+  const buckets: ProductionBucket[] = ["now", "this-week", "next-week", "later"];
+  const dailyCapacity = nullableNumber(args.orgSettings.defaultDailyManufacturingCapacity);
+
+  return buckets.map((bucket) => {
+    const scheduledLoad = args.scheduledLoads
+      .filter(
+        (load) =>
+          productionBucketForDate(load.plannedDate, args.horizonStart) === bucket
+      )
+      .reduce((sum, load) => roundQuantity(sum + toQuantity(load.plannedQuantity)), 0);
+    const recommendedLoad = args.rows
+      .filter((row) => row.planningType === "make" && row.productionBucket === bucket)
+      .reduce((sum, row) => roundQuantity(sum + toQuantity(row.shortageQuantity)), 0);
+    const capacity =
+      dailyCapacity == null ? null : dailyCapacity * bucketCapacityDays(bucket);
+    const capacityUtilizationPct =
+      capacity != null && capacity > 0
+        ? roundPercent(((scheduledLoad + recommendedLoad) / capacity) * 100)
+        : null;
+
+    return {
+      bucket,
+      scheduledLoad: normalizeQuantity(scheduledLoad),
+      recommendedLoad: normalizeQuantity(recommendedLoad),
+      capacity: capacity == null ? null : normalizeQuantity(capacity),
+      capacityUtilizationPct,
+    };
+  });
 }
 
 function warningForRow(args: {
@@ -1036,7 +1981,15 @@ function buildRecommendations(args: {
 
   for (const row of args.rows) {
     const shortageQuantity = toQuantity(row.shortageQuantity);
-    if (shortageQuantity <= 0) {
+    const recommendationQuantity =
+      row.planningType === "buy"
+        ? row.suggestedOrderQuantity ?? row.shortageQuantity
+        : row.shortageQuantity;
+    if (
+      row.reasonCodes.includes("planning_disabled") ||
+      toQuantity(recommendationQuantity) <= 0 ||
+      (row.planningType !== "buy" && shortageQuantity <= 0)
+    ) {
       continue;
     }
 
@@ -1049,10 +2002,23 @@ function buildRecommendations(args: {
       const supplierSuggestion = args.supplierSuggestions.get(item.id) ?? {
         supplierId: null,
         supplierName: null,
+        supplierSku: null,
+        supplierSource: "unknown" as PlanningRuleSource,
+        unitCost: null,
+        unitCostSource: "unknown" as PlanningRuleSource,
+        purchaseUnitDefinitionId: item.purchaseUnitDefinitionId,
+        purchaseUnitName: item.purchaseUnitName,
+        purchaseToStockFactor: item.purchaseToStockFactor ?? "1",
+        purchaseRuleSource: "item_default" as PlanningRuleSource,
+        leadTimeDaysOverride: null,
+        minimumOrderQuantity: null,
+        orderMultiple: null,
         reasonCodes: ["missing_supplier"] satisfies PlanningReasonCode[],
       };
-      const hasPurchasePrice =
-        item.defaultPurchasePrice != null && toQuantity(item.defaultPurchasePrice) > 0;
+      const unitCost = row.unitCost ?? supplierSuggestion.unitCost;
+      const purchaseToStockFactor =
+        row.purchaseToStockFactor ?? supplierSuggestion.purchaseToStockFactor ?? "1";
+      const hasPurchasePrice = unitCost != null && toQuantity(unitCost) >= 0;
       const warningCodes = [
         ...supplierSuggestion.reasonCodes,
         ...(!hasPurchasePrice
@@ -1064,7 +2030,7 @@ function buildRecommendations(args: {
       const recommendationId = buildRecommendationId({
         recommendationType,
         itemId: item.id,
-        quantity: row.shortageQuantity,
+        quantity: recommendationQuantity,
         sourceRefs: row.sourceRefs,
       });
       const warnings = warningCodes.map((code) =>
@@ -1074,7 +2040,7 @@ function buildRecommendations(args: {
           sourceRefs: row.sourceRefs,
           message:
             code === "missing_purchase_price"
-              ? `${item.name} needs a default purchase price before planning can draft a purchase order.`
+              ? `${item.name} needs a purchase price before planning can draft a purchase order.`
               : code === "ambiguous_supplier"
                 ? `${item.name} has no item-specific supplier history and multiple suppliers exist.`
                 : `${item.name} needs a supplier before planning can draft a purchase order.`,
@@ -1086,7 +2052,7 @@ function buildRecommendations(args: {
         id: recommendationId,
         recommendationType,
         itemId: item.id,
-        quantity: row.shortageQuantity,
+        quantity: recommendationQuantity,
         requiredDate: row.earliestRequiredDate,
         suggestedSupplierId: supplierSuggestion.supplierId,
         suggestedSupplierName: supplierSuggestion.supplierName,
@@ -1102,22 +2068,24 @@ function buildRecommendations(args: {
           recommendationType === "create_purchase_order" &&
           supplierSuggestion.supplierId != null &&
           hasPurchasePrice &&
-          item.defaultPurchasePrice != null
+          unitCost != null
             ? {
                 actionType: "create_purchase_order",
                 inputHash: args.inputHash,
                 recommendationId,
                 itemId: item.id,
-                quantity: row.shortageQuantity,
+                quantity: recommendationQuantity,
                 requiredDate: row.earliestRequiredDate,
                 supplierId: supplierSuggestion.supplierId,
-                unitCost: item.defaultPurchasePrice,
+                unitCost,
+                purchaseUnitDefinitionId: row.purchaseUnitDefinitionId,
+                purchaseToStockFactor,
                 sourceRefs: row.sourceRefs,
               }
             : null,
         explanation:
           recommendationType === "create_purchase_order"
-            ? `Draft a purchase order for ${row.shortageQuantity} ${item.name}.`
+            ? `Draft a purchase order for ${recommendationQuantity} ${item.name}.`
             : `Review purchasing setup for ${item.name}.`,
       });
       continue;
@@ -1172,6 +2140,7 @@ function buildRecommendations(args: {
                 itemId: item.id,
                 quantity: row.shortageQuantity,
                 requiredDate: row.earliestRequiredDate,
+                latestStartDate: row.latestStartDate,
                 bomRevisionId: bom.revisionId,
                 ingredients: bom.components.map((component) => ({
                   itemId: component.componentId,
@@ -1229,6 +2198,8 @@ export async function buildPlanningSnapshotInTx(
   orgId: string,
   generatedAt: Date = new Date()
 ): Promise<PlanningSnapshot> {
+  const horizonStart = isoDate(generatedAt);
+  const horizonEnd = addDays(horizonStart, DEFAULT_COVER_HORIZON_DAYS);
   const itemsList = await getPlanningItemsInTx(tx);
   const productIds = itemsList
     .filter((item) => item.itemType === "product")
@@ -1239,10 +2210,13 @@ export async function buildPlanningSnapshotInTx(
   const purchaseSupplyFacts = await getPurchaseSupplyFactsInTx(tx);
   const manufacturingSupplyFacts = await getManufacturingSupplyFactsInTx(tx);
   const bomByProductId = await getCurrentBomsInTx(tx, productIds);
-  const supplierSuggestions = await getSupplierSuggestionsInTx(
-    tx,
-    itemsList.filter((item) => item.itemType === "material").map((item) => item.id)
-  );
+  const supplierSuggestions = await getSupplierSuggestionsInTx(tx, itemsList);
+  const materialIds = itemsList
+    .filter((item) => item.itemType === "material")
+    .map((item) => item.id);
+  const leadTimeHistory = await getLeadTimeHistoryInTx(tx, materialIds);
+  const orgSettings = await getOrgPlanningSettingsInTx(tx);
+  const scheduledLoads = await getScheduledManufacturingLoadsInTx(tx);
   const inventoryFacts = getInventoryFacts(itemsList);
   const supplyFacts = [
     ...getInventorySupplyFacts(itemsList, inventoryFacts),
@@ -1262,12 +2236,21 @@ export async function buildPlanningSnapshotInTx(
       supplyFacts,
       inventoryFacts,
       bomByProductId,
+      supplierSuggestions,
+      leadTimeHistory,
+      orgSettings,
+      scheduledLoads,
+      horizonStart,
       warnings,
     });
+  const rowsForRecommendations = applyProductionBlockerConfidence(
+    explodedRows,
+    bomRequirementFacts
+  );
   const assumptions = [
     {
-      code: "no_time_horizon",
-      description: "Planning includes all current open demand and open supply; no forecast horizon is applied.",
+      code: "dated_cover_horizon",
+      description: `Days of cover uses dated demand and supply through ${DEFAULT_COVER_HORIZON_DAYS} days when no later facts exist.`,
     },
     {
       code: "single_default_location",
@@ -1282,8 +2265,12 @@ export async function buildPlanningSnapshotInTx(
       description: `BOM explosion uses current BOM revisions and stops after ${MAX_BOM_EXPLOSION_LEVEL} levels or at cycles.`,
     },
     {
-      code: "supplier_suggestion_limited",
-      description: "Supplier suggestions use item purchase history or the sole active supplier because preferred supplier metadata is not available yet.",
+      code: "supplier_resolution_order",
+      description: "Supplier planning uses preferred supplier-item rules, then purchase history, then the sole active supplier.",
+    },
+    {
+      code: "capacity_is_simple",
+      description: "Capacity is quantity-per-day by item or organization default; no work centers or finite sequencing are applied.",
     },
   ];
   const inputHash = hashValue({
@@ -1293,24 +2280,41 @@ export async function buildPlanningSnapshotInTx(
     demandFacts,
     supplyFacts,
     bomRequirementFacts,
+    leadTimeHistory: [...leadTimeHistory.entries()].sort(([left], [right]) =>
+      left.localeCompare(right)
+    ),
     supplierSuggestions: [...supplierSuggestions.entries()].sort(([left], [right]) =>
       left.localeCompare(right)
     ),
+    orgSettings,
+    scheduledLoads,
     warnings,
   });
   const { rows, recommendations } = buildRecommendations({
-    rows: explodedRows,
+    rows: rowsForRecommendations,
     itemsList,
     bomByProductId,
     supplierSuggestions,
     inputHash,
   });
+  const productionBlockerFacts = buildProductionBlockerFacts({
+    rows,
+    bomRequirementFacts,
+    bomByProductId,
+    warnings,
+  });
+  const productionCapacityBuckets = buildProductionCapacityBuckets({
+    rows,
+    scheduledLoads,
+    orgSettings,
+    horizonStart,
+  });
 
   return {
     orgId,
     generatedAt: generatedAt.toISOString(),
-    horizonStart: null,
-    horizonEnd: null,
+    horizonStart,
+    horizonEnd,
     inputHash,
     assumptions,
     rows,
@@ -1330,6 +2334,8 @@ export async function buildPlanningSnapshotInTx(
     supplyFacts,
     inventoryFacts,
     bomRequirementFacts,
+    productionBlockerFacts,
+    productionCapacityBuckets,
     recommendations,
     warnings: [
       ...warnings,

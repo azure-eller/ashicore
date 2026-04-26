@@ -3,6 +3,7 @@ import {
   index,
   integer,
   numeric,
+  boolean,
   pgPolicy,
   pgSchema,
   text,
@@ -13,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { items } from "./items";
+import { unitDefinitions } from "./units";
 
 export const purchasingSchema = pgSchema("purchasing");
 
@@ -50,6 +52,64 @@ export const suppliers = purchasingSchema
         .on(table.organizationId, table.code)
         .where(sql`code IS NOT NULL AND deleted_at IS NULL`),
       pgPolicy("purchasing_suppliers_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const supplierItems = purchasingSchema
+  .table(
+    "supplier_items",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      supplierId: uuid("supplier_id")
+        .notNull()
+        .references(() => suppliers.id),
+      itemId: uuid("item_id")
+        .notNull()
+        .references(() => items.id),
+      supplierSku: varchar("supplier_sku", { length: 100 }),
+      unitCost: numeric("unit_cost", { precision: 10, scale: 4 }),
+      purchaseUnitDefinitionId: uuid("purchase_unit_definition_id").references(
+        () => unitDefinitions.id
+      ),
+      purchaseToStockFactor: numeric("purchase_to_stock_factor", {
+        precision: 12,
+        scale: 4,
+      }),
+      leadTimeDaysOverride: numeric("lead_time_days_override", {
+        precision: 8,
+        scale: 2,
+      }),
+      minimumOrderQuantity: numeric("minimum_order_quantity", {
+        precision: 12,
+        scale: 4,
+      }),
+      orderMultiple: numeric("order_multiple", { precision: 12, scale: 4 }),
+      isPreferred: boolean("is_preferred").notNull().default(false),
+      deletedAt: timestamp("deleted_at"),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("supplier_items_org_id_idx").on(table.organizationId),
+      index("supplier_items_supplier_id_idx").on(table.supplierId),
+      index("supplier_items_item_id_idx").on(table.itemId),
+      index("supplier_items_active_idx")
+        .on(table.organizationId)
+        .where(sql`deleted_at IS NULL`),
+      uniqueIndex("supplier_items_org_supplier_item_uidx")
+        .on(table.organizationId, table.supplierId, table.itemId)
+        .where(sql`deleted_at IS NULL`),
+      uniqueIndex("supplier_items_org_preferred_item_uidx")
+        .on(table.organizationId, table.itemId)
+        .where(sql`deleted_at IS NULL AND is_preferred = true`),
+      pgPolicy("supplier_items_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

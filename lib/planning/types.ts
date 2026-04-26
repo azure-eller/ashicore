@@ -2,6 +2,24 @@ export type PlanningType = "buy" | "make" | "buy_or_make" | "unknown";
 
 export type SuggestedPlanningAction = "buy" | "make" | "review" | "none";
 
+export type PlanningRuleSource =
+  | "manual"
+  | "supplier_item"
+  | "history"
+  | "item_default"
+  | "default"
+  | "unknown";
+
+export type DaysOfCoverStatus =
+  | "order_now"
+  | "order_soon"
+  | "stocked"
+  | "unknown";
+
+export type ProductionBucket = "now" | "this-week" | "next-week" | "later";
+
+export type ScheduleConfidence = "high" | "medium" | "low" | "blocked";
+
 export type PlanningRecommendationType =
   | "create_purchase_order"
   | "create_manufacturing_order"
@@ -24,6 +42,11 @@ export type PlanningReasonCode =
   | "missing_supplier"
   | "ambiguous_supplier"
   | "missing_purchase_price"
+  | "missing_lead_time"
+  | "missing_production_lead_time"
+  | "missing_capacity"
+  | "capacity_overrun"
+  | "planning_disabled"
   | "missing_bom"
   | "bom_cycle_detected"
   | "bom_depth_limit"
@@ -71,6 +94,7 @@ export type PlanningItemSummary = {
   sku: string | null;
   itemType: string;
   unitName: string | null;
+  unitUom: string | null;
 };
 
 export type DemandFactType =
@@ -142,6 +166,8 @@ export type CreatePurchaseOrderDraftActionPayload = {
   requiredDate: string | null;
   supplierId: string;
   unitCost: string;
+  purchaseUnitDefinitionId: string | null;
+  purchaseToStockFactor: string;
   sourceRefs: PlanningSourceRef[];
 };
 
@@ -152,6 +178,7 @@ export type CreateManufacturingOrderDraftActionPayload = {
   itemId: string;
   quantity: string;
   requiredDate: string | null;
+  latestStartDate: string | null;
   bomRevisionId: string;
   ingredients: Array<{
     itemId: string;
@@ -191,11 +218,75 @@ export type PlanningItemRow = {
   projectedQuantity: string;
   shortageQuantity: string;
   earliestRequiredDate: string | null;
+  reorderPoint: string | null;
+  targetCoverDays: number | null;
+  daysOfCover: number | null;
+  daysOfCoverStatus: DaysOfCoverStatus;
+  suggestedOrderQuantity: string | null;
+  leadTimeDays: number | null;
+  leadTimeSource: PlanningRuleSource;
+  leadTimeSampleCount: number;
+  minimumOrderQuantity: string | null;
+  orderMultiple: string | null;
+  preferredSupplierId: string | null;
+  preferredSupplierName: string | null;
+  preferredSupplierSku: string | null;
+  preferredSupplierSource: PlanningRuleSource;
+  purchaseUnitDefinitionId: string | null;
+  purchaseUnitName: string | null;
+  purchaseToStockFactor: string | null;
+  purchaseRuleSource: PlanningRuleSource;
+  unitCost: string | null;
+  unitCostSource: PlanningRuleSource;
+  productionLeadTimeDays: number | null;
+  productionLeadTimeSource: PlanningRuleSource;
+  latestStartDate: string | null;
+  productionBucket: ProductionBucket;
+  manufacturingMode: string | null;
+  expectedBatchYield: string | null;
+  plannedBatchCount: number | null;
+  dailyCapacity: string | null;
+  capacitySource: PlanningRuleSource;
+  bucketScheduledLoad: string | null;
+  capacityUtilizationPct: number | null;
+  scheduleConfidence: ScheduleConfidence;
+  scheduleConfidenceReasons: PlanningReasonCode[];
   suggestedAction: SuggestedPlanningAction;
   reasonCodes: PlanningReasonCode[];
   sourceRefs: PlanningSourceRef[];
   explanationSummary: string;
   recommendationId: string | null;
+};
+
+export type ProductionBlockerFact = {
+  id: string;
+  parentItemId: string;
+  parentItemName: string;
+  parentRecommendationId: string | null;
+  componentItemId: string | null;
+  componentItemName: string | null;
+  componentUnitName: string | null;
+  requiredQuantity: string | null;
+  availableQuantity: string | null;
+  shortageQuantity: string | null;
+  blockerType:
+    | "material_shortage"
+    | "missing_bom"
+    | "bom_cycle_detected"
+    | "bom_depth_limit"
+    | "missing_production_lead_time"
+    | "missing_capacity"
+    | "capacity_overrun";
+  earliestRequiredDate: string | null;
+  sourceRefs: PlanningSourceRef[];
+};
+
+export type ProductionCapacityBucket = {
+  bucket: ProductionBucket;
+  scheduledLoad: string;
+  recommendedLoad: string;
+  capacity: string | null;
+  capacityUtilizationPct: number | null;
 };
 
 export type PlanningSnapshot = {
@@ -210,6 +301,8 @@ export type PlanningSnapshot = {
   supplyFacts: SupplyFact[];
   inventoryFacts: InventoryFact[];
   bomRequirementFacts: BomRequirementFact[];
+  productionBlockerFacts: ProductionBlockerFact[];
+  productionCapacityBuckets: ProductionCapacityBucket[];
   recommendations: PlanningRecommendation[];
   warnings: PlanningWarning[];
 };

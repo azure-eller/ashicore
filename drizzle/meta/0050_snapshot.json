@@ -1,5 +1,5 @@
 {
-  "id": "939e8322-93c2-466f-a268-68378c363d31",
+  "id": "084646b0-ba1c-4f9a-b30c-ce57f48f0cd3",
   "prevId": "86277448-13e8-482f-9e41-2a66f53325b1",
   "version": "7",
   "dialect": "postgresql",
@@ -304,6 +304,31 @@
           "notNull": true,
           "default": "'0'"
         },
+        "reorder_point": {
+          "name": "reorder_point",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_cover_days": {
+          "name": "target_cover_days",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_enabled": {
+          "name": "planning_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "lead_time_days_override": {
+          "name": "lead_time_days_override",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "default_purchase_price": {
           "name": "default_purchase_price",
           "type": "numeric(10, 4)",
@@ -337,6 +362,18 @@
         },
         "expected_batch_yield": {
           "name": "expected_batch_yield",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "production_lead_time_days": {
+          "name": "production_lead_time_days",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "daily_capacity": {
+          "name": "daily_capacity",
           "type": "numeric(12, 4)",
           "primaryKey": false,
           "notNull": false
@@ -4101,43 +4138,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "xero_push_payload_hash": {
-          "name": "xero_push_payload_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "xero_last_push_attempt_at": {
-          "name": "xero_last_push_attempt_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "xero_retry_count": {
-          "name": "xero_retry_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "xero_email_status": {
-          "name": "xero_email_status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "xero_email_error": {
-          "name": "xero_email_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "xero_emailed_at": {
-          "name": "xero_emailed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
         "total_amount": {
           "name": "total_amount",
           "type": "numeric(12, 2)",
@@ -5703,6 +5703,279 @@
       "checkConstraints": {},
       "isRLSEnabled": true
     },
+    "purchasing.supplier_items": {
+      "name": "supplier_items",
+      "schema": "purchasing",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supplier_id": {
+          "name": "supplier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supplier_sku": {
+          "name": "supplier_sku",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unit_cost": {
+          "name": "unit_cost",
+          "type": "numeric(10, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purchase_unit_definition_id": {
+          "name": "purchase_unit_definition_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purchase_to_stock_factor": {
+          "name": "purchase_to_stock_factor",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lead_time_days_override": {
+          "name": "lead_time_days_override",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "minimum_order_quantity": {
+          "name": "minimum_order_quantity",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "order_multiple": {
+          "name": "order_multiple",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_preferred": {
+          "name": "is_preferred",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "supplier_items_org_id_idx": {
+          "name": "supplier_items_org_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "supplier_items_supplier_id_idx": {
+          "name": "supplier_items_supplier_id_idx",
+          "columns": [
+            {
+              "expression": "supplier_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "supplier_items_item_id_idx": {
+          "name": "supplier_items_item_id_idx",
+          "columns": [
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "supplier_items_active_idx": {
+          "name": "supplier_items_active_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "supplier_items_org_supplier_item_uidx": {
+          "name": "supplier_items_org_supplier_item_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "supplier_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "supplier_items_org_preferred_item_uidx": {
+          "name": "supplier_items_org_preferred_item_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "deleted_at IS NULL AND is_preferred = true",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "supplier_items_supplier_id_suppliers_id_fk": {
+          "name": "supplier_items_supplier_id_suppliers_id_fk",
+          "tableFrom": "supplier_items",
+          "tableTo": "suppliers",
+          "schemaTo": "purchasing",
+          "columnsFrom": [
+            "supplier_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "supplier_items_item_id_items_id_fk": {
+          "name": "supplier_items_item_id_items_id_fk",
+          "tableFrom": "supplier_items",
+          "tableTo": "items",
+          "schemaTo": "inventory",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "supplier_items_purchase_unit_definition_id_unit_definitions_id_fk": {
+          "name": "supplier_items_purchase_unit_definition_id_unit_definitions_id_fk",
+          "tableFrom": "supplier_items",
+          "tableTo": "unit_definitions",
+          "schemaTo": "inventory",
+          "columnsFrom": [
+            "purchase_unit_definition_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "supplier_items_org_isolation": {
+          "name": "supplier_items_org_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "organization_id = current_setting('app.current_org_id', true)",
+          "withCheck": "organization_id = current_setting('app.current_org_id', true)"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
     "purchasing.suppliers": {
       "name": "suppliers",
       "schema": "purchasing",
@@ -5901,6 +6174,72 @@
       "policies": {
         "purchasing_suppliers_org_isolation": {
           "name": "purchasing_suppliers_org_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "organization_id = current_setting('app.current_org_id', true)",
+          "withCheck": "organization_id = current_setting('app.current_org_id', true)"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "planning.organization_planning_settings": {
+      "name": "organization_planning_settings",
+      "schema": "planning",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "default_daily_manufacturing_capacity": {
+          "name": "default_daily_manufacturing_capacity",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "organization_planning_settings_org_id_idx": {
+          "name": "organization_planning_settings_org_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "organization_planning_settings_org_isolation": {
+          "name": "organization_planning_settings_org_isolation",
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
@@ -6689,13 +7028,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'AUTHORISED'"
-        },
-        "auto_email_sales_invoices": {
-          "name": "auto_email_sales_invoices",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -7506,6 +7838,7 @@
     "sales": "sales",
     "manufacturing": "manufacturing",
     "purchasing": "purchasing",
+    "planning": "planning",
     "system": "system",
     "xero": "xero",
     "agent": "agent"

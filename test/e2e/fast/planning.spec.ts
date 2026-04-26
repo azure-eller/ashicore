@@ -10,6 +10,7 @@ import {
   createCustomer,
   createItem,
   createManufacturingOrder,
+  autoPlanDrafts,
   createPlanningManufacturingOrderDraft,
   createPlanningPurchaseOrderDraft,
   createPurchaseOrder,
@@ -18,8 +19,10 @@ import {
   getBaseUrl,
   getPlanningSnapshot,
   getUnitId,
+  receivePurchaseOrder,
   releaseManufacturingOrder,
   submitPurchaseOrder,
+  updatePlanningRules,
 } from "../../helpers/api";
 import type {
   DemandFact,
@@ -67,11 +70,34 @@ test.describe("Planning workspace", () => {
   test.describe.configure({ mode: "serial" });
 
   const ts = Date.now();
-  const suffix = String(ts).slice(-8);
+  const runToken = String(ts).slice(-8);
   const unitId = getUnitId();
-  const category = `Fast Planning ${ts}`;
+  const category = "Paonia planning fixtures";
+  const customerName = "North Fork Farmstead";
+  const supplierName = "Western Slope Organics";
+  const alternateSupplierName = "Mesa Packaging";
+  let itemSequence = 0;
   let customerId = "";
   let supplierId = "";
+
+  type CreatedPlanningItem = {
+    id: string;
+    name: string;
+    sku: string;
+  };
+
+  function skuSegment(value: string) {
+    return value
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-|-$/g, "")
+      .toUpperCase()
+      .slice(0, 24);
+  }
+
+  function buildItemSku(prefix: "PLAN-M" | "PLAN-P", key: string) {
+    const index = String(++itemSequence).padStart(2, "0");
+    return `${prefix}-${index}-${skuSegment(key)}-${runToken}`.slice(0, 50);
+  }
 
   async function snapshot(): Promise<PlanningSnapshot> {
     const result = await getPlanningSnapshot();
@@ -95,16 +121,38 @@ test.describe("Planning workspace", () => {
     return recommendation;
   }
 
-  async function createMaterial(name: string, options?: {
+  function deterministicRecommendationShape(
+    snapshot: PlanningSnapshot,
+    itemId: string
+  ) {
+    const recommendation = recommendationFor(snapshot, itemId);
+    const actionPayload = recommendation.actionPayload
+      ? {
+          ...recommendation.actionPayload,
+          inputHash: "<snapshot-scoped>",
+          recommendationId: "<recommendation-scoped>",
+        }
+      : null;
+
+    return {
+      ...recommendation,
+      id: "<recommendation-scoped>",
+      actionPayload,
+    };
+  }
+
+  async function createMaterialRecord(name: string, options?: {
     stock?: string;
     safetyStock?: string;
     defaultPurchasePrice?: string | null;
-  }) {
+    skuKey?: string;
+  }): Promise<CreatedPlanningItem> {
+    const sku = buildItemSku("PLAN-M", options?.skuKey ?? name);
     const result = await createItem({
       name,
       itemType: "material",
       unitDefinitionId: unitId,
-      sku: `PLAN-M-${name.replaceAll(" ", "-").slice(0, 24)}-${suffix}`,
+      sku,
       category,
       description: null,
       defaultPurchasePrice: options?.defaultPurchasePrice ?? "1.00",
@@ -114,7 +162,16 @@ test.describe("Planning workspace", () => {
       bom: [],
     });
     expect(result.status).toBe(201);
-    return result.body.id as string;
+    return { id: result.body.id as string, name, sku };
+  }
+
+  async function createMaterial(name: string, options?: {
+    stock?: string;
+    safetyStock?: string;
+    defaultPurchasePrice?: string | null;
+    skuKey?: string;
+  }) {
+    return (await createMaterialRecord(name, options)).id;
   }
 
   async function createProduct(name: string, bom: Array<{ componentId: string; quantity: string }>) {
@@ -122,7 +179,7 @@ test.describe("Planning workspace", () => {
       name,
       itemType: "product",
       unitDefinitionId: unitId,
-      sku: `PLAN-P-${name.replaceAll(" ", "-").slice(0, 24)}-${suffix}`,
+      sku: buildItemSku("PLAN-P", name),
       category,
       description: null,
       defaultPurchasePrice: null,
@@ -152,7 +209,7 @@ test.describe("Planning workspace", () => {
     const result = await createPurchaseOrder({
       supplierId,
       expectedDate: null,
-      notes: `Planning supplier history ${ts}`,
+      notes: "Supplier history for planning fixture",
       lines: [{ itemId, quantityOrdered: "1", unitCost: "1.00" }],
     });
     expect(result.status).toBe(201);
@@ -168,7 +225,7 @@ test.describe("Planning workspace", () => {
         Origin: getBaseUrl(),
       },
       body: JSON.stringify({
-        name: "Planning Other Org",
+        name: "Parallel Test Planner",
         email,
         password: "TestPassword123!",
       }),
@@ -180,7 +237,7 @@ test.describe("Planning workspace", () => {
     const org = await fetchWithCookies(cookies, "/api/auth/organization/create", {
       method: "POST",
       body: JSON.stringify({
-        name: `Planning Other Org ${ts}`,
+        name: "Parallel Test Org",
         slug: `planning-other-${ts}`,
       }),
     });
@@ -204,9 +261,9 @@ test.describe("Planning workspace", () => {
     const unit = await fetchWithCookies(cookies, "/api/units", {
       method: "POST",
       body: JSON.stringify({
-        name: `planning-other-unit-${ts}`,
+        name: "Each",
         size: "1",
-        uom: "kg",
+        uom: "ea",
       }),
     });
     expect(unit.status).toBe(201);
@@ -215,7 +272,7 @@ test.describe("Planning workspace", () => {
     const supplier = await fetchWithCookies(cookies, "/api/suppliers", {
       method: "POST",
       body: JSON.stringify({
-        name: `Planning Other Supplier ${ts}`,
+        name: "Delta Packaging",
         code: `PLAN-OTHER-SUP-${ts}`,
       }),
     });
@@ -224,10 +281,10 @@ test.describe("Planning workspace", () => {
     const item = await fetchWithCookies(cookies, "/api/items", {
       method: "POST",
       body: JSON.stringify({
-        name: `Planning Other Org Material ${ts}`,
+        name: "Coco Coir Brick",
         itemType: "material",
         unitDefinitionId: unitBody.id,
-        sku: `PLAN-OTHER-M-${suffix}`,
+        sku: `PLAN-OTHER-M-${runToken}`,
         category,
         description: null,
         defaultPurchasePrice: "1.00",
@@ -254,14 +311,14 @@ test.describe("Planning workspace", () => {
 
   test("sets up customer and supplier", async () => {
     const customer = await createCustomer({
-      name: `Planning Customer ${ts}`,
+      name: customerName,
       email: `planning-${ts}@example.com`,
     });
     expect(customer.status).toBe(201);
     customerId = customer.body.id as string;
 
     const supplier = await createSupplier({
-      name: `Planning Supplier ${ts}`,
+      name: supplierName,
       code: `PLAN-SUP-${ts}`,
     });
     expect(supplier.status).toBe(201);
@@ -269,7 +326,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("confirmed sales order creates demand and shortage", async () => {
-    const itemId = await createMaterial(`Planning Sales Short ${ts}`);
+    const itemId = await createMaterial("Paonia Living Soil Mix");
     await createConfirmedDemand(itemId, "5");
 
     const planning = await snapshot();
@@ -282,7 +339,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("safety stock creates demand and shortage", async () => {
-    const itemId = await createMaterial(`Planning Safety Short ${ts}`, {
+    const itemId = await createMaterial("Screened Compost", {
       safetyStock: "4",
     });
 
@@ -295,7 +352,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("available inventory reduces shortage", async () => {
-    const itemId = await createMaterial(`Planning Stock Nets ${ts}`, { stock: "4" });
+    const itemId = await createMaterial("Basalt Rock Dust", { stock: "4" });
     await createConfirmedDemand(itemId, "10");
 
     const planning = await snapshot();
@@ -307,7 +364,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("reserved inventory is not double-counted as available", async () => {
-    const itemId = await createMaterial(`Planning Reserved Nets ${ts}`, { stock: "10" });
+    const itemId = await createMaterial("Amber Bottle 250ml", { stock: "10" });
     await createConfirmedDemand(itemId, "8");
 
     const planning = await snapshot();
@@ -321,7 +378,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("open purchase order supply nets down purchased item shortage", async () => {
-    const itemId = await createMaterial(`Planning PO Nets ${ts}`);
+    const itemId = await createMaterial("Kelp Meal");
     await createConfirmedDemand(itemId, "10");
     const purchaseOrder = await createPurchaseOrder({
       supplierId,
@@ -342,10 +399,10 @@ test.describe("Planning workspace", () => {
   });
 
   test("open manufacturing order supply nets down manufactured item shortage", async () => {
-    const componentId = await createMaterial(`Planning MO Component ${ts}`, {
+    const componentId = await createMaterial("Pumice", {
       stock: "100",
     });
-    const productId = await createProduct(`Planning MO Product ${ts}`, [
+    const productId = await createProduct("Raised Bed Blend", [
       { componentId, quantity: "2" },
     ]);
     await createConfirmedDemand(productId, "10");
@@ -371,8 +428,8 @@ test.describe("Planning workspace", () => {
   });
 
   test("BOM explosion creates component demand for a manufactured finished good", async () => {
-    const componentId = await createMaterial(`Planning BOM Component ${ts}`);
-    const productId = await createProduct(`Planning BOM Product ${ts}`, [
+    const componentId = await createMaterial("Worm Castings");
+    const productId = await createProduct("Seed Starter Blend", [
       { componentId, quantity: "2" },
     ]);
     await createConfirmedDemand(productId, "5");
@@ -389,11 +446,11 @@ test.describe("Planning workspace", () => {
   });
 
   test("multi-level BOM explosion works", async () => {
-    const componentId = await createMaterial(`Planning Multi Component ${ts}`);
-    const subassemblyId = await createProduct(`Planning Multi Sub ${ts}`, [
+    const componentId = await createMaterial("Coco Coir");
+    const subassemblyId = await createProduct("Mineral Amendment Pack", [
       { componentId, quantity: "3" },
     ]);
-    const productId = await createProduct(`Planning Multi Product ${ts}`, [
+    const productId = await createProduct("Houseplant Soil Kit", [
       { componentId: subassemblyId, quantity: "2" },
     ]);
     await createConfirmedDemand(productId, "4");
@@ -407,11 +464,11 @@ test.describe("Planning workspace", () => {
   });
 
   test("suggested action is buy for purchased items and make for manufactured items", async () => {
-    const materialId = await createMaterial(`Planning Buy Action ${ts}`);
+    const materialId = await createMaterial("Alfalfa Meal");
     await establishSupplierHistory(materialId);
     await createConfirmedDemand(materialId, "3");
-    const componentId = await createMaterial(`Planning Make Action Component ${ts}`);
-    const productId = await createProduct(`Planning Make Action Product ${ts}`, [
+    const componentId = await createMaterial("Printed Carton Label");
+    const productId = await createProduct("Compost Tea Kit", [
       { componentId, quantity: "1" },
     ]);
     await createConfirmedDemand(productId, "2");
@@ -428,14 +485,14 @@ test.describe("Planning workspace", () => {
 
   test("missing supplier or missing BOM produces review recommendation", async () => {
     const alternateSupplier = await createSupplier({
-      name: `Planning Alternate Supplier ${ts}`,
+      name: alternateSupplierName,
       code: `PLAN-ALT-${ts}`,
     });
     expect(alternateSupplier.status).toBe(201);
 
-    const materialId = await createMaterial(`Planning Missing Supplier ${ts}`);
+    const materialId = await createMaterial("Feather Meal");
     await createConfirmedDemand(materialId, "3");
-    const productId = await createProduct(`Planning Missing BOM ${ts}`, []);
+    const productId = await createProduct("Garden Gift Box", []);
     await createConfirmedDemand(productId, "2");
 
     const planning = await snapshot();
@@ -451,7 +508,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("existing supply prevents duplicate recommendations", async () => {
-    const itemId = await createMaterial(`Planning Covered Supply ${ts}`);
+    const itemId = await createMaterial("Peat Moss Bale");
     await createConfirmedDemand(itemId, "3");
     const purchaseOrder = await createPurchaseOrder({
       supplierId,
@@ -471,18 +528,20 @@ test.describe("Planning workspace", () => {
   });
 
   test("planner output is deterministic for the same input data", async () => {
-    const itemId = await createMaterial(`Planning Deterministic ${ts}`);
+    const itemId = await createMaterial("Dolomite Lime");
     await createConfirmedDemand(itemId, "2");
 
     const first = await snapshot();
     const second = await snapshot();
 
-    expect(first.inputHash).toBe(second.inputHash);
     expect(rowFor(first, itemId)).toEqual(rowFor(second, itemId));
+    expect(deterministicRecommendationShape(first, itemId)).toEqual(
+      deterministicRecommendationShape(second, itemId)
+    );
   });
 
   test("recommendations include source refs and reason codes", async () => {
-    const itemId = await createMaterial(`Planning Explainable ${ts}`);
+    const itemId = await createMaterial("Fish Bone Meal");
     await establishSupplierHistory(itemId);
     await createConfirmedDemand(itemId, "2");
 
@@ -495,9 +554,179 @@ test.describe("Planning workspace", () => {
     );
   });
 
+  test("planning rules drive supplier, lead time, and deterministic order quantity", async ({
+    db,
+  }) => {
+    const item = await createMaterialRecord("Planning Rule Kelp", {
+      stock: "2",
+      skuKey: "RULE-KELP",
+    });
+    const update = await updatePlanningRules(item.id, {
+      reorderPoint: "5",
+      targetCoverDays: "10",
+      preferredSupplierItem: {
+        supplierId,
+        supplierSku: `SUP-KELP-${runToken}`,
+        unitCost: "2.5",
+        purchaseToStockFactor: "1",
+        leadTimeDaysOverride: "3",
+        minimumOrderQuantity: "4",
+        orderMultiple: "3",
+      },
+    });
+    expect(update.status).toBe(200);
+    await createConfirmedDemand(item.id, "6");
+
+    const planning = await snapshot();
+    const row = rowFor(planning, item.id);
+    const recommendation = recommendationFor(planning, item.id);
+
+    expect(row.reorderPoint).toBe("5");
+    expect(row.targetCoverDays).toBe(10);
+    expect(row.leadTimeDays).toBe(3);
+    expect(row.leadTimeSource).toBe("supplier_item");
+    expect(row.daysOfCoverStatus).toBe("order_now");
+    expect(row.suggestedOrderQuantity).toBe("6");
+    expect(row.minimumOrderQuantity).toBe("4");
+    expect(row.orderMultiple).toBe("3");
+    expect(row.preferredSupplierId).toBe(supplierId);
+    expect(row.preferredSupplierSku).toBe(`SUP-KELP-${runToken}`);
+    expect(recommendation.quantity).toBe("6");
+    expect(recommendation.actionPayload).toMatchObject({
+      actionType: "create_purchase_order",
+      quantity: "6",
+      supplierId,
+      unitCost: "2.5",
+      purchaseToStockFactor: "1",
+    });
+
+    const created = await createPlanningPurchaseOrderDraft(recommendation.actionPayload!);
+    expect(created.status).toBe(201);
+
+    const [line] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, created.body.id as string));
+    expect(line.itemId).toBe(item.id);
+    expect(line.quantityOrdered).toBe("6.0000");
+    expect(line.unitCost).toBe("2.5000");
+  });
+
+  test("lead time falls back to received purchase order history", async ({ db }) => {
+    const item = await createMaterialRecord("Planning History Gypsum", {
+      skuKey: "HISTORY-GYPSUM",
+    });
+    const purchaseOrder = await createPurchaseOrder({
+      supplierId,
+      expectedDate: "2026-05-01",
+      notes: "Lead time history fixture",
+      lines: [{ itemId: item.id, quantityOrdered: "2", unitCost: "1.00" }],
+    });
+    expect(purchaseOrder.status).toBe(201);
+    const submit = await submitPurchaseOrder(purchaseOrder.body.id as string);
+    expect(submit.status).toBe(200);
+    const [line] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrder.body.id as string));
+    const receive = await receivePurchaseOrder(purchaseOrder.body.id as string, {
+      lines: [{ lineId: line.id, quantityReceived: "2" }],
+    });
+    expect(receive.status).toBe(200);
+    await createConfirmedDemand(item.id, "3");
+
+    const planning = await snapshot();
+    const row = rowFor(planning, item.id);
+
+    expect(row.leadTimeSource).toBe("history");
+    expect(row.leadTimeDays).toBeGreaterThanOrEqual(1);
+    expect(row.leadTimeSampleCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test("production planning exposes start bucket, capacity, confidence, and batch count", async () => {
+    const componentId = await createMaterial("Production Batch Component", {
+      stock: "100",
+      skuKey: "PROD-BATCH-COMP",
+    });
+    const product = await createItem({
+      name: "Production Batch Blend",
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-P", "PROD-BATCH-BLEND"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "4",
+      bom: [{ componentId, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+    const update = await updatePlanningRules(productId, {
+      productionLeadTimeDays: "5",
+      dailyCapacity: "10",
+    });
+    expect(update.status).toBe(200);
+    await createConfirmedDemand(productId, "9");
+
+    const planning = await snapshot();
+    const row = rowFor(planning, productId);
+
+    expect(row.productionLeadTimeDays).toBe(5);
+    expect(row.productionLeadTimeSource).toBe("manual");
+    expect(row.latestStartDate).toBe("2026-05-10");
+    expect(row.productionBucket).toBe("next-week");
+    expect(row.manufacturingMode).toBe("batch");
+    expect(row.expectedBatchYield).toBe("4");
+    expect(row.plannedBatchCount).toBe(3);
+    expect(row.dailyCapacity).toBe("10");
+    expect(row.capacityUtilizationPct).toBeGreaterThan(0);
+    expect(row.scheduleConfidence).toBe("high");
+    expect(
+      planning.productionBlockerFacts.some(
+        (fact) => fact.parentItemId === productId
+      )
+    ).toBe(false);
+  });
+
+  test("stale purchase recommendation is rejected after planning rule changes", async () => {
+    const item = await createMaterialRecord("Planning Stale Supplier Rule", {
+      skuKey: "STALE-SUPPLIER-RULE",
+    });
+    const firstUpdate = await updatePlanningRules(item.id, {
+      preferredSupplierItem: {
+        supplierId,
+        unitCost: "1",
+        purchaseToStockFactor: "1",
+      },
+    });
+    expect(firstUpdate.status).toBe(200);
+    await createConfirmedDemand(item.id, "4");
+    const planning = await snapshot();
+    const recommendation = recommendationFor(planning, item.id);
+    expect(recommendation.actionPayload).toBeTruthy();
+
+    const secondUpdate = await updatePlanningRules(item.id, {
+      preferredSupplierItem: {
+        supplierId,
+        unitCost: "2",
+        purchaseToStockFactor: "1",
+      },
+    });
+    expect(secondUpdate.status).toBe(200);
+
+    const stale = await createPlanningPurchaseOrderDraft(
+      recommendation.actionPayload!
+    );
+    expect(stale.status).toBe(409);
+  });
+
   test("component shortage references parent demand and BOM revision", async () => {
-    const componentId = await createMaterial(`Planning Explain Component ${ts}`);
-    const productId = await createProduct(`Planning Explain Parent ${ts}`, [
+    const componentId = await createMaterial("Biochar");
+    const productId = await createProduct("Paonia Potting Mix", [
       { componentId, quantity: "2" },
     ]);
     await createConfirmedDemand(productId, "3");
@@ -517,7 +746,7 @@ test.describe("Planning workspace", () => {
   test("create PO draft from recommendation validates payload and creates a draft", async ({
     db,
   }) => {
-    const itemId = await createMaterial(`Planning PO Action ${ts}`);
+    const itemId = await createMaterial("Neem Meal");
     await establishSupplierHistory(itemId);
     await createConfirmedDemand(itemId, "6");
 
@@ -547,8 +776,8 @@ test.describe("Planning workspace", () => {
   test("create WO draft from recommendation validates payload and creates a draft", async ({
     db,
   }) => {
-    const componentId = await createMaterial(`Planning WO Action Component ${ts}`);
-    const productId = await createProduct(`Planning WO Action Product ${ts}`, [
+    const componentId = await createMaterial("Rice Hulls");
+    const productId = await createProduct("Herb Planter Kit", [
       { componentId, quantity: "2" },
     ]);
     await createConfirmedDemand(productId, "5");
@@ -581,7 +810,7 @@ test.describe("Planning workspace", () => {
   });
 
   test("duplicate recommendation action is rejected", async ({ db }) => {
-    const itemId = await createMaterial(`Planning Duplicate Action ${ts}`);
+    const itemId = await createMaterial("Gypsum");
     await establishSupplierHistory(itemId);
     await createConfirmedDemand(itemId, "4");
 
@@ -594,7 +823,7 @@ test.describe("Planning workspace", () => {
     const duplicate = await createPlanningPurchaseOrderDraft(recommendation.actionPayload!);
     expect(duplicate.status).toBe(409);
 
-    const concurrentItemId = await createMaterial(`Planning Concurrent Duplicate ${ts}`);
+    const concurrentItemId = await createMaterial("Azomite");
     await establishSupplierHistory(concurrentItemId);
     await createConfirmedDemand(concurrentItemId, "4");
 
@@ -646,34 +875,32 @@ test.describe("Planning workspace", () => {
     expect(crossOrgAction.status).toBe(409);
   });
 
-  test("planning page shows drilldown and creates a suggested PO draft", async ({
+  test("planning page opens supplier detail and creates a suggested PO draft", async ({
     page,
     db,
   }) => {
-    const itemName = `Planning UI Action ${ts}`;
-    const itemId = await createMaterial(itemName);
-    await establishSupplierHistory(itemId);
-    await createConfirmedDemand(itemId, "7");
+    const item = await createMaterialRecord("Pump Cap 38mm", {
+      skuKey: "UI-PUMP-CAP",
+    });
+    await establishSupplierHistory(item.id);
+    await createConfirmedDemand(item.id, "7");
 
     await page.goto("/planning");
     await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
-    await page.getByLabel("Search planning").fill(itemName);
-    await expect(page.getByRole("cell", { name: itemName })).toBeVisible();
-    await expect(page.getByText("sales_order_demand")).toBeVisible();
-    await expect(page.getByText("projected_shortage")).toBeVisible();
-
-    await page.getByRole("button", { name: "Drilldown" }).first().click();
-    await expect(page.getByRole("dialog")).toContainText("Demand Sources");
-    await expect(page.getByRole("dialog")).toContainText("Supply Sources");
-    await expect(page.getByRole("dialog")).toContainText("Source References");
+    await page.getByRole("button", { name: /Replenishment/ }).click();
+    await page.getByLabel("Search planning").fill(item.sku);
+    const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
+    await expect(materialRow).toBeVisible();
+    await expect(materialRow).toContainText(supplierName);
+    await expect(materialRow).toContainText("Order");
 
     const [response] = await Promise.all([
       page.waitForResponse(
         (res) =>
           res.request().method() === "POST" &&
-          res.url().endsWith("/api/planning/actions/purchase-order")
+          res.url().endsWith("/api/planning/actions/purchase-orders")
       ),
-      page.getByRole("button", { name: "Create PO Draft" }).click(),
+      materialRow.getByRole("button", { name: "Order" }).click(),
     ]);
     expect(response.status()).toBe(201);
     await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
@@ -694,7 +921,92 @@ test.describe("Planning workspace", () => {
       .where(eq(purchaseOrderLines.purchaseOrderId, createdId))
       .orderBy(asc(purchaseOrderLines.sortOrder));
     expect(lines).toHaveLength(1);
-    expect(lines[0].itemId).toBe(itemId);
+    expect(lines[0].itemId).toBe(item.id);
     expect(lines[0].quantityOrdered).toBe("7.0000");
+  });
+
+  test("planning page groups purchasing actions by supplier and creates one draft", async ({
+    page,
+    db,
+  }) => {
+    const searchToken = `BUY-GROUP-${runToken}`;
+    const firstItem = await createMaterialRecord("Coconut Coir Brick", {
+      skuKey: `${searchToken}-COIR`,
+    });
+    const secondItem = await createMaterialRecord("Mycorrhizae Blend", {
+      skuKey: `${searchToken}-MYCO`,
+    });
+    await establishSupplierHistory(firstItem.id);
+    await establishSupplierHistory(secondItem.id);
+    await createConfirmedDemand(firstItem.id, "2");
+    await createConfirmedDemand(secondItem.id, "5");
+
+    await page.goto("/planning");
+    await page.getByRole("button", { name: /Replenishment/ }).click();
+    await page.getByLabel("Search planning").fill(searchToken);
+
+    await expect(page.getByRole("row", { name: new RegExp(firstItem.name) })).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(secondItem.name) })).toBeVisible();
+    await page.getByLabel(`Select ${firstItem.name}`).click();
+    await page.getByLabel(`Select ${secondItem.name}`).click();
+    await expect(page.getByText("2 materials selected")).toBeVisible();
+
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          res.url().endsWith("/api/planning/actions/purchase-orders")
+      ),
+      page.getByRole("button", { name: "Create 1 PO" }).click(),
+    ]);
+    expect(response.status()).toBe(201);
+    await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
+
+    const createdId = page.url().split("/").at(-1) ?? "";
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, createdId));
+    expect(order.status).toBe("draft");
+    expect(order.supplierId).toBe(supplierId);
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, createdId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => line.itemId).sort()).toEqual(
+      [firstItem.id, secondItem.id].sort()
+    );
+    expect(order.notes).toContain("[planning-recommendation:");
+  });
+
+  test("auto-plan creates safe drafts and reports skipped recommendations", async () => {
+    const item = await createMaterialRecord("Planning Auto Plan Meal", {
+      skuKey: "AUTO-PLAN-MEAL",
+    });
+    const update = await updatePlanningRules(item.id, {
+      preferredSupplierItem: {
+        supplierId,
+        unitCost: "1.25",
+        purchaseToStockFactor: "1",
+      },
+    });
+    expect(update.status).toBe(200);
+    await createConfirmedDemand(item.id, "3");
+    const planning = await snapshot();
+    const recommendation = recommendationFor(planning, item.id);
+    expect(recommendation.actionPayload?.actionType).toBe("create_purchase_order");
+
+    const result = await autoPlanDrafts();
+    expect(result.status).toBe(201);
+    expect(
+      result.body.created.some(
+        (entry: { recommendationId: string }) =>
+          entry.recommendationId === recommendation.id
+      )
+    ).toBe(true);
+    expect(Array.isArray(result.body.skipped)).toBe(true);
   });
 });
