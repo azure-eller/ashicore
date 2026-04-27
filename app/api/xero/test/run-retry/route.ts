@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { retryFailedXeroPushes } from "@/lib/xero/retry-failed-pushes";
+import { blockXeroTestEndpointInProduction } from "@/lib/xero/test-endpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export const dynamic = "force-dynamic";
  * cron traffic still goes through /api/internal/xero-retry.
  */
 export const POST = apiHandler(async (request: Request) => {
+  const blocked = blockXeroTestEndpointInProduction();
+  if (blocked) return blocked;
+
   await assertModuleWriteAccess("sales", request.headers);
   const summary = await retryFailedXeroPushes();
   return NextResponse.json(summary);

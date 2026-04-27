@@ -4,6 +4,7 @@ import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { findXeroInvoiceForSalesOrder } from "@/lib/xero/push-invoice";
 import { findXeroPurchaseOrderForPurchaseOrder } from "@/lib/xero/push-purchase-order";
 import { XeroError } from "@/lib/xero/errors";
+import { blockXeroTestEndpointInProduction } from "@/lib/xero/test-endpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,9 @@ export const dynamic = "force-dynamic";
  * the UI; gated by sales:write so only authed dev sessions can hit it.
  */
 export const GET = apiHandler(async (request: Request) => {
+  const blocked = blockXeroTestEndpointInProduction();
+  if (blocked) return blocked;
+
   await assertModuleWriteAccess("sales", request.headers);
   const url = new URL(request.url);
   const entity = url.searchParams.get("entity");

@@ -109,7 +109,6 @@ export async function upsertXeroContact(
           tenantId,
           contacts,
           undefined,
-          undefined,
           idempotencyKey
         );
 

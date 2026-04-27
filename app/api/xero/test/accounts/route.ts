@@ -7,6 +7,7 @@ import {
   extractXeroMessage,
   redactXeroError,
 } from "@/lib/xero/errors";
+import { blockXeroTestEndpointInProduction } from "@/lib/xero/test-endpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ export const dynamic = "force-dynamic";
  * pilot tenant has its own COA).
  */
 export const GET = apiHandler(async (request: Request) => {
+  const blocked = blockXeroTestEndpointInProduction();
+  if (blocked) return blocked;
+
   await assertModuleWriteAccess("sales", request.headers);
 
   return withAuthedOrgContext(async (_tx, orgId) => {

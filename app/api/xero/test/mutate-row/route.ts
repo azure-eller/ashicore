@@ -4,6 +4,7 @@ import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { purchaseOrders, salesOrders } from "@/lib/db/schema";
+import { blockXeroTestEndpointInProduction } from "@/lib/xero/test-endpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,9 @@ const bodySchema = z.object({
  * sessions can hit it.
  */
 export const POST = apiHandler(async (request: Request) => {
+  const blocked = blockXeroTestEndpointInProduction();
+  if (blocked) return blocked;
+
   await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json();
   const data = bodySchema.parse(body);
