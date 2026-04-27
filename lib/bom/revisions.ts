@@ -1,15 +1,14 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import {
   bomRevisionComponents,
   bomRevisions,
-  items,
-  unitDefinitions,
   user,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
+export { getCurrentActiveBomIngredientsInTx } from "./active-ingredients";
 
 export type BomRevisionComponentSnapshot = {
   id: string;
@@ -100,39 +99,6 @@ export async function getCurrentBomComponentsInTx(tx: Tx, productId: string) {
   }
 
   return getBomRevisionComponentsInTx(tx, revision.id);
-}
-
-export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: string) {
-  const revision = await getCurrentBomRevisionInTx(tx, productId);
-
-  if (!revision) {
-    return [];
-  }
-
-  return tx
-    .select({
-      bomRevisionId: bomRevisionComponents.bomRevisionId,
-      itemId: bomRevisionComponents.componentId,
-      itemName: items.name,
-      itemSku: items.sku,
-      itemType: items.itemType,
-      unitName: unitDefinitions.name,
-      quantityPerUnit: trimScale(bomRevisionComponents.quantity).as("quantityPerUnit"),
-      sortOrder: bomRevisionComponents.sortOrder,
-    })
-    .from(bomRevisionComponents)
-    .innerJoin(items, eq(bomRevisionComponents.componentId, items.id))
-    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .where(
-      and(
-        eq(bomRevisionComponents.bomRevisionId, revision.id),
-        isNull(items.deletedAt)
-      )
-    )
-    .orderBy(
-      asc(bomRevisionComponents.sortOrder),
-      asc(bomRevisionComponents.createdAt)
-    );
 }
 
 export async function getCurrentBomCoverageInTx(tx: Tx, productIds: string[]) {
