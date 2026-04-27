@@ -5,7 +5,12 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { SortableHeader } from "@/components/sortable-header";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate } from "@/lib/format";
+import {
+  PRICING_BREAKS_TOOLTIP,
+  PRICING_SCOPE_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import type { PricingScheduleRow } from "./types";
 
 const columns: ColumnDef<PricingScheduleRow>[] = [
@@ -45,7 +50,9 @@ const columns: ColumnDef<PricingScheduleRow>[] = [
   },
   {
     accessorKey: "customerScopeLabel",
-    header: ({ column }) => <SortableHeader column={column} label="Scope" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Scope" tooltip={PRICING_SCOPE_TOOLTIP} />
+    ),
   },
   {
     accessorKey: "unitLabel",
@@ -53,7 +60,7 @@ const columns: ColumnDef<PricingScheduleRow>[] = [
   },
   {
     accessorKey: "breakSummary",
-    header: "Breaks",
+    header: () => <TooltipHeader label="Breaks" tooltip={PRICING_BREAKS_TOOLTIP} />,
   },
   {
     accessorKey: "updatedAt",

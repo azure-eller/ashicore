@@ -94,7 +94,13 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    header: ({ column }) => (
+      <FilterableHeader
+        column={column}
+        label="Status"
+        tooltip="Order state: draft, in progress, completed, or cancelled."
+      />
+    ),
     filterFn: multiValueFilter,
     cell: ({ row }) => <ManufacturingOrderStatusBadge status={row.original.status} />,
   },

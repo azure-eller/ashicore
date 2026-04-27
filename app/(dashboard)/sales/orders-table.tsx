@@ -144,7 +144,13 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    header: ({ column }) => (
+      <FilterableHeader
+        column={column}
+        label="Status"
+        tooltip="Order state: draft, confirmed, shipped, or cancelled."
+      />
+    ),
     filterFn: multiValueFilter,
     cell: ({ row }) => <SalesOrderStatusBadge status={row.original.status} />,
   },

@@ -9,6 +9,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * Multi-select column filter using DropdownMenuCheckboxItem.
@@ -18,9 +23,11 @@ import {
 export function FilterableHeader<T>({
   column,
   label,
+  tooltip,
 }: {
   column: Column<T>;
   label: string;
+  tooltip?: string;
 }) {
   const selected = (column.getFilterValue() as string[] | undefined) ?? [];
   const faceted = column.getFacetedUniqueValues();
@@ -36,27 +43,29 @@ export function FilterableHeader<T>({
     column.setFilterValue(next.length > 0 ? next : undefined);
   }
 
-  return (
+  const button = (
+    <Button
+      variant="ghost"
+      className="-ml-3"
+      aria-label={`Filter by ${label}${selected.length > 0 ? `, ${selected.length} selected` : ""}`}
+    >
+      {label}
+      {selected.length > 0 && (
+        <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+          {selected.length}
+        </span>
+      )}
+      <HugeiconsIcon
+        icon={ArrowDown01Icon}
+        className="ml-1 h-3.5 w-3.5"
+        aria-hidden
+      />
+    </Button>
+  );
+
+  const dropdown = (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="-ml-3"
-          aria-label={`Filter by ${label}${selected.length > 0 ? `, ${selected.length} selected` : ""}`}
-        >
-          {label}
-          {selected.length > 0 && (
-            <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
-              {selected.length}
-            </span>
-          )}
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            className="ml-1 h-3.5 w-3.5"
-            aria-hidden
-          />
-        </Button>
-      </DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
         {options.map((value) => (
           <DropdownMenuCheckboxItem
@@ -81,6 +90,19 @@ export function FilterableHeader<T>({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+
+  if (!tooltip) {
+    return dropdown;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{dropdown}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 

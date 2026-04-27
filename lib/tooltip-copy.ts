@@ -67,3 +67,81 @@ export const OVERSELL_TOOLTIP_COPY = {
 
 export const MANUFACTURING_SHORTAGE_TOOLTIP =
   "Needed minus available right now.";
+
+export const MANUFACTURING_NEEDED_QTY_TOOLTIP =
+  "Quantity required for this order.";
+
+export const MANUFACTURING_PICKED_QTY_TOOLTIP =
+  "Quantity already picked from stock.";
+
+export const MANUFACTURING_REMAINING_QTY_TOOLTIP =
+  "Outstanding quantity still to be picked.";
+
+export const MANUFACTURING_PLANNED_TOTAL_TOOLTIP =
+  "Quantity per unit × planned units.";
+
+export const MATERIAL_COST_TOOLTIP = "Sum of actual ingredient costs.";
+
+export const COST_PER_UNIT_TOOLTIP =
+  "Material cost divided by actual output.";
+
+export const BATCH_YIELD_TOOLTIP = "Expected good units per batch.";
+
+export const BATCH_QTY_TOOLTIP =
+  "Quantity rounded up to the nearest batch multiple.";
+
+export const ITEM_TYPE_TOOLTIP =
+  "Item classification: material, product, or sub-assembly.";
+
+export const OUTPUT_DISPOSITION_TOOLTIP =
+  "Lot status on completion: available (sellable) or blocked (held).";
+
+export const PURCHASE_ORDER_STATUS_TOOLTIP = {
+  draft: "Not yet submitted; no supplier notification.",
+  ordered: "Submitted to supplier; awaiting delivery.",
+  partial: "Some items received; balance still pending.",
+  received: "All items received and recorded.",
+  cancelled: "Order voided; no deliveries expected.",
+} as const;
+
+export const PO_REMAINING_QTY_TOOLTIP =
+  "Outstanding quantity still to be received.";
+
+export const STOCKTAKE_STATUS_TOOLTIP = {
+  draft: "In progress; counts can still be entered or edited.",
+  completed: "Finished; inventory adjusted to match counts.",
+  cancelled: "Voided; no inventory adjustments made.",
+} as const;
+
+export const STOCKTAKE_COUNTED_TOOLTIP =
+  "Number of items counted so far.";
+
+export const STOCKTAKE_VARIANCE_TOOLTIP =
+  "Items where the count doesn't match the snapshot.";
+
+export const STOCKTAKE_SNAPSHOT_QTY_TOOLTIP =
+  "Stock quantity recorded when the stocktake was created.";
+
+export const STOCKTAKE_COUNT_QTY_TOOLTIP =
+  "Quantity the user counted as physically present.";
+
+export const STOCKTAKE_LINE_VARIANCE_TOOLTIP =
+  "Counted minus snapshot quantity.";
+
+export const STOCKTAKE_CURRENT_QTY_TOOLTIP =
+  "Current available stock right now.";
+
+export const CUSTOMER_PRICING_TOOLTIP =
+  "Customer pricing category or tier.";
+
+export const PRICING_BREAKS_TOOLTIP =
+  "Quantity thresholds for tiered pricing.";
+
+export const PRICING_SCOPE_TOOLTIP =
+  "Customer category this pricing applies to.";
+
+export const MANUFACTURABLE_LINES_TOOLTIP =
+  "Order lines that can be sourced from a manufacturing order.";
+
+export const ACCESS_PRESET_TOOLTIP =
+  "Pre-configured access bundle, or custom configuration.";

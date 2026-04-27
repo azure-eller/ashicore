@@ -59,7 +59,13 @@ const columns: ColumnDef<PurchaseOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    header: ({ column }) => (
+      <FilterableHeader
+        column={column}
+        label="Status"
+        tooltip="Order state: draft, ordered, partial, received, or cancelled."
+      />
+    ),
     filterFn: multiValueFilter,
     cell: ({ row }) => <PurchaseOrderStatusBadge status={row.original.status} />,
   },
