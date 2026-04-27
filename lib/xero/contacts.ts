@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Address, Contact, type Contacts } from "xero-node";
+import { Address, Contact, Phone, type Contacts } from "xero-node";
 import { eq } from "drizzle-orm";
 import { customers, suppliers } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
@@ -81,6 +81,9 @@ export async function upsertXeroContact(
     name: contact.name,
     emailAddress: contact.email ?? undefined,
     addresses,
+    phones: contact.phone
+      ? [{ phoneNumber: contact.phone, phoneType: Phone.PhoneTypeEnum.DEFAULT }]
+      : undefined,
   };
   if (contact.xeroContactId) {
     contactPayload.contactID = contact.xeroContactId;
@@ -105,6 +108,7 @@ export async function upsertXeroContact(
       : await accountingApi.createContacts(
           tenantId,
           contacts,
+          undefined,
           undefined,
           idempotencyKey
         );
