@@ -523,6 +523,7 @@ export async function getPurchaseOrder(
         id: purchaseOrders.id,
         supplierId: purchaseOrders.supplierId,
         supplierName: purchaseOrders.supplierName,
+        supplierEmail: suppliers.email,
         orderNumber: purchaseOrders.orderNumber,
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
@@ -547,6 +548,7 @@ export async function getPurchaseOrder(
         updatedAt: purchaseOrders.updatedAt,
       })
       .from(purchaseOrders)
+      .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
       .where(and(...conditions));
 
     if (!order) {

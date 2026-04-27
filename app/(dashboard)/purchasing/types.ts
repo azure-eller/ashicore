@@ -78,6 +78,7 @@ export type PurchaseOrderDetail = {
   id: string;
   supplierId: string;
   supplierName: string;
+  supplierEmail: string | null;
   orderNumber: string;
   status: PurchaseOrderStatus;
   expectedDate: string | null;

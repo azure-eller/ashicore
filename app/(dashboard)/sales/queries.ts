@@ -1969,6 +1969,7 @@ export async function getSalesOrder(
         id: salesOrders.id,
         customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
+        customerEmail: customers.email,
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
@@ -1997,6 +1998,7 @@ export async function getSalesOrder(
         updatedAt: salesOrders.updatedAt,
       })
       .from(salesOrders)
+      .leftJoin(customers, eq(salesOrders.customerId, customers.id))
       .where(and(...orderConditions));
 
     if (!order) {

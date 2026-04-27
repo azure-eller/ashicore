@@ -181,6 +181,7 @@ export type SalesOrderDetail = {
   id: string;
   customerId: string;
   customerName: string;
+  customerEmail: string | null;
   orderNumber: string;
   status: SalesOrderStatus;
   requestedDate: string | null;

@@ -8,6 +8,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import {
+  AccountingSyncDialog,
+  AccountingSyncStatus,
+  buildAccountingSyncStages,
+  type AccountingSyncDocument,
+  type AccountingSyncStage,
+} from "@/components/accounting-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
@@ -48,6 +55,44 @@ type ActionError = {
   oversell?: OversellWarningPayload;
 };
 
+type SyncDialogState = {
+  title: string;
+  description: string;
+  stages: AccountingSyncStage[];
+  error: string | null;
+  isWorking: boolean;
+};
+
+async function fetchSalesOrderDetail(id: string): Promise<SalesOrderDetailType> {
+  const response = await fetch(`/api/sales-orders/${id}`);
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Failed to refresh sales order.");
+  }
+
+  return body as SalesOrderDetailType;
+}
+
+function salesOrderAccountingDocument(
+  order: SalesOrderDetailType
+): AccountingSyncDocument {
+  return {
+    providerName: "Xero",
+    documentLabel: "invoice",
+    documentNumber: order.xeroInvoiceNumber,
+    pushStatus: order.xeroPushStatus,
+    pushError: order.xeroPushError,
+    pushedAt: order.xeroPushedAt,
+    retryCount: order.xeroRetryCount,
+    emailStatus: order.xeroEmailStatus,
+    emailError: order.xeroEmailError,
+    emailedAt: order.xeroEmailedAt,
+    recipientLabel: order.customerName,
+    recipientEmail: order.customerEmail,
+  };
+}
+
 export function OrderDetail({
   order,
   canViewLedger = false,
@@ -62,6 +107,88 @@ export function OrderDetail({
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
+  const accountingDocument = salesOrderAccountingDocument(order);
+
+  const openSyncDialog = ({
+    title,
+    description,
+    localActionLabel,
+    includeEmail = true,
+    activeStage = "push",
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    includeEmail?: boolean;
+    activeStage?: "push" | "email";
+  }) => {
+    setSyncDialog({
+      title,
+      description,
+      stages: buildAccountingSyncStages({
+        document: accountingDocument,
+        includeEmail,
+        isWorking: true,
+        localActionLabel,
+        activeStage,
+      }),
+      error: null,
+      isWorking: true,
+    });
+  };
+
+  const finishSyncDialog = async ({
+    title,
+    description,
+    localActionLabel,
+    includeEmail = true,
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    includeEmail?: boolean;
+  }) => {
+    const latest = await fetchSalesOrderDetail(order.id);
+    setSyncDialog({
+      title,
+      description,
+      stages: buildAccountingSyncStages({
+        document: salesOrderAccountingDocument(latest),
+        includeEmail,
+        localActionLabel,
+      }),
+      error: null,
+      isWorking: false,
+    });
+  };
+
+  const failSyncDialog = ({
+    title,
+    description,
+    localActionLabel,
+    message,
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    message: string;
+  }) => {
+    setSyncDialog({
+      title,
+      description,
+      stages: [
+        {
+          id: "local",
+          label: localActionLabel,
+          detail: message,
+          state: "failed",
+        },
+      ],
+      error: message,
+      isWorking: false,
+    });
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -170,15 +297,34 @@ export function OrderDetail({
         throw new Error(body?.error ?? "Failed to ship order.");
       }
     },
+    onMutate: () => {
+      setActionError(null);
+      openSyncDialog({
+        title: "Shipping Sales Order",
+        description: "The order will ship, sync an invoice to Xero, and email the customer when enabled.",
+        localActionLabel: "Ship sales order",
+      });
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
+      await finishSyncDialog({
+        title: "Sales Order Shipped",
+        description: "ERP shipping is complete. Xero and email results are shown below.",
+        localActionLabel: "Ship sales order",
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Sales Order Not Shipped",
+        description: "The sales order was not shipped.",
+        localActionLabel: "Ship sales order",
+        message: error.message,
+      });
     },
   });
 
@@ -194,16 +340,32 @@ export function OrderDetail({
     },
     onMutate: () => {
       setActionError(null);
+      openSyncDialog({
+        title: "Syncing Invoice",
+        description: "The invoice will be retried in Xero and emailed when eligible.",
+        localActionLabel: "Start retry",
+      });
     },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
+      await finishSyncDialog({
+        title: "Invoice Sync Complete",
+        description: "The latest Xero and email results are shown below.",
+        localActionLabel: "Start retry",
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Invoice Sync Failed",
+        description: "The retry did not complete.",
+        localActionLabel: "Start retry",
+        message: error.message,
+      });
     },
   });
 
@@ -220,13 +382,30 @@ export function OrderDetail({
     },
     onMutate: () => {
       setActionError(null);
+      openSyncDialog({
+        title: "Emailing Invoice",
+        description: "Xero will send the existing invoice to the customer.",
+        localActionLabel: "Prepare email",
+        activeStage: "email",
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      await finishSyncDialog({
+        title: "Invoice Email Complete",
+        description: "The latest email result is shown below.",
+        localActionLabel: "Prepare email",
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Invoice Email Failed",
+        description: "The email retry did not complete.",
+        localActionLabel: "Prepare email",
+        message: error.message,
+      });
     },
   });
 
@@ -378,6 +557,14 @@ export function OrderDetail({
 
         {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
+        <AccountingSyncStatus
+          document={accountingDocument}
+          onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
+          retryPushPending={xeroPushMutation.isPending}
+          onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
+          retryEmailPending={xeroEmailMutation.isPending}
+        />
+
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Customer</dt>
@@ -409,40 +596,6 @@ export function OrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
           </div>
-          {order.xeroPushStatus && (
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Xero Invoice</dt>
-              <dd className="mt-1 space-y-1 text-sm">
-                <div>
-                  {order.xeroPushStatus === "pushed" && order.xeroInvoiceNumber
-                    ? `Pushed — ${order.xeroInvoiceNumber}`
-                    : order.xeroPushStatus === "failed"
-                      ? `Failed — ${order.xeroPushError ?? "unknown error"}`
-                      : "Pending"}
-                </div>
-                {order.xeroPushStatus === "pushed" && order.xeroEmailStatus && (
-                  <div className="text-xs text-muted-foreground">
-                    {order.xeroEmailStatus === "sent"
-                      ? `Customer emailed${
-                          order.xeroEmailedAt
-                            ? ` ${formatDateTime(order.xeroEmailedAt)}`
-                            : ""
-                        }.`
-                      : order.xeroEmailStatus === "failed"
-                        ? `Email failed — ${
-                            order.xeroEmailError ?? "unknown error"
-                          }`
-                        : "Email not sent (auto-email off, draft invoice, or no customer email)."}
-                  </div>
-                )}
-                {order.xeroRetryCount > 1 && (
-                  <div className="text-xs text-muted-foreground">
-                    Push attempts: {order.xeroRetryCount}
-                  </div>
-                )}
-              </dd>
-            </div>
-          )}
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
@@ -587,6 +740,21 @@ export function OrderDetail({
           )}
         </div>
       </div>
+
+      {syncDialog ? (
+        <AccountingSyncDialog
+          open
+          title={syncDialog.title}
+          description={syncDialog.description}
+          stages={syncDialog.stages}
+          error={syncDialog.error}
+          isWorking={syncDialog.isWorking}
+          onOpenChange={(open) => {
+            if (!open) setSyncDialog(null);
+          }}
+          onDone={() => setSyncDialog(null)}
+        />
+      ) : null}
 
       <AlertDialog open={oversellWarning != null} onOpenChange={(open) => {
         if (!open) {

@@ -1,0 +1,419 @@
+"use client";
+
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  AlertCircleIcon,
+  CheckmarkCircle02Icon,
+  CloudLoadingIcon,
+  FileSyncIcon,
+  MailSend02Icon,
+} from "@hugeicons/core-free-icons";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+export type AccountingDocumentPushStatus = "pending" | "pushed" | "failed" | null;
+export type AccountingDocumentEmailStatus = "sent" | "failed" | "skipped" | null;
+export type AccountingSyncStageState = "waiting" | "active" | "success" | "failed" | "skipped";
+
+export type AccountingSyncDocument = {
+  providerName: string;
+  documentLabel: string;
+  documentNumber: string | null;
+  pushStatus: AccountingDocumentPushStatus;
+  pushError: string | null;
+  pushedAt: Date | string | null;
+  retryCount: number;
+  emailStatus: AccountingDocumentEmailStatus;
+  emailError: string | null;
+  emailedAt: Date | string | null;
+  recipientLabel: string;
+  recipientEmail: string | null;
+};
+
+export type AccountingSyncStage = {
+  id: string;
+  label: string;
+  detail: string | null;
+  state: AccountingSyncStageState;
+};
+
+export function buildAccountingSyncStages(params: {
+  document: AccountingSyncDocument;
+  includeEmail: boolean;
+  isWorking?: boolean;
+  localActionLabel?: string;
+  activeStage?: "push" | "email";
+}): AccountingSyncStage[] {
+  const { document, includeEmail, isWorking = false, activeStage = "push" } = params;
+  const localActionLabel = params.localActionLabel ?? "Save ERP document";
+  const pushLabel = `Create ${document.documentLabel} in ${document.providerName}`;
+  const emailLabel = `Email ${document.documentLabel}`;
+
+  if (isWorking) {
+    const pushStage = buildPushStage(document, pushLabel);
+
+    return [
+      {
+        id: "local",
+        label: localActionLabel,
+        detail: null,
+        state: "success",
+      },
+      {
+        id: "push",
+        label: pushLabel,
+        detail: activeStage === "email" ? pushStage.detail : null,
+        state: activeStage === "email" ? pushStage.state : "active",
+      },
+      ...(includeEmail
+        ? [
+            {
+              id: "email",
+              label: emailLabel,
+              detail: document.recipientEmail
+                ? `To ${document.recipientEmail}`
+                : `To ${document.recipientLabel}`,
+              state: activeStage === "email" ? ("active" as const) : ("waiting" as const),
+            },
+          ]
+        : []),
+    ];
+  }
+
+  const pushStage = buildPushStage(document, pushLabel);
+  return [
+    {
+      id: "local",
+      label: localActionLabel,
+      detail: null,
+      state: "success",
+    },
+    pushStage,
+    ...(includeEmail ? [buildEmailStage(document, emailLabel, pushStage.state)] : []),
+  ];
+}
+
+export function AccountingSyncStatus({
+  document,
+  onRetryPush,
+  retryPushPending = false,
+  onRetryEmail,
+  retryEmailPending = false,
+}: {
+  document: AccountingSyncDocument;
+  onRetryPush?: () => void;
+  retryPushPending?: boolean;
+  onRetryEmail?: () => void;
+  retryEmailPending?: boolean;
+}) {
+  if (!document.pushStatus) return null;
+
+  const pushStage = buildPushStage(
+    document,
+    `${document.documentLabel} in ${document.providerName}`
+  );
+  const emailStage = buildEmailStage(document, `${document.documentLabel} email`, pushStage.state);
+
+  return (
+    <div className="flex max-w-3xl flex-col gap-4 rounded-md border bg-card p-4 text-card-foreground">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight">Accounting Sync</h2>
+            <SyncBadge state={pushStage.state} label={statusBadgeLabel(pushStage.state)} />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {document.providerName}
+            {document.documentNumber ? ` · ${document.documentNumber}` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {onRetryPush && document.pushStatus === "failed" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRetryPush}
+              disabled={retryPushPending}
+            >
+              {retryPushPending ? "Retrying..." : "Retry sync"}
+            </Button>
+          ) : null}
+          {onRetryEmail && document.pushStatus === "pushed" && document.emailStatus === "failed" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRetryEmail}
+              disabled={retryEmailPending}
+            >
+              {retryEmailPending ? "Sending..." : "Retry email"}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <Separator />
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <StatusLine stage={pushStage} />
+        {document.emailStatus ? <StatusLine stage={emailStage} /> : null}
+      </div>
+
+      {document.retryCount > 1 ? (
+        <p className="text-xs text-muted-foreground">Sync attempts: {document.retryCount}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function AccountingSyncDialog({
+  open,
+  title,
+  description,
+  stages,
+  error,
+  isWorking,
+  onOpenChange,
+  onDone,
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  stages: AccountingSyncStage[];
+  error: string | null;
+  isWorking: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDone: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={isWorking ? undefined : onOpenChange}>
+      <DialogContent size="md" className="bg-background text-foreground">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          {stages.map((stage) => (
+            <StatusLine key={stage.id} stage={stage} />
+          ))}
+        </div>
+
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        <DialogFooter>
+          <Button type="button" onClick={onDone} disabled={isWorking}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function buildPushStage(
+  document: AccountingSyncDocument,
+  label: string
+): AccountingSyncStage {
+  if (document.pushStatus === "pushed") {
+    return {
+      id: "push",
+      label,
+      detail: document.documentNumber
+        ? `${document.documentNumber}${document.pushedAt ? ` · ${formatAccountingDateTime(document.pushedAt)}` : ""}`
+        : document.pushedAt
+          ? formatAccountingDateTime(document.pushedAt)
+          : null,
+      state: "success",
+    };
+  }
+
+  if (document.pushStatus === "failed") {
+    return {
+      id: "push",
+      label,
+      detail: document.pushError ?? "Sync failed.",
+      state: "failed",
+    };
+  }
+
+  if (document.pushStatus === "pending") {
+    return {
+      id: "push",
+      label,
+      detail: null,
+      state: "active",
+    };
+  }
+
+  return {
+    id: "push",
+    label,
+    detail: `${document.providerName} is not connected for this organization.`,
+    state: "skipped",
+  };
+}
+
+function buildEmailStage(
+  document: AccountingSyncDocument,
+  label: string,
+  pushState: AccountingSyncStageState
+): AccountingSyncStage {
+  if (pushState === "failed" || pushState === "waiting") {
+    return {
+      id: "email",
+      label,
+      detail: null,
+      state: "waiting",
+    };
+  }
+
+  if (document.emailStatus === "sent") {
+    return {
+      id: "email",
+      label,
+      detail: [
+        document.recipientEmail ? `To ${document.recipientEmail}` : `To ${document.recipientLabel}`,
+        document.emailedAt ? formatAccountingDateTime(document.emailedAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      state: "success",
+    };
+  }
+
+  if (document.emailStatus === "failed") {
+    return {
+      id: "email",
+      label,
+      detail: document.emailError ?? "Email failed.",
+      state: "failed",
+    };
+  }
+
+  if (document.emailStatus === "skipped") {
+    return {
+      id: "email",
+      label,
+      detail: document.recipientEmail
+        ? "Auto-email is off, the document is draft, or email was skipped."
+        : `No email address for ${document.recipientLabel}.`,
+      state: "skipped",
+    };
+  }
+
+  return {
+    id: "email",
+    label,
+    detail: null,
+    state: pushState === "success" ? "skipped" : "waiting",
+  };
+}
+
+function formatAccountingDateTime(value: Date | string): string {
+  if (value instanceof Date) {
+    return formatDateTime(value);
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return formatDateTime(date);
+}
+
+function StatusLine({ stage }: { stage: AccountingSyncStage }) {
+  return (
+    <div className="flex gap-3 rounded-md border bg-background p-3">
+      <StatusIcon state={stage.state} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium">{stage.label}</p>
+          <SyncBadge state={stage.state} label={statusBadgeLabel(stage.state)} />
+        </div>
+        {stage.detail ? (
+          <p className="mt-1 break-words text-xs text-muted-foreground">{stage.detail}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function StatusIcon({ state }: { state: AccountingSyncStageState }) {
+  const icon =
+    state === "success"
+      ? CheckmarkCircle02Icon
+      : state === "failed"
+        ? AlertCircleIcon
+        : state === "active"
+          ? CloudLoadingIcon
+          : state === "skipped"
+            ? MailSend02Icon
+            : FileSyncIcon;
+
+  return (
+    <HugeiconsIcon
+      icon={icon}
+      size={18}
+      aria-hidden
+      className={cn(
+        "mt-0.5 shrink-0 text-muted-foreground",
+        state === "active" && "animate-spin",
+        state === "failed" && "text-destructive",
+        state === "success" && "text-primary"
+      )}
+    />
+  );
+}
+
+function SyncBadge({
+  state,
+  label,
+}: {
+  state: AccountingSyncStageState;
+  label: string;
+}) {
+  return (
+    <Badge
+      variant={
+        state === "failed"
+          ? "destructive"
+          : state === "success"
+            ? "default"
+            : state === "skipped"
+              ? "outline"
+              : "secondary"
+      }
+    >
+      {label}
+    </Badge>
+  );
+}
+
+function statusBadgeLabel(state: AccountingSyncStageState) {
+  switch (state) {
+    case "active":
+      return "Working";
+    case "failed":
+      return "Failed";
+    case "skipped":
+      return "Skipped";
+    case "success":
+      return "Done";
+    case "waiting":
+      return "Waiting";
+  }
+}

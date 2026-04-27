@@ -11,6 +11,13 @@ import { z } from "zod";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import {
+  AccountingSyncDialog,
+  AccountingSyncStatus,
+  buildAccountingSyncStages,
+  type AccountingSyncDocument,
+  type AccountingSyncStage,
+} from "@/components/accounting-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
@@ -65,6 +72,44 @@ type ApiError = {
 
 type ReceiveFormValues = z.input<typeof receivePurchaseOrderSchema>;
 
+type SyncDialogState = {
+  title: string;
+  description: string;
+  stages: AccountingSyncStage[];
+  error: string | null;
+  isWorking: boolean;
+};
+
+async function fetchPurchaseOrderDetail(id: string): Promise<PurchaseOrderDetailType> {
+  const response = await fetch(`/api/purchase-orders/${id}`);
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Failed to refresh purchase order.");
+  }
+
+  return body as PurchaseOrderDetailType;
+}
+
+function purchaseOrderAccountingDocument(
+  order: PurchaseOrderDetailType
+): AccountingSyncDocument {
+  return {
+    providerName: "Xero",
+    documentLabel: "purchase order",
+    documentNumber: order.xeroPurchaseOrderNumber,
+    pushStatus: order.xeroPushStatus,
+    pushError: order.xeroPushError,
+    pushedAt: order.xeroPushedAt,
+    retryCount: order.xeroRetryCount,
+    emailStatus: order.xeroPoEmailStatus,
+    emailError: order.xeroPoEmailError,
+    emailedAt: order.xeroPoEmailedAt,
+    recipientLabel: order.supplierName,
+    recipientEmail: order.supplierEmail,
+  };
+}
+
 export function PurchaseOrderDetail({
   order,
   canViewLedger = false,
@@ -78,6 +123,8 @@ export function PurchaseOrderDetail({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
+  const accountingDocument = purchaseOrderAccountingDocument(order);
 
   const receiveForm = useForm<ReceiveFormValues>({
     resolver: zodResolver(receivePurchaseOrderSchema),
@@ -108,6 +155,86 @@ export function PurchaseOrderDetail({
     ]);
   };
 
+  const openSyncDialog = ({
+    title,
+    description,
+    localActionLabel,
+    includeEmail = true,
+    activeStage = "push",
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    includeEmail?: boolean;
+    activeStage?: "push" | "email";
+  }) => {
+    setSyncDialog({
+      title,
+      description,
+      stages: buildAccountingSyncStages({
+        document: accountingDocument,
+        includeEmail,
+        isWorking: true,
+        localActionLabel,
+        activeStage,
+      }),
+      error: null,
+      isWorking: true,
+    });
+  };
+
+  const finishSyncDialog = async ({
+    title,
+    description,
+    localActionLabel,
+    includeEmail = true,
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    includeEmail?: boolean;
+  }) => {
+    const latest = await fetchPurchaseOrderDetail(order.id);
+    setSyncDialog({
+      title,
+      description,
+      stages: buildAccountingSyncStages({
+        document: purchaseOrderAccountingDocument(latest),
+        includeEmail,
+        localActionLabel,
+      }),
+      error: null,
+      isWorking: false,
+    });
+  };
+
+  const failSyncDialog = ({
+    title,
+    description,
+    localActionLabel,
+    message,
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    message: string;
+  }) => {
+    setSyncDialog({
+      title,
+      description,
+      stages: [
+        {
+          id: "local",
+          label: localActionLabel,
+          detail: message,
+          state: "failed",
+        },
+      ],
+      error: message,
+      isWorking: false,
+    });
+  };
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/purchase-orders/${order.id}/submit`, {
@@ -121,13 +248,29 @@ export function PurchaseOrderDetail({
     },
     onMutate: () => {
       setActionError(null);
+      openSyncDialog({
+        title: "Submitting Purchase Order",
+        description: "The purchase order will be submitted, synced to Xero, and emailed when enabled.",
+        localActionLabel: "Submit purchase order",
+      });
     },
     onSuccess: async () => {
       await refreshQueries();
+      await finishSyncDialog({
+        title: "Purchase Order Submitted",
+        description: "ERP submission is complete. Xero and email results are shown below.",
+        localActionLabel: "Submit purchase order",
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Purchase Order Not Submitted",
+        description: "The purchase order was not submitted.",
+        localActionLabel: "Submit purchase order",
+        message: error.message,
+      });
     },
   });
 
@@ -146,13 +289,29 @@ export function PurchaseOrderDetail({
     },
     onMutate: () => {
       setActionError(null);
+      openSyncDialog({
+        title: "Syncing Purchase Order",
+        description: "The purchase order will be retried in Xero and emailed when eligible.",
+        localActionLabel: "Start retry",
+      });
     },
     onSuccess: async () => {
       await refreshQueries();
+      await finishSyncDialog({
+        title: "Purchase Order Sync Complete",
+        description: "The latest Xero and email results are shown below.",
+        localActionLabel: "Start retry",
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Purchase Order Sync Failed",
+        description: "The retry did not complete.",
+        localActionLabel: "Start retry",
+        message: error.message,
+      });
     },
   });
 
@@ -169,13 +328,30 @@ export function PurchaseOrderDetail({
     },
     onMutate: () => {
       setActionError(null);
+      openSyncDialog({
+        title: "Emailing Purchase Order",
+        description: "The Xero PDF will be sent through the transactional email provider.",
+        localActionLabel: "Prepare email",
+        activeStage: "email",
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      await finishSyncDialog({
+        title: "Purchase Order Email Complete",
+        description: "The latest email result is shown below.",
+        localActionLabel: "Prepare email",
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Purchase Order Email Failed",
+        description: "The email retry did not complete.",
+        localActionLabel: "Prepare email",
+        message: error.message,
+      });
     },
   });
 
@@ -387,6 +563,14 @@ export function PurchaseOrderDetail({
 
         {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
+        <AccountingSyncStatus
+          document={accountingDocument}
+          onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
+          retryPushPending={xeroPushMutation.isPending}
+          onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
+          retryEmailPending={xeroEmailMutation.isPending}
+        />
+
         <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Supplier</dt>
@@ -433,40 +617,6 @@ export function PurchaseOrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.cancelledAt)}</dd>
           </div>
-          {order.xeroPushStatus && (
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Xero PO</dt>
-              <dd className="mt-1 space-y-1 text-sm">
-                <div>
-                  {order.xeroPushStatus === "pushed" && order.xeroPurchaseOrderNumber
-                    ? `Pushed — ${order.xeroPurchaseOrderNumber}`
-                    : order.xeroPushStatus === "failed"
-                      ? `Failed — ${order.xeroPushError ?? "unknown error"}`
-                      : "Pending"}
-                </div>
-                {order.xeroRetryCount > 1 && (
-                  <div className="text-xs text-muted-foreground">
-                    Push attempts: {order.xeroRetryCount}
-                  </div>
-                )}
-                {order.xeroPushStatus === "pushed" && order.xeroPoEmailStatus && (
-                  <div className="text-xs text-muted-foreground">
-                    {order.xeroPoEmailStatus === "sent"
-                      ? `Supplier emailed${
-                          order.xeroPoEmailedAt
-                            ? ` ${formatDateTime(order.xeroPoEmailedAt)}`
-                            : ""
-                        }.`
-                      : order.xeroPoEmailStatus === "failed"
-                        ? `Email failed — ${
-                            order.xeroPoEmailError ?? "unknown error"
-                          }`
-                        : "Email not sent (auto-email off, draft PO, or no supplier email)."}
-                  </div>
-                )}
-              </dd>
-            </div>
-          )}
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
@@ -537,6 +687,21 @@ export function PurchaseOrderDetail({
           </div>
         </div>
       </div>
+
+      {syncDialog ? (
+        <AccountingSyncDialog
+          open
+          title={syncDialog.title}
+          description={syncDialog.description}
+          stages={syncDialog.stages}
+          error={syncDialog.error}
+          isWorking={syncDialog.isWorking}
+          onOpenChange={(open) => {
+            if (!open) setSyncDialog(null);
+          }}
+          onDone={() => setSyncDialog(null)}
+        />
+      ) : null}
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <AlertDialogContent className="bg-background text-foreground">
