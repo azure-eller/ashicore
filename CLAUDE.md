@@ -56,6 +56,7 @@ When you discover a new pattern or gotcha:
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
+| Linear workflow / PR tracking | `docs/linear-workflow.md` |
 | ERP agent reactivation / overhead | `docs/erp-agent.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
@@ -85,6 +86,13 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - Run `pnpm build` after changes to catch type errors
 - Run `pnpm test` after changes to catch regressions
 - Inventory-affecting changes must run `pnpm verify:inventory` after the relevant Playwright tests refresh `test/.test-env.json`
+
+## Linear Workflow
+
+- Use Linear team `Erp` for ERP work. Read `docs/linear-workflow.md` before planning/importing work.
+- Non-trivial code work should have one Linear issue before coding. Branches and PRs should include the issue ID.
+- Existing open PR without an issue: create one Linear issue, label `GitHub PR`, attach the PR link, and avoid duplicates by searching the PR URL/number first.
+- Parked draft PRs use `Backburner` + Low priority. Active branches move to `In Progress`; ready PRs move to `In Review`; merged work moves to `Done`.
 
 ## Coding Patterns
 
