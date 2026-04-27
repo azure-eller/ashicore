@@ -338,10 +338,25 @@ The app sidebar uses this pattern. Never replace it with manual `--sidebar-*` va
 
 ### Tooltips
 
-Use tooltips only for computed terms or alert indicators that need brief clarification. Reuse the existing label/link as the trigger — no extra info icons unless there is no natural hover target.
+Add a tooltip only when the trigger is a computed term, domain jargon, an alert indicator, or a disabled/ambiguous icon-only action. Skip tooltips on plain-English labels and obvious actions. See `docs/ui-patterns.md` for the full ruleset.
+
+Copy: one line, ≤ 80 chars, ends with a period, leads with the definition or formula. Don't restate the trigger label. Shared strings live in `lib/tooltip-copy.ts`.
+
+Triggers: reuse the existing label, link, badge, or status marker as the trigger. No `cursor-help`, no standalone info/help icons.
 
 ```tsx
-<SortableHeader column={column} label="Calculated Stock" tooltip="Stock - committed + expected - safety stock." />
+<SortableHeader column={column} label="Calculated Stock" tooltip="Stock - demand + expected - safety stock." />
+
+// Non-sortable label
+<TooltipHeader label="Available" tooltip="Reservable stock after demand and reservations." />
+
+// Status pill or badge
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Badge variant="secondary">Not Sellable</Badge>
+  </TooltipTrigger>
+  <TooltipContent side="top">Item is hidden from sales orders.</TooltipContent>
+</Tooltip>
 ```
 
 ### Route loading reuse

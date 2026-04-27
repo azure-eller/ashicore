@@ -7,6 +7,7 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
+import { MANUFACTURING_PLANNED_QTY_TOOLTIP } from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
@@ -61,7 +62,13 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
   {
     accessorKey: "plannedQuantity",
-    header: ({ column }) => <SortableHeader column={column} label="Planned" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Planned"
+        tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
+      />
+    ),
     sortingFn: (a, b) =>
       parseFloat(a.original.plannedQuantity) - parseFloat(b.original.plannedQuantity),
     cell: ({ row }) => {
