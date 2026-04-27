@@ -49,6 +49,9 @@ export type ItemRow = {
   unitUom: string | null;
   category: string | null;
   potential: string | null;
+  materialCost: string | null;
+  marginPercent: string | null;
+  marginTier: "negative" | "low" | "mid" | "high" | null;
   isMaster: boolean;
   parentId: string | null;
   variantCount: number;
