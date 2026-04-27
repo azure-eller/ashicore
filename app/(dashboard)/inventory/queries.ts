@@ -24,7 +24,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { formatVariantDisplay, normalizeNumeric } from "@/lib/format";
+import { formatVariantDisplay, normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
@@ -180,10 +180,6 @@ function formatAggregateNumber(value: number): string {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
-function formatMarginPercent(value: number): string {
-  return value.toFixed(1).replace(/\.?0+$/, "");
-}
-
 function calculateMarginPercent(
   defaultSellingPrice: string | null | undefined,
   materialCost: string | null | undefined,
@@ -199,12 +195,13 @@ function calculateMarginPercent(
     return null;
   }
 
-  return formatMarginPercent(((sellingPrice - cost) / sellingPrice) * 100);
+  return normalizeNumericScale(((sellingPrice - cost) / sellingPrice) * 100, 1);
 }
 
 function applyMarginTiers(rows: ItemRow[]) {
   const allRows = rows.flatMap((row) => [row, ...(row.subRows ?? [])]);
   const marginValues = allRows
+    .filter((row) => !row.isMaster)
     .map((row) => row.marginPercent)
     .filter((value): value is string => value != null)
     .map((value) => Number.parseFloat(value))
@@ -915,9 +912,10 @@ export async function getItems(filters?: {
               .map((value) => Number.parseFloat(value))
               .filter((value) => Number.isFinite(value));
             const avgMargin = knownVariantMargins.length > 0
-              ? formatMarginPercent(
+              ? normalizeNumericScale(
                   knownVariantMargins.reduce((sum, value) => sum + value, 0) /
                     knownVariantMargins.length,
+                  1,
                 )
               : null;
             const knownVariantCosts = visibleVariants
