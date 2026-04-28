@@ -71,12 +71,14 @@ import {
   SALES_ADDED_QTY_TOOLTIP,
   SALES_ORDER_STATUS_COLUMN_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
 import { SoStageAction } from "./so-stage-action";
 import { OrderExpandedDetail } from "./order-expanded-detail";
+import { OrderLineAttributeBadges } from "./order-line-attribute-badges";
 import type {
   BulkOversellWarningPayload,
+  SalesOrderListLine,
   SalesOrderListRow,
 } from "./types";
 
@@ -85,6 +87,41 @@ type ConfirmError = {
   error?: string;
   oversell?: BulkOversellWarningPayload;
 };
+
+function SalesOrderItemsCell({
+  lines,
+  fallback,
+}: {
+  lines: SalesOrderListLine[];
+  fallback: string;
+}) {
+  if (lines.length === 0) {
+    return <span className="text-muted-foreground">{fallback}</span>;
+  }
+
+  const visibleLines = lines.slice(0, 2);
+  const hiddenCount = lines.length - visibleLines.length;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {visibleLines.map((line, index) => (
+        <Fragment key={`${line.masterName}-${line.quantity}-${index}`}>
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0">{formatQuantity(line.quantity)}</span>
+            <span className="truncate">{line.masterName}</span>
+            <OrderLineAttributeBadges attrs={line.attrs} />
+          </span>
+          {index < visibleLines.length - 1 && (
+            <span className="text-muted-foreground">,</span>
+          )}
+        </Fragment>
+      ))}
+      {hiddenCount > 0 && (
+        <span className="shrink-0 text-muted-foreground">+ {hiddenCount} more</span>
+      )}
+    </div>
+  );
+}
 
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
@@ -140,6 +177,12 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   {
     accessorKey: "itemSummary",
     header: "Items",
+    cell: ({ row }) => (
+      <SalesOrderItemsCell
+        lines={row.original.lines}
+        fallback={row.original.itemSummary}
+      />
+    ),
   },
   {
     accessorKey: "totalAmount",

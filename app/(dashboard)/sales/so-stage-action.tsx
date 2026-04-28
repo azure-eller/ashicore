@@ -8,6 +8,16 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Button } from "@/components/ui/button";
 import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   AccountingActionConfirmDialog,
   AccountingSyncDialog,
   buildAccountingSyncStages,
@@ -15,13 +25,32 @@ import {
   type AccountingSyncDocument,
   type AccountingSyncStage,
 } from "@/components/accounting-sync-status";
+import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { formatPrice } from "@/lib/format";
-import type { SalesOrderDetail, SalesOrderListRow } from "./types";
+import {
+  ON_HAND_STOCK_TOOLTIP,
+  OVERSELL_TOOLTIP_COPY,
+  SALES_ADDED_QTY_TOOLTIP,
+} from "@/lib/tooltip-copy";
+import type {
+  OversellWarningPayload,
+  SalesOrderDetail,
+  SalesOrderListRow,
+} from "./types";
 
 type ActionError = {
   status: number;
   error: string;
-  hasOversell: boolean;
+  oversell?: OversellWarningPayload;
 };
 
 type Props = {
@@ -85,6 +114,8 @@ export function SoStageAction({ order }: Props) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [actionError, setActionError] = useState<ActionError | null>(null);
+  const [oversellWarning, setOversellWarning] =
+    useState<OversellWarningPayload | null>(null);
   const [shipConfirmOpen, setShipConfirmOpen] = useState(false);
   const [shipOptions, setShipOptions] = useState<AccountingActionOptions>({
     syncAccounting: true,
@@ -186,28 +217,38 @@ export function SoStageAction({ order }: Props) {
   };
 
   const confirmMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (confirmOversell: boolean) => {
       const response = await fetch(`/api/sales-orders/${order.id}/confirm`, {
         method: "POST",
         headers: createIdempotencyHeaders(`sales-order-confirm-${order.id}`, {
           "Content-Type": "application/json",
         }),
-        body: JSON.stringify({ confirmOversell: false }),
+        body: JSON.stringify({ confirmOversell }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw {
           status: response.status,
           error: body?.error ?? "Failed to confirm order.",
-          hasOversell: Boolean(body?.oversell),
+          oversell: body?.oversell,
         } satisfies ActionError;
       }
     },
-    onMutate: () => setActionError(null),
+    onMutate: () => {
+      setActionError(null);
+      setOversellWarning(null);
+    },
     onSuccess: async () => {
       await refreshSalesList();
     },
-    onError: (error: ActionError) => setActionError(error),
+    onError: (error: ActionError) => {
+      if (error.status === 409 && error.oversell) {
+        setOversellWarning(error.oversell);
+        return;
+      }
+
+      setActionError(error);
+    },
   });
 
   const shipMutation = useMutation({
@@ -251,7 +292,7 @@ export function SoStageAction({ order }: Props) {
     },
     onError: (error) => {
       const message = error.message;
-      setActionError({ status: 400, error: message, hasOversell: false });
+      setActionError({ status: 400, error: message });
       failShipDialog(message);
     },
   });
@@ -271,40 +312,205 @@ export function SoStageAction({ order }: Props) {
       window.open(url, "_blank", "noopener,noreferrer");
     },
     onError: (error) => {
-      setActionError({ status: 400, error: error.message, hasOversell: false });
+      setActionError({ status: 400, error: error.message });
     },
   });
 
-  const errorMessage = actionError
-    ? actionError.hasOversell
-      ? "Oversell — review on the order"
-      : actionError.error
-    : null;
+  const errorMessage = actionError?.error ?? null;
 
   if (order.status === "draft") {
     return (
-      <div className="flex justify-end">
-        <div className="flex flex-col items-end gap-1">
-          <Button
-            size="sm"
-            disabled={confirmMutation.isPending}
-            onClick={(event) => {
-              event.stopPropagation();
-              confirmMutation.mutate();
-            }}
-          >
-            {confirmMutation.isPending ? "Confirming..." : "Confirm"}
-          </Button>
-          {errorMessage ? (
-            <Link
-              href={`/sales/orders/${order.id}`}
-              className="max-w-xs text-xs text-destructive hover:underline"
+      <>
+        <div className="flex justify-end">
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              size="sm"
+              disabled={confirmMutation.isPending}
+              onClick={(event) => {
+                event.stopPropagation();
+                confirmMutation.mutate(false);
+              }}
             >
-              {errorMessage}
-            </Link>
-          ) : null}
+              {confirmMutation.isPending ? "Confirming..." : "Confirm"}
+            </Button>
+            {errorMessage ? (
+              <Link
+                href={`/sales/orders/${order.id}`}
+                className="max-w-xs text-xs text-destructive hover:underline"
+              >
+                {errorMessage}
+              </Link>
+            ) : null}
+          </div>
         </div>
-      </div>
+        <AlertDialog
+          open={oversellWarning != null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setOversellWarning(null);
+            }
+          }}
+        >
+          <AlertDialogContent
+            size="content"
+            className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Confirming this order would oversell one or more items.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>
+                      <TooltipHeader label="Current Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Available"
+                        tooltip={OVERSELL_TOOLTIP_COPY.currentAvailable}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Reserved"
+                        tooltip={OVERSELL_TOOLTIP_COPY.currentReserved}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Demand"
+                        tooltip={OVERSELL_TOOLTIP_COPY.currentDemand}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Backorder"
+                        tooltip={OVERSELL_TOOLTIP_COPY.currentShortage}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Expected"
+                        tooltip={OVERSELL_TOOLTIP_COPY.expected}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Safety"
+                        tooltip={OVERSELL_TOOLTIP_COPY.safety}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Current Calculated"
+                        tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader label="Added Qty" tooltip={SALES_ADDED_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Projected Demand"
+                        tooltip={OVERSELL_TOOLTIP_COPY.projectedDemand}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Projected Backorder"
+                        tooltip={OVERSELL_TOOLTIP_COPY.projectedShortage}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Projected Calculated"
+                        tooltip={OVERSELL_TOOLTIP_COPY.projectedCalculated}
+                      />
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {oversellWarning?.products.map((product) => (
+                    <TableRow key={product.itemId}>
+                      <TableCell>
+                        <Link
+                          href={itemDetailHref("product", product.itemId)}
+                          className="hover:underline"
+                        >
+                          <div className="font-medium">{product.itemName}</div>
+                          {product.itemSku && (
+                            <div className="text-xs text-muted-foreground">
+                              {product.itemSku}
+                            </div>
+                          )}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        {product.inStock} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.availableQty} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.committedQty} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.demandQty} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.shortageQty} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.expectedQty} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.safetyStock} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.calculatedStock} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.addedQty} {product.unitName}
+                      </TableCell>
+                      <TableCell>
+                        {product.projectedDemandQty} {product.unitName}
+                      </TableCell>
+                      <TableCell
+                        className={
+                          product.projectedShortageQty > 0
+                            ? "text-destructive"
+                            : undefined
+                        }
+                      >
+                        {product.projectedShortageQty} {product.unitName}
+                      </TableCell>
+                      <TableCell className="text-destructive">
+                        {product.projectedCalculatedStock} {product.unitName}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel>Back</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={confirmMutation.isPending}
+                onClick={() => confirmMutation.mutate(true)}
+              >
+                {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
     );
   }
 

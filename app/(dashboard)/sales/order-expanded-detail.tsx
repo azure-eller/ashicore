@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -23,9 +22,8 @@ import {
   SALES_UNIT_PRICE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
 } from "@/lib/tooltip-copy";
+import { OrderLineAttributeBadges } from "./order-line-attribute-badges";
 import type { SalesOrderDetail } from "./types";
-
-const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 
 function StockCell({ value, threshold }: { value: string | null; threshold: number }) {
   if (value === null) return <span className="text-muted-foreground">{"\u2014"}</span>;
@@ -102,15 +100,7 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                       >
                         {line.masterName}
                       </Link>
-                      {line.attrs.map((attr, i) => (
-                        <Badge
-                          key={attr}
-                          variant={BADGE_VARIANTS[i % BADGE_VARIANTS.length]}
-                          className="text-xs font-normal"
-                        >
-                          {attr}
-                        </Badge>
-                      ))}
+                      <OrderLineAttributeBadges attrs={line.attrs} />
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
