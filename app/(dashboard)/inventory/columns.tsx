@@ -43,6 +43,11 @@ const categoryFilter: FilterFn<ItemRow> = (row, columnId, filterValue) => {
     return true;
   }
 
+  const parentCategory = row.getParentRow()?.original.category;
+  if (parentCategory != null && selected.includes(parentCategory)) {
+    return true;
+  }
+
   return row.original.subRows?.some((subRow) =>
     subRow.category != null && selected.includes(subRow.category)
   ) ?? false;
