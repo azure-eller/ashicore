@@ -287,6 +287,11 @@ async function persistPurchaseOrderEmailOutcome(
     | { status: "skipped"; error?: never }
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
+    const conditions = [eq(purchaseOrders.id, orderId)];
+    if (outcome.status !== "sent") {
+      conditions.push(sql`COALESCE(${purchaseOrders.xeroPoEmailStatus}, '') <> 'sent'`);
+    }
+
     await tx
       .update(purchaseOrders)
       .set({
@@ -295,7 +300,7 @@ async function persistPurchaseOrderEmailOutcome(
         xeroPoEmailedAt: outcome.status === "sent" ? new Date() : undefined,
         updatedAt: new Date(),
       })
-      .where(eq(purchaseOrders.id, orderId));
+      .where(and(...conditions));
   });
 }
 
@@ -590,7 +595,7 @@ export async function pushPurchaseOrderToXero(
   }
 
   let emailStatus: PushPurchaseOrderResult["emailStatus"] = null;
-  if (created) {
+  if (created || adopted) {
     const decision = decidePurchaseOrderEmail({
       sendEmail: options.sendEmail === true,
       supplierEmail: data.supplier.email,
