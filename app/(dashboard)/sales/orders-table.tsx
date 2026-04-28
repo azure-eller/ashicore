@@ -64,7 +64,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
+import {
+  OVERSELL_TOOLTIP_COPY,
+  SALES_ORDER_STATUS_COLUMN_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
 import { SoStageAction } from "./so-stage-action";
@@ -148,7 +151,7 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       <FilterableHeader
         column={column}
         label="Status"
-        tooltip="Order state: draft, confirmed, shipped, or cancelled."
+        tooltip={SALES_ORDER_STATUS_COLUMN_TOOLTIP}
       />
     ),
     filterFn: multiValueFilter,

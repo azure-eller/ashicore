@@ -8,6 +8,7 @@ import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
 import {
+  STOCKTAKE_STATUS_COLUMN_TOOLTIP,
   STOCKTAKE_COUNTED_TOOLTIP,
   STOCKTAKE_VARIANCE_TOOLTIP,
 } from "@/lib/tooltip-copy";
@@ -66,7 +67,7 @@ const columns: ColumnDef<StocktakeListRow>[] = [
       <FilterableHeader
         column={column}
         label="Status"
-        tooltip="Stocktake state: draft, completed, or cancelled."
+        tooltip={STOCKTAKE_STATUS_COLUMN_TOOLTIP}
       />
     ),
     filterFn: multiValueFilter,

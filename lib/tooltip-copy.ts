@@ -36,12 +36,18 @@ export const SALES_ORDER_STATUS_TOOLTIP = {
   cancelled: "Order voided; reservations released.",
 } as const;
 
+export const SALES_ORDER_STATUS_COLUMN_TOOLTIP =
+  "Order state: draft, confirmed, shipped, or cancelled.";
+
 export const MANUFACTURING_ORDER_STATUS_TOOLTIP = {
   draft: "Planned but not yet released to the floor.",
   released: "Released to manufacturing; ingredients reserved.",
   completed: "Production finished and output stocked.",
   cancelled: "Order voided; reservations released.",
 } as const;
+
+export const MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP =
+  "Order state: draft, released, completed, or cancelled.";
 
 export const PICK_PROGRESS_TOOLTIP = {
   not_started: "No ingredients picked yet.",
@@ -87,9 +93,6 @@ export const COST_PER_UNIT_TOOLTIP =
 
 export const BATCH_YIELD_TOOLTIP = "Expected good units per batch.";
 
-export const ITEM_TYPE_TOOLTIP =
-  "Item classification: material or product.";
-
 export const OUTPUT_DISPOSITION_TOOLTIP =
   "Lot status on completion: available (sellable) or blocked (held).";
 
@@ -101,6 +104,9 @@ export const PURCHASE_ORDER_STATUS_TOOLTIP = {
   cancelled: "Order voided; no deliveries expected.",
 } as const;
 
+export const PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP =
+  "Order state: draft, ordered, partial, received, or cancelled.";
+
 export const PO_REMAINING_QTY_TOOLTIP =
   "Outstanding quantity still to be received.";
 
@@ -109,6 +115,9 @@ export const STOCKTAKE_STATUS_TOOLTIP = {
   completed: "Finished; inventory adjusted to match counts.",
   cancelled: "Voided; no inventory adjustments made.",
 } as const;
+
+export const STOCKTAKE_STATUS_COLUMN_TOOLTIP =
+  "Stocktake state: draft, completed, or cancelled.";
 
 export const STOCKTAKE_COUNTED_TOOLTIP =
   "Number of items counted so far.";

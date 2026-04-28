@@ -7,7 +7,10 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
-import { MANUFACTURING_PLANNED_QTY_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP,
+  MANUFACTURING_PLANNED_QTY_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
@@ -98,7 +101,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
       <FilterableHeader
         column={column}
         label="Status"
-        tooltip="Order state: draft, released, completed, or cancelled."
+        tooltip={MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP}
       />
     ),
     filterFn: multiValueFilter,

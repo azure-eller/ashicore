@@ -29,18 +29,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   BATCH_YIELD_TOOLTIP,
   COST_PER_UNIT_TOOLTIP,
-  ITEM_TYPE_TOOLTIP,
   MANUFACTURING_PICKED_QTY_TOOLTIP,
   MANUFACTURING_REMAINING_QTY_TOOLTIP,
   MATERIAL_COST_TOOLTIP,
@@ -376,12 +370,7 @@ export function ManufacturingOrderDetail({
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Badge variant="outline">{ingredient.itemType}</Badge>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">{ITEM_TYPE_TOOLTIP}</TooltipContent>
-                      </Tooltip>
+                      <Badge variant="outline">{ingredient.itemType}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       {ingredient.quantityPerUnit}

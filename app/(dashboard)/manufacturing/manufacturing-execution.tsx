@@ -32,17 +32,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
-import {
-  ITEM_TYPE_TOOLTIP,
-  OUTPUT_DISPOSITION_TOOLTIP,
-} from "@/lib/tooltip-copy";
+import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import type { ManufacturingExecutionDetail } from "./types";
@@ -558,12 +550,7 @@ export function ManufacturingExecution({
                               ? `${ingredient.itemName} (${ingredient.itemSku})`
                               : ingredient.itemName}
                           </Link>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge variant="outline">{ingredient.itemType}</Badge>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">{ITEM_TYPE_TOOLTIP}</TooltipContent>
-                          </Tooltip>
+                          <Badge variant="outline">{ingredient.itemType}</Badge>
                           {isPicked && <Badge variant="outline">Picked</Badge>}
                         </div>
                         <p className="text-sm text-muted-foreground">
