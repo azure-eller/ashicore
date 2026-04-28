@@ -2,8 +2,14 @@ import "server-only";
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { Invoice, type Invoices, type LineItem } from "xero-node";
-import { customers, salesOrderLines, salesOrders } from "@/lib/db/schema";
+import {
+  customers,
+  organization,
+  salesOrderLines,
+  salesOrders,
+} from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
 import {
@@ -17,6 +23,7 @@ import { hashXeroPayload } from "./payload-hash";
 
 type OrderForPush = {
   id: string;
+  organizationName: string;
   orderNumber: string;
   customerId: string;
   customerName: string;
@@ -31,6 +38,7 @@ type OrderForPush = {
   totalAmount: string;
   xeroInvoiceId: string | null;
   xeroInvoiceNumber: string | null;
+  xeroPushStatus: string | null;
   xeroPushPayloadHash: string | null;
   xeroEmailStatus: string | null;
 };
@@ -117,6 +125,7 @@ async function loadOrderForPushInTx(
   const [order] = await tx
     .select({
       id: salesOrders.id,
+      organizationName: organization.name,
       orderNumber: salesOrders.orderNumber,
       customerId: salesOrders.customerId,
       customerName: salesOrders.customerName,
@@ -131,10 +140,12 @@ async function loadOrderForPushInTx(
       totalAmount: salesOrders.totalAmount,
       xeroInvoiceId: salesOrders.xeroInvoiceId,
       xeroInvoiceNumber: salesOrders.xeroInvoiceNumber,
+      xeroPushStatus: salesOrders.xeroPushStatus,
       xeroPushPayloadHash: salesOrders.xeroPushPayloadHash,
       xeroEmailStatus: salesOrders.xeroEmailStatus,
     })
     .from(salesOrders)
+    .innerJoin(organization, eq(salesOrders.organizationId, organization.id))
     .where(
       and(
         eq(salesOrders.id, orderId),
@@ -305,24 +316,19 @@ async function persistEmailOutcome(
   });
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 async function sendInvoiceEmail(
   params: {
     orgId: string;
     orderId: string;
+    organizationName: string;
     orderNumber: string;
     invoiceId: string;
     invoiceNumber: string | null;
+    totalAmount: string;
+    dueDate: string | null;
     customerName: string;
     customerEmail: string;
+    lines: LineForPush[];
     tenantId: string;
     accountingApi: import("xero-node").AccountingApi;
   }
@@ -339,25 +345,29 @@ async function sendInvoiceEmail(
     }
 
     const invoiceNumber = params.invoiceNumber ?? params.orderNumber;
-    const escapedCustomerName = escapeHtml(params.customerName);
-    const escapedInvoiceNumber = escapeHtml(invoiceNumber);
-    const escapedUrl = escapeHtml(url);
+    const email = buildAccountingDocumentEmail({
+      documentType: "invoice",
+      documentNumber: invoiceNumber,
+      issuerName: params.organizationName,
+      recipientName: params.customerName,
+      totalAmount: params.totalAmount,
+      dueDate: params.dueDate,
+      actionUrl: url,
+      lines: params.lines.map((line) => ({
+        description: line.itemSku
+          ? `${line.itemName} (${line.itemSku})`
+          : line.itemName,
+        quantity: line.quantity,
+        amount: line.lineTotal,
+      })),
+    });
 
     await sendTransactionalEmail({
       tag: "invoice",
       to: params.customerEmail.trim(),
-      subject: `Invoice ${invoiceNumber}`,
-      html: [
-        `<p>${escapedCustomerName},</p>`,
-        `<p>Your invoice ${escapedInvoiceNumber} is ready.</p>`,
-        `<p><a href="${escapedUrl}">View invoice</a></p>`,
-      ].join(""),
-      text: [
-        `${params.customerName},`,
-        "",
-        `Your invoice ${invoiceNumber} is ready.`,
-        url,
-      ].join("\n"),
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
       idempotencyKey: key,
     });
 
@@ -578,11 +588,15 @@ export async function pushSalesOrderToXero(
         await sendInvoiceEmail({
           orgId,
           orderId,
+          organizationName: data.order.organizationName,
           orderNumber: data.order.orderNumber,
           invoiceId,
           invoiceNumber,
+          totalAmount: data.order.totalAmount,
+          dueDate,
           customerName: data.customer.name,
           customerEmail: data.customer.email ?? "",
+          lines: data.lines,
           tenantId: authed.tenantId,
           accountingApi,
         });
@@ -675,34 +689,20 @@ export async function emailSalesInvoiceForOrder(
 ): Promise<{ status: "sent" }> {
   const authed = await getAuthedXeroClient(orgId);
 
-  const order = await withOrgContext(orgId, async (tx) => {
-    const [row] = await tx
-      .select({
-        id: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        xeroInvoiceId: salesOrders.xeroInvoiceId,
-        xeroInvoiceNumber: salesOrders.xeroInvoiceNumber,
-        xeroPushStatus: salesOrders.xeroPushStatus,
-        xeroEmailStatus: salesOrders.xeroEmailStatus,
-        customerName: customers.name,
-        customerEmail: customers.email,
-      })
-      .from(salesOrders)
-      .innerJoin(customers, eq(salesOrders.customerId, customers.id))
-      .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)));
-    return row ?? null;
-  });
+  const data = await withOrgContext(orgId, async (tx) =>
+    loadOrderForPushInTx(tx, orderId)
+  );
 
-  if (!order) {
+  if (!data) {
     throw new XeroError("Order not found.", 404);
   }
-  if (!order.xeroInvoiceId || order.xeroPushStatus !== "pushed") {
+  if (!data.order.xeroInvoiceId || data.order.xeroPushStatus !== "pushed") {
     throw new XeroError(
       "Push the invoice to Xero before sending the email.",
       409
     );
   }
-  if (!order.customerEmail || order.customerEmail.trim() === "") {
+  if (!data.customer.email || data.customer.email.trim() === "") {
     throw new XeroError(
       "Customer has no email on file. Add one before retrying the send.",
       409
@@ -712,11 +712,15 @@ export async function emailSalesInvoiceForOrder(
   await sendInvoiceEmail({
     orgId,
     orderId,
-    orderNumber: order.orderNumber,
-    invoiceId: order.xeroInvoiceId,
-    invoiceNumber: order.xeroInvoiceNumber,
-    customerName: order.customerName,
-    customerEmail: order.customerEmail,
+    organizationName: data.order.organizationName,
+    orderNumber: data.order.orderNumber,
+    invoiceId: data.order.xeroInvoiceId,
+    invoiceNumber: data.order.xeroInvoiceNumber,
+    totalAmount: data.order.totalAmount,
+    dueDate: data.order.requestedDate,
+    customerName: data.customer.name,
+    customerEmail: data.customer.email,
+    lines: data.lines,
     tenantId: authed.tenantId,
     accountingApi: authed.client.accountingApi,
   });

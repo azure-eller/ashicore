@@ -6,8 +6,14 @@ import {
   type PurchaseOrders,
   type LineItem,
 } from "xero-node";
-import { purchaseOrderLines, purchaseOrders, suppliers } from "@/lib/db/schema";
+import {
+  organization,
+  purchaseOrderLines,
+  purchaseOrders,
+  suppliers,
+} from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
 import {
@@ -22,6 +28,7 @@ import { hashXeroPayload } from "./payload-hash";
 
 type OrderForPush = {
   id: string;
+  organizationName: string;
   orderNumber: string;
   supplierId: string;
   supplierName: string;
@@ -31,6 +38,7 @@ type OrderForPush = {
   orderedAt: Date | null;
   xeroPurchaseOrderId: string | null;
   xeroPurchaseOrderNumber: string | null;
+  xeroPushStatus: string | null;
   xeroPushPayloadHash: string | null;
   xeroPoEmailStatus: string | null;
 };
@@ -102,6 +110,7 @@ async function loadOrderForPushInTx(
   const [order] = await tx
     .select({
       id: purchaseOrders.id,
+      organizationName: organization.name,
       orderNumber: purchaseOrders.orderNumber,
       supplierId: purchaseOrders.supplierId,
       supplierName: purchaseOrders.supplierName,
@@ -111,10 +120,12 @@ async function loadOrderForPushInTx(
       orderedAt: purchaseOrders.orderedAt,
       xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
       xeroPurchaseOrderNumber: purchaseOrders.xeroPurchaseOrderNumber,
+      xeroPushStatus: purchaseOrders.xeroPushStatus,
       xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
       xeroPoEmailStatus: purchaseOrders.xeroPoEmailStatus,
     })
     .from(purchaseOrders)
+    .innerJoin(organization, eq(purchaseOrders.organizationId, organization.id))
     .where(
       and(
         eq(purchaseOrders.id, orderId),
@@ -287,15 +298,6 @@ async function persistPurchaseOrderEmailOutcome(
   });
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function sanitizePdfFileSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -303,10 +305,15 @@ function sanitizePdfFileSegment(value: string): string {
 async function sendPurchaseOrderPdfEmail(params: {
   orgId: string;
   orderId: string;
+  organizationName: string;
   orderNumber: string;
   purchaseOrderId: string;
+  purchaseOrderNumber: string | null;
+  totalAmount: string;
+  expectedDate: string | null;
   supplierName: string;
   supplierEmail: string;
+  lines: LineForPush[];
   tenantId: string;
   accountingApi: import("xero-node").AccountingApi;
 }): Promise<void> {
@@ -318,25 +325,32 @@ async function sendPurchaseOrderPdfEmail(params: {
     const pdf = Buffer.isBuffer(response.body)
       ? response.body
       : Buffer.from(response.body);
+    const purchaseOrderNumber = params.purchaseOrderNumber ?? params.orderNumber;
     const safeOrderNumber =
-      sanitizePdfFileSegment(params.orderNumber) || "purchase-order";
-    const subject = `Purchase order ${params.orderNumber}`;
-    const escapedOrderNumber = escapeHtml(params.orderNumber);
-    const escapedSupplierName = escapeHtml(params.supplierName);
+      sanitizePdfFileSegment(purchaseOrderNumber) || "purchase-order";
+    const email = buildAccountingDocumentEmail({
+      documentType: "purchase-order",
+      documentNumber: purchaseOrderNumber,
+      issuerName: params.organizationName,
+      recipientName: params.supplierName,
+      totalAmount: params.totalAmount,
+      dueDate: params.expectedDate,
+      lines: params.lines.map((line) => ({
+        description: line.itemSku
+          ? `${line.itemName} (${line.itemSku})`
+          : line.itemName,
+        quantity: line.quantityOrdered,
+        unitLabel: line.purchaseUnitName,
+        amount: line.lineTotal,
+      })),
+    });
 
     await sendTransactionalEmail({
       tag: "purchase-order",
       to: params.supplierEmail.trim(),
-      subject,
-      html: [
-        `<p>${escapedSupplierName},</p>`,
-        `<p>Please find purchase order ${escapedOrderNumber} attached.</p>`,
-      ].join(""),
-      text: [
-        `${params.supplierName},`,
-        "",
-        `Please find purchase order ${params.orderNumber} attached.`,
-      ].join("\n"),
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
       attachments: [
         {
           filename: `${safeOrderNumber}.pdf`,
@@ -587,10 +601,15 @@ export async function pushPurchaseOrderToXero(
         await sendPurchaseOrderPdfEmail({
           orgId,
           orderId,
+          organizationName: data.order.organizationName,
           orderNumber: data.order.orderNumber,
           purchaseOrderId,
+          purchaseOrderNumber,
+          totalAmount: data.order.totalAmount,
+          expectedDate: data.order.expectedDate,
           supplierName: data.supplier.name,
           supplierEmail: data.supplier.email ?? "",
+          lines: data.lines,
           tenantId: authed.tenantId,
           accountingApi,
         });
@@ -627,32 +646,20 @@ export async function emailPurchaseOrderForOrder(
 ): Promise<{ status: "sent" }> {
   const authed = await getAuthedXeroClient(orgId);
 
-  const order = await withOrgContext(orgId, async (tx) => {
-    const [row] = await tx
-      .select({
-        id: purchaseOrders.id,
-        orderNumber: purchaseOrders.orderNumber,
-        xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
-        xeroPushStatus: purchaseOrders.xeroPushStatus,
-        supplierName: suppliers.name,
-        supplierEmail: suppliers.email,
-      })
-      .from(purchaseOrders)
-      .innerJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
-      .where(and(eq(purchaseOrders.id, orderId), isNull(purchaseOrders.deletedAt)));
-    return row ?? null;
-  });
+  const data = await withOrgContext(orgId, async (tx) =>
+    loadOrderForPushInTx(tx, orderId)
+  );
 
-  if (!order) {
+  if (!data) {
     throw new XeroError("Purchase order not found.", 404);
   }
-  if (!order.xeroPurchaseOrderId || order.xeroPushStatus !== "pushed") {
+  if (!data.order.xeroPurchaseOrderId || data.order.xeroPushStatus !== "pushed") {
     throw new XeroError(
       "Push the purchase order to Xero before sending the email.",
       409
     );
   }
-  if (!order.supplierEmail || order.supplierEmail.trim() === "") {
+  if (!data.supplier.email || data.supplier.email.trim() === "") {
     throw new XeroError(
       "Supplier has no email on file. Add one before retrying the send.",
       409
@@ -662,10 +669,15 @@ export async function emailPurchaseOrderForOrder(
   await sendPurchaseOrderPdfEmail({
     orgId,
     orderId,
-    orderNumber: order.orderNumber,
-    purchaseOrderId: order.xeroPurchaseOrderId,
-    supplierName: order.supplierName,
-    supplierEmail: order.supplierEmail,
+    organizationName: data.order.organizationName,
+    orderNumber: data.order.orderNumber,
+    purchaseOrderId: data.order.xeroPurchaseOrderId,
+    purchaseOrderNumber: data.order.xeroPurchaseOrderNumber,
+    totalAmount: data.order.totalAmount,
+    expectedDate: data.order.expectedDate,
+    supplierName: data.supplier.name,
+    supplierEmail: data.supplier.email,
+    lines: data.lines,
     tenantId: authed.tenantId,
     accountingApi: authed.client.accountingApi,
   });
