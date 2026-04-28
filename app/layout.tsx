@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { after } from "next/server";
-import { Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import {
   getRequestLogContext,
   logObservedEvent,
 } from "@/lib/observability/request-log";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: {
@@ -32,7 +33,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={inter.variable}
+      className={`${geistSans.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">{children}</body>

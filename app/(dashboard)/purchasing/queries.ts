@@ -73,6 +73,15 @@ type MaterialValidationRow = {
   currentStockUnitCost: string | null;
 };
 
+type PurchaseOrderLineInput = InsertPurchaseOrder["lines"][number] & {
+  purchaseUnitDefinitionId?: string | null;
+  purchaseToStockFactor?: string | null;
+};
+
+type PurchaseOrderPayload = Omit<InsertPurchaseOrder, "lines"> & {
+  lines: PurchaseOrderLineInput[];
+};
+
 export class PurchasingError extends DomainError {
   errors?: Record<string, string[]>;
 
@@ -212,7 +221,7 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
 
 async function preparePurchaseOrderPayload(
   tx: Tx,
-  payload: InsertPurchaseOrder | UpdatePurchaseOrder
+  payload: PurchaseOrderPayload | UpdatePurchaseOrder
 ): Promise<{
   supplierId: string;
   supplierName: string;
@@ -227,6 +236,25 @@ async function preparePurchaseOrderPayload(
     tx,
     payload.lines.map((line) => line.itemId)
   );
+  const purchaseUnitIds = [
+    ...new Set(
+      payload.lines
+        .map((line) =>
+          "purchaseUnitDefinitionId" in line ? line.purchaseUnitDefinitionId : null
+        )
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const purchaseUnitRows =
+    purchaseUnitIds.length === 0
+      ? []
+      : await tx
+          .select({ id: unitDefinitions.id, name: unitDefinitions.name })
+          .from(unitDefinitions)
+          .where(inArray(unitDefinitions.id, purchaseUnitIds));
+  const purchaseUnitNameById = new Map(
+    purchaseUnitRows.map((unit) => [unit.id, unit.name])
+  );
 
   const preparedLines = payload.lines.map((line, index) => {
     const material = materials.get(line.itemId);
@@ -238,7 +266,13 @@ async function preparePurchaseOrderPayload(
     const quantityOrdered = Number(line.quantityOrdered);
     const unitCost = Number(line.unitCost);
     const lineTotal = quantityOrdered * unitCost;
-    const purchaseToStockFactor = Number(material.purchaseToStockFactor ?? "1");
+    const overrideFactor =
+      "purchaseToStockFactor" in line ? line.purchaseToStockFactor : null;
+    const overrideUnitId =
+      "purchaseUnitDefinitionId" in line ? line.purchaseUnitDefinitionId : null;
+    const purchaseToStockFactor = Number(
+      overrideFactor ?? material.purchaseToStockFactor ?? "1"
+    );
     const stockQuantityOrdered = quantityOrdered * purchaseToStockFactor;
     const stockUnitCost = unitCost / purchaseToStockFactor;
 
@@ -246,7 +280,10 @@ async function preparePurchaseOrderPayload(
       itemId: material.id,
       itemName: material.name,
       itemSku: material.sku,
-      purchaseUnitName: material.purchaseUnitName ?? material.stockingUnitName,
+      purchaseUnitName:
+        (overrideUnitId ? purchaseUnitNameById.get(overrideUnitId) : null) ??
+        material.purchaseUnitName ??
+        material.stockingUnitName,
       stockingUnitName: material.stockingUnitName,
       purchaseToStockFactor: normalizeNumeric(purchaseToStockFactor),
       quantityOrdered: normalizeNumeric(quantityOrdered),
@@ -616,34 +653,42 @@ export async function getEditablePurchaseOrder(
   });
 }
 
+export async function createPurchaseOrderInTx(
+  tx: Tx,
+  orgId: string,
+  data: PurchaseOrderPayload
+) {
+  const prepared = await preparePurchaseOrderPayload(tx, data);
+  const orderNumber = await generateOrderNumber(tx);
+
+  const [order] = await tx
+    .insert(purchaseOrders)
+    .values({
+      organizationId: orgId,
+      orderNumber,
+      supplierId: prepared.supplierId,
+      supplierName: prepared.supplierName,
+      status: "draft",
+      expectedDate: prepared.expectedDate,
+      notes: prepared.notes,
+      totalAmount: prepared.totalAmount,
+    })
+    .returning({ id: purchaseOrders.id });
+
+  await tx.insert(purchaseOrderLines).values(
+    prepared.preparedLines.map((line) => ({
+      purchaseOrderId: order.id,
+      ...line,
+    }))
+  );
+
+  return order;
+}
+
 export async function createPurchaseOrder(data: InsertPurchaseOrder) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const prepared = await preparePurchaseOrderPayload(tx, data);
-    const orderNumber = await generateOrderNumber(tx);
-
-    const [order] = await tx
-      .insert(purchaseOrders)
-      .values({
-        organizationId: orgId,
-        orderNumber,
-        supplierId: prepared.supplierId,
-        supplierName: prepared.supplierName,
-        status: "draft",
-        expectedDate: prepared.expectedDate,
-        notes: prepared.notes,
-        totalAmount: prepared.totalAmount,
-      })
-      .returning({ id: purchaseOrders.id });
-
-    await tx.insert(purchaseOrderLines).values(
-      prepared.preparedLines.map((line) => ({
-        purchaseOrderId: order.id,
-        ...line,
-      }))
-    );
-
-    return order;
-  });
+  return withAuthedOrgContext((tx, orgId) =>
+    createPurchaseOrderInTx(tx, orgId, data)
+  );
 }
 
 export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {

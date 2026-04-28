@@ -1613,46 +1613,54 @@ export async function getManufacturingOrderEditData(
   });
 }
 
+export async function createManufacturingOrderInTx(
+  tx: Tx,
+  orgId: string,
+  payload: InsertManufacturingOrder
+): Promise<{ id: string }> {
+  if (payload.salesOrderId != null || payload.salesOrderLineId != null) {
+    throw new ManufacturingError(
+      "Create sales-linked manufacturing orders from the sales order Create MOs flow.",
+      400
+    );
+  }
+
+  const product = await getValidatedProductInTx(tx, payload.productId);
+  const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
+    computeBatchPlanning(product, Number(payload.plannedQuantity));
+
+  const salesLink = await validateSalesLineLinkInTx(tx, {
+    salesOrderId: payload.salesOrderId,
+    salesOrderLineId: payload.salesOrderLineId,
+    productId: payload.productId,
+  });
+  const { bomRevisionId, ingredients } = await prepareCreateIngredientsInTx(
+    tx,
+    payload.productId,
+    ingredientMultiplier,
+    payload.ingredients
+  );
+  const order = await insertManufacturingOrderInTx(tx, orgId, {
+    product,
+    bomRevisionId,
+    salesLink,
+    requestedQuantity: payload.plannedQuantity,
+    plannedQuantity,
+    numberOfBatches,
+    plannedDate: payload.plannedDate ?? null,
+    notes: payload.notes ?? null,
+    ingredients,
+  });
+
+  return { id: order.id };
+}
+
 export async function createManufacturingOrder(
   payload: InsertManufacturingOrder
 ): Promise<{ id: string }> {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    if (payload.salesOrderId != null || payload.salesOrderLineId != null) {
-      throw new ManufacturingError(
-        "Create sales-linked manufacturing orders from the sales order Create MOs flow.",
-        400
-      );
-    }
-
-    const product = await getValidatedProductInTx(tx, payload.productId);
-    const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
-      computeBatchPlanning(product, Number(payload.plannedQuantity));
-
-    const salesLink = await validateSalesLineLinkInTx(tx, {
-      salesOrderId: payload.salesOrderId,
-      salesOrderLineId: payload.salesOrderLineId,
-      productId: payload.productId,
-    });
-    const { bomRevisionId, ingredients } = await prepareCreateIngredientsInTx(
-      tx,
-      payload.productId,
-      ingredientMultiplier,
-      payload.ingredients
-    );
-    const order = await insertManufacturingOrderInTx(tx, orgId, {
-      product,
-      bomRevisionId,
-      salesLink,
-      requestedQuantity: payload.plannedQuantity,
-      plannedQuantity,
-      numberOfBatches,
-      plannedDate: payload.plannedDate ?? null,
-      notes: payload.notes ?? null,
-      ingredients,
-    });
-
-    return { id: order.id };
-  });
+  return withAuthedOrgContext((tx, orgId) =>
+    createManufacturingOrderInTx(tx, orgId, payload)
+  );
 }
 
 export async function createManufacturingOrdersFromSalesOrder(

@@ -42,6 +42,13 @@ export const items = inventorySchema
 
       // Stock
       safetyStock: numeric("safety_stock", { precision: 12, scale: 4 }).notNull().default("0"),
+      reorderPoint: numeric("reorder_point", { precision: 12, scale: 4 }),
+      targetCoverDays: numeric("target_cover_days", { precision: 8, scale: 2 }),
+      planningEnabled: boolean("planning_enabled").notNull().default(true),
+      leadTimeDaysOverride: numeric("lead_time_days_override", {
+        precision: 8,
+        scale: 2,
+      }),
 
       // Pricing
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
@@ -55,6 +62,10 @@ export const items = inventorySchema
       // Manufacturing
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
+      productionLeadTimeDays: numeric("production_lead_time_days", {
+        precision: 8,
+        scale: 2,
+      }),
 
       // Variant family
       isMaster: boolean("is_master").notNull().default(false),
