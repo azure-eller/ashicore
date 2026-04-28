@@ -99,6 +99,8 @@ export type ManufacturingOrderListRow = {
   orderNumber: string;
   productName: string;
   productSku: string | null;
+  productMasterName: string;
+  productAttrs: string[];
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   requestedQuantity: string;

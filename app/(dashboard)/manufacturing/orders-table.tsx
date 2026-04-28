@@ -7,7 +7,8 @@ import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatDate } from "@/lib/format";
+import { Badge } from "@/components/ui/badge";
+import { formatDate, formatQuantity } from "@/lib/format";
 import {
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
   MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP,
@@ -17,6 +18,50 @@ import {
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
+
+const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
+
+function AttributeBadges({ attrs }: { attrs: string[] }) {
+  return attrs.map((attr, index) => (
+    <Badge
+      key={`${attr}-${index}`}
+      variant={BADGE_VARIANTS[index % BADGE_VARIANTS.length]}
+      className="text-xs font-normal"
+    >
+      {attr}
+    </Badge>
+  ));
+}
+
+function ProductCell({ order }: { order: ManufacturingOrderListRow }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="truncate">{order.productMasterName}</span>
+      <AttributeBadges attrs={order.productAttrs} />
+    </div>
+  );
+}
+
+function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
+  const batchLabel =
+    order.manufacturingMode === "batch" && order.numberOfBatches != null
+      ? `${order.numberOfBatches}b`
+      : null;
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="shrink-0">{formatQuantity(order.plannedQuantity)}</span>
+      <Badge variant="secondary" className="text-xs font-normal">
+        {order.unitName}
+      </Badge>
+      {batchLabel != null && (
+        <Badge variant="outline" className="text-xs font-normal">
+          {batchLabel}
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
@@ -56,10 +101,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
     accessorKey: "productName",
     header: ({ column }) => <SortableHeader column={column} label="Product" />,
-    cell: ({ row }) =>
-      row.original.productSku
-        ? `${row.original.productName} (${row.original.productSku})`
-        : row.original.productName,
+    cell: ({ row }) => <ProductCell order={row.original} />,
   },
   {
     accessorKey: "salesOrderNumber",
@@ -79,13 +121,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     ),
     sortingFn: (a, b) =>
       parseFloat(a.original.plannedQuantity) - parseFloat(b.original.plannedQuantity),
-    cell: ({ row }) => {
-      const qty = `${row.original.plannedQuantity} ${row.original.unitName}`;
-      if (row.original.manufacturingMode === "batch" && row.original.numberOfBatches != null) {
-        return `${qty} (${row.original.numberOfBatches}b)`;
-      }
-      return qty;
-    },
+    cell: ({ row }) => <PlannedQuantityCell order={row.original} />,
   },
   {
     accessorKey: "actualQuantity",
@@ -94,7 +130,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     ),
     cell: ({ row }) =>
       row.original.actualQuantity != null
-        ? `${row.original.actualQuantity} ${row.original.unitName}`
+        ? `${formatQuantity(row.original.actualQuantity)} ${row.original.unitName}`
         : "\u2014",
   },
   {

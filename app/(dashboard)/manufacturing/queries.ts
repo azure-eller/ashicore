@@ -9,6 +9,7 @@ import {
   isNull,
   sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryEvents,
   items,
@@ -22,6 +23,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { resolveVariantDisplay } from "@/lib/format";
 import {
   getCurrentActiveBomIngredientsInTx,
   getCurrentBomCoverageInTx,
@@ -1063,12 +1065,16 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
     "manufacturing.get_orders",
     async () => {
       return withAuthedOrgContext(async (tx) => {
+        const masterItems = alias(items, "master_items");
         const orders = (await tx
           .select({
             id: manufacturingOrders.id,
             orderNumber: manufacturingOrders.orderNumber,
             productName: manufacturingOrders.productName,
             productSku: manufacturingOrders.productSku,
+            variantAttrs: items.variantAttrs,
+            masterName: masterItems.name,
+            masterVariantAxes: masterItems.variantAxes,
             salesOrderNumber: manufacturingOrders.salesOrderNumber,
             salesCustomerName: manufacturingOrders.salesCustomerName,
             requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
@@ -1091,12 +1097,22 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             completedAt: manufacturingOrders.completedAt,
           })
           .from(manufacturingOrders)
+          .leftJoin(items, eq(manufacturingOrders.productId, items.id))
+          .leftJoin(masterItems, eq(items.parentId, masterItems.id))
           .where(isNull(manufacturingOrders.deletedAt))
           .orderBy(desc(manufacturingOrders.createdAt))) as Array<
           Omit<
             ManufacturingOrderListRow,
-            "pickProgressStatus" | "completedBatchCount" | "actionableBatchCount"
-          >
+            | "productMasterName"
+            | "productAttrs"
+            | "pickProgressStatus"
+            | "completedBatchCount"
+            | "actionableBatchCount"
+          > & {
+            variantAttrs: Record<string, string> | null;
+            masterName: string | null;
+            masterVariantAxes: string[] | null;
+          }
         >;
 
         if (orders.length === 0) {
@@ -1146,15 +1162,22 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           batchesByOrder.set(row.manufacturingOrderId, existing);
         }
 
-        return orders.map((order) => {
+        return orders.map(({ variantAttrs, masterName, masterVariantAxes, ...order }) => {
           const batches = batchesByOrder.get(order.id) ?? [];
           const pickProgressStatus =
             order.manufacturingMode === "batch" && batches.length > 0
               ? getBatchPickProgressStatus(batches)
               : getPickProgressStatus(ingredientsByOrder.get(order.id) ?? []);
+          const display = resolveVariantDisplay(
+            order.productName,
+            masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
+            variantAttrs
+          );
 
           return {
             ...order,
+            productMasterName: display.masterName,
+            productAttrs: display.attrs,
             pickProgressStatus,
             completedBatchCount: batches.filter((batch) => batch.status === "completed").length,
             actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
