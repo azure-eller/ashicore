@@ -1,1 +1,1 @@
-export { default } from "../../../pricing-schedule-form-loading";
+export { default } from "@/components/dashboard-route-loading";

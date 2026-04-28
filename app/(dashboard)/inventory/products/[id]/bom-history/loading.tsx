@@ -1,1 +1,1 @@
-export { default } from "../../../bom-history-loading";
+export { default } from "@/components/dashboard-route-loading";

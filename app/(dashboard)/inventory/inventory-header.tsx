@@ -1,22 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NavigationLink } from "@/components/navigation-pending";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 import type { InventoryTabCounts } from "./types";
 
 type InventoryHeaderProps = {
-  counts: InventoryTabCounts;
+  counts?: InventoryTabCounts;
 };
 
 export function InventoryHeader({ counts }: InventoryHeaderProps) {
   const pathname = usePathname();
   const tabs = [
-    { label: "Products", href: "/inventory/products", count: counts.products },
-    { label: "Materials", href: "/inventory/materials", count: counts.materials },
-    { label: "Sub-assemblies", href: "/inventory/sub-assemblies", count: counts.subAssemblies },
+    { label: "Products", href: "/inventory/products", count: counts?.products },
+    { label: "Materials", href: "/inventory/materials", count: counts?.materials },
+    { label: "Sub-assemblies", href: "/inventory/sub-assemblies", count: counts?.subAssemblies },
     { label: "Stocktakes", href: "/inventory/stocktakes" },
     { label: "Ledger", href: "/inventory/ledger" },
   ];
@@ -51,14 +51,13 @@ export function InventoryHeader({ counts }: InventoryHeaderProps) {
                 {content}
               </span>
             ) : (
-              <Link
+              <NavigationLink
                 key={tab.href}
                 href={tab.href}
-                prefetch={false}
                 className="inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
               >
                 {content}
-              </Link>
+              </NavigationLink>
             );
           })}
         </nav>

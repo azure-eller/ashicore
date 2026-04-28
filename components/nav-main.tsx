@@ -1,7 +1,7 @@
 "use client"
 
-import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { NavigationLink } from "@/components/navigation-pending"
 import {
   Collapsible,
   CollapsibleContent,
@@ -57,10 +57,10 @@ export function NavMain({
             return (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton asChild isActive={isItemActive} tooltip={item.title}>
-                  <Link href={item.url} prefetch={false}>
+                  <NavigationLink href={item.url}>
                     {item.icon}
                     <span>{item.title}</span>
-                  </Link>
+                  </NavigationLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )
@@ -70,10 +70,10 @@ export function NavMain({
             return (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton asChild isActive={Boolean(isItemActive)} tooltip={item.title}>
-                  <Link href={item.url} prefetch={false}>
+                  <NavigationLink href={item.url}>
                     {item.icon}
                     <span>{item.title}</span>
-                  </Link>
+                  </NavigationLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )
@@ -108,9 +108,9 @@ export function NavMain({
                       {item.items?.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton asChild isActive={isPathActive(subItem.url)}>
-                            <Link href={subItem.url} prefetch={false}>
+                            <NavigationLink href={subItem.url}>
                               <span>{subItem.title}</span>
-                            </Link>
+                            </NavigationLink>
                           </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
                       ))}

@@ -1,1 +1,1 @@
-export { default } from "../../manufacturing-order-detail-loading";
+export { default } from "@/components/dashboard-route-loading";

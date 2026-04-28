@@ -11,6 +11,7 @@ import {
   ChartAnalysisIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import { useNavigationPending } from "@/components/navigation-pending"
 import {
   Menubar,
   MenubarContent,
@@ -71,6 +72,7 @@ export function SidebarCollapsedBar() {
   const { isMobile, state } = useSidebar()
   const pathname = usePathname()
   const router = useRouter()
+  const { start } = useNavigationPending()
   const collapsed = state === "collapsed"
 
   if (isMobile) {
@@ -121,7 +123,12 @@ export function SidebarCollapsedBar() {
                             ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                             : "text-sidebar-foreground/70 focus:bg-sidebar-accent focus:text-sidebar-accent-foreground"
                         )}
-                        onSelect={() => router.push(item.url)}
+                        onSelect={() => {
+                          if (!isActive) {
+                            start()
+                          }
+                          router.push(item.url)
+                        }}
                       >
                         {item.title}
                       </MenubarItem>
