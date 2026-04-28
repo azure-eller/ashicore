@@ -348,7 +348,7 @@ export function ItemDetail({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top">
-                This recipe is locked and can only be edited by inventory admins.
+                Only inventory admins can edit locked recipes.
               </TooltipContent>
             </Tooltip>
           ) : null}

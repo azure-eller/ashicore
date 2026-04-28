@@ -326,7 +326,7 @@ export function getColumns(
               <SortableHeader
                 column={column}
                 label="Margin"
-                tooltip="Selling price less BOM material cost, divided by selling price."
+                tooltip="Selling price minus BOM cost, as a percent of selling price."
               />
             ),
             cell: ({ row }) => <MarginBadge row={row.original} />,
