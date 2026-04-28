@@ -406,7 +406,7 @@ async function getMaterialCostByProductIdInTx(tx: Tx, productIds: string[]) {
       SELECT
         br.product_id,
         brc.component_id,
-        brc.quantity,
+        brc.quantity::numeric,
         ARRAY[br.product_id, brc.component_id]
       FROM inventory.bom_revisions br
       INNER JOIN inventory.bom_revision_components brc
