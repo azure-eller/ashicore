@@ -550,10 +550,7 @@ function getActionLabel(
     return "Add price";
   }
 
-  if (
-    row.reasonCodes.includes("missing_lead_time") ||
-    row.reasonCodes.includes("missing_production_lead_time")
-  ) {
+  if (row.reasonCodes.includes("missing_lead_time")) {
     return "Set lead time";
   }
 
@@ -615,10 +612,7 @@ function getStatus(
       return "Price missing";
     }
 
-    if (
-      row.reasonCodes.includes("missing_lead_time") ||
-      row.reasonCodes.includes("missing_production_lead_time")
-    ) {
+    if (row.reasonCodes.includes("missing_lead_time")) {
       return "Lead time missing";
     }
 
@@ -665,7 +659,6 @@ function isSetupIssue(entry: OperationalRow) {
         "ambiguous_supplier",
         "missing_purchase_price",
         "missing_lead_time",
-        "missing_production_lead_time",
         "planning_disabled",
         "missing_bom",
         "bom_cycle_detected",

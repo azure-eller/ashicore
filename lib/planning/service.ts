@@ -1753,23 +1753,6 @@ function buildProductionBlockerFacts(args: {
       });
     }
 
-    if (hasShortage && row.productionLeadTimeDays == null) {
-      blockers.push({
-        id: `production:blocker:missing_production_lead_time:${row.item.id}`,
-        parentItemId: row.item.id,
-        parentItemName: row.item.name,
-        parentRecommendationId: row.recommendationId,
-        componentItemId: null,
-        componentItemName: null,
-        componentUnitName: null,
-        requiredQuantity: row.shortageQuantity,
-        availableQuantity: row.availableStock,
-        shortageQuantity: row.shortageQuantity,
-        blockerType: "missing_production_lead_time",
-        earliestRequiredDate: row.earliestRequiredDate,
-        sourceRefs: row.sourceRefs,
-      });
-    }
   }
 
   for (const warning of args.warnings) {
@@ -1944,8 +1927,7 @@ function buildRecommendations(args: {
     if (row.planningType === "make") {
       const bom = args.bomByProductId.get(item.id);
       const hasBom = Boolean(bom && bom.components.length > 0);
-      const hasProductionLeadTime = row.productionLeadTimeDays != null;
-      const recommendationType = hasBom && hasProductionLeadTime
+      const recommendationType = hasBom
         ? "create_manufacturing_order"
         : "review_item_setup";
       const recommendationId = buildRecommendationId({
@@ -1965,16 +1947,6 @@ function buildRecommendations(args: {
               }),
             ]
           : []),
-        ...(!hasProductionLeadTime
-          ? [
-              warningForRow({
-                code: "missing_production_lead_time" as const,
-                itemId: item.id,
-                sourceRefs: row.sourceRefs,
-                message: `${item.name} needs production lead time before planning can draft a manufacturing order.`,
-              }),
-            ]
-          : []),
       ];
 
       rowRecommendationIdByItem.set(item.id, recommendationId);
@@ -1991,14 +1963,11 @@ function buildRecommendations(args: {
           ...row.reasonCodes,
           "make_item",
           ...(hasBom ? [] : ["missing_bom" as const]),
-          ...(hasProductionLeadTime
-            ? []
-            : ["missing_production_lead_time" as const]),
         ]),
         sourceRefs: row.sourceRefs,
         warnings,
         actionPayload:
-          hasBom && hasProductionLeadTime && bom
+          hasBom && bom
             ? {
                 actionType: "create_manufacturing_order",
                 inputHash: args.inputHash,
