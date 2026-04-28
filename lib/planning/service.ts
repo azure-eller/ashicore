@@ -1704,7 +1704,14 @@ function buildProductionBlockerFacts(args: {
   for (const fact of args.bomRequirementFacts) {
     const parent = rowsByItemId.get(fact.parentItemId);
     const component = rowsByItemId.get(fact.componentItemId);
-    if (!parent || !component || toQuantity(component.shortageQuantity) <= 0) {
+    if (!parent || !component) {
+      continue;
+    }
+
+    const requiredQuantity = toQuantity(fact.requiredQuantity);
+    const availableQuantity = toQuantity(component.availableStock);
+    const shortageQuantity = positiveQuantity(requiredQuantity - availableQuantity);
+    if (shortageQuantity <= 0) {
       continue;
     }
 
@@ -1718,7 +1725,7 @@ function buildProductionBlockerFacts(args: {
       componentUnitName: component.item.unitName,
       requiredQuantity: fact.requiredQuantity,
       availableQuantity: component.availableStock,
-      shortageQuantity: component.shortageQuantity,
+      shortageQuantity: normalizeQuantity(shortageQuantity),
       blockerType: "material_shortage",
       earliestRequiredDate: parent.earliestRequiredDate,
       sourceRefs: fact.sourceRefs,
