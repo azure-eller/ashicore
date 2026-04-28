@@ -216,6 +216,7 @@ export type PlanningItemRow = {
   projectedQuantity: string;
   shortageQuantity: string;
   earliestRequiredDate: string | null;
+  safetyStock: string;
   reorderPoint: string | null;
   targetCoverDays: number | null;
   daysOfCover: number | null;

@@ -917,6 +917,30 @@ function sortReplenishmentItems(
   });
 }
 
+function matchesPlanningSearch(entry: OperationalRow, normalizedSearch: string) {
+  if (normalizedSearch === "") return true;
+
+  const searchText = [
+    entry.row.item.name,
+    entry.row.item.sku,
+    entry.neededFor,
+    entry.actionLabel,
+    entry.actionSummary,
+    entry.statusLabel,
+    entry.recommendation?.suggestedSupplierName,
+    entry.row.preferredSupplierName,
+    entry.row.preferredSupplierSku,
+    entry.row.daysOfCoverStatus,
+    entry.row.leadTimeSource,
+    ...entry.demandFacts.flatMap((fact) => fact.sourceRefs.map((ref) => ref.label)),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return searchText.includes(normalizedSearch);
+}
+
 function buildBuyGroups(rows: OperationalRow[]) {
   const groups = new Map<string, BuyGroup>();
 
@@ -2773,30 +2797,16 @@ export function PlanningWorkspace({
   const matchingRows = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    return queueRows.filter((entry) => {
-      if (normalizedSearch === "") return true;
-
-      const searchText = [
-        entry.row.item.name,
-        entry.row.item.sku,
-        entry.neededFor,
-        entry.actionLabel,
-        entry.actionSummary,
-        entry.statusLabel,
-        entry.recommendation?.suggestedSupplierName,
-        entry.row.preferredSupplierName,
-        entry.row.preferredSupplierSku,
-        entry.row.daysOfCoverStatus,
-        entry.row.leadTimeSource,
-        ...entry.demandFacts.flatMap((fact) => fact.sourceRefs.map((ref) => ref.label)),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return searchText.includes(normalizedSearch);
-    });
+    return queueRows.filter((entry) => matchesPlanningSearch(entry, normalizedSearch));
   }, [queueRows, search]);
+
+  const matchingOperationalRows = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return operationalRows.filter((entry) =>
+      matchesPlanningSearch(entry, normalizedSearch)
+    );
+  }, [operationalRows, search]);
 
   const buyGroups = useMemo(() => buildBuyGroups(matchingRows), [matchingRows]);
 
@@ -2811,8 +2821,8 @@ export function PlanningWorkspace({
   );
 
   const replenishmentItems = useMemo(
-    () => buildReplenishmentItems(matchingRows),
-    [matchingRows]
+    () => buildReplenishmentItems(matchingOperationalRows),
+    [matchingOperationalRows]
   );
 
   const actionMutation = useMutation<ActionResult, Error, PlanningActionPayload>({
@@ -3003,7 +3013,7 @@ export function PlanningWorkspace({
 
       <PlanningDetailDrawer
         target={detailTarget}
-        rows={matchingRows}
+        rows={matchingOperationalRows}
         buyGroups={buyGroups}
         attentionGroups={attentionGroups}
         permissions={permissions}

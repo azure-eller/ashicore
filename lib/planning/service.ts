@@ -1142,9 +1142,20 @@ function computeReplenishmentMetadata(args: {
   leadTimeHistory: LeadTimeHistory | undefined;
   horizonStart: string;
 }) {
-  const reorderPoint = args.item.reorderPoint;
+  const safetyStockTarget = args.itemDemandFacts.reduce(
+    (sum, fact) =>
+      fact.demandType === "safety_stock"
+        ? roundQuantity(sum + toQuantity(fact.quantity))
+        : sum,
+    0
+  );
+  const explicitReorderPoint = nullableNumber(args.item.reorderPoint);
+  const reorderThreshold = Math.max(explicitReorderPoint ?? 0, safetyStockTarget);
+  const reorderPoint =
+    reorderThreshold > 0
+      ? normalizeQuantity(reorderThreshold)
+      : args.item.reorderPoint;
   const targetCoverDays = nullableNumber(args.item.targetCoverDays);
-  const reorderThreshold = nullableNumber(reorderPoint) ?? 0;
   const leadTime = resolveLeadTime({
     item: args.item,
     supplierSuggestion: args.supplierSuggestion,
@@ -1165,7 +1176,10 @@ function computeReplenishmentMetadata(args: {
       })),
   ].sort((left, right) => left.date.localeCompare(right.date));
   const hasUndatedDemand = args.itemDemandFacts.some(
-    (fact) => fact.requiredDate == null && toQuantity(fact.quantity) > 0
+    (fact) =>
+      fact.demandType !== "safety_stock" &&
+      fact.requiredDate == null &&
+      toQuantity(fact.quantity) > 0
   );
   let projected = args.onHandStock;
   let crossingDate: string | null = projected <= Math.max(reorderThreshold, 0) ? args.horizonStart : null;
@@ -1210,7 +1224,7 @@ function computeReplenishmentMetadata(args: {
     windowEnd == null
       ? args.shortageQuantity
       : demandWithinWindow(args.itemDemandFacts, windowEnd) +
-        reorderThreshold -
+        Math.max(0, reorderThreshold - safetyStockTarget) -
         args.onHandStock -
         supplyWithinWindow(args.itemSupplyFacts, windowEnd);
   const roundedSuggestion = applyOrderRounding({
@@ -1408,6 +1422,7 @@ function buildPlanningRows(args: {
       projectedQuantity: normalizeQuantity(projectedQuantity),
       shortageQuantity: normalizeQuantity(shortageQuantity),
       earliestRequiredDate,
+      safetyStock: item.safetyStock,
       reorderPoint: replenishment.reorderPoint,
       targetCoverDays: replenishment.targetCoverDays,
       daysOfCover: replenishment.daysOfCover,
