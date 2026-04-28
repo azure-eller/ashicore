@@ -95,7 +95,6 @@ export function extractXeroStatusCode(error: unknown): number | null {
 }
 
 export function extractXeroMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
   const object = getErrorObject(error);
   if (object) {
     const response = object.response;
@@ -103,11 +102,14 @@ export function extractXeroMessage(error: unknown): string {
       response && typeof response === "object"
         ? (response as { body?: unknown }).body
         : object.body;
+    const bodyMessage = extractXeroBodyMessage(body);
+    if (bodyMessage) return bodyMessage;
     if (typeof body === "string" && body.trim() !== "") return body;
     if (typeof object.message === "string" && object.message.trim() !== "") {
       return object.message;
     }
   }
+  if (error instanceof Error) return error.message;
   if (typeof error === "string") {
     if (/authorization|access_token|refresh_token|bearer\s+/i.test(error)) {
       return "Xero request failed.";
@@ -115,4 +117,41 @@ export function extractXeroMessage(error: unknown): string {
     return error;
   }
   return "Xero request failed.";
+}
+
+function extractXeroBodyMessage(body: unknown): string | null {
+  if (body == null) return null;
+
+  if (typeof body === "string") {
+    const parsed = parseJsonObject(body);
+    return parsed ? extractXeroBodyMessage(parsed) : body.trim() || null;
+  }
+
+  if (Array.isArray(body)) {
+    const messages = body
+      .map((item) => extractXeroBodyMessage(item))
+      .filter((message): message is string => Boolean(message));
+    return messages.length > 0 ? messages.join("; ") : null;
+  }
+
+  if (typeof body !== "object") return null;
+
+  const object = body as Record<string, unknown>;
+  const directMessage = object.Message ?? object.message ?? object.Detail ?? object.detail;
+  const nestedMessages = [
+    object.Elements,
+    object.ValidationErrors,
+    object.validationErrors,
+    object.Errors,
+    object.errors,
+  ]
+    .map((value) => extractXeroBodyMessage(value))
+    .filter((message): message is string => Boolean(message));
+
+  const messages = [
+    typeof directMessage === "string" ? directMessage.trim() : null,
+    ...nestedMessages,
+  ].filter((message): message is string => Boolean(message));
+
+  return messages.length > 0 ? [...new Set(messages)].join("; ") : null;
 }

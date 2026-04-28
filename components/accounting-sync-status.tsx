@@ -452,6 +452,7 @@ export function AccountingSyncDialog({
   documentNumber,
   documentId,
   documentIdLabel = "Xero ID",
+  stageActions,
   onOpenChange,
   onDone,
 }: {
@@ -465,6 +466,7 @@ export function AccountingSyncDialog({
   documentNumber?: string | null;
   documentId?: string | null;
   documentIdLabel?: string;
+  stageActions?: Partial<Record<string, AccountingProviderAction>>;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
 }) {
@@ -484,6 +486,7 @@ export function AccountingSyncDialog({
               key={stage.id}
               number={String(index + 1)}
               stage={stage}
+              action={stageActions?.[stage.id]}
             />
           ))}
         </Timeline>
@@ -593,9 +596,11 @@ function TimelineNode({
 function StatusTimelineStep({
   number,
   stage,
+  action,
 }: {
   number: string;
   stage: AccountingSyncStage;
+  action?: AccountingProviderAction;
 }) {
   return (
     <div className="relative">
@@ -620,7 +625,26 @@ function StatusTimelineStep({
             <SyncBadge state={stage.state} label={statusBadgeLabel(stage.state)} />
           </div>
           {stage.detail ? (
-            <p className="mt-1 truncate text-sm text-muted-foreground">{stage.detail}</p>
+            <p className="mt-1 break-words text-sm text-muted-foreground">{stage.detail}</p>
+          ) : null}
+          {action ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={() => {
+                if (action.href) {
+                  window.open(action.href, "_blank", "noopener,noreferrer");
+                  return;
+                }
+                action.onClick?.();
+              }}
+              disabled={action.pending}
+            >
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} data-icon="inline-start" />
+              {action.pending ? "Opening..." : action.label}
+            </Button>
           ) : null}
         </div>
         <StatusIcon state={stage.state} />

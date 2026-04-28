@@ -354,13 +354,14 @@ export function SoStageAction({ order }: Props) {
             stages={syncDialog.stages}
             error={syncDialog.error}
             isWorking={syncDialog.isWorking}
-            documentNumber={syncDialog.documentNumber}
-            providerAction={
+            stageActions={
               syncDialog.showProviderAction
                 ? {
-                    label: "Open online invoice",
-                    onClick: () => onlineInvoiceMutation.mutate(),
-                    pending: onlineInvoiceMutation.isPending,
+                    push: {
+                      label: "Open online invoice",
+                      onClick: () => onlineInvoiceMutation.mutate(),
+                      pending: onlineInvoiceMutation.isPending,
+                    },
                   }
                 : undefined
             }
