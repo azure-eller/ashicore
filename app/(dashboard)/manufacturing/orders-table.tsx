@@ -98,7 +98,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
       <FilterableHeader
         column={column}
         label="Status"
-        tooltip="Order state: draft, in progress, completed, or cancelled."
+        tooltip="Order state: draft, released, completed, or cancelled."
       />
     ),
     filterFn: multiValueFilter,

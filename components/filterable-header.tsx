@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { type Column, type FilterFn } from "@tanstack/react-table";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -29,6 +32,8 @@ export function FilterableHeader<T>({
   label: string;
   tooltip?: string;
 }) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
   const selected = (column.getFilterValue() as string[] | undefined) ?? [];
   const faceted = column.getFacetedUniqueValues();
 
@@ -41,6 +46,13 @@ export function FilterableHeader<T>({
       ? selected.filter((v) => v !== value)
       : [...selected, value];
     column.setFilterValue(next.length > 0 ? next : undefined);
+  }
+
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+    }
   }
 
   const button = (
@@ -63,44 +75,52 @@ export function FilterableHeader<T>({
     </Button>
   );
 
-  const dropdown = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
-        {options.map((value) => (
+  const content = (
+    <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
+      {options.map((value) => (
+        <DropdownMenuCheckboxItem
+          key={value}
+          checked={selected.includes(value)}
+          onCheckedChange={() => toggle(value)}
+          onSelect={(e) => e.preventDefault()}
+        >
+          {value.charAt(0).toUpperCase() + value.slice(1)}
+        </DropdownMenuCheckboxItem>
+      ))}
+      {selected.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem
-            key={value}
-            checked={selected.includes(value)}
-            onCheckedChange={() => toggle(value)}
-            onSelect={(e) => e.preventDefault()}
+            checked={false}
+            onCheckedChange={() => column.setFilterValue(undefined)}
           >
-            {value.charAt(0).toUpperCase() + value.slice(1)}
+            Clear filter
           </DropdownMenuCheckboxItem>
-        ))}
-        {selected.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem
-              checked={false}
-              onCheckedChange={() => column.setFilterValue(undefined)}
-            >
-              Clear filter
-            </DropdownMenuCheckboxItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </>
+      )}
+    </DropdownMenuContent>
   );
 
   if (!tooltip) {
-    return dropdown;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        {content}
+      </DropdownMenu>
+    );
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex">{dropdown}</span>
-      </TooltipTrigger>
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        {content}
+      </DropdownMenu>
       <TooltipContent side="top">{tooltip}</TooltipContent>
     </Tooltip>
   );

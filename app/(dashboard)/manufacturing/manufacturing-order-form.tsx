@@ -50,7 +50,9 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { getFieldArrayError, parsePositive } from "@/lib/format";
+import { MANUFACTURING_PLANNED_TOTAL_TOOLTIP } from "@/lib/tooltip-copy";
 import type {
   ManufacturingOrderEditData,
   ManufacturingProductOption,
@@ -852,7 +854,12 @@ export function ManufacturingOrderForm({
                         <TableRow>
                           <TableHead>Ingredient</TableHead>
                           <TableHead className="w-40">{isBatchMode ? "Qty / Batch" : "Qty / Unit"}</TableHead>
-                          <TableHead className="w-40">Planned Total</TableHead>
+                          <TableHead className="w-40">
+                            <TooltipHeader
+                              label="Planned Total"
+                              tooltip={MANUFACTURING_PLANNED_TOTAL_TOOLTIP}
+                            />
+                          </TableHead>
                           <TableHead className="w-28">Unit</TableHead>
                         </TableRow>
                       </TableHeader>

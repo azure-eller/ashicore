@@ -5,12 +5,12 @@ export const CALCULATED_STOCK_ALERT_TOOLTIP =
   "Calculated stock is below zero, so this item is below its safety stock threshold.";
 
 export const AVAILABLE_QTY_TOOLTIP =
-  "Reservable stock after demand and reservations.";
+  "Reservable stock after existing hard reservations.";
 
 export const RESERVED_QTY_TOOLTIP =
-  "Stock already hard-reserved against confirmed orders.";
+  "Stock hard-reserved for accepted demand.";
 
-export const DEMAND_QTY_TOOLTIP = "Customer demand from accepted orders.";
+export const DEMAND_QTY_TOOLTIP = "Accepted sales and manufacturing demand.";
 
 export const BACKORDER_QTY_TOOLTIP =
   "Demand that can't be filled from current stock.";
@@ -87,11 +87,8 @@ export const COST_PER_UNIT_TOOLTIP =
 
 export const BATCH_YIELD_TOOLTIP = "Expected good units per batch.";
 
-export const BATCH_QTY_TOOLTIP =
-  "Quantity rounded up to the nearest batch multiple.";
-
 export const ITEM_TYPE_TOOLTIP =
-  "Item classification: material, product, or sub-assembly.";
+  "Item classification: material or product.";
 
 export const OUTPUT_DISPOSITION_TOOLTIP =
   "Lot status on completion: available (sellable) or blocked (held).";
@@ -142,6 +139,3 @@ export const PRICING_SCOPE_TOOLTIP =
 
 export const MANUFACTURABLE_LINES_TOOLTIP =
   "Order lines that can be sourced from a manufacturing order.";
-
-export const ACCESS_PRESET_TOOLTIP =
-  "Pre-configured access bundle, or custom configuration.";

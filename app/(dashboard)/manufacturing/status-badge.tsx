@@ -15,7 +15,7 @@ export function ManufacturingOrderStatusBadge({
   let badge;
 
   if (status === "released") {
-    badge = <Badge>In Progress</Badge>;
+    badge = <Badge>Released</Badge>;
   } else if (status === "completed") {
     badge = <Badge variant="outline">Completed</Badge>;
   } else if (status === "cancelled") {

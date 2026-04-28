@@ -29,6 +29,7 @@ import {
   formatQuantity,
 } from "@/lib/format";
 import {
+  AVAILABLE_QTY_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
   LOT_DISPOSITION_TOOLTIP,
@@ -234,7 +235,7 @@ export function ItemDetail({
                     <TableHead>SKU</TableHead>
                     <TableHead className="text-right">Stock</TableHead>
                     <TableHead className="text-right">
-                      <TooltipHeader label="Available" tooltip={CALCULATED_STOCK_TOOLTIP} />
+                      <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
                     </TableHead>
                     <TableHead className="text-right">Price</TableHead>
                   </TableRow>
