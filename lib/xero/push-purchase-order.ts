@@ -351,6 +351,33 @@ async function sendPurchaseOrderPdfEmail(params: {
       ),
     });
 
+    try {
+      const purchaseOrder = (
+        await params.accountingApi.getPurchaseOrder(
+          params.tenantId,
+          params.purchaseOrderId
+        )
+      ).body.purchaseOrders?.[0];
+      if (
+        purchaseOrder?.status === PurchaseOrder.StatusEnum.AUTHORISED ||
+        purchaseOrder?.status === PurchaseOrder.StatusEnum.BILLED
+      ) {
+        await params.accountingApi.updatePurchaseOrder(
+          params.tenantId,
+          params.purchaseOrderId,
+          { purchaseOrders: [{ sentToContact: true }] },
+          buildXeroIdempotencyKey(
+            params.orgId,
+            "purchase-order-email",
+            params.orderId,
+            "mark-sent"
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Xero purchase order mark-sent failed:", redactXeroError(error));
+    }
+
     await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
       status: "sent",
     });

@@ -16,7 +16,8 @@ export type TransactionalEmailInput = {
     | "email-verification"
     | "password-reset"
     | "team-invite"
-    | "purchase-order";
+    | "purchase-order"
+    | "invoice";
   to: string;
   subject: string;
   html: string;

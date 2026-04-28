@@ -169,17 +169,35 @@ export function AccountingSyncStatus({
         : document.emailStatus === "failed"
           ? "Email failed"
           : document.emailStatus === "skipped"
-            ? "Email skipped"
+          ? "Email skipped"
             : null;
+    const documentSummary = document.documentNumber
+      ? `${document.providerName} ${document.documentLabel} · ${document.documentNumber}`
+      : `${document.providerName} ${document.documentLabel}`;
+    const canOpenProviderDocument = providerAction && document.pushStatus === "pushed";
 
     return (
       <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
         <span className="font-medium">Accounting Sync</span>
         <SyncBadge state={pushStage.state} label={statusBadgeLabel(pushStage.state)} />
-        <span className="text-muted-foreground">
-          {document.providerName}
-          {document.documentNumber ? ` · ${document.documentNumber}` : ""}
-        </span>
+        {canOpenProviderDocument ? (
+          <button
+            type="button"
+            className="text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground disabled:pointer-events-none disabled:no-underline"
+            onClick={() => {
+              if (providerAction.href) {
+                window.open(providerAction.href, "_blank", "noopener,noreferrer");
+                return;
+              }
+              providerAction.onClick?.();
+            }}
+            disabled={providerAction.pending}
+          >
+            {providerAction.pending ? "Opening..." : documentSummary}
+          </button>
+        ) : (
+          <span className="text-muted-foreground">{documentSummary}</span>
+        )}
         {emailSummary ? (
           <span className="text-muted-foreground">· {emailSummary}</span>
         ) : null}

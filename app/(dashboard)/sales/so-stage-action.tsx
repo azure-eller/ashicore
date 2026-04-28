@@ -63,7 +63,7 @@ function salesOrderAccountingDocument(
     emailStatus: "xeroEmailStatus" in order ? order.xeroEmailStatus : null,
     emailError: "xeroEmailError" in order ? order.xeroEmailError : null,
     emailedAt: "xeroEmailedAt" in order ? order.xeroEmailedAt : null,
-    emailProviderName: "Xero",
+    emailProviderName: "Resend",
     recipientLabel: order.customerName,
     recipientEmail: order.customerEmail,
   };

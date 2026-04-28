@@ -92,7 +92,7 @@ function salesOrderAccountingDocument(
     emailStatus: order.xeroEmailStatus,
     emailError: order.xeroEmailError,
     emailedAt: order.xeroEmailedAt,
-    emailProviderName: "Xero",
+    emailProviderName: "Resend",
     recipientLabel: order.customerName,
     recipientEmail: order.customerEmail,
   };
@@ -415,14 +415,14 @@ export function OrderDetail({
       );
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to email invoice via Xero.");
+        throw new Error(body?.error ?? "Failed to email invoice.");
       }
     },
     onMutate: () => {
       setActionError(null);
       openSyncDialog({
         title: "Emailing Invoice",
-        description: "Xero will send the existing invoice to the customer.",
+        description: "Sending the existing invoice to the customer.",
         localActionLabel: "Prepare email",
         activeStage: "email",
       });
@@ -623,6 +623,15 @@ export function OrderDetail({
           retryPushPending={xeroPushMutation.isPending}
           onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
           retryEmailPending={xeroEmailMutation.isPending}
+          providerAction={
+            order.xeroPushStatus === "pushed"
+              ? {
+                  label: "Open online invoice",
+                  onClick: () => onlineInvoiceMutation.mutate(),
+                  pending: onlineInvoiceMutation.isPending,
+                }
+              : undefined
+          }
           compact
         />
 

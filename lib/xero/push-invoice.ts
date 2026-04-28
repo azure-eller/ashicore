@@ -1,9 +1,10 @@
 import "server-only";
 
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { Invoice, type Invoices, type LineItem, type RequestEmpty } from "xero-node";
+import { Invoice, type Invoices, type LineItem } from "xero-node";
 import { customers, salesOrderLines, salesOrders } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
 import {
   XeroError,
@@ -304,27 +305,91 @@ async function persistEmailOutcome(
   });
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function sendInvoiceEmail(
-  orgId: string,
-  orderId: string,
-  invoiceId: string,
-  tenantId: string,
-  accountingApi: import("xero-node").AccountingApi
+  params: {
+    orgId: string;
+    orderId: string;
+    orderNumber: string;
+    invoiceId: string;
+    invoiceNumber: string | null;
+    customerName: string;
+    customerEmail: string;
+    tenantId: string;
+    accountingApi: import("xero-node").AccountingApi;
+  }
 ): Promise<void> {
-  const key = buildXeroIdempotencyKey(orgId, "invoice-email", orderId, "send");
-  const empty: RequestEmpty = {};
+  const key = buildXeroIdempotencyKey(params.orgId, "invoice-email", params.orderId, "send");
   try {
-    await accountingApi.emailInvoice(tenantId, invoiceId, empty, key);
-    await persistEmailOutcome(orgId, orderId, { status: "sent" });
+    const onlineInvoice = await params.accountingApi.getOnlineInvoice(
+      params.tenantId,
+      params.invoiceId
+    );
+    const url = onlineInvoice.body.onlineInvoices?.[0]?.onlineInvoiceUrl;
+    if (!url) {
+      throw new XeroError("Xero did not return an online invoice URL.", 502);
+    }
+
+    const invoiceNumber = params.invoiceNumber ?? params.orderNumber;
+    const escapedCustomerName = escapeHtml(params.customerName);
+    const escapedInvoiceNumber = escapeHtml(invoiceNumber);
+    const escapedUrl = escapeHtml(url);
+
+    await sendTransactionalEmail({
+      tag: "invoice",
+      to: params.customerEmail.trim(),
+      subject: `Invoice ${invoiceNumber}`,
+      html: [
+        `<p>${escapedCustomerName},</p>`,
+        `<p>Your invoice ${escapedInvoiceNumber} is ready.</p>`,
+        `<p><a href="${escapedUrl}">View invoice</a></p>`,
+      ].join(""),
+      text: [
+        `${params.customerName},`,
+        "",
+        `Your invoice ${invoiceNumber} is ready.`,
+        url,
+      ].join("\n"),
+      idempotencyKey: key,
+    });
+
+    try {
+      await params.accountingApi.updateInvoice(
+        params.tenantId,
+        params.invoiceId,
+        {
+          invoices: [
+            {
+              type: Invoice.TypeEnum.ACCREC,
+              sentToContact: true,
+            },
+          ],
+        },
+        undefined,
+        buildXeroIdempotencyKey(params.orgId, "invoice-email", params.orderId, "mark-sent")
+      );
+    } catch (error) {
+      console.error("Xero invoice mark-sent failed:", redactXeroError(error));
+    }
+
+    await persistEmailOutcome(params.orgId, params.orderId, { status: "sent" });
   } catch (error) {
     const message = extractXeroMessage(error).slice(0, 500);
-    console.error("Xero invoice email failed:", redactXeroError(error));
-    await persistEmailOutcome(orgId, orderId, {
+    console.error("Invoice email failed:", redactXeroError(error));
+    await persistEmailOutcome(params.orgId, params.orderId, {
       status: "failed",
       error: message,
     });
     throw new XeroError(
-      `Failed to email invoice via Xero: ${message}`,
+      `Failed to email invoice: ${message}`,
       502
     );
   }
@@ -510,13 +575,17 @@ export async function pushSalesOrderToXero(
 
     if (decision.action === "send") {
       try {
-        await sendInvoiceEmail(
+        await sendInvoiceEmail({
           orgId,
           orderId,
+          orderNumber: data.order.orderNumber,
           invoiceId,
-          authed.tenantId,
-          accountingApi
-        );
+          invoiceNumber,
+          customerName: data.customer.name,
+          customerEmail: data.customer.email ?? "",
+          tenantId: authed.tenantId,
+          accountingApi,
+        });
         emailStatus = "sent";
       } catch {
         emailStatus = "failed";
@@ -610,9 +679,12 @@ export async function emailSalesInvoiceForOrder(
     const [row] = await tx
       .select({
         id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
         xeroInvoiceId: salesOrders.xeroInvoiceId,
+        xeroInvoiceNumber: salesOrders.xeroInvoiceNumber,
         xeroPushStatus: salesOrders.xeroPushStatus,
         xeroEmailStatus: salesOrders.xeroEmailStatus,
+        customerName: customers.name,
         customerEmail: customers.email,
       })
       .from(salesOrders)
@@ -637,13 +709,17 @@ export async function emailSalesInvoiceForOrder(
     );
   }
 
-  await sendInvoiceEmail(
+  await sendInvoiceEmail({
     orgId,
     orderId,
-    order.xeroInvoiceId,
-    authed.tenantId,
-    authed.client.accountingApi
-  );
+    orderNumber: order.orderNumber,
+    invoiceId: order.xeroInvoiceId,
+    invoiceNumber: order.xeroInvoiceNumber,
+    customerName: order.customerName,
+    customerEmail: order.customerEmail,
+    tenantId: authed.tenantId,
+    accountingApi: authed.client.accountingApi,
+  });
 
   return { status: "sent" };
 }
