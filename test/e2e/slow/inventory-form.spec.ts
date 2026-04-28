@@ -240,7 +240,7 @@ test.describe("Inventory creation flow", () => {
     expect(lotRows).toHaveLength(0);
   });
 
-  test("shows calculated stock tooltips and preserves calculated stock sorting", async ({
+  test("shows calculated stock tooltips and preserves status sorting", async ({
     page,
     db,
   }) => {
@@ -278,28 +278,24 @@ test.describe("Inventory creation flow", () => {
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(String(ts));
 
-    const calculatedStockHeader = page.getByRole("button", {
-      name: /^Sort by Calculated Stock/,
+    const statusHeader = page.getByRole("button", {
+      name: /^Sort by Status/,
     });
-    await calculatedStockHeader.hover();
-    await expect(
-      page.getByText("Stock - demand + expected - safety stock.")
-    ).toBeVisible();
 
-    await page.mouse.move(0, 0);
-    await calculatedStockHeader.click();
-    await expect(calculatedStockHeader).toHaveAttribute(
+    await statusHeader.click();
+    await expect(statusHeader).toHaveAttribute(
       "aria-label",
       /sorted ascending/
     );
 
     const firstRow = page.locator("tbody tr").first();
     await expect(firstRow).toContainText(lowStockMaterialName);
+    await expect(firstRow).toContainText("Below safety");
 
     const lowStockLink = page.getByRole("link", {
       name: new RegExp(lowStockMaterialName),
     });
-    const lowStockIndicator = firstRow.getByLabel("Below safety stock");
+    const lowStockIndicator = firstRow.getByLabel("Below safety");
     await expect(lowStockIndicator).toBeVisible();
 
     await lowStockLink.click();
