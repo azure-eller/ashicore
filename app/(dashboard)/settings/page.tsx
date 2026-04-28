@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { getXeroConnectionWithHealth } from "@/lib/dal/xero";
+import { getXeroConnection } from "@/lib/dal/xero";
 import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getSettingsSections } from "./sections";
@@ -38,7 +38,7 @@ export default async function SettingsPage({
   const [accountData, teamData, xeroConnection, resolvedSearchParams] = await Promise.all([
     getAccountPageData(),
     showTeam ? getTeamPageData() : null,
-    showIntegrations ? getXeroConnectionWithHealth() : null,
+    showIntegrations ? getXeroConnection() : null,
     searchParams,
   ]);
 

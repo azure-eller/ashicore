@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { XeroConnectionWithHealth } from "@/lib/dal/xero";
+import type { XeroConnectionSummary } from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -31,23 +31,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "You declined the Xero authorization request.",
 };
 
-type HealthState = "connected" | "needs_reauthorization" | "missing_scope" | "transient_error";
+type ConnectionState = "connected" | "disconnected";
 
-const HEALTH_LABEL: Record<HealthState | "disconnected", string> = {
+const CONNECTION_LABEL: Record<ConnectionState, string> = {
   connected: "Connected",
   disconnected: "Not connected",
-  needs_reauthorization: "Reconnect required",
-  missing_scope: "Missing scope",
-  transient_error: "Connection issue",
 };
 
-function StatusPill({ state }: { state: HealthState | "disconnected" }) {
+function StatusPill({ state }: { state: ConnectionState }) {
   const tone =
     state === "connected"
       ? "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400"
-      : state === "disconnected"
-        ? "border-muted-foreground/30 text-muted-foreground"
-        : "border-destructive/40 bg-destructive/10 text-destructive";
+      : "border-muted-foreground/30 text-muted-foreground";
   return (
     <span
       className={cn(
@@ -55,7 +50,7 @@ function StatusPill({ state }: { state: HealthState | "disconnected" }) {
         tone
       )}
     >
-      {HEALTH_LABEL[state]}
+      {CONNECTION_LABEL[state]}
     </span>
   );
 }
@@ -78,7 +73,7 @@ function XeroRow({
   canImportCustomers,
   canImportSuppliers,
 }: {
-  connection: XeroConnectionWithHealth | null;
+  connection: XeroConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
@@ -112,13 +107,9 @@ function XeroRow({
     connection?.tenantId ?? ""
   );
 
-  const healthState: HealthState | "disconnected" = connection
-    ? connection.health.state
+  const connectionState: ConnectionState = connection
+    ? "connected"
     : "disconnected";
-  const healthMessage = connection?.health.message ?? null;
-  const needsReconnect =
-    healthState === "needs_reauthorization" ||
-    healthState === "missing_scope";
 
   const switchTenantMutation = useMutation({
     mutationFn: async (tenantId: string) => {
@@ -190,17 +181,10 @@ function XeroRow({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">Xero</span>
-              <StatusPill state={healthState} />
-              {needsReconnect && canManageConnection ? (
-                <Button asChild size="sm" variant="outline" className="h-6 px-2 text-xs">
-                  <a href="/api/xero/connect">Reconnect</a>
-                </Button>
-              ) : null}
+              <StatusPill state={connectionState} />
             </div>
             <div className="truncate text-xs text-muted-foreground">
-              {healthMessage
-                ? healthMessage
-                : `Accounting${connection?.tenantName ? ` · ${connection.tenantName}` : ""}`}
+              Accounting{connection?.tenantName ? ` · ${connection.tenantName}` : ""}
             </div>
           </div>
         </div>
@@ -416,7 +400,7 @@ export function IntegrationsSection({
   canImportCustomers,
   canImportSuppliers,
 }: {
-  connection: XeroConnectionWithHealth | null;
+  connection: XeroConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
