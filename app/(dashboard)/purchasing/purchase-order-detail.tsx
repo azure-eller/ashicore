@@ -81,11 +81,8 @@ type SyncDialogState = {
   error: string | null;
   isWorking: boolean;
   documentNumber?: string | null;
-  showProviderAction?: boolean;
+  documentId?: string | null;
 };
-
-const XERO_PURCHASE_ORDERS_URL =
-  "https://go.xero.com/Accounts/Payable/PurchaseOrders.aspx";
 
 async function fetchPurchaseOrderDetail(id: string): Promise<PurchaseOrderDetailType> {
   const response = await fetch(`/api/purchase-orders/${id}`);
@@ -197,7 +194,7 @@ export function PurchaseOrderDetail({
       error: null,
       isWorking: true,
       documentNumber: null,
-      showProviderAction: false,
+      documentId: null,
     });
   };
 
@@ -228,7 +225,7 @@ export function PurchaseOrderDetail({
       error: null,
       isWorking: false,
       documentNumber: includeAccounting ? latestDocument.documentNumber : null,
-      showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
+      documentId: includeAccounting ? latest.xeroPurchaseOrderId : null,
     });
   };
 
@@ -257,7 +254,7 @@ export function PurchaseOrderDetail({
       error: message,
       isWorking: false,
       documentNumber: null,
-      showProviderAction: false,
+      documentId: null,
     });
   };
 
@@ -739,14 +736,8 @@ export function PurchaseOrderDetail({
           error={syncDialog.error}
           isWorking={syncDialog.isWorking}
           documentNumber={syncDialog.documentNumber}
-          providerAction={
-            syncDialog.showProviderAction
-              ? {
-                  label: "Open Xero purchase orders",
-                  href: XERO_PURCHASE_ORDERS_URL,
-                }
-              : undefined
-          }
+          documentId={syncDialog.documentId}
+          documentIdLabel="Xero purchase order ID"
           onOpenChange={(open) => {
             if (!open) setSyncDialog(null);
           }}

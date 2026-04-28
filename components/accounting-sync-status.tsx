@@ -450,6 +450,8 @@ export function AccountingSyncDialog({
   isWorking,
   providerAction,
   documentNumber,
+  documentId,
+  documentIdLabel = "Xero ID",
   onOpenChange,
   onDone,
 }: {
@@ -461,10 +463,12 @@ export function AccountingSyncDialog({
   isWorking: boolean;
   providerAction?: AccountingProviderAction;
   documentNumber?: string | null;
+  documentId?: string | null;
+  documentIdLabel?: string;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
 }) {
-  const showResultActions = !isWorking && !error && (providerAction || documentNumber);
+  const showResultActions = !isWorking && !error && (providerAction || documentNumber || documentId);
 
   return (
     <Dialog open={open} onOpenChange={isWorking ? undefined : onOpenChange}>
@@ -487,36 +491,54 @@ export function AccountingSyncDialog({
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
         {showResultActions ? (
-          <div className="flex flex-wrap gap-2 pl-10">
-            {providerAction ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  if (providerAction.href) {
-                    window.open(providerAction.href, "_blank", "noopener,noreferrer");
-                    return;
-                  }
-                  providerAction.onClick?.();
-                }}
-                disabled={providerAction.pending}
-              >
-                <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} data-icon="inline-start" />
-                {providerAction.pending ? "Opening..." : providerAction.label}
-              </Button>
+          <div className="flex flex-col gap-2 pl-10">
+            {documentId ? (
+              <p className="break-all text-xs text-muted-foreground">
+                {documentIdLabel}: {documentId}
+              </p>
             ) : null}
-            {documentNumber ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void navigator.clipboard.writeText(documentNumber)}
-              >
-                <HugeiconsIcon icon={Copy01Icon} size={14} data-icon="inline-start" />
-                Copy number
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {providerAction ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (providerAction.href) {
+                      window.open(providerAction.href, "_blank", "noopener,noreferrer");
+                      return;
+                    }
+                    providerAction.onClick?.();
+                  }}
+                  disabled={providerAction.pending}
+                >
+                  <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} data-icon="inline-start" />
+                  {providerAction.pending ? "Opening..." : providerAction.label}
+                </Button>
+              ) : null}
+              {documentNumber ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(documentNumber)}
+                >
+                  <HugeiconsIcon icon={Copy01Icon} size={14} data-icon="inline-start" />
+                  Copy number
+                </Button>
+              ) : null}
+              {documentId ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(documentId)}
+                >
+                  <HugeiconsIcon icon={Copy01Icon} size={14} data-icon="inline-start" />
+                  Copy Xero ID
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
