@@ -1902,6 +1902,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             id: salesOrders.id,
             orderNumber: salesOrders.orderNumber,
             customerName: salesOrders.customerName,
+            customerEmail: customers.email,
             status: salesOrders.status,
             requestedDate: salesOrders.requestedDate,
             shippedAt: salesOrders.shippedAt,
@@ -1911,6 +1912,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             updatedAt: salesOrders.updatedAt,
           })
           .from(salesOrders)
+          .leftJoin(customers, eq(salesOrders.customerId, customers.id))
           .where(isNull(salesOrders.deletedAt))
           .orderBy(desc(salesOrders.createdAt));
 
@@ -1969,6 +1971,7 @@ export async function getSalesOrder(
         id: salesOrders.id,
         customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
+        customerEmail: customers.email,
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         requestedDate: salesOrders.requestedDate,
@@ -1985,12 +1988,19 @@ export async function getSalesOrder(
         xeroPushStatus: salesOrders.xeroPushStatus,
         xeroPushError: salesOrders.xeroPushError,
         xeroPushedAt: salesOrders.xeroPushedAt,
+        xeroPushPayloadHash: salesOrders.xeroPushPayloadHash,
+        xeroLastPushAttemptAt: salesOrders.xeroLastPushAttemptAt,
+        xeroRetryCount: salesOrders.xeroRetryCount,
+        xeroEmailStatus: salesOrders.xeroEmailStatus,
+        xeroEmailError: salesOrders.xeroEmailError,
+        xeroEmailedAt: salesOrders.xeroEmailedAt,
         totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
         updatedAt: salesOrders.updatedAt,
       })
       .from(salesOrders)
+      .leftJoin(customers, eq(salesOrders.customerId, customers.id))
       .where(and(...orderConditions));
 
     if (!order) {
@@ -2107,6 +2117,8 @@ export async function getSalesOrder(
       ...order,
       status: order.status as SalesOrderDetail["status"],
       xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
+      xeroEmailStatus:
+        order.xeroEmailStatus as SalesOrderDetail["xeroEmailStatus"],
       lines: lines as SalesOrderDetailLine[],
       hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
       manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
@@ -2488,14 +2500,22 @@ export async function getSalesOrderForBol(
 
 export async function shipSalesOrder(
   id: string,
-  options?: { idempotencyKey?: string }
+  options?: {
+    idempotencyKey?: string;
+    syncAccounting?: boolean;
+    sendEmail?: boolean;
+  }
 ) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "shipSalesOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id },
+      payload: {
+        id,
+        syncAccounting: options?.syncAccounting ?? true,
+        sendEmail: options?.sendEmail ?? false,
+      },
     });
 
     if (replay.replayed) {
@@ -2676,6 +2696,10 @@ export async function shipSalesOrder(
     return result.shipped;
   }
 
+  if (options?.syncAccounting === false) {
+    return result.shipped;
+  }
+
   // Stock tx has committed. Attempt the Xero push; a failure must NOT roll
   // back the ship — the order is shipped regardless of accounting state.
   const { pushSalesOrderToXero, markXeroPushFailed } = await import(
@@ -2684,7 +2708,9 @@ export async function shipSalesOrder(
   const { XeroError } = await import("@/lib/xero/errors");
 
   try {
-    await pushSalesOrderToXero(result.orgId, id);
+    await pushSalesOrderToXero(result.orgId, id, {
+      sendEmail: options?.sendEmail,
+    });
   } catch (error) {
     if (
       error instanceof XeroError &&
@@ -2705,6 +2731,13 @@ export async function shipSalesOrder(
   return result.shipped;
 }
 
+export async function getXeroOnlineInvoiceUrlForSalesOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { getOnlineInvoiceUrlForOrder } = await import("@/lib/xero/push-invoice");
+    return { url: await getOnlineInvoiceUrlForOrder(orgId, id) };
+  });
+}
+
 export async function retryXeroPushForSalesOrder(id: string) {
   return withAuthedOrgContext(async (_tx, orgId) => {
     const { pushSalesOrderToXero, markXeroPushFailed } = await import(
@@ -2723,6 +2756,16 @@ export async function retryXeroPushForSalesOrder(id: string) {
       await markXeroPushFailed(orgId, id, error);
       throw error;
     }
+  });
+}
+
+export async function retryXeroEmailForSalesOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { emailSalesInvoiceForOrder } = await import(
+      "@/lib/xero/push-invoice"
+    );
+    const result = await emailSalesInvoiceForOrder(orgId, id);
+    return { ok: true as const, result };
   });
 }
 

@@ -1,5 +1,7 @@
 import {
+  boolean,
   index,
+  jsonb,
   pgPolicy,
   pgSchema,
   text,
@@ -7,6 +9,11 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+export type XeroAuthorizedTenant = {
+  tenantId: string;
+  tenantName: string;
+};
 
 export const xeroSchema = pgSchema("xero");
 
@@ -17,6 +24,10 @@ export const xeroConnections = xeroSchema
       organizationId: text("organization_id").primaryKey(),
       tenantId: text("tenant_id").notNull(),
       tenantName: text("tenant_name").notNull(),
+      authorizedTenants: jsonb("authorized_tenants")
+        .$type<XeroAuthorizedTenant[]>()
+        .notNull()
+        .default(sql`'[]'::jsonb`),
       accessToken: text("access_token").notNull(),
       refreshToken: text("refresh_token").notNull(),
       tokenExpiresAt: timestamp("token_expires_at").notNull(),
@@ -27,6 +38,25 @@ export const xeroConnections = xeroSchema
       })
         .notNull()
         .default("AUTHORISED"),
+      autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
+        .notNull()
+        .default(false),
+      autoEmailPurchaseOrders: boolean("auto_email_purchase_orders")
+        .notNull()
+        .default(false),
+      purchaseOrderDefaultAccountCode: varchar(
+        "purchase_order_default_account_code",
+        { length: 20 }
+      ),
+      purchaseOrderDefaultTaxType: varchar("purchase_order_default_tax_type", {
+        length: 50,
+      }),
+      purchaseOrderStatusPreference: varchar(
+        "purchase_order_status_preference",
+        { length: 20 }
+      )
+        .notNull()
+        .default("DRAFT"),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
