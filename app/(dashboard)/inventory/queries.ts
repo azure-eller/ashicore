@@ -4,7 +4,6 @@ import "server-only";
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import {
   bomRevisionComponents,
   bomRevisions,
@@ -97,8 +96,6 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
-const marginComponentItems = alias(items, "margin_component_items");
-
 // Potential: how many finished units could be produced from current available ingredient stock.
 // For discrete products: floor(min(component_available / bom_qty))
 // For batch products: floor(min(component_available / bom_qty)) * expected_batch_yield
@@ -400,44 +397,74 @@ async function getMaterialCostByProductIdInTx(tx: Tx, productIds: string[]) {
     return new Map<string, string>();
   }
 
-  const componentUnitCost = sql<number | null>`CASE
-    WHEN ${marginComponentItems.currentStockUnitCost} IS NOT NULL
-      THEN ${marginComponentItems.currentStockUnitCost}
-    WHEN ${marginComponentItems.itemType} = 'material'
-      AND ${marginComponentItems.defaultPurchasePrice} IS NOT NULL
-      AND COALESCE(${marginComponentItems.purchaseToStockFactor}, 1) > 0
-      THEN ${marginComponentItems.defaultPurchasePrice}
-        / COALESCE(${marginComponentItems.purchaseToStockFactor}, 1)
-    ELSE NULL
-  END`;
+  const productIdList = sql.join(uniqueProductIds.map((id) => sql`${id}`), sql`, `);
+  const result = await tx.execute<{
+    productId: string;
+    materialCost: string | null;
+  }>(sql`
+    WITH RECURSIVE bom_tree(product_id, component_id, extended_quantity, path) AS (
+      SELECT
+        br.product_id,
+        brc.component_id,
+        brc.quantity,
+        ARRAY[br.product_id, brc.component_id]
+      FROM inventory.bom_revisions br
+      INNER JOIN inventory.bom_revision_components brc
+        ON brc.bom_revision_id = br.id
+      INNER JOIN inventory.items component
+        ON component.id = brc.component_id
+        AND component.deleted_at IS NULL
+      WHERE br.product_id IN (${productIdList})
+        AND br.is_current = true
 
-  const rows = await tx
-    .select({
-      productId: bomRevisions.productId,
-      materialCost: trimScaleNullable(sql`
-        CASE WHEN BOOL_AND(${componentUnitCost} IS NOT NULL)
-          THEN SUM(${bomRevisionComponents.quantity} * ${componentUnitCost})
-          ELSE NULL
-        END
-      `).as("materialCost"),
-    })
-    .from(bomRevisions)
-    .innerJoin(
-      bomRevisionComponents,
-      eq(bomRevisionComponents.bomRevisionId, bomRevisions.id),
+      UNION ALL
+
+      SELECT
+        bt.product_id,
+        brc.component_id,
+        bt.extended_quantity * brc.quantity,
+        bt.path || brc.component_id
+      FROM bom_tree bt
+      INNER JOIN inventory.bom_revisions br
+        ON br.product_id = bt.component_id
+        AND br.is_current = true
+      INNER JOIN inventory.bom_revision_components brc
+        ON brc.bom_revision_id = br.id
+      INNER JOIN inventory.items component
+        ON component.id = brc.component_id
+        AND component.deleted_at IS NULL
+      WHERE NOT brc.component_id = ANY(bt.path)
     )
-    .innerJoin(
-      marginComponentItems,
-      eq(bomRevisionComponents.componentId, marginComponentItems.id),
-    )
-    .where(
-      and(
-        inArray(bomRevisions.productId, uniqueProductIds),
-        eq(bomRevisions.isCurrent, true),
-        isNull(marginComponentItems.deletedAt),
-      ),
-    )
-    .groupBy(bomRevisions.productId);
+    SELECT
+      bt.product_id AS "productId",
+      ${trimScaleNullable(sql`
+        SUM(
+          CASE WHEN child_bom.id IS NULL THEN
+            bt.extended_quantity * COALESCE(
+              component.current_stock_unit_cost,
+              CASE
+                WHEN component.item_type = 'material'
+                  AND component.default_purchase_price IS NOT NULL
+                  AND COALESCE(component.purchase_to_stock_factor, 1) > 0
+                  THEN component.default_purchase_price
+                    / COALESCE(component.purchase_to_stock_factor, 1)
+                ELSE NULL
+              END,
+              0
+            )
+          ELSE 0 END
+        )
+      `)} AS "materialCost"
+    FROM bom_tree bt
+    INNER JOIN inventory.items component
+      ON component.id = bt.component_id
+      AND component.deleted_at IS NULL
+    LEFT JOIN inventory.bom_revisions child_bom
+      ON child_bom.product_id = bt.component_id
+      AND child_bom.is_current = true
+    GROUP BY bt.product_id
+  `);
+  const rows = result.rows as Array<{ productId: string; materialCost: string | null }>;
 
   return new Map(
     rows
