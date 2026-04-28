@@ -148,7 +148,7 @@ async function refreshWithRetry(
 
 /**
  * Load the Xero connection for the given org and refresh its access token
- * if it is expired or within 60s of expiry. The connection row is locked
+ * if it is expired or within 5 minutes of expiry. The connection row is locked
  * FOR UPDATE so two concurrent callers cannot both consume the same
  * refresh token.
  */

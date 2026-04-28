@@ -7,6 +7,11 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
+import {
+  STOCKTAKE_STATUS_COLUMN_TOOLTIP,
+  STOCKTAKE_COUNTED_TOOLTIP,
+  STOCKTAKE_VARIANCE_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { StocktakeStatusBadge } from "./status-badge";
 import { formatScope, type StocktakeListRow } from "./types";
 
@@ -58,7 +63,13 @@ const columns: ColumnDef<StocktakeListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    header: ({ column }) => (
+      <FilterableHeader
+        column={column}
+        label="Status"
+        tooltip={STOCKTAKE_STATUS_COLUMN_TOOLTIP}
+      />
+    ),
     filterFn: multiValueFilter,
     cell: ({ row }) => <StocktakeStatusBadge status={row.original.status} />,
   },
@@ -68,13 +79,17 @@ const columns: ColumnDef<StocktakeListRow>[] = [
   },
   {
     accessorKey: "countedCount",
-    header: ({ column }) => <SortableHeader column={column} label="Counted" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Counted" tooltip={STOCKTAKE_COUNTED_TOOLTIP} />
+    ),
     cell: ({ row }) =>
       `${row.original.countedCount} / ${row.original.itemCount}`,
   },
   {
     accessorKey: "varianceCount",
-    header: ({ column }) => <SortableHeader column={column} label="Variance" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Variance" tooltip={STOCKTAKE_VARIANCE_TOOLTIP} />
+    ),
   },
   {
     accessorKey: "createdAt",

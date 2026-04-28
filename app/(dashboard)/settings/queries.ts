@@ -4,7 +4,6 @@ import { and, asc, eq, gt } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import {
   assertTeamManagementAccess,
-  getAuthedApiMemberContext,
   getAuthedMemberContext,
   requireTeamManagementAccess,
 } from "@/lib/dal/auth";
@@ -14,7 +13,6 @@ import {
   member,
   organization,
   user,
-  userPreferences,
 } from "@/lib/db/schema";
 import {
   AuthorizationError,
@@ -27,10 +25,6 @@ import {
   getModuleAccessMap,
   normalizeAppRole,
 } from "@/lib/authz";
-import {
-  normalizeReadabilityOption,
-  type ReadabilityOption,
-} from "@/lib/schemas/account";
 import type {
   AccountPageData,
   PendingInviteRow,
@@ -159,48 +153,6 @@ export async function getAccountPageData(): Promise<AccountPageData> {
     email: context.email,
     role: context.role,
   };
-}
-
-async function getPersistedReadabilityForUser(
-  userId: string
-): Promise<ReadabilityOption> {
-  const [row] = await db
-    .select({
-      readability: userPreferences.readability,
-    })
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, userId))
-    .limit(1);
-
-  return normalizeReadabilityOption(row?.readability);
-}
-
-export async function getUserReadabilityForRequest(
-  requestHeaders: HeadersInit
-): Promise<ReadabilityOption> {
-  const context = await getAuthedApiMemberContext(requestHeaders);
-  return getPersistedReadabilityForUser(context.userId);
-}
-
-export async function upsertUserReadability(
-  requestHeaders: HeadersInit,
-  readability: ReadabilityOption
-): Promise<void> {
-  const context = await getAuthedApiMemberContext(requestHeaders);
-
-  await db
-    .insert(userPreferences)
-    .values({
-      userId: context.userId,
-      readability,
-    })
-    .onConflictDoUpdate({
-      target: userPreferences.userId,
-      set: {
-        readability,
-        updatedAt: new Date(),
-      },
-    });
 }
 
 export async function getPublicInvitationDetails(

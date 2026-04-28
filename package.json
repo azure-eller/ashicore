@@ -20,6 +20,7 @@
     "diff:projections": "tsx scripts/diff-projections.ts",
     "verify:inventory-state": "tsx scripts/verify-inventory-state.ts",
     "verify:inventory-kernel": "tsx scripts/verify-inventory-kernel.ts",
+    "verify:opening-stock-conversion": "tsx scripts/verify-opening-stock-conversion.ts",
     "verify:inventory": "pnpm verify:inventory-kernel && pnpm verify:inventory-state",
     "db:generate": "drizzle-kit generate && tsx scripts/make-migrations-idempotent.ts",
     "db:check-migrations": "tsx scripts/make-migrations-idempotent.ts --check",

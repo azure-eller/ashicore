@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ItemDetailActions } from "./item-detail-actions";
 import { LotDispositionActions } from "./lot-disposition-actions";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +31,7 @@ import {
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
+  LOT_DISPOSITION_TOOLTIP,
 } from "@/lib/tooltip-copy";
 
 interface ItemDetailProps {
@@ -232,16 +234,7 @@ export function ItemDetail({
                     <TableHead>SKU</TableHead>
                     <TableHead className="text-right">Stock</TableHead>
                     <TableHead className="text-right">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
-                            Available
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          {CALCULATED_STOCK_TOOLTIP}
-                        </TooltipContent>
-                      </Tooltip>
+                      <TooltipHeader label="Available" tooltip={CALCULATED_STOCK_TOOLTIP} />
                     </TableHead>
                     <TableHead className="text-right">Price</TableHead>
                   </TableRow>
@@ -355,7 +348,7 @@ export function ItemDetail({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top">
-                This recipe is locked and can only be edited by inventory admins.
+                Only inventory admins can edit locked recipes.
               </TooltipContent>
             </Tooltip>
           ) : null}
@@ -486,16 +479,7 @@ export function ItemDetail({
         {!isMaster && (
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
-                  Calculated Stock
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {CALCULATED_STOCK_TOOLTIP}
-              </TooltipContent>
-            </Tooltip>
+            <TooltipHeader label="Calculated Stock" tooltip={CALCULATED_STOCK_TOOLTIP} />
           </dt>
           <dd className="mt-1 text-sm">
             {calculatedStock < 0 ? (
@@ -662,7 +646,9 @@ export function ItemDetail({
                 <TableRow>
                   <TableHead>Lot Number</TableHead>
                   <TableHead className="text-right">Physical</TableHead>
-                  <TableHead>Disposition</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Disposition" tooltip={LOT_DISPOSITION_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">Cost / Unit</TableHead>
                   <TableHead className="text-right">Received</TableHead>
                   <TableHead className="text-right">Actions</TableHead>

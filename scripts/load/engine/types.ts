@@ -1,3 +1,10 @@
+// Opening stock can be entered as a bare string (in the seed's stock unit)
+// or as { quantity, unitKey } where unitKey is the seed's purchase unit
+// (the engine converts via purchaseToStockFactor at write time).
+export type InitialStockEntry =
+  | string
+  | { quantity: string; unitKey: string };
+
 export type UnitSeed = {
   key: string;
   name: string;
@@ -252,7 +259,7 @@ export type LoaderConfig = {
   defaultOrgRef: string;
   units: UnitSeed[];
   seeds: ItemSeed[];
-  initialStockByKey: Record<string, string>;
+  initialStockByKey: Record<string, InitialStockEntry>;
   openingLotPrefix: string;
   internalOnlyProductCategories?: Set<string>;
   bomRevisionNote?: string;

@@ -50,6 +50,13 @@ import {
   type UpdateStocktakeCounts,
   updateStocktakeCountsSchema,
 } from "@/lib/schemas/stocktakes";
+import {
+  STOCKTAKE_COUNT_QTY_TOOLTIP,
+  STOCKTAKE_CURRENT_QTY_TOOLTIP,
+  STOCKTAKE_LINE_VARIANCE_TOOLTIP,
+  STOCKTAKE_SNAPSHOT_QTY_TOOLTIP,
+} from "@/lib/tooltip-copy";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
   formatScope,
@@ -521,9 +528,15 @@ export function StocktakeDetail({
                   <TableHead>Item</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Available Snapshot</TableHead>
-                  <TableHead className="text-right">Available Count</TableHead>
-                  <TableHead className="text-right">Available Variance</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Available Snapshot" tooltip={STOCKTAKE_SNAPSHOT_QTY_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Available Count" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Available Variance" tooltip={STOCKTAKE_LINE_VARIANCE_TOOLTIP} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -645,9 +658,15 @@ export function StocktakeDetail({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Available Snapshot</TableHead>
-                    <TableHead className="text-right">Available Current</TableHead>
-                    <TableHead className="text-right">Available Count</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Available Snapshot" tooltip={STOCKTAKE_SNAPSHOT_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Available Current" tooltip={STOCKTAKE_CURRENT_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Available Count" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

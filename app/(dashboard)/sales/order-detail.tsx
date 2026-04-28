@@ -41,7 +41,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
+import {
+  MANUFACTURABLE_LINES_TOOLTIP,
+  OVERSELL_TOOLTIP_COPY,
+} from "@/lib/tooltip-copy";
 import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
@@ -166,22 +169,31 @@ export function OrderDetail({
     includeAccounting?: boolean;
     includeEmail?: boolean;
   }) => {
-    const latest = await fetchSalesOrderDetail(order.id);
-    const latestDocument = salesOrderAccountingDocument(latest);
-    setSyncDialog({
-      title,
-      description,
-      stages: buildAccountingSyncStages({
-        document: latestDocument,
-        includeAccounting,
-        includeEmail,
+    try {
+      const latest = await fetchSalesOrderDetail(order.id);
+      const latestDocument = salesOrderAccountingDocument(latest);
+      setSyncDialog({
+        title,
+        description,
+        stages: buildAccountingSyncStages({
+          document: latestDocument,
+          includeAccounting,
+          includeEmail,
+          localActionLabel,
+        }),
+        error: null,
+        isWorking: false,
+        documentNumber: includeAccounting ? latestDocument.documentNumber : null,
+        showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
+      });
+    } catch {
+      failSyncDialog({
+        title,
+        description,
         localActionLabel,
-      }),
-      error: null,
-      isWorking: false,
-      documentNumber: includeAccounting ? latestDocument.documentNumber : null,
-      showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
-    });
+        message: "Failed to reload order status.",
+      });
+    }
   };
 
   const failSyncDialog = ({
@@ -651,7 +663,12 @@ export function OrderDetail({
             <dd className="mt-1 text-sm">{formatDate(order.requestedDate)}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Manufacturable Lines</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Manufacturable Lines"
+                tooltip={MANUFACTURABLE_LINES_TOOLTIP}
+              />
+            </dt>
             <dd className="mt-1 text-sm">{order.manufacturableLineCount}</dd>
           </div>
           <div>

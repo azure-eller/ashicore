@@ -155,7 +155,7 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       } catch (error) {
         if (
           error instanceof XeroError &&
-          (error.status === 404 || error.status === 409)
+          (error.status === 400 || error.status === 404 || error.status === 409)
         ) {
           // 404 = order disappeared locally; 409 = Xero not connected for
           // this org (race with disconnect). Neither is a real retry
@@ -198,7 +198,7 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       } catch (error) {
         if (
           error instanceof XeroError &&
-          (error.status === 404 || error.status === 409)
+          (error.status === 400 || error.status === 404 || error.status === 409)
         ) {
           orgResult.purchaseOrders.skipped += 1;
           continue;

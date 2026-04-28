@@ -446,7 +446,7 @@ export function ItemForm({
                 </label>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs">
-                Enable this to create a product with variants (e.g. sizes or colors). Stock, pricing, and SKU are managed per variant.
+                Create size or color variants with separate stock, SKU, and pricing.
               </TooltipContent>
             </Tooltip>
           )}
@@ -1048,9 +1048,9 @@ export function ItemForm({
                       <TooltipContent side="top">
                         {canManageBomLock
                           ? bomLocked
-                            ? "Recipe is locked. Click to unlock."
-                            : "Recipe is unlocked. Click to lock."
-                          : "Inventory admin access is required to lock or unlock recipes."}
+                            ? "Locked. Click to unlock."
+                            : "Unlocked. Click to lock."
+                          : "Inventory admin access required."}
                       </TooltipContent>
                     </Tooltip>
                   </div>

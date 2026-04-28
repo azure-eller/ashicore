@@ -14,7 +14,7 @@ export function TooltipHeader({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex w-fit cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
+        <span className="inline-flex w-fit underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
           {label}
         </span>
       </TooltipTrigger>

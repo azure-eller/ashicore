@@ -200,6 +200,7 @@ async function persistPushSuccess(
         xeroPushError: null,
         xeroPushedAt: new Date(),
         xeroPushPayloadHash: payloadHash,
+        xeroRetryCount: 0,
         updatedAt: new Date(),
       })
       .where(eq(purchaseOrders.id, orderId));

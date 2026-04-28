@@ -44,6 +44,7 @@ export const POST = apiHandler(async (request: Request) => {
       if (data.forcePushFailed) {
         update.xeroPushStatus = "failed";
         update.xeroPushError = "smoke-test forced failure";
+        update.xeroRetryCount = 0;
       }
       const [row] = await tx
         .update(salesOrders)
@@ -66,6 +67,7 @@ export const POST = apiHandler(async (request: Request) => {
     if (data.forcePushFailed) {
       update.xeroPushStatus = "failed";
       update.xeroPushError = "smoke-test forced failure";
+      update.xeroRetryCount = 0;
     }
     const [row] = await tx
       .update(purchaseOrders)

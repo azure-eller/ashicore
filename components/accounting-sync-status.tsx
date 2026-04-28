@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
@@ -339,6 +340,7 @@ export function AccountingActionConfirmDialog({
   isPending?: boolean;
 }) {
   const emailDisabled = !options.syncAccounting;
+  const emailBeforeDisable = useRef(options.sendEmail);
 
   return (
     <Dialog open={open} onOpenChange={isPending ? undefined : onOpenChange}>
@@ -365,10 +367,16 @@ export function AccountingActionConfirmDialog({
             checkboxId="syncAccounting"
             onCheckedChange={(checked) => {
               const syncAccounting = checked === true;
-              onOptionsChange({
-                syncAccounting,
-                sendEmail: syncAccounting ? options.sendEmail : false,
-              });
+              if (syncAccounting) {
+                onOptionsChange({
+                  syncAccounting,
+                  sendEmail: emailBeforeDisable.current,
+                });
+                return;
+              }
+
+              emailBeforeDisable.current = options.sendEmail;
+              onOptionsChange({ syncAccounting, sendEmail: false });
             }}
           />
           <ActionTimelineStep
@@ -719,12 +727,17 @@ function buildEmailStage(
   label: string,
   pushState: AccountingSyncStageState
 ): AccountingSyncStage {
-  if (pushState === "failed" || pushState === "waiting") {
+  if (
+    pushState === "failed" ||
+    pushState === "waiting" ||
+    pushState === "skipped" ||
+    pushState === "active"
+  ) {
     return {
       id: "email",
       label,
       detail: null,
-      state: "waiting",
+      state: pushState === "skipped" ? "skipped" : "waiting",
     };
   }
 

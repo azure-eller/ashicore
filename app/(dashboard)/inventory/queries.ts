@@ -4,6 +4,7 @@ import "server-only";
 // Read/update/delete queries omit organizationId filters — RLS handles org scoping.
 // Create queries pass orgId explicitly so it's stored on the row.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   bomRevisionComponents,
   bomRevisions,
@@ -23,7 +24,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { formatVariantDisplay, normalizeNumeric } from "@/lib/format";
+import { formatVariantDisplay, normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
@@ -96,6 +97,7 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
+const marginComponentItems = alias(items, "margin_component_items");
 
 // Potential: how many finished units could be produced from current available ingredient stock.
 // For discrete products: floor(min(component_available / bom_qty))
@@ -176,6 +178,69 @@ function parseNumeric(value: string | null | undefined): number {
 
 function formatAggregateNumber(value: number): string {
   return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function calculateMarginPercent(
+  defaultSellingPrice: string | null | undefined,
+  materialCost: string | null | undefined,
+) {
+  if (defaultSellingPrice == null || materialCost == null) {
+    return null;
+  }
+
+  const sellingPrice = Number.parseFloat(defaultSellingPrice);
+  const cost = Number.parseFloat(materialCost);
+
+  if (!Number.isFinite(sellingPrice) || sellingPrice <= 0 || !Number.isFinite(cost)) {
+    return null;
+  }
+
+  return normalizeNumericScale(((sellingPrice - cost) / sellingPrice) * 100, 1);
+}
+
+function applyMarginTiers(rows: ItemRow[]) {
+  const allRows = rows.flatMap((row) => [row, ...(row.subRows ?? [])]);
+  const marginValues = allRows
+    .filter((row) => !row.isMaster)
+    .map((row) => row.marginPercent)
+    .filter((value): value is string => value != null)
+    .map((value) => Number.parseFloat(value))
+    .filter((value) => Number.isFinite(value));
+  const nonNegativeMargins = marginValues
+    .filter((value) => value >= 0)
+    .sort((a, b) => a - b);
+  const hasRelativeBands = nonNegativeMargins.length >= 3;
+  const lowCutoff = hasRelativeBands
+    ? nonNegativeMargins[Math.floor((nonNegativeMargins.length - 1) / 3)]
+    : 20;
+  const highCutoff = hasRelativeBands
+    ? nonNegativeMargins[Math.ceil(((nonNegativeMargins.length - 1) * 2) / 3)]
+    : 40;
+
+  return rows.map((row) => applyMarginTier(row, lowCutoff, highCutoff));
+}
+
+function applyMarginTier(
+  row: ItemRow,
+  lowCutoff: number,
+  highCutoff: number,
+): ItemRow {
+  const margin = row.marginPercent != null ? Number.parseFloat(row.marginPercent) : Number.NaN;
+  const marginTier = !Number.isFinite(margin)
+    ? null
+    : margin < 0
+      ? "negative"
+      : margin <= lowCutoff
+        ? "low"
+        : margin >= highCutoff
+          ? "high"
+          : "mid";
+
+  return {
+    ...row,
+    marginTier,
+    subRows: row.subRows?.map((subRow) => applyMarginTier(subRow, lowCutoff, highCutoff)),
+  };
 }
 
 function normalizeCurrentStockUnitCost(
@@ -328,6 +393,59 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
   );
 }
 
+async function getMaterialCostByProductIdInTx(tx: Tx, productIds: string[]) {
+  const uniqueProductIds = [...new Set(productIds)];
+
+  if (uniqueProductIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const componentUnitCost = sql<number | null>`CASE
+    WHEN ${marginComponentItems.currentStockUnitCost} IS NOT NULL
+      THEN ${marginComponentItems.currentStockUnitCost}
+    WHEN ${marginComponentItems.itemType} = 'material'
+      AND ${marginComponentItems.defaultPurchasePrice} IS NOT NULL
+      AND COALESCE(${marginComponentItems.purchaseToStockFactor}, 1) > 0
+      THEN ${marginComponentItems.defaultPurchasePrice}
+        / COALESCE(${marginComponentItems.purchaseToStockFactor}, 1)
+    ELSE NULL
+  END`;
+
+  const rows = await tx
+    .select({
+      productId: bomRevisions.productId,
+      materialCost: trimScaleNullable(sql`
+        CASE WHEN BOOL_AND(${componentUnitCost} IS NOT NULL)
+          THEN SUM(${bomRevisionComponents.quantity} * ${componentUnitCost})
+          ELSE NULL
+        END
+      `).as("materialCost"),
+    })
+    .from(bomRevisions)
+    .innerJoin(
+      bomRevisionComponents,
+      eq(bomRevisionComponents.bomRevisionId, bomRevisions.id),
+    )
+    .innerJoin(
+      marginComponentItems,
+      eq(bomRevisionComponents.componentId, marginComponentItems.id),
+    )
+    .where(
+      and(
+        inArray(bomRevisions.productId, uniqueProductIds),
+        eq(bomRevisions.isCurrent, true),
+        isNull(marginComponentItems.deletedAt),
+      ),
+    )
+    .groupBy(bomRevisions.productId);
+
+  return new Map(
+    rows
+      .filter((row): row is typeof row & { materialCost: string } => row.materialCost != null)
+      .map((row) => [row.productId, row.materialCost]),
+  );
+}
+
 async function createBomRevisionInTx(
   tx: Tx,
   params: {
@@ -472,6 +590,9 @@ export async function getItems(filters?: {
             unitUom: row.unitUom ?? null,
             category: row.category,
             potential: row.potential,
+            materialCost: null,
+            marginPercent: null,
+            marginTier: null,
             isMaster: false,
             parentId: null,
             variantCount: 0,
@@ -593,6 +714,9 @@ export async function getItems(filters?: {
                 unitUom: row.unitUom ?? null,
                 category: row.category,
                 potential: null,
+                materialCost: null,
+                marginPercent: null,
+                marginTier: null,
                 isMaster: false,
                 parentId: row.parentId,
                 variantCount: 0,
@@ -682,10 +806,11 @@ export async function getItems(filters?: {
           ...topLevelRows.filter((row) => !row.isMaster).map((row) => row.id),
           ...variantRows.map((row) => row.id),
         ];
-        const [hasBomSet, usedInCounts, revenueByItemId] = await Promise.all([
+        const [hasBomSet, usedInCounts, revenueByItemId, materialCostByProductId] = await Promise.all([
           getCurrentBomProductIdSetInTx(tx, leafIds),
           getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
           getRevenue30dByItemIdInTx(tx, leafIds),
+          getMaterialCostByProductIdInTx(tx, leafIds),
         ]);
 
         const variantsByParent = new Map<string, typeof variantRows>();
@@ -703,6 +828,7 @@ export async function getItems(filters?: {
               }
 
               const usedInCount = usedInCounts.get(row.id) ?? 0;
+              const materialCost = materialCostByProductId.get(row.id) ?? null;
               return [{
                 id: row.id,
                 name: row.name,
@@ -722,6 +848,9 @@ export async function getItems(filters?: {
                 unitUom: row.unitUom ?? null,
                 category: row.category,
                 potential: row.potential,
+                materialCost,
+                marginPercent: calculateMarginPercent(row.defaultSellingPrice, materialCost),
+                marginTier: null,
                 isMaster: false,
                 parentId: null,
                 variantCount: 0,
@@ -774,6 +903,32 @@ export async function getItems(filters?: {
               (sum, variant) => sum + parseNumeric(revenueByItemId.get(variant.id)),
               0,
             );
+            const knownVariantMargins = visibleVariants
+              .map((variant) => calculateMarginPercent(
+                variant.defaultSellingPrice,
+                materialCostByProductId.get(variant.id),
+              ))
+              .filter((value): value is string => value != null)
+              .map((value) => Number.parseFloat(value))
+              .filter((value) => Number.isFinite(value));
+            const avgMargin = knownVariantMargins.length > 0
+              ? normalizeNumericScale(
+                  knownVariantMargins.reduce((sum, value) => sum + value, 0) /
+                    knownVariantMargins.length,
+                  1,
+                )
+              : null;
+            const knownVariantCosts = visibleVariants
+              .map((variant) => materialCostByProductId.get(variant.id))
+              .filter((value): value is string => value != null)
+              .map((value) => Number.parseFloat(value))
+              .filter((value) => Number.isFinite(value));
+            const avgMaterialCost = knownVariantCosts.length > 0
+              ? formatAggregateNumber(
+                  knownVariantCosts.reduce((sum, value) => sum + value, 0) /
+                    knownVariantCosts.length,
+                )
+              : null;
 
             return [{
               id: row.id,
@@ -794,6 +949,9 @@ export async function getItems(filters?: {
               unitUom: row.unitUom ?? null,
               category: row.category,
               potential: row.potential,
+              materialCost: avgMaterialCost,
+              marginPercent: avgMargin,
+              marginTier: null,
               isMaster: true,
               parentId: null,
               variantCount: visibleVariants.length,
@@ -810,6 +968,7 @@ export async function getItems(filters?: {
               createdAt: row.createdAt,
               subRows: visibleVariants.map((variant) => {
                 const variantUsedInCount = usedInCounts.get(variant.id) ?? 0;
+                const materialCost = materialCostByProductId.get(variant.id) ?? null;
                 return {
                   id: variant.id,
                   name: variant.name,
@@ -835,6 +994,12 @@ export async function getItems(filters?: {
                   unitUom: variant.unitUom ?? null,
                   category: variant.category,
                   potential: null,
+                  materialCost,
+                  marginPercent: calculateMarginPercent(
+                    variant.defaultSellingPrice,
+                    materialCost,
+                  ),
+                  marginTier: null,
                   isMaster: false,
                   parentId: variant.parentId,
                   variantCount: 0,
@@ -865,7 +1030,7 @@ export async function getItems(filters?: {
             return a.name.localeCompare(b.name);
           });
 
-        return results;
+        return applyMarginTiers(results);
       });
     },
     {

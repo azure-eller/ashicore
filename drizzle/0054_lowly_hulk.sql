@@ -1,0 +1,1 @@
+DROP TABLE "system"."user_preferences" CASCADE;

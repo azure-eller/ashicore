@@ -226,6 +226,7 @@ async function persistPushSuccess(
         xeroPushError: null,
         xeroPushedAt: new Date(),
         xeroPushPayloadHash: payloadHash,
+        xeroRetryCount: 0,
         updatedAt: new Date(),
       })
       .where(eq(salesOrders.id, orderId));
@@ -575,7 +576,7 @@ export async function pushSalesOrderToXero(
   }
 
   let emailStatus: PushInvoiceResult["emailStatus"] = null;
-  if (created) {
+  if (created || adopted) {
     const decision = decideEmail({
       statusPref,
       sendEmail: options.sendEmail === true,
