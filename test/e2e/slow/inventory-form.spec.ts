@@ -240,7 +240,7 @@ test.describe("Inventory creation flow", () => {
     expect(lotRows).toHaveLength(0);
   });
 
-  test("shows calculated stock tooltips and preserves status sorting", async ({
+  test("shows calculated stock tooltips and low-stock indicator", async ({
     page,
     db,
   }) => {
@@ -278,19 +278,7 @@ test.describe("Inventory creation flow", () => {
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(String(ts));
 
-    const statusHeader = page.getByRole("button", {
-      name: /^Sort by Status/,
-    });
-
-    await statusHeader.click();
-    await expect(statusHeader).toHaveAttribute(
-      "aria-label",
-      /sorted ascending/
-    );
-
-    const firstRow = page.locator("tbody tr").first();
-    await expect(firstRow).toContainText(lowStockMaterialName);
-    await expect(firstRow).toContainText("Below safety");
+    const firstRow = page.locator("tbody tr", { hasText: lowStockMaterialName }).first();
 
     const lowStockLink = page.getByRole("link", {
       name: new RegExp(lowStockMaterialName),

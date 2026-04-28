@@ -24,65 +24,30 @@ import { calcStock } from "./types";
 import type { InventoryProductView, ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
-type InventoryStatus = {
+type InventoryAttention = {
   label: string;
-  rank: number;
-  variant: "destructive" | "warning" | "outline" | "secondary";
+  tooltip: string;
 };
 
-function getInventoryStatus(row: ItemRow): InventoryStatus {
-  const demand = parseFloat(row.demandQty);
-  const reserved = parseFloat(row.committedQty);
+function getInventoryAttention(row: ItemRow): InventoryAttention | null {
   const shortage = parseFloat(row.shortageQty);
   const calculatedStock = calcStock(row);
 
   if (shortage > 0) {
     return {
       label: "Backordered",
-      rank: 0,
-      variant: "destructive",
+      tooltip: "Accepted demand is not fully reserved.",
     };
   }
 
   if (calculatedStock < 0) {
     return {
       label: "Below safety",
-      rank: 1,
-      variant: "warning",
+      tooltip: CALCULATED_STOCK_ALERT_TOOLTIP,
     };
   }
 
-  if (demand > 0 && reserved > 0 && reserved < demand) {
-    return {
-      label: "Partially reserved",
-      rank: 2,
-      variant: "outline",
-    };
-  }
-
-  if (demand > 0) {
-    return {
-      label: "Reserved",
-      rank: 3,
-      variant: "secondary",
-    };
-  }
-
-  return {
-    label: "OK",
-    rank: 4,
-    variant: "secondary",
-  };
-}
-
-function InventoryStatusBadge({ row }: { row: ItemRow }) {
-  const status = getInventoryStatus(row);
-
-  return (
-    <Badge variant={status.variant} className="text-xs">
-      {status.label}
-    </Badge>
-  );
+  return null;
 }
 
 export function getColumns(
@@ -121,8 +86,7 @@ export function getColumns(
       cell: ({ row }) => {
         const { isMaster, parentId, variantCount, variantAttrs, sellable } = row.original;
         const isVariant = parentId != null;
-        const status = getInventoryStatus(row.original);
-        const showAttentionIndicator = !isMaster && status.rank <= 1;
+        const attention = isMaster ? null : getInventoryAttention(row.original);
 
         if (row.depth > 0 && !isSubAssemblies) {
           const attrValues = variantAttrs
@@ -155,19 +119,15 @@ export function getColumns(
                 />
               </button>
             ) : null}
-            {showAttentionIndicator ? (
+            {attention ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
                     className="size-2 shrink-0 cursor-default rounded-full bg-destructive"
-                    aria-label={status.label}
+                    aria-label={attention.label}
                   />
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  {status.label === "Backordered"
-                    ? "Accepted demand is not fully reserved."
-                    : CALCULATED_STOCK_ALERT_TOOLTIP}
-                </TooltipContent>
+                <TooltipContent side="top">{attention.tooltip}</TooltipContent>
               </Tooltip>
             ) : null}
             <Link
@@ -240,15 +200,6 @@ export function getColumns(
         <SortableHeader column={column} label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
       ),
       cell: ({ row }) => formatQuantity(row.getValue("availableQty")),
-    },
-    {
-      id: "status",
-      accessorFn: (row) => getInventoryStatus(row).rank,
-      sortDescFirst: false,
-      sortingFn: (rowA, rowB) =>
-        getInventoryStatus(rowA.original).rank - getInventoryStatus(rowB.original).rank,
-      header: ({ column }) => <SortableHeader column={column} label="Status" />,
-      cell: ({ row }) => <InventoryStatusBadge row={row.original} />,
     },
     ...(isProduct && !isSubAssemblies
       ? [
