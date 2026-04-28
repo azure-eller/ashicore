@@ -10,7 +10,6 @@ import {
   createCustomer,
   createItem,
   createManufacturingOrder,
-  autoPlanDrafts,
   createPlanningManufacturingOrderDraft,
   createPlanningPurchaseOrderDraft,
   createPurchaseOrder,
@@ -365,6 +364,16 @@ test.describe("Planning workspace", () => {
 
   test("reserved inventory is not double-counted as available", async () => {
     const itemId = await createMaterial("Amber Bottle 250ml", { stock: "10" });
+    const update = await updatePlanningRules(itemId, {
+      targetCoverDays: "20",
+      preferredSupplierItem: {
+        supplierId,
+        unitCost: "1",
+        purchaseToStockFactor: "1",
+        leadTimeDaysOverride: "3",
+      },
+    });
+    expect(update.status).toBe(200);
     await createConfirmedDemand(itemId, "8");
 
     const planning = await snapshot();
@@ -375,6 +384,10 @@ test.describe("Planning workspace", () => {
     expect(row.availableStock).toBe("2");
     expect(row.projectedQuantity).toBe("2");
     expect(row.shortageQuantity).toBe("0");
+    expect(row.suggestedOrderQuantity).toBeNull();
+    expect(
+      planning.recommendations.some((entry) => entry.itemId === itemId)
+    ).toBe(false);
   });
 
   test("open purchase order supply nets down purchased item shortage", async () => {
@@ -471,6 +484,10 @@ test.describe("Planning workspace", () => {
     const productId = await createProduct("Compost Tea Kit", [
       { componentId, quantity: "1" },
     ]);
+    const update = await updatePlanningRules(productId, {
+      productionLeadTimeDays: "2",
+    });
+    expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "2");
 
     const planning = await snapshot();
@@ -481,6 +498,32 @@ test.describe("Planning workspace", () => {
     expect(makeRecommendation.recommendationType).toBe("create_manufacturing_order");
     expect(rowFor(planning, materialId).suggestedAction).toBe("buy");
     expect(rowFor(planning, productId).suggestedAction).toBe("make");
+  });
+
+  test("missing production lead time blocks manufacturing draft recommendation", async () => {
+    const componentId = await createMaterial("Lead Time Blocking Component", {
+      stock: "100",
+      skuKey: "LEAD-TIME-BLOCK-COMP",
+    });
+    const productId = await createProduct("Lead Time Blocking Blend", [
+      { componentId, quantity: "1" },
+    ]);
+    await createConfirmedDemand(productId, "2");
+
+    const planning = await snapshot();
+    const row = rowFor(planning, productId);
+    const recommendation = recommendationFor(planning, productId);
+
+    expect(row.reasonCodes).toContain("missing_production_lead_time");
+    expect(recommendation.recommendationType).toBe("review_item_setup");
+    expect(recommendation.actionPayload).toBeNull();
+    expect(
+      planning.productionBlockerFacts.some(
+        (fact) =>
+          fact.parentItemId === productId &&
+          fact.blockerType === "missing_production_lead_time"
+      )
+    ).toBe(true);
   });
 
   test("missing supplier or missing BOM produces review recommendation", async () => {
@@ -776,6 +819,10 @@ test.describe("Planning workspace", () => {
     const productId = await createProduct("Herb Planter Kit", [
       { componentId, quantity: "2" },
     ]);
+    const update = await updatePlanningRules(productId, {
+      productionLeadTimeDays: "2",
+    });
+    expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "5");
 
     const planning = await snapshot();
@@ -978,31 +1025,4 @@ test.describe("Planning workspace", () => {
     expect(order.notes).toContain("[planning-recommendation:");
   });
 
-  test("auto-plan creates safe drafts and reports skipped recommendations", async () => {
-    const item = await createMaterialRecord("Planning Auto Plan Meal", {
-      skuKey: "AUTO-PLAN-MEAL",
-    });
-    const update = await updatePlanningRules(item.id, {
-      preferredSupplierItem: {
-        supplierId,
-        unitCost: "1.25",
-        purchaseToStockFactor: "1",
-      },
-    });
-    expect(update.status).toBe(200);
-    await createConfirmedDemand(item.id, "3");
-    const planning = await snapshot();
-    const recommendation = recommendationFor(planning, item.id);
-    expect(recommendation.actionPayload?.actionType).toBe("create_purchase_order");
-
-    const result = await autoPlanDrafts();
-    expect(result.status).toBe(201);
-    expect(
-      result.body.created.some(
-        (entry: { recommendationId: string }) =>
-          entry.recommendationId === recommendation.id
-      )
-    ).toBe(true);
-    expect(Array.isArray(result.body.skipped)).toBe(true);
-  });
 });

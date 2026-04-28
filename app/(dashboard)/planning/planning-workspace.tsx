@@ -13,6 +13,7 @@ import {
   Add01Icon,
   Alert01Icon,
   ArrowDown01Icon,
+  ArrowUp01Icon,
   ArrowRight01Icon,
   Calendar01Icon,
   Factory01Icon,
@@ -127,6 +128,7 @@ type DetailTarget =
 type PlanningTab = "production" | "replenishment";
 
 type ReplenishmentFilter = "all" | "order-now" | "order-soon" | "stocked" | "unknown";
+type ReplenishmentSort = "priority" | "days-cover-asc" | "days-cover-desc";
 
 type ProductionBucketKey = "now" | "this-week" | "next-week" | "later";
 
@@ -585,7 +587,10 @@ function getStatus(
       return "Price missing";
     }
 
-    if (row.reasonCodes.includes("missing_lead_time")) {
+    if (
+      row.reasonCodes.includes("missing_lead_time") ||
+      row.reasonCodes.includes("missing_production_lead_time")
+    ) {
       return "Lead time missing";
     }
 
@@ -667,7 +672,7 @@ function canExecuteAction(row: OperationalRow, permissions: PlanningPermissions)
     return permissions.canCreatePurchaseOrders;
   }
 
-  return permissions.canCreateManufacturingOrders && row.componentShortageCount === 0;
+  return permissions.canCreateManufacturingOrders && row.productionBlockers.length === 0;
 }
 
 function isReadyPurchaseRow(row: OperationalRow) {
@@ -682,7 +687,7 @@ function isReadyManufacturingRow(row: OperationalRow) {
   return (
     row.row.planningType === "make" &&
     !isSetupIssue(row) &&
-    row.componentShortageCount === 0 &&
+    row.productionBlockers.length === 0 &&
     row.recommendation?.actionPayload?.actionType === "create_manufacturing_order"
   );
 }
@@ -848,16 +853,55 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
         daysCover: entry.row.daysOfCover,
       };
     })
-    .sort((left, right) => {
-      const statusSort =
-        ["order-now", "order-soon", "unknown", "stocked"].indexOf(left.status) -
-        ["order-now", "order-soon", "unknown", "stocked"].indexOf(right.status);
-      if (statusSort !== 0) return statusSort;
-      const leftCover = left.daysCover ?? Number.MAX_SAFE_INTEGER;
-      const rightCover = right.daysCover ?? Number.MAX_SAFE_INTEGER;
-      if (leftCover !== rightCover) return leftCover - rightCover;
-      return left.entry.row.item.name.localeCompare(right.entry.row.item.name);
-    });
+    .sort(compareReplenishmentPriority);
+}
+
+function compareReplenishmentPriority(left: ReplenishmentItem, right: ReplenishmentItem) {
+  const statusSort =
+    ["order-now", "order-soon", "unknown", "stocked"].indexOf(left.status) -
+    ["order-now", "order-soon", "unknown", "stocked"].indexOf(right.status);
+  if (statusSort !== 0) return statusSort;
+  const leftCover = left.daysCover ?? Number.MAX_SAFE_INTEGER;
+  const rightCover = right.daysCover ?? Number.MAX_SAFE_INTEGER;
+  if (leftCover !== rightCover) return leftCover - rightCover;
+  return left.entry.row.item.name.localeCompare(right.entry.row.item.name);
+}
+
+function compareReplenishmentByCover(
+  left: ReplenishmentItem,
+  right: ReplenishmentItem,
+  direction: "asc" | "desc"
+) {
+  if (left.daysCover == null && right.daysCover == null) {
+    return compareReplenishmentPriority(left, right);
+  }
+
+  if (left.daysCover == null) return 1;
+  if (right.daysCover == null) return -1;
+
+  const coverSort =
+    direction === "asc"
+      ? left.daysCover - right.daysCover
+      : right.daysCover - left.daysCover;
+  if (coverSort !== 0) return coverSort;
+  return compareReplenishmentPriority(left, right);
+}
+
+function sortReplenishmentItems(
+  items: ReplenishmentItem[],
+  sort: ReplenishmentSort
+) {
+  return [...items].sort((left, right) => {
+    if (sort === "days-cover-asc") {
+      return compareReplenishmentByCover(left, right, "asc");
+    }
+
+    if (sort === "days-cover-desc") {
+      return compareReplenishmentByCover(left, right, "desc");
+    }
+
+    return compareReplenishmentPriority(left, right);
+  });
 }
 
 function buildBuyGroups(rows: OperationalRow[]) {
@@ -1569,9 +1613,11 @@ function StockMeter({ item }: { item: ReplenishmentItem }) {
 function ReplenishmentPlanningView({
   items,
   filter,
+  sort,
   search,
   onSearchChange,
   onFilterChange,
+  onSortChange,
   selectedIds,
   onToggleSelected,
   onClearSelected,
@@ -1582,9 +1628,11 @@ function ReplenishmentPlanningView({
 }: {
   items: ReplenishmentItem[];
   filter: ReplenishmentFilter;
+  sort: ReplenishmentSort;
   search: string;
   onSearchChange: (value: string) => void;
   onFilterChange: (filter: ReplenishmentFilter) => void;
+  onSortChange: (sort: ReplenishmentSort) => void;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
   onClearSelected: () => void;
@@ -1606,20 +1654,28 @@ function ReplenishmentPlanningView({
     },
     null
   );
-  const visible =
+  const filtered =
     filter === "all"
       ? items
       : items.filter((item) =>
           filter === "stocked" ? item.status === "stocked" : item.status === filter
         );
+  const visible = sortReplenishmentItems(filtered, sort);
   const selectedItems = items.filter((item) => selectedIds.has(item.entry.row.item.id));
-  const selectedPayloads = selectedItems
-    .map((item) => item.entry.recommendation?.actionPayload)
-    .filter(
-      (payload): payload is CreatePurchaseOrderDraftActionPayload =>
-        payload?.actionType === "create_purchase_order"
-    );
-  const selectedSuppliers = new Set(selectedItems.map((item) => item.supplierName)).size;
+  const selectedOrderableItems = selectedItems.filter((item) => {
+    const payload = item.entry.recommendation?.actionPayload;
+    return payload?.actionType === "create_purchase_order";
+  });
+  const selectedPayloads = selectedOrderableItems.flatMap((item) => {
+    const payload = item.entry.recommendation?.actionPayload;
+    return payload?.actionType === "create_purchase_order" ? [payload] : [];
+  });
+  const selectedSuppliers = new Set(
+    selectedOrderableItems.map((item) => item.supplierName)
+  ).size;
+  const selectedBlockedCount = selectedItems.length - selectedOrderableItems.length;
+  const daysCoverSortIcon =
+    sort === "days-cover-desc" ? ArrowDown01Icon : ArrowUp01Icon;
 
   return (
     <div className="space-y-5">
@@ -1699,10 +1755,23 @@ function ReplenishmentPlanningView({
           ))}
         </ToggleGroup>
         <div className="flex-1" />
-        <Button type="button" variant="outline" size="sm">
+        <Button
+          type="button"
+          variant={sort === "priority" ? "outline" : "secondary"}
+          size="sm"
+          onClick={() =>
+            onSortChange(
+              sort === "days-cover-asc"
+                ? "days-cover-desc"
+                : sort === "days-cover-desc"
+                  ? "priority"
+                  : "days-cover-asc"
+            )
+          }
+        >
           <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
           Days of cover
-          <HugeiconsIcon icon={ArrowDown01Icon} data-icon="inline-end" />
+          <HugeiconsIcon icon={daysCoverSortIcon} data-icon="inline-end" />
         </Button>
         <Button
           type="button"
@@ -1826,7 +1895,13 @@ function ReplenishmentPlanningView({
             <b>{selectedIds.size}</b> materials selected
           </span>
           <span className="opacity-60">·</span>
-          <span>{formatCount(selectedSuppliers, "supplier")}</span>
+          <span>{formatCount(selectedPayloads.length, "orderable material")}</span>
+          {selectedBlockedCount > 0 ? (
+            <>
+              <span className="opacity-60">·</span>
+              <span>{selectedBlockedCount} need setup</span>
+            </>
+          ) : null}
           <Button type="button" variant="ghost" size="sm" onClick={onClearSelected}>
             Clear
           </Button>
@@ -2565,6 +2640,8 @@ export function PlanningWorkspace({
   const [activeTab, setActiveTab] = useState<PlanningTab>("production");
   const [replenishmentFilter, setReplenishmentFilter] =
     useState<ReplenishmentFilter>("all");
+  const [replenishmentSort, setReplenishmentSort] =
+    useState<ReplenishmentSort>("priority");
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -2854,9 +2931,11 @@ export function PlanningWorkspace({
         <ReplenishmentPlanningView
           items={replenishmentItems}
           filter={replenishmentFilter}
+          sort={replenishmentSort}
           search={search}
           onSearchChange={setSearch}
           onFilterChange={setReplenishmentFilter}
+          onSortChange={setReplenishmentSort}
           selectedIds={selectedMaterialIds}
           onToggleSelected={toggleSelectedMaterial}
           onClearSelected={() => setSelectedMaterialIds(new Set())}

@@ -19,7 +19,7 @@ import type {
   CreatePlanningManufacturingOrderDraft,
   CreatePlanningPurchaseOrderDraft,
 } from "@/lib/schemas/planning";
-import { buildPlanningSnapshotInTx, getPlanningSnapshot } from "./service";
+import { buildPlanningSnapshotInTx } from "./service";
 import type { PlanningRecommendation, PlanningSnapshot } from "./types";
 
 export class PlanningError extends DomainError {
@@ -346,78 +346,4 @@ export async function createManufacturingOrderDraftFromPlanning(
       confirmShortage: false,
     });
   });
-}
-
-export async function autoPlanDraftsFromPlanning() {
-  const snapshot = await getPlanningSnapshot();
-  const blockedParentItemIds = new Set(
-    snapshot.productionBlockerFacts.map((fact) => fact.parentItemId)
-  );
-  const created: Array<{
-    recommendationId: string;
-    actionType: "create_purchase_order" | "create_manufacturing_order";
-    id: string;
-  }> = [];
-  const skipped: Array<{
-    recommendationId: string;
-    itemId: string;
-    reason: string;
-  }> = [];
-
-  for (const recommendation of snapshot.recommendations) {
-    if (!recommendation.actionPayload) {
-      skipped.push({
-        recommendationId: recommendation.id,
-        itemId: recommendation.itemId,
-        reason: "No safe draft action is available.",
-      });
-      continue;
-    }
-
-    if (
-      recommendation.warnings.length > 0 ||
-      blockedParentItemIds.has(recommendation.itemId)
-    ) {
-      skipped.push({
-        recommendationId: recommendation.id,
-        itemId: recommendation.itemId,
-        reason: "Review blockers before auto-planning this item.",
-      });
-      continue;
-    }
-
-    try {
-      if (recommendation.actionPayload.actionType === "create_purchase_order") {
-        const order = await createPurchaseOrderDraftFromPlanning(
-          recommendation.actionPayload
-        );
-        created.push({
-          recommendationId: recommendation.id,
-          actionType: "create_purchase_order",
-          id: order.id,
-        });
-        continue;
-      }
-
-      const order = await createManufacturingOrderDraftFromPlanning(
-        recommendation.actionPayload
-      );
-      created.push({
-        recommendationId: recommendation.id,
-        actionType: "create_manufacturing_order",
-        id: order.id,
-      });
-    } catch (error) {
-      skipped.push({
-        recommendationId: recommendation.id,
-        itemId: recommendation.itemId,
-        reason:
-          error instanceof Error
-            ? error.message
-            : "Planning recommendation could not be drafted.",
-      });
-    }
-  }
-
-  return { created, skipped };
 }

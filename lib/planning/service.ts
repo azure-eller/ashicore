@@ -1136,7 +1136,7 @@ function computeReplenishmentMetadata(args: {
   item: PlanningItemRecord;
   itemDemandFacts: DemandFact[];
   itemSupplyFacts: SupplyFact[];
-  availableStock: number;
+  onHandStock: number;
   shortageQuantity: number;
   supplierSuggestion: SupplierSuggestion | undefined;
   leadTimeHistory: LeadTimeHistory | undefined;
@@ -1167,7 +1167,7 @@ function computeReplenishmentMetadata(args: {
   const hasUndatedDemand = args.itemDemandFacts.some(
     (fact) => fact.requiredDate == null && toQuantity(fact.quantity) > 0
   );
-  let projected = args.availableStock;
+  let projected = args.onHandStock;
   let crossingDate: string | null = projected <= Math.max(reorderThreshold, 0) ? args.horizonStart : null;
 
   for (const event of events) {
@@ -1211,7 +1211,7 @@ function computeReplenishmentMetadata(args: {
       ? args.shortageQuantity
       : demandWithinWindow(args.itemDemandFacts, windowEnd) +
         reorderThreshold -
-        args.availableStock -
+        args.onHandStock -
         supplyWithinWindow(args.itemSupplyFacts, windowEnd);
   const roundedSuggestion = applyOrderRounding({
     stockQuantity: Math.max(args.shortageQuantity, targetQuantity),
@@ -1327,7 +1327,7 @@ function buildPlanningRows(args: {
       item,
       itemDemandFacts,
       itemSupplyFacts,
-      availableStock,
+      onHandStock: onHandQuantity,
       shortageQuantity,
       supplierSuggestion,
       leadTimeHistory: args.leadTimeHistory.get(item.id),
@@ -1356,12 +1356,17 @@ function buildPlanningRows(args: {
             expectedBatchYield: null,
             plannedBatchCount: null,
           };
+    const missingProductionLeadTime =
+      planningType === "make" &&
+      shortageQuantity > 0 &&
+      production.productionLeadTimeDays == null;
     const reasonCodes = uniqueReasonCodes([
       ...itemDemandFacts.flatMap((fact) => fact.reasonCodes),
       ...itemSupplyFacts.flatMap((fact) => fact.reasonCodes),
       ...(onHandQuantity > 0 ? ["inventory_available" as const] : []),
       ...(reservedQuantity > 0 ? ["reserved_stock" as const] : []),
       shortageQuantity > 0 ? "projected_shortage" : "no_shortage",
+      ...(missingProductionLeadTime ? ["missing_production_lead_time" as const] : []),
       ...(!item.planningEnabled ? ["planning_disabled" as const] : []),
     ]);
     const hasSuggestedBuy =
@@ -1903,7 +1908,8 @@ function buildRecommendations(args: {
     if (row.planningType === "make") {
       const bom = args.bomByProductId.get(item.id);
       const hasBom = Boolean(bom && bom.components.length > 0);
-      const recommendationType = hasBom
+      const hasProductionLeadTime = row.productionLeadTimeDays != null;
+      const recommendationType = hasBom && hasProductionLeadTime
         ? "create_manufacturing_order"
         : "review_item_setup";
       const recommendationId = buildRecommendationId({
@@ -1912,16 +1918,28 @@ function buildRecommendations(args: {
         quantity: row.shortageQuantity,
         sourceRefs: row.sourceRefs,
       });
-      const warnings = hasBom
-        ? []
-        : [
-            warningForRow({
-              code: "missing_bom",
-              itemId: item.id,
-              sourceRefs: row.sourceRefs,
-              message: `${item.name} needs a current BOM before planning can draft a manufacturing order.`,
-            }),
-          ];
+      const warnings = [
+        ...(!hasBom
+          ? [
+              warningForRow({
+                code: "missing_bom" as const,
+                itemId: item.id,
+                sourceRefs: row.sourceRefs,
+                message: `${item.name} needs a current BOM before planning can draft a manufacturing order.`,
+              }),
+            ]
+          : []),
+        ...(!hasProductionLeadTime
+          ? [
+              warningForRow({
+                code: "missing_production_lead_time" as const,
+                itemId: item.id,
+                sourceRefs: row.sourceRefs,
+                message: `${item.name} needs production lead time before planning can draft a manufacturing order.`,
+              }),
+            ]
+          : []),
+      ];
 
       rowRecommendationIdByItem.set(item.id, recommendationId);
       recommendations.push({
@@ -1937,11 +1955,14 @@ function buildRecommendations(args: {
           ...row.reasonCodes,
           "make_item",
           ...(hasBom ? [] : ["missing_bom" as const]),
+          ...(hasProductionLeadTime
+            ? []
+            : ["missing_production_lead_time" as const]),
         ]),
         sourceRefs: row.sourceRefs,
         warnings,
         actionPayload:
-          hasBom && bom
+          hasBom && hasProductionLeadTime && bom
             ? {
                 actionType: "create_manufacturing_order",
                 inputHash: args.inputHash,
