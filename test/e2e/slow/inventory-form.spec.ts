@@ -315,9 +315,7 @@ test.describe("Inventory creation flow", () => {
 
     await page.locator("dd span.text-destructive").focus();
     await expect(
-      page.getByText(
-        "Calculated stock is below zero, so this item is below its safety stock threshold."
-      )
+      page.getByText("Below safety stock after demand and expected supply.")
     ).toBeVisible();
   });
 

@@ -600,9 +600,7 @@ test.describe("Sales order flow", () => {
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
     await oversellDialog.getByText("Reserved", { exact: true }).hover();
-    await expect(
-      page.getByText("Available stock already hard-reserved.")
-    ).toBeVisible();
+    await expect(page.getByText("Stock already reserved.")).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 
     await expect
@@ -663,9 +661,7 @@ test.describe("Sales order flow", () => {
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
     await oversellDialog.getByText("Reserved", { exact: true }).hover();
-    await expect(
-      page.getByText("Available stock already hard-reserved.")
-    ).toBeVisible();
+    await expect(page.getByText("Stock already reserved.")).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).scrollIntoViewIfNeeded();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 
@@ -812,14 +808,10 @@ test.describe("Sales order flow", () => {
     const disabledRow = page.getByRole("row", {
       name: new RegExp(noManufacturingOrderNumber),
     });
-    const rowCreateButton = disabledRow.getByRole("button", {
+    await expect(disabledRow.getByRole("button", {
       name: "Create MOs",
-    });
-    await expect(rowCreateButton).toBeDisabled();
-    await expect(rowCreateButton).toHaveAttribute(
-      "data-disabled-reason",
-      "No active BOM-backed products remain on this order."
-    );
+    })).toHaveCount(0);
+    await expect(disabledRow.getByRole("link", { name: "Create MOs" })).toHaveCount(0);
 
     await updateSalesOrderStatus(noManufacturingOrderId, "cancelled");
 
