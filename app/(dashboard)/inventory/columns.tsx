@@ -75,6 +75,10 @@ function getInventoryAttention(row: ItemRow): InventoryAttention | null {
 }
 
 function MarginBadge({ row }: { row: ItemRow }) {
+  if (row.isMaster) {
+    return "—";
+  }
+
   if (row.marginPercent == null || row.marginTier == null) {
     return "—";
   }
