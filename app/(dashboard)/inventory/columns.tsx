@@ -1,12 +1,12 @@
 "use client";
 
-import { type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, type FilterFn } from "@tanstack/react-table";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
+import { FilterableHeader } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -32,6 +32,20 @@ import { ITEM_TYPE_SEGMENTS } from "./types";
 type InventoryAttention = {
   label: string;
   tooltip: string;
+};
+
+const categoryFilter: FilterFn<ItemRow> = (row, columnId, filterValue) => {
+  const selected = Array.isArray(filterValue) ? filterValue : [];
+  if (selected.length === 0) return true;
+
+  const ownCategory = row.getValue(columnId) as string | null;
+  if (ownCategory != null && selected.includes(ownCategory)) {
+    return true;
+  }
+
+  return row.original.subRows?.some((subRow) =>
+    subRow.category != null && selected.includes(subRow.category)
+  ) ?? false;
 };
 
 function getInventoryAttention(row: ItemRow): InventoryAttention | null {
@@ -185,7 +199,7 @@ export function getColumns(
     {
       accessorKey: "category",
       header: ({ column }) => <FilterableHeader column={column} label="Category" />,
-      filterFn: multiValueFilter,
+      filterFn: categoryFilter,
       cell: ({ row, column }) => {
         const value = row.getValue("category") as string | null;
         if (!value) return "—";

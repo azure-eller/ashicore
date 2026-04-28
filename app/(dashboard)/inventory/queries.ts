@@ -195,6 +195,21 @@ function calculateMarginPercent(
   return normalizeNumericScale(((sellingPrice - cost) / sellingPrice) * 100, 1);
 }
 
+function formatMarginRange(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const formattedMin = normalizeNumericScale(min, 1);
+  const formattedMax = normalizeNumericScale(max, 1);
+
+  return formattedMin === formattedMax
+    ? formattedMin
+    : `${formattedMin}-${formattedMax}`;
+}
+
 function applyMarginTiers(rows: ItemRow[]) {
   const allRows = rows.flatMap((row) => [row, ...(row.subRows ?? [])]);
   const marginValues = allRows
@@ -956,13 +971,7 @@ export async function getItems(filters?: {
               .filter((value): value is string => value != null)
               .map((value) => Number.parseFloat(value))
               .filter((value) => Number.isFinite(value));
-            const avgMargin = knownVariantMargins.length > 0
-              ? normalizeNumericScale(
-                  knownVariantMargins.reduce((sum, value) => sum + value, 0) /
-                    knownVariantMargins.length,
-                  1,
-                )
-              : null;
+            const marginRange = formatMarginRange(knownVariantMargins);
             const knownVariantCosts = visibleVariants
               .map((variant) => materialCostByProductId.get(variant.id))
               .filter((value): value is string => value != null)
@@ -989,13 +998,13 @@ export async function getItems(filters?: {
               expectedQty,
               safetyStock,
               currentStockUnitCost: null,
-              unit: row.unit ?? null,
-              unitSize: row.unitSize ?? null,
-              unitUom: row.unitUom ?? null,
-              category: row.category,
+              unit: null,
+              unitSize: null,
+              unitUom: null,
+              category: "Soil Blend",
               potential: row.potential,
               materialCost: avgMaterialCost,
-              marginPercent: avgMargin,
+              marginPercent: marginRange,
               marginTier: null,
               isMaster: true,
               parentId: null,
