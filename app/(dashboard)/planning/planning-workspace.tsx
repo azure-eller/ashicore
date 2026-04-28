@@ -230,6 +230,13 @@ function itemUnit(row: PlanningItemRow) {
   return row.item.unitName ?? row.item.unitUom;
 }
 
+const drawerTextWrapClass =
+  "min-w-0 !whitespace-normal break-words [overflow-wrap:anywhere]";
+const drawerNumericWrapClass = cn(
+  drawerTextWrapClass,
+  "text-right tabular-nums"
+);
+
 function planningRowKey(row: OperationalRow) {
   return `item:${row.row.item.id}`;
 }
@@ -963,11 +970,11 @@ function DrawerSummary({
       {items.map((item, index) => (
         <div
           key={item.label}
-          className={`p-3 ${index > 0 ? "border-t sm:border-l sm:border-t-0" : ""}`}
+          className={`min-w-0 p-3 ${index > 0 ? "border-t sm:border-l sm:border-t-0" : ""}`}
         >
           <div className="text-xs text-muted-foreground">{item.label}</div>
           <div
-            className={`mt-1 font-mono text-sm tabular-nums ${
+            className={`mt-1 min-w-0 font-mono text-sm tabular-nums break-words [overflow-wrap:anywhere] ${
               item.tone === "danger" ? "text-destructive" : ""
             }`}
           >
@@ -2062,24 +2069,28 @@ function DemandLinesTable({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="min-w-0 flex flex-col gap-2">
       <h2 className="text-sm font-medium">Needed for</h2>
-      <Table>
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>Sales order</TableHead>
-            <TableHead className="text-right">Qty</TableHead>
-            <TableHead>Needed by</TableHead>
+            <TableHead className="w-[52%]">Sales order</TableHead>
+            <TableHead className="w-[28%] text-right">Qty</TableHead>
+            <TableHead className="w-[20%]">Needed by</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {salesOrderRefs.slice(0, 6).map((ref) => (
             <TableRow key={sourceRefKey(ref)}>
-              <TableCell className="font-medium">{ref.label}</TableCell>
-              <TableCell className="text-right">
+              <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
+                {ref.label}
+              </TableCell>
+              <TableCell className={drawerNumericWrapClass}>
                 {formatQuantityWithUnit(ref.quantity, itemUnit(row))}
               </TableCell>
-              <TableCell>{formatShortDate(ref.date ?? null)}</TableCell>
+              <TableCell className={drawerTextWrapClass}>
+                {formatShortDate(ref.date ?? null)}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -2105,36 +2116,36 @@ function ProductionBlockersList({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="min-w-0 flex flex-col gap-2">
       <h2 className="text-sm font-medium">
         {blockers.length} {blockers.length === 1 ? "blocker" : "blockers"}
       </h2>
-      <Table>
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>Constraint</TableHead>
-            <TableHead className="text-right">Required</TableHead>
-            <TableHead className="text-right">Short</TableHead>
-            <TableHead>Needed by</TableHead>
+            <TableHead className="w-[34%]">Constraint</TableHead>
+            <TableHead className="w-[24%] text-right">Required</TableHead>
+            <TableHead className="w-[22%] text-right">Short</TableHead>
+            <TableHead className="w-[20%]">Needed by</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {blockers.map((blocker) => (
             <TableRow key={blocker.id}>
-              <TableCell className="font-medium">
+              <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
                 {blocker.componentItemName ?? productionBlockerLabel(planningRow)}
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className={drawerNumericWrapClass}>
                 {blocker.requiredQuantity
                   ? formatQuantityWithUnit(blocker.requiredQuantity, blocker.componentUnitName)
                   : "—"}
               </TableCell>
-              <TableCell className="text-right">
+              <TableCell className={drawerNumericWrapClass}>
                 {blocker.shortageQuantity
                   ? formatQuantityWithUnit(blocker.shortageQuantity, blocker.componentUnitName)
                   : "—"}
               </TableCell>
-              <TableCell>
+              <TableCell className={drawerTextWrapClass}>
                 {formatShortDate(blocker.earliestRequiredDate)}
               </TableCell>
             </TableRow>
@@ -2169,7 +2180,7 @@ function PlanningRowDrawerContent({
     planningRow.productionBlockers.length > 0;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="min-w-0 flex flex-col gap-5">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           {showProblemBadge ? (
@@ -2349,28 +2360,32 @@ function BuyGroupDrawerContent({
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="min-w-0 flex flex-col gap-2">
         <h2 className="text-sm font-medium">Lines</h2>
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead>Item</TableHead>
-              <TableHead className="text-right">Need</TableHead>
-              <TableHead>Needed by</TableHead>
-              <TableHead>Needed for</TableHead>
+              <TableHead className="w-[30%]">Item</TableHead>
+              <TableHead className="w-[24%] text-right">Need</TableHead>
+              <TableHead className="w-[20%]">Needed by</TableHead>
+              <TableHead className="w-[26%]">Needed for</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {group.rows.map((entry) => (
               <TableRow key={entry.row.item.id}>
-                <TableCell className="font-medium">{entry.row.item.name}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
+                  {entry.row.item.name}
+                </TableCell>
+                <TableCell className={drawerNumericWrapClass}>
                   {formatRowQuantity(entry.row, entry.row.shortageQuantity)}
                 </TableCell>
-                <TableCell>
+                <TableCell className={drawerTextWrapClass}>
                   <NeededByCell value={entry.row.earliestRequiredDate} />
                 </TableCell>
-                <TableCell>{entry.neededFor}</TableCell>
+                <TableCell className={drawerTextWrapClass}>
+                  {entry.neededFor}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -2503,13 +2518,13 @@ function PlanningDetailDrawer({
         if (!open) onClose();
       }}
     >
-      <SheetContent className={`w-full gap-0 ${sheetWidthClass}`}>
-        <SheetHeader>
+      <SheetContent className={cn("w-full gap-0 overflow-hidden", sheetWidthClass)}>
+        <SheetHeader className="min-w-0">
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="p-4">
+        <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <div className="min-w-0 p-4">
             {buyGroup ? (
               <BuyGroupDrawerContent
                 group={buyGroup}
