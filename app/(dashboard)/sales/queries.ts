@@ -1902,6 +1902,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             id: salesOrders.id,
             orderNumber: salesOrders.orderNumber,
             customerName: salesOrders.customerName,
+            customerEmail: customers.email,
             status: salesOrders.status,
             requestedDate: salesOrders.requestedDate,
             shippedAt: salesOrders.shippedAt,
@@ -1911,6 +1912,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             updatedAt: salesOrders.updatedAt,
           })
           .from(salesOrders)
+          .leftJoin(customers, eq(salesOrders.customerId, customers.id))
           .where(isNull(salesOrders.deletedAt))
           .orderBy(desc(salesOrders.createdAt));
 

@@ -140,6 +140,7 @@ export type SalesOrderListRow = {
   id: string;
   orderNumber: string;
   customerName: string;
+  customerEmail: string | null;
   status: SalesOrderStatus;
   requestedDate: string | null;
   shippedAt: Date | null;
