@@ -156,7 +156,7 @@ type ReplenishmentItem = {
   entry: OperationalRow;
   status: "order-now" | "order-soon" | "stocked" | "unknown";
   supplierName: string;
-  onHand: number;
+  projectedStock: number;
   safetyStock: number;
   suggestedQuantity: string | null;
   daysCover: number | null;
@@ -857,15 +857,26 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
       const shortage = toQuantity(entry.row.shortageQuantity);
       const available = Math.max(0, toQuantity(entry.row.availableStock));
       const safetyStock = Math.max(0, toQuantity(entry.row.safetyStock));
+      const nonSafetyDemand = Math.max(
+        0,
+        toQuantity(entry.row.demandQuantity) - safetyStock
+      );
+      const expectedSupply =
+        toQuantity(entry.row.incomingPurchaseOrderQuantity) +
+        toQuantity(entry.row.incomingManufacturingOrderQuantity);
+      const projectedStock = Math.max(
+        0,
+        available + expectedSupply - nonSafetyDemand
+      );
       const status: ReplenishmentItem["status"] =
-        entry.row.daysOfCoverStatus === "order_now"
+        shortage > 0
           ? "order-now"
-          : entry.row.daysOfCoverStatus === "order_soon"
-            ? "order-soon"
-            : entry.row.daysOfCoverStatus === "stocked"
-              ? "stocked"
-              : shortage > 0
-                ? "order-now"
+          : entry.row.daysOfCoverStatus === "order_now"
+            ? "order-now"
+            : entry.row.daysOfCoverStatus === "order_soon"
+              ? "order-soon"
+              : entry.row.daysOfCoverStatus === "stocked"
+                ? "stocked"
                 : "unknown";
 
       return {
@@ -875,7 +886,7 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
           entry.row.preferredSupplierName ??
           entry.recommendation?.suggestedSupplierName ??
           "Supplier needed",
-        onHand: available,
+        projectedStock,
         safetyStock,
         suggestedQuantity: entry.row.suggestedOrderQuantity,
         daysCover: entry.row.daysOfCover,
@@ -1629,8 +1640,8 @@ function StatusChip({ status }: { status: ReplenishmentItem["status"] }) {
 }
 
 function StockMeter({ item }: { item: ReplenishmentItem }) {
-  const max = Math.max(item.onHand, item.safetyStock * 2, 1);
-  const fillPct = Math.min(100, (item.onHand / max) * 100);
+  const max = Math.max(item.projectedStock, item.safetyStock * 2, 1);
+  const fillPct = Math.min(100, (item.projectedStock / max) * 100);
   const markerPct = Math.min(100, (item.safetyStock / max) * 100);
   const fillClass =
     item.status === "order-now"
@@ -1654,7 +1665,7 @@ function StockMeter({ item }: { item: ReplenishmentItem }) {
       <div className="flex justify-between gap-3 text-[0.68rem] text-muted-foreground">
         <span className="font-mono tabular-nums">
           <b className="text-foreground">
-            {formatPurchaseQuantity(item.entry.row, String(item.onHand))}
+            {formatPurchaseQuantity(item.entry.row, String(item.projectedStock))}
           </b>
         </span>
         <span>safety {formatPurchaseQuantity(item.entry.row, String(item.safetyStock))}</span>
@@ -1737,14 +1748,14 @@ function ReplenishmentPlanningView({
           {
             label: "Order now",
             value: String(orderNow.length),
-            suffix: "at or below safety stock",
+            suffix: "projected at safety stock",
             icon: Alert01Icon,
             danger: orderNow.length > 0,
           },
           {
             label: "Order soon",
             value: String(orderSoon.length),
-            suffix: "approaching safety stock",
+            suffix: "projected near safety stock",
             icon: Calendar01Icon,
           },
           {
@@ -1850,7 +1861,7 @@ function ReplenishmentPlanningView({
               <TableHead>Status</TableHead>
               <TableHead>
                 <TooltipHeader
-                  label="Stock vs safety"
+                  label="Projected vs safety"
                   tooltip={PLANNING_REORDER_COMPARISON_TOOLTIP}
                 />
               </TableHead>

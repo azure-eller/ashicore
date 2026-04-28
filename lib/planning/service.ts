@@ -1222,6 +1222,7 @@ function computeReplenishmentMetadata(args: {
     windowEnd == null
       ? args.shortageQuantity
       : demandWithinWindow(args.itemDemandFacts, windowEnd) +
+        safetyStockThreshold -
         args.onHandStock -
         supplyWithinWindow(args.itemSupplyFacts, windowEnd);
   const roundedSuggestion = applyOrderRounding({
