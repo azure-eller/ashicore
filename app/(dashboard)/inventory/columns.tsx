@@ -1,6 +1,5 @@
 "use client";
 
-import { type ReactNode } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -16,80 +15,72 @@ import {
 } from "@/components/ui/tooltip";
 import {
   AVAILABLE_QTY_TOOLTIP,
-  BACKORDER_QTY_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
-  CALCULATED_STOCK_TOOLTIP,
-  DEMAND_QTY_TOOLTIP,
   NOT_SELLABLE_TOOLTIP,
   POTENTIAL_TOOLTIP,
-  RESERVATION_STATUS_TOOLTIP,
-  RESERVED_QTY_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatQuantity } from "@/lib/format";
 import { calcStock } from "./types";
 import type { InventoryProductView, ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
-function ReservationStatusBadge({ row }: { row: ItemRow }) {
+type InventoryStatus = {
+  label: string;
+  rank: number;
+  variant: "destructive" | "warning" | "outline" | "secondary";
+};
+
+function getInventoryStatus(row: ItemRow): InventoryStatus {
   const demand = parseFloat(row.demandQty);
   const reserved = parseFloat(row.committedQty);
   const shortage = parseFloat(row.shortageQty);
+  const calculatedStock = calcStock(row);
 
-  if (demand <= 0) {
-    return null;
+  if (shortage > 0) {
+    return {
+      label: "Backordered",
+      rank: 0,
+      variant: "destructive",
+    };
   }
 
-  let badge: ReactNode;
-  let tooltip: string;
-
-  if (shortage <= 0) {
-    badge = (
-      <Badge variant="secondary" className="text-xs">
-        Fully reserved
-      </Badge>
-    );
-    tooltip = RESERVATION_STATUS_TOOLTIP.fully;
-  } else if (reserved > 0) {
-    badge = (
-      <Badge variant="outline" className="text-xs">
-        Partially reserved
-      </Badge>
-    );
-    tooltip = RESERVATION_STATUS_TOOLTIP.partial;
-  } else {
-    badge = (
-      <Badge variant="destructive" className="text-xs">
-        Backordered
-      </Badge>
-    );
-    tooltip = RESERVATION_STATUS_TOOLTIP.backordered;
+  if (calculatedStock < 0) {
+    return {
+      label: "Below safety",
+      rank: 1,
+      variant: "warning",
+    };
   }
 
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
-      <TooltipContent side="top">{tooltip}</TooltipContent>
-    </Tooltip>
-  );
+  if (demand > 0 && reserved > 0 && reserved < demand) {
+    return {
+      label: "Partially reserved",
+      rank: 2,
+      variant: "outline",
+    };
+  }
+
+  if (demand > 0) {
+    return {
+      label: "Reserved",
+      rank: 3,
+      variant: "secondary",
+    };
+  }
+
+  return {
+    label: "OK",
+    rank: 4,
+    variant: "secondary",
+  };
 }
 
-function MarginBadge({ row }: { row: ItemRow }) {
-  if (row.marginPercent == null || row.marginTier == null) {
-    return "—";
-  }
-
-  const variant =
-    row.marginTier === "negative"
-      ? "destructive"
-      : row.marginTier === "low"
-        ? "warning"
-        : row.marginTier === "high"
-          ? "success"
-          : "secondary";
+function InventoryStatusBadge({ row }: { row: ItemRow }) {
+  const status = getInventoryStatus(row);
 
   return (
-    <Badge variant={variant} className="font-mono text-xs">
-      {row.marginPercent}%
+    <Badge variant={status.variant} className="text-xs">
+      {status.label}
     </Badge>
   );
 }
@@ -130,7 +121,8 @@ export function getColumns(
       cell: ({ row }) => {
         const { isMaster, parentId, variantCount, variantAttrs, sellable } = row.original;
         const isVariant = parentId != null;
-        const isLow = !isMaster && calcStock(row.original) < 0;
+        const status = getInventoryStatus(row.original);
+        const showAttentionIndicator = !isMaster && status.rank <= 1;
 
         if (row.depth > 0 && !isSubAssemblies) {
           const attrValues = variantAttrs
@@ -163,16 +155,18 @@ export function getColumns(
                 />
               </button>
             ) : null}
-            {isLow ? (
+            {showAttentionIndicator ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className="h-2 w-2 shrink-0 cursor-default rounded-full bg-destructive"
-                    aria-label="Below safety stock"
+                    className="size-2 shrink-0 cursor-default rounded-full bg-destructive"
+                    aria-label={status.label}
                   />
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  {CALCULATED_STOCK_ALERT_TOOLTIP}
+                  {status.label === "Backordered"
+                    ? "Accepted demand is not fully reserved."
+                    : CALCULATED_STOCK_ALERT_TOOLTIP}
                 </TooltipContent>
               </Tooltip>
             ) : null}
@@ -198,7 +192,6 @@ export function getColumns(
                 <TooltipContent side="top">{NOT_SELLABLE_TOOLTIP}</TooltipContent>
               </Tooltip>
             ) : null}
-            <ReservationStatusBadge row={row.original} />
           </div>
         );
       },
@@ -249,88 +242,16 @@ export function getColumns(
       cell: ({ row }) => formatQuantity(row.getValue("availableQty")),
     },
     {
-      accessorKey: "committedQty",
+      id: "status",
+      accessorFn: (row) => getInventoryStatus(row).rank,
       sortDescFirst: false,
       sortingFn: (rowA, rowB) =>
-        parseFloat(rowA.getValue("committedQty")) -
-        parseFloat(rowB.getValue("committedQty")),
-      header: ({ column }) => (
-        <SortableHeader column={column} label="Reserved" tooltip={RESERVED_QTY_TOOLTIP} />
-      ),
-      cell: ({ row }) => formatQuantity(row.getValue("committedQty")),
-    },
-    {
-      accessorKey: "demandQty",
-      sortDescFirst: false,
-      sortingFn: (rowA, rowB) =>
-        parseFloat(rowA.getValue("demandQty")) -
-        parseFloat(rowB.getValue("demandQty")),
-      header: ({ column }) => (
-        <SortableHeader column={column} label="Demand" tooltip={DEMAND_QTY_TOOLTIP} />
-      ),
-      cell: ({ row }) => formatQuantity(row.getValue("demandQty")),
-    },
-    {
-      accessorKey: "shortageQty",
-      sortDescFirst: false,
-      sortingFn: (rowA, rowB) =>
-        parseFloat(rowA.getValue("shortageQty")) -
-        parseFloat(rowB.getValue("shortageQty")),
-      header: ({ column }) => (
-        <SortableHeader column={column} label="Backorder" tooltip={BACKORDER_QTY_TOOLTIP} />
-      ),
-      cell: ({ row }) => {
-        const value = row.getValue<string>("shortageQty");
-        return (
-          <span className={parseFloat(value) > 0 ? "text-destructive" : undefined}>
-            {formatQuantity(value)}
-          </span>
-        );
-      },
-    },
-    {
-      id: "calculatedStock",
-      accessorFn: (row) => calcStock(row),
-      sortDescFirst: false,
-      header: ({ column }) => (
-        <SortableHeader
-          column={column}
-          label="Calculated Stock"
-          tooltip={CALCULATED_STOCK_TOOLTIP}
-        />
-      ),
-      cell: ({ row }) => {
-        const value = row.getValue<number>("calculatedStock");
-        return (
-          <span className={value < 0 ? "text-destructive" : undefined}>
-            {value}
-          </span>
-        );
-      },
+        getInventoryStatus(rowA.original).rank - getInventoryStatus(rowB.original).rank,
+      header: ({ column }) => <SortableHeader column={column} label="Status" />,
+      cell: ({ row }) => <InventoryStatusBadge row={row.original} />,
     },
     ...(isProduct && !isSubAssemblies
       ? [
-          {
-            accessorKey: "marginPercent",
-            sortDescFirst: true,
-            sortingFn: (rowA, rowB) => {
-              const a = rowA.original.marginPercent != null
-                ? parseFloat(rowA.original.marginPercent)
-                : Number.NEGATIVE_INFINITY;
-              const b = rowB.original.marginPercent != null
-                ? parseFloat(rowB.original.marginPercent)
-                : Number.NEGATIVE_INFINITY;
-              return a - b;
-            },
-            header: ({ column }) => (
-              <SortableHeader
-                column={column}
-                label="Margin"
-                tooltip="Selling price minus BOM cost, as a percent of selling price."
-              />
-            ),
-            cell: ({ row }) => <MarginBadge row={row.original} />,
-          } satisfies ColumnDef<ItemRow>,
           {
             accessorKey: "potential",
             sortDescFirst: false,
