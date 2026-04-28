@@ -60,6 +60,38 @@ type ActionError = {
   oversell?: OversellWarningPayload;
 };
 
+function getShipToLines(order: SalesOrderDetailType) {
+  return [
+    order.shipLine1,
+    order.shipLine2,
+    [order.shipCity, order.shipRegion, order.shipPostcode]
+      .filter(Boolean)
+      .join(", "),
+    order.shipCountry,
+  ].filter((line): line is string => Boolean(line));
+}
+
+function ShipToAddress({ order }: { order: SalesOrderDetailType }) {
+  const lines = getShipToLines(order);
+
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <div className="font-medium">Ship to</div>
+      {lines.length > 0 ? (
+        <div className="text-muted-foreground">
+          {lines.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-muted-foreground">
+          No ship-to address is saved on this order.
+        </div>
+      )}
+    </div>
+  );
+}
+
 type SyncDialogState = {
   title: string;
   description: string;
@@ -497,6 +529,7 @@ export function OrderDetail({
     order.xeroEmailStatus === "failed";
   const canCreateMOs = !isDeleted && order.status === "confirmed";
   const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
+  const canConfirmShipment = canShip && order.shippingReadiness.state === "ready";
 
   return (
     <>
@@ -596,13 +629,20 @@ export function OrderDetail({
               </Button>
             ) : null}
             {canShip ? (
-          <Button
-                size="sm"
-                onClick={() => setShipConfirmOpen(true)}
-                disabled={shipMutation.isPending}
-              >
-                {shipMutation.isPending ? "Shipping..." : "Ship"}
-              </Button>
+              canConfirmShipment ? (
+                <Button
+                  size="sm"
+                  onClick={() => setShipConfirmOpen(true)}
+                  disabled={shipMutation.isPending}
+                >
+                  {shipMutation.isPending ? "Shipping..." : "Ship"}
+                </Button>
+              ) : (
+                <DisabledTooltipButton
+                  label="Ship"
+                  tooltip={order.shippingReadiness.message}
+                />
+              )
             ) : null}
             {canCreateMOs &&
               (order.hasManufacturableLines ? (
@@ -628,6 +668,33 @@ export function OrderDetail({
         )}
 
         {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+
+        {(order.status === "confirmed" || order.status === "shipped") && (
+          <div className="flex flex-col gap-3 rounded-md border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold tracking-tight">Shipping</h2>
+              <Badge
+                variant={
+                  order.shippingReadiness.state === "ready"
+                    ? "default"
+                    : order.shippingReadiness.state === "shipped"
+                      ? "outline"
+                      : "secondary"
+                }
+              >
+                {order.shippingReadiness.message}
+              </Badge>
+            </div>
+            {order.shippingReadiness.blockers.length > 0 ? (
+              <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                {order.shippingReadiness.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            ) : null}
+            <ShipToAddress order={order} />
+          </div>
+        )}
 
         <AccountingSyncStatus
           document={accountingDocument}

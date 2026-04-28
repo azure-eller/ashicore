@@ -118,6 +118,24 @@ export type ManufacturingOrderListRow = {
   completedAt: Date | null;
 };
 
+export type ManufacturingExecutionQueueRow = {
+  id: string;
+  orderNumber: string;
+  productName: string;
+  productSku: string | null;
+  plannedQuantity: string;
+  actualQuantity: string | null;
+  unitName: string;
+  plannedDate: string | null;
+  manufacturingMode: string;
+  pickProgressStatus: ManufacturingPickProgressStatus;
+  nextBatchId: string | null;
+  nextBatchNumber: number | null;
+  completedBatchCount: number;
+  totalBatchCount: number;
+  actionLabel: string;
+};
+
 export type ManufacturingOrderIngredientDetail = {
   id: string;
   itemId: string;

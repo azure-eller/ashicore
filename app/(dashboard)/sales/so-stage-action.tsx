@@ -36,6 +36,7 @@ type Props = {
     | "lines"
     | "hasManufacturableLines"
     | "manufacturableDisabledReason"
+    | "shippingReadiness"
   >;
 };
 
@@ -308,44 +309,61 @@ export function SoStageAction({ order }: Props) {
   }
 
   if (order.status === "confirmed") {
+    const canShip = order.shippingReadiness.state === "ready";
+    const shouldCreateMOs = order.shippingReadiness.state === "needs_manufacturing";
+    const shouldWaitForProduction = order.shippingReadiness.state === "in_production";
+
     return (
-      <div className="flex items-center justify-end gap-2">
-        <div className="flex flex-col items-end gap-1">
-          <Button
-            size="sm"
-            disabled={shipMutation.isPending}
-            onClick={(event) => {
-              event.stopPropagation();
-              setShipConfirmOpen(true);
-            }}
-          >
-            {shipMutation.isPending ? "Shipping..." : "Ship"}
-          </Button>
-          {errorMessage ? (
-            <Link
-              href={`/sales/orders/${order.id}`}
-              className="max-w-xs text-xs text-destructive hover:underline"
-            >
-              {errorMessage}
-            </Link>
+      <>
+        <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-col items-end gap-1">
+            {canShip ? (
+              <Button
+                size="sm"
+                disabled={shipMutation.isPending}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShipConfirmOpen(true);
+                }}
+              >
+                {shipMutation.isPending ? "Shipping..." : "Ship"}
+              </Button>
+            ) : shouldWaitForProduction ? (
+              <DisabledTooltipButton
+                label="In production"
+                tooltip={order.shippingReadiness.message}
+              />
+            ) : (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/sales/orders/${order.id}`}>Review</Link>
+              </Button>
+            )}
+            {errorMessage ? (
+              <Link
+                href={`/sales/orders/${order.id}`}
+                className="max-w-xs text-xs text-destructive hover:underline"
+              >
+                {errorMessage}
+              </Link>
+            ) : null}
+          </div>
+          {shouldCreateMOs ? (
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={`/manufacturing/orders/new?salesOrderId=${order.id}`}>
+                Create MOs
+              </Link>
+            </Button>
+          ) : order.hasManufacturableLines ? (
+            <DisabledTooltipButton
+              label="Create MOs"
+              tooltip={
+                order.manufacturableDisabledReason ??
+                "No manufacturable lines remain on this order."
+              }
+              variant="ghost"
+            />
           ) : null}
         </div>
-        {order.hasManufacturableLines ? (
-          <Button variant="ghost" size="sm" asChild>
-            <Link href={`/manufacturing/orders/new?salesOrderId=${order.id}`}>
-              Create MOs
-            </Link>
-          </Button>
-        ) : (
-          <DisabledTooltipButton
-            label="Create MOs"
-            tooltip={
-              order.manufacturableDisabledReason ??
-              "No manufacturable lines remain on this order."
-            }
-            variant="ghost"
-          />
-        )}
         {syncDialog ? (
           <AccountingSyncDialog
             open
@@ -398,7 +416,7 @@ export function SoStageAction({ order }: Props) {
           onOpenChange={setShipConfirmOpen}
           isPending={shipMutation.isPending}
         />
-      </div>
+      </>
     );
   }
 

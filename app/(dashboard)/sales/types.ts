@@ -136,6 +136,21 @@ export type SalesOrderListLine = {
   unitName: string;
 };
 
+export type SalesShippingReadinessState =
+  | "not_confirmed"
+  | "needs_manufacturing"
+  | "in_production"
+  | "insufficient_stock"
+  | "ready"
+  | "shipped"
+  | "cancelled";
+
+export type SalesShippingReadiness = {
+  state: SalesShippingReadinessState;
+  message: string;
+  blockers: string[];
+};
+
 export type SalesOrderListRow = {
   id: string;
   orderNumber: string;
@@ -150,6 +165,8 @@ export type SalesOrderListRow = {
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
+  openManufacturingOrderCount: number;
+  shippingReadiness: SalesShippingReadiness;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -209,6 +226,7 @@ export type SalesOrderDetail = {
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
+  shippingReadiness: SalesShippingReadiness;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

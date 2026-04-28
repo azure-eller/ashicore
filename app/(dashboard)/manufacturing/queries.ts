@@ -62,6 +62,7 @@ import type {
 } from "@/lib/schemas/manufacturing-orders";
 import type {
   ManufacturingExecutionDetail,
+  ManufacturingExecutionQueueRow,
   ManufacturingOrderDetail,
   ManufacturingOrderEditData,
   ManufacturingOrderIngredientDetail,
@@ -1167,6 +1168,47 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
       }),
     }
   );
+}
+
+export async function getManufacturingExecutionQueue(): Promise<
+  ManufacturingExecutionQueueRow[]
+> {
+  const orders = await getManufacturingOrders();
+
+  return orders
+    .filter((order) => order.status === "released")
+    .map((order) => {
+      const totalBatchCount = order.numberOfBatches ?? 0;
+      const nextBatchNumber =
+        order.manufacturingMode === "batch" && totalBatchCount > 0
+          ? Math.min(order.completedBatchCount + 1, totalBatchCount)
+          : null;
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        productName: order.productName,
+        productSku: order.productSku,
+        plannedQuantity: order.plannedQuantity,
+        actualQuantity: order.actualQuantity,
+        unitName: order.unitName,
+        plannedDate: order.plannedDate,
+        manufacturingMode: order.manufacturingMode,
+        pickProgressStatus: order.pickProgressStatus,
+        nextBatchId: null,
+        nextBatchNumber,
+        completedBatchCount: order.completedBatchCount,
+        totalBatchCount,
+        actionLabel:
+          order.manufacturingMode === "batch"
+            ? nextBatchNumber == null
+              ? "Continue"
+              : `Batch ${nextBatchNumber}`
+            : order.pickProgressStatus === "picked"
+              ? "Complete"
+              : "Pick",
+      };
+    });
 }
 
 export async function getManufacturingProductTemplates(): Promise<
