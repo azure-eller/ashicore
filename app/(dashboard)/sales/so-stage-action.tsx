@@ -7,6 +7,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Button } from "@/components/ui/button";
 import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { SalesOrderListRow } from "./types";
 
 type ActionError = {
@@ -18,7 +28,13 @@ type ActionError = {
 type Props = {
   order: Pick<
     SalesOrderListRow,
-    "id" | "status" | "hasManufacturableLines" | "manufacturableDisabledReason"
+    | "id"
+    | "orderNumber"
+    | "customerName"
+    | "status"
+    | "hasManufacturableLines"
+    | "manufacturableDisabledReason"
+    | "shippingReadiness"
   >;
 };
 
@@ -26,6 +42,7 @@ export function SoStageAction({ order }: Props) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [actionError, setActionError] = useState<ActionError | null>(null);
+  const [shipOpen, setShipOpen] = useState(false);
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
@@ -51,6 +68,7 @@ export function SoStageAction({ order }: Props) {
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
+      setShipOpen(false);
       router.refresh();
     },
     onError: (error: ActionError) => setActionError(error),
@@ -116,19 +134,35 @@ export function SoStageAction({ order }: Props) {
   }
 
   if (order.status === "confirmed") {
+    const canShip = order.shippingReadiness.state === "ready";
+    const shouldCreateMOs = order.shippingReadiness.state === "needs_manufacturing";
+    const shouldWaitForProduction = order.shippingReadiness.state === "in_production";
+
     return (
+      <>
       <div className="flex items-center justify-end gap-2">
         <div className="flex flex-col items-end gap-1">
-          <Button
-            size="sm"
-            disabled={shipMutation.isPending}
-            onClick={(event) => {
-              event.stopPropagation();
-              shipMutation.mutate();
-            }}
-          >
-            {shipMutation.isPending ? "Shipping..." : "Ship"}
-          </Button>
+          {canShip ? (
+            <Button
+              size="sm"
+              disabled={shipMutation.isPending}
+              onClick={(event) => {
+                event.stopPropagation();
+                setShipOpen(true);
+              }}
+            >
+              {shipMutation.isPending ? "Shipping..." : "Ship"}
+            </Button>
+          ) : shouldWaitForProduction ? (
+            <DisabledTooltipButton
+              label="In production"
+              tooltip={order.shippingReadiness.message}
+            />
+          ) : (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/sales/orders/${order.id}`}>Review</Link>
+            </Button>
+          )}
           {errorMessage ? (
             <Link
               href={`/sales/orders/${order.id}`}
@@ -138,13 +172,13 @@ export function SoStageAction({ order }: Props) {
             </Link>
           ) : null}
         </div>
-        {order.hasManufacturableLines ? (
+        {shouldCreateMOs ? (
           <Button variant="ghost" size="sm" asChild>
             <Link href={`/manufacturing/orders/new?salesOrderId=${order.id}`}>
               Create MOs
             </Link>
           </Button>
-        ) : (
+        ) : order.hasManufacturableLines ? (
           <DisabledTooltipButton
             label="Create MOs"
             tooltip={
@@ -153,8 +187,35 @@ export function SoStageAction({ order }: Props) {
             }
             variant="ghost"
           />
-        )}
+        ) : null}
       </div>
+      <AlertDialog open={shipOpen} onOpenChange={setShipOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ship {order.orderNumber}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Shipping consumes stock FIFO and marks this sales order shipped.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">{order.customerName}</span>
+            <span className="text-muted-foreground">{order.shippingReadiness.message}</span>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={shipMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!canShip || shipMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                shipMutation.mutate();
+              }}
+            >
+              {shipMutation.isPending ? "Shipping..." : "Ship order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      </>
     );
   }
 

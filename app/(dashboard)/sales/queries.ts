@@ -45,6 +45,7 @@ import {
   projectedExpectedQtyExpr,
   projectedOnHandQty,
   projectedOnHandQtyExpr,
+  projectedReservableOnHandQtyExpr,
   projectedShortageQty,
   reserveForSalesInTx,
 } from "@/lib/inventory/kernel";
@@ -85,6 +86,7 @@ import type {
   SalesLinePricingResult,
   SalesOrderListRow,
   SalesOrderItemOption,
+  SalesShippingReadiness,
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 
@@ -539,6 +541,83 @@ export class SalesError extends DomainError {
           : { error: this.message };
     return NextResponse.json(body, { status: this.status });
   }
+}
+
+type LinkedManufacturingStatus = Pick<
+  SalesOrderDetail["linkedManufacturingOrders"][number],
+  "orderNumber" | "status"
+>;
+
+function buildShippingReadiness({
+  status,
+  hasManufacturableLines,
+  linkedManufacturingOrders,
+  stockBlockers = [],
+}: {
+  status: SalesOrderDetail["status"] | SalesOrderListRow["status"];
+  hasManufacturableLines: boolean;
+  linkedManufacturingOrders: LinkedManufacturingStatus[];
+  stockBlockers?: string[];
+}): SalesShippingReadiness {
+  if (status === "shipped") {
+    return {
+      state: "shipped",
+      message: "Order has already shipped.",
+      blockers: [],
+    };
+  }
+
+  if (status === "cancelled") {
+    return {
+      state: "cancelled",
+      message: "Cancelled orders cannot be shipped.",
+      blockers: ["Order is cancelled"],
+    };
+  }
+
+  if (status !== "confirmed") {
+    return {
+      state: "not_confirmed",
+      message: "Confirm the order before shipping.",
+      blockers: ["Order is not confirmed"],
+    };
+  }
+
+  const openManufacturingOrders = linkedManufacturingOrders.filter(
+    (order) => order.status === "draft" || order.status === "released"
+  );
+
+  if (hasManufacturableLines) {
+    return {
+      state: "needs_manufacturing",
+      message: "Create manufacturing orders before shipping.",
+      blockers: ["Manufacturable sales lines are not linked to manufacturing orders"],
+    };
+  }
+
+  if (openManufacturingOrders.length > 0) {
+    return {
+      state: "in_production",
+      message: "Production is still open for this order.",
+      blockers: openManufacturingOrders.map(
+        (order) => `${order.orderNumber} is ${order.status.replace("_", " ")}`
+      ),
+    };
+  }
+
+  if (stockBlockers.length > 0) {
+    return {
+      state: "insufficient_stock",
+      message: "Stock is short for one or more lines.",
+      blockers: stockBlockers,
+    };
+  }
+
+  return {
+    state: "ready",
+    message: "Ready to ship.",
+    blockers: [],
+  };
 }
 
 function calcProjectedStock(values: {
@@ -1923,10 +2002,42 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           tx,
           orderIds
         );
+        const openManufacturingRows = await tx
+          .select({
+            salesOrderId: manufacturingOrders.salesOrderId,
+            orderNumber: manufacturingOrders.orderNumber,
+            status: manufacturingOrders.status,
+          })
+          .from(manufacturingOrders)
+          .where(
+            and(
+              inArray(manufacturingOrders.salesOrderId, orderIds),
+              isNull(manufacturingOrders.deletedAt),
+              inArray(manufacturingOrders.status, ["draft", "released"])
+            )
+          );
+        const openManufacturingBySalesOrderId = new Map<
+          string,
+          LinkedManufacturingStatus[]
+        >();
+
+        openManufacturingRows.forEach((row) => {
+          if (!row.salesOrderId) return;
+          const bucket = openManufacturingBySalesOrderId.get(row.salesOrderId) ?? [];
+          bucket.push({
+            orderNumber: row.orderNumber,
+            status: row.status as LinkedManufacturingStatus["status"],
+          });
+          openManufacturingBySalesOrderId.set(row.salesOrderId, bucket);
+        });
 
         return orderRows.map((order) => {
           const manufacturingSummary = manufacturingSummaries.get(order.id);
           const summaryLines = manufacturingSummary?.lines ?? [];
+          const hasManufacturableLines =
+            manufacturingSummary?.hasManufacturableLines ?? false;
+          const openManufacturingOrders =
+            openManufacturingBySalesOrderId.get(order.id) ?? [];
           return {
             ...order,
             status: order.status as SalesOrderListRow["status"],
@@ -1937,11 +2048,17 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               quantity: line.quantity,
               unitName: line.unitName,
             })),
-            hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
+            hasManufacturableLines,
             manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
             manufacturableDisabledReason:
               manufacturingSummary?.disabledReason ??
               "No manufacturable lines remain on this order.",
+            openManufacturingOrderCount: openManufacturingOrders.length,
+            shippingReadiness: buildShippingReadiness({
+              status: order.status as SalesOrderListRow["status"],
+              hasManufacturableLines,
+              linkedManufacturingOrders: openManufacturingOrders,
+            }),
           };
         });
       });
@@ -2029,6 +2146,9 @@ export async function getSalesOrder(
             - ${items.safetyStock}
           )`
         ).as("calcStock"),
+        reservableOnHandQty: trimScaleNullable(
+          projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+        ).as("reservableOnHandQty"),
         potential: trimScaleNullable(
           sql<string | null>`(
             CASE WHEN ${items.itemType} = 'product' AND EXISTS (
@@ -2103,19 +2223,42 @@ export async function getSalesOrder(
       )
       .orderBy(desc(manufacturingOrders.createdAt));
 
+    const hasManufacturableLines = manufacturingSummary?.hasManufacturableLines ?? false;
+    const linkedManufacturingOrderRows = linkedManufacturingOrders.map((row) => ({
+      ...row,
+      status: row.status as SalesOrderDetail["linkedManufacturingOrders"][number]["status"],
+    }));
+    const stockBlockers = lines.flatMap((line) => {
+      const reservableOnHandQty = Number(line.reservableOnHandQty ?? "0");
+      const quantity = Number(line.quantity);
+
+      if (!Number.isFinite(quantity) || reservableOnHandQty >= quantity) {
+        return [];
+      }
+
+      return [
+        `${line.itemName} needs ${formatQuantity(line.quantity)} ${line.unitName}; ${formatQuantity(
+          line.reservableOnHandQty ?? "0"
+        )} ${line.unitName} available`,
+      ];
+    });
+
     return {
       ...order,
       status: order.status as SalesOrderDetail["status"],
       xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
       lines: lines as SalesOrderDetailLine[],
-      hasManufacturableLines: manufacturingSummary?.hasManufacturableLines ?? false,
+      hasManufacturableLines,
       manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
       manufacturableDisabledReason:
         manufacturingSummary?.disabledReason ?? "No manufacturable lines remain on this order.",
-      linkedManufacturingOrders: linkedManufacturingOrders.map((row) => ({
-        ...row,
-        status: row.status as SalesOrderDetail["linkedManufacturingOrders"][number]["status"],
-      })),
+      shippingReadiness: buildShippingReadiness({
+        status: order.status as SalesOrderDetail["status"],
+        hasManufacturableLines,
+        linkedManufacturingOrders: linkedManufacturingOrderRows,
+        stockBlockers,
+      }),
+      linkedManufacturingOrders: linkedManufacturingOrderRows,
     };
   });
 }

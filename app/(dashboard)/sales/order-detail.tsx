@@ -51,6 +51,38 @@ type ActionError = {
   oversell?: OversellWarningPayload;
 };
 
+function getShipToLines(order: SalesOrderDetailType) {
+  return [
+    order.shipLine1,
+    order.shipLine2,
+    [order.shipCity, order.shipRegion, order.shipPostcode]
+      .filter(Boolean)
+      .join(", "),
+    order.shipCountry,
+  ].filter((line): line is string => Boolean(line));
+}
+
+function ShipToAddress({ order }: { order: SalesOrderDetailType }) {
+  const lines = getShipToLines(order);
+
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <div className="font-medium">Ship to</div>
+      {lines.length > 0 ? (
+        <div className="text-muted-foreground">
+          {lines.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-muted-foreground">
+          No ship-to address is saved on this order.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function OrderDetail({
   order,
   canViewLedger = false,
@@ -62,6 +94,7 @@ export function OrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [shipOpen, setShipOpen] = useState(false);
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -173,11 +206,15 @@ export function OrderDetail({
         throw new Error(body?.error ?? "Failed to ship order.");
       }
     },
+    onMutate: () => {
+      setActionError(null);
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
+      setShipOpen(false);
       router.refresh();
     },
     onError: (error) => {
@@ -222,6 +259,7 @@ export function OrderDetail({
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
   const canCreateMOs = !isDeleted && order.status === "confirmed";
   const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
+  const canConfirmShipment = canShip && order.shippingReadiness.state === "ready";
 
   return (
     <>
@@ -314,7 +352,7 @@ export function OrderDetail({
             {canShip ? (
               <Button
                 size="sm"
-                onClick={() => shipMutation.mutate()}
+                onClick={() => setShipOpen(true)}
                 disabled={shipMutation.isPending}
               >
                 {shipMutation.isPending ? "Shipping..." : "Ship"}
@@ -344,6 +382,33 @@ export function OrderDetail({
         )}
 
         {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+
+        {(order.status === "confirmed" || order.status === "shipped") && (
+          <div className="flex flex-col gap-3 rounded-md border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold tracking-tight">Shipping</h2>
+              <Badge
+                variant={
+                  order.shippingReadiness.state === "ready"
+                    ? "default"
+                    : order.shippingReadiness.state === "shipped"
+                      ? "outline"
+                      : "secondary"
+                }
+              >
+                {order.shippingReadiness.message}
+              </Badge>
+            </div>
+            {order.shippingReadiness.blockers.length > 0 ? (
+              <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                {order.shippingReadiness.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            ) : null}
+            <ShipToAddress order={order} />
+          </div>
+        )}
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
@@ -703,6 +768,56 @@ export function OrderDetail({
               onClick={() => cancelMutation.mutate()}
             >
               {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={shipOpen} onOpenChange={setShipOpen}>
+        <AlertDialogContent size="lg" className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ship {order.orderNumber}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Shipping consumes stock FIFO and marks this sales order shipped.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="flex flex-col gap-4 text-sm">
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">{order.shippingReadiness.message}</span>
+              {order.shippingReadiness.blockers.length > 0 ? (
+                <ul className="flex flex-col gap-1 text-muted-foreground">
+                  {order.shippingReadiness.blockers.map((blocker) => (
+                    <li key={blocker}>{blocker}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="font-medium">Customer</div>
+                <div className="text-muted-foreground">{order.customerName}</div>
+              </div>
+              <div>
+                <div className="font-medium">Lines</div>
+                <div className="text-muted-foreground">{order.lines.length}</div>
+              </div>
+            </div>
+
+            <ShipToAddress order={order} />
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={shipMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!canConfirmShipment || shipMutation.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                shipMutation.mutate();
+              }}
+            >
+              {shipMutation.isPending ? "Shipping..." : "Ship order"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
