@@ -5,11 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Table,
   TableBody,
@@ -19,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatPrice, formatQuantity } from "@/lib/format";
+import { POTENTIAL_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SalesOrderDetail } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
@@ -55,16 +52,7 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
             <TableHead className="text-xs">SKU</TableHead>
             <TableHead className="text-xs text-right">In Stock</TableHead>
             <TableHead className="text-xs text-right">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-4">
-                    Potential
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  How many units could be manufactured from current ingredient stock.
-                </TooltipContent>
-              </Tooltip>
+              <TooltipHeader label="Potential" tooltip={POTENTIAL_TOOLTIP} />
             </TableHead>
             <TableHead className="text-xs text-right">Unit Price</TableHead>
             <TableHead className="text-xs text-right">Line Total</TableHead>

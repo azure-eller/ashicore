@@ -213,20 +213,75 @@ Use semantic surface and text tokens on portal content. Do not hardcode `dark` o
 
 ## Tooltips
 
-Use tooltips sparingly. They are for short clarifications on computed terms, condensed labels, or alert indicators that need one extra sentence of context.
+Use tooltips sparingly. They clarify computed terms, domain jargon, alert indicators, and ambiguous icon-only actions — nothing else. Plain-English labels and self-evident actions stay tooltip-free.
 
-- Prefer the existing label, link, or status marker as the trigger
-- Do not add extra info icons if the UI already has a natural hover target
-- Keep tooltip copy to one short line
-- Skip tooltips on obvious labels and actions
+### When to add a tooltip
+
+Add one only if the trigger meets at least one of these:
+
+- **Computed term** — output of a formula or aggregation (Calculated Stock, Available, Reserved, Backorder, Expected, Potential, Committed, ATP, projected variants).
+- **Domain jargon** — an ERP term of art (Disposition, FIFO, Lot, Safety Stock, Released, Picked, Snapshot).
+- **Alert indicator** — a small visual marker (red dot, warning chip) whose meaning isn't textual.
+- **Disabled action** — a control is disabled and the reason isn't visible. Use `DisabledTooltipButton`.
+- **Icon-only button** — keep an `aria-label` always; add a tooltip only when the icon is ambiguous to sighted users.
+
+### When NOT to add a tooltip
+
+- The label is plain English and self-evident (Name, SKU, Email, Notes, Address, Created).
+- The tooltip would just restate or expand the label ("Edit" → "Edit this item", "New chat" → "Start a new chat").
+- It's marketing-style help text — that goes in `FieldDescription` under a form field, or nowhere.
+- It's long instructions — those go in docs, not a hover bubble.
+
+### Copy style
+
+One line. Definition or formula. Period.
+
+- ≤ 80 characters, single sentence, ends with a period.
+- Lead with the definition or formula. No "this shows…", "the…", "click to…", "hover to…".
+- Prefer a formula (`Stock - demand + expected - safety stock.`) when one exists.
+- Use the same vocabulary as elsewhere in the UI — don't say "items" if the column says "units".
+- Don't repeat the trigger label: a tooltip on **Available** should not start with "Available is…".
+- No questions, no emoji, no exclamation points.
+
+Good (already in `lib/tooltip-copy.ts`):
+
+- `Stock - demand + expected - safety stock.`
+- `Reservable stock after existing hard reservations.`
+- `Quantity expected from active released manufacturing orders.`
+- `Buffer stock intentionally held back.`
+
+Bad (rewrite if seen):
+
+- ✗ `How many units could be manufactured from current ingredient stock.` → ✓ `Units producible from current ingredient stock.`
+- ✗ `This shows the available stock you can sell to customers right now.` → ✓ `Reservable stock after existing hard reservations.`
+- ✗ Tooltip text matching the trigger label exactly (e.g. "Edit" on a button labelled Edit) → ✓ drop the tooltip.
+
+### Where the copy lives
+
+Tooltip strings used in more than one place go in `lib/tooltip-copy.ts`. New shared strings should be added there, not duplicated inline.
+
+### Trigger style — never `cursor-help`
+
+The cursor stays the default arrow. Don't use the `cursor-help` Tailwind class anywhere — it produces a question-mark cursor that we've removed from the codebase. The dotted underline on `TooltipHeader` is enough visual signal.
+
+Pick the trigger that's already on screen:
 
 ```tsx
-<SortableHeader
-  column={column}
-  label="Calculated Stock"
-  tooltip="Stock - committed + expected - safety stock."
-/>
+// Sortable column header — the button is the trigger
+<SortableHeader column={column} label="Calculated Stock" tooltip="Stock - demand + expected - safety stock." />
 
+// Non-sortable header or inline label — dotted underline, default cursor
+<TooltipHeader label="Available" tooltip="Reservable stock after demand and reservations." />
+
+// Status pill, badge, or alert dot — wrap the existing element
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Badge variant="secondary">Not Sellable</Badge>
+  </TooltipTrigger>
+  <TooltipContent side="top">Item is hidden from sales orders.</TooltipContent>
+</Tooltip>
+
+// Alert indicator
 <Tooltip>
   <TooltipTrigger asChild>
     <span className="inline-flex items-center gap-1.5">
@@ -238,7 +293,12 @@ Use tooltips sparingly. They are for short clarifications on computed terms, con
     Calculated stock is below zero, so this item is below its safety stock threshold.
   </TooltipContent>
 </Tooltip>
+
+// Disabled action — explains why the action is unavailable
+<DisabledTooltipButton label="Confirm" tooltip="Confirm requires at least one line." />
 ```
+
+✗ Never add a standalone `<HelpCircle />` or `ⓘ` icon as the trigger. Re-use the label, link, badge, or status marker that's already there.
 
 ## Navigation
 

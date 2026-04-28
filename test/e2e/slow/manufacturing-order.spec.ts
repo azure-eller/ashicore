@@ -832,7 +832,7 @@ test.describe("Manufacturing order flow", () => {
       page.getByRole("link", { name: "Execute" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
-    await expect(page.locator("main").getByText("In Progress", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main").getByText("Released", { exact: true }).first()).toBeVisible();
     await expect(page.locator("table").first()).toContainText("21");
     await expect(page.locator("table").first()).toContainText("6");
 
@@ -856,7 +856,7 @@ test.describe("Manufacturing order flow", () => {
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", releasedOrder.orderNumber);
     const releasedRow = page.getByRole("row", { name: new RegExp(releasedOrder.orderNumber) });
-    await expect(releasedRow).toContainText("In Progress");
+    await expect(releasedRow).toContainText("Released");
   });
 
   test("cancels a released order without mutating lots or stock movements", async ({

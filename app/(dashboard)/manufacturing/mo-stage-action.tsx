@@ -7,7 +7,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Button } from "@/components/ui/button";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { MANUFACTURING_SHORTAGE_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  AVAILABLE_QTY_TOOLTIP,
+  MANUFACTURING_NEEDED_QTY_TOOLTIP,
+  MANUFACTURING_SHORTAGE_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,8 +128,12 @@ export function MoStageAction({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Ingredient</TableHead>
-                    <TableHead className="text-right">Needed</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Needed" tooltip={MANUFACTURING_NEEDED_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
+                    </TableHead>
                     <TableHead className="text-right">
                       <TooltipHeader
                         label="Shortage"

@@ -7,6 +7,7 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate, formatPrice } from "@/lib/format";
+import { PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP } from "@/lib/tooltip-copy";
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderListRow } from "./types";
 
@@ -59,7 +60,13 @@ const columns: ColumnDef<PurchaseOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => <FilterableHeader column={column} label="Status" />,
+    header: ({ column }) => (
+      <FilterableHeader
+        column={column}
+        label="Status"
+        tooltip={PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP}
+      />
+    ),
     filterFn: multiValueFilter,
     cell: ({ row }) => <PurchaseOrderStatusBadge status={row.original.status} />,
   },

@@ -35,6 +35,7 @@ import {
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Table,
   TableBody,
@@ -54,6 +55,7 @@ import {
 import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
+import { PO_REMAINING_QTY_TOOLTIP } from "@/lib/tooltip-copy";
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderDetail as PurchaseOrderDetailType } from "./types";
 
@@ -378,7 +380,9 @@ export function PurchaseOrderDetail({
                   <TableHead>SKU</TableHead>
                   <TableHead className="text-right">Ordered</TableHead>
                   <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Remaining</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Remaining" tooltip={PO_REMAINING_QTY_TOOLTIP} />
+                  </TableHead>
                   <TableHead>Purchase Unit</TableHead>
                   <TableHead className="text-right">Unit Cost</TableHead>
                   <TableHead className="text-right">Line Total</TableHead>

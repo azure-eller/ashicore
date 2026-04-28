@@ -19,7 +19,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { DetailPageActions } from "@/components/detail-page-actions";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { formatAddress, formatDateTime } from "@/lib/format";
+import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import type { CustomerRow } from "./types";
 
 export function CustomerDetail({ customer }: { customer: CustomerRow }) {
@@ -96,7 +98,9 @@ export function CustomerDetail({ customer }: { customer: CustomerRow }) {
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Pricing</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Pricing" tooltip={CUSTOMER_PRICING_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               {customer.customerCategoryName ?? "Everyone"}
             </dd>

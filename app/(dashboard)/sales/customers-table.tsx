@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
+import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
@@ -46,7 +47,9 @@ const columns: ColumnDef<CustomerRow>[] = [
   },
   {
     accessorKey: "customerCategoryName",
-    header: ({ column }) => <FilterableHeader column={column} label="Pricing" />,
+    header: ({ column }) => (
+      <FilterableHeader column={column} label="Pricing" tooltip={CUSTOMER_PRICING_TOOLTIP} />
+    ),
     filterFn: multiValueFilter,
     cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
   },

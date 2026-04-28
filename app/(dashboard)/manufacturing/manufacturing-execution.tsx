@@ -32,7 +32,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
+import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import type { ManufacturingExecutionDetail } from "./types";
@@ -131,7 +133,7 @@ function CompleteDialog({
 
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="output-disposition">
-              Output Disposition
+              <TooltipHeader label="Output Disposition" tooltip={OUTPUT_DISPOSITION_TOOLTIP} />
             </label>
             <Select
               value={outputDisposition}

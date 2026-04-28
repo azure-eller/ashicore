@@ -29,8 +29,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import {
+  BATCH_YIELD_TOOLTIP,
+  COST_PER_UNIT_TOOLTIP,
+  MANUFACTURING_PICKED_QTY_TOOLTIP,
+  MANUFACTURING_REMAINING_QTY_TOOLTIP,
+  MATERIAL_COST_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
@@ -204,7 +212,9 @@ export function ManufacturingOrderDetail({
           </div>
           {order.manufacturingMode === "batch" && order.expectedBatchYield != null && (
             <div>
-              <dt className="text-sm font-medium text-muted-foreground">Yield / Batch</dt>
+              <dt className="text-sm font-medium text-muted-foreground">
+                <TooltipHeader label="Yield / Batch" tooltip={BATCH_YIELD_TOOLTIP} />
+              </dt>
               <dd className="mt-1 text-sm">
                 {order.expectedBatchYield} {order.unitName}
               </dd>
@@ -253,13 +263,17 @@ export function ManufacturingOrderDetail({
             <dd className="mt-1 text-sm">{formatDateTime(order.completedAt)}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Material Cost</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Material Cost" tooltip={MATERIAL_COST_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               {formatPrice(order.actualMaterialCost) ?? "\u2014"}
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Cost / Unit</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Cost / Unit" tooltip={COST_PER_UNIT_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               {formatPrice(order.actualCostPerUnit) ?? "\u2014"}
             </dd>
@@ -332,8 +346,12 @@ export function ManufacturingOrderDetail({
                     {order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
                   </TableHead>
                   <TableHead className="text-right">Planned</TableHead>
-                  <TableHead className="text-right">Picked</TableHead>
-                  <TableHead className="text-right">Remaining</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Picked" tooltip={MANUFACTURING_PICKED_QTY_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Remaining" tooltip={MANUFACTURING_REMAINING_QTY_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">Actual</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                 </TableRow>
@@ -393,7 +411,9 @@ export function ManufacturingOrderDetail({
                     <TableHead>Batch</TableHead>
                     <TableHead>Lot</TableHead>
                     <TableHead className="text-right">Quantity</TableHead>
-                    <TableHead className="text-right">Cost / Unit</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Cost / Unit" tooltip={COST_PER_UNIT_TOOLTIP} />
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { type Column, type FilterFn } from "@tanstack/react-table";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -9,6 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * Multi-select column filter using DropdownMenuCheckboxItem.
@@ -18,10 +26,14 @@ import {
 export function FilterableHeader<T>({
   column,
   label,
+  tooltip,
 }: {
   column: Column<T>;
   label: string;
+  tooltip?: string;
 }) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
   const selected = (column.getFilterValue() as string[] | undefined) ?? [];
   const faceted = column.getFacetedUniqueValues();
 
@@ -36,51 +48,81 @@ export function FilterableHeader<T>({
     column.setFilterValue(next.length > 0 ? next : undefined);
   }
 
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="-ml-3"
-          aria-label={`Filter by ${label}${selected.length > 0 ? `, ${selected.length} selected` : ""}`}
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+    }
+  }
+
+  const button = (
+    <Button
+      variant="ghost"
+      className="-ml-3"
+      aria-label={`Filter by ${label}${selected.length > 0 ? `, ${selected.length} selected` : ""}`}
+    >
+      {label}
+      {selected.length > 0 && (
+        <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+          {selected.length}
+        </span>
+      )}
+      <HugeiconsIcon
+        icon={ArrowDown01Icon}
+        className="ml-1 h-3.5 w-3.5"
+        aria-hidden
+      />
+    </Button>
+  );
+
+  const content = (
+    <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
+      {options.map((value) => (
+        <DropdownMenuCheckboxItem
+          key={value}
+          checked={selected.includes(value)}
+          onCheckedChange={() => toggle(value)}
+          onSelect={(e) => e.preventDefault()}
         >
-          {label}
-          {selected.length > 0 && (
-            <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
-              {selected.length}
-            </span>
-          )}
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            className="ml-1 h-3.5 w-3.5"
-            aria-hidden
-          />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
-        {options.map((value) => (
+          {value.charAt(0).toUpperCase() + value.slice(1)}
+        </DropdownMenuCheckboxItem>
+      ))}
+      {selected.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem
-            key={value}
-            checked={selected.includes(value)}
-            onCheckedChange={() => toggle(value)}
-            onSelect={(e) => e.preventDefault()}
+            checked={false}
+            onCheckedChange={() => column.setFilterValue(undefined)}
           >
-            {value.charAt(0).toUpperCase() + value.slice(1)}
+            Clear filter
           </DropdownMenuCheckboxItem>
-        ))}
-        {selected.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem
-              checked={false}
-              onCheckedChange={() => column.setFilterValue(undefined)}
-            >
-              Clear filter
-            </DropdownMenuCheckboxItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </>
+      )}
+    </DropdownMenuContent>
+  );
+
+  if (!tooltip) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        {content}
+      </DropdownMenu>
+    );
+  }
+
+  return (
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        {content}
+      </DropdownMenu>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 

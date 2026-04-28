@@ -1,5 +1,6 @@
 "use client";
 
+import { type ReactNode } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -14,8 +15,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  AVAILABLE_QTY_TOOLTIP,
+  BACKORDER_QTY_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
+  DEMAND_QTY_TOOLTIP,
+  NOT_SELLABLE_TOOLTIP,
+  POTENTIAL_TOOLTIP,
+  RESERVATION_STATUS_TOOLTIP,
+  RESERVED_QTY_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatQuantity } from "@/lib/format";
 import { calcStock } from "./types";
@@ -31,26 +39,37 @@ function ReservationStatusBadge({ row }: { row: ItemRow }) {
     return null;
   }
 
+  let badge: ReactNode;
+  let tooltip: string;
+
   if (shortage <= 0) {
-    return (
+    badge = (
       <Badge variant="secondary" className="text-xs">
         Fully reserved
       </Badge>
     );
-  }
-
-  if (reserved > 0) {
-    return (
+    tooltip = RESERVATION_STATUS_TOOLTIP.fully;
+  } else if (reserved > 0) {
+    badge = (
       <Badge variant="outline" className="text-xs">
         Partially reserved
       </Badge>
     );
+    tooltip = RESERVATION_STATUS_TOOLTIP.partial;
+  } else {
+    badge = (
+      <Badge variant="destructive" className="text-xs">
+        Backordered
+      </Badge>
+    );
+    tooltip = RESERVATION_STATUS_TOOLTIP.backordered;
   }
 
   return (
-    <Badge variant="destructive" className="text-xs">
-      Backordered
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -170,9 +189,14 @@ export function getColumns(
               </Badge>
             ) : null}
             {isSubAssemblies && sellable === false ? (
-              <Badge variant="outline" className="text-xs">
-                Not sellable
-              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-xs">
+                    Not sellable
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top">{NOT_SELLABLE_TOOLTIP}</TooltipContent>
+              </Tooltip>
             ) : null}
             <ReservationStatusBadge row={row.original} />
           </div>
@@ -219,7 +243,9 @@ export function getColumns(
       sortingFn: (rowA, rowB) =>
         parseFloat(rowA.getValue("availableQty")) -
         parseFloat(rowB.getValue("availableQty")),
-      header: ({ column }) => <SortableHeader column={column} label="Available" />,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
+      ),
       cell: ({ row }) => formatQuantity(row.getValue("availableQty")),
     },
     {
@@ -228,7 +254,9 @@ export function getColumns(
       sortingFn: (rowA, rowB) =>
         parseFloat(rowA.getValue("committedQty")) -
         parseFloat(rowB.getValue("committedQty")),
-      header: ({ column }) => <SortableHeader column={column} label="Reserved" />,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Reserved" tooltip={RESERVED_QTY_TOOLTIP} />
+      ),
       cell: ({ row }) => formatQuantity(row.getValue("committedQty")),
     },
     {
@@ -237,7 +265,9 @@ export function getColumns(
       sortingFn: (rowA, rowB) =>
         parseFloat(rowA.getValue("demandQty")) -
         parseFloat(rowB.getValue("demandQty")),
-      header: ({ column }) => <SortableHeader column={column} label="Demand" />,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Demand" tooltip={DEMAND_QTY_TOOLTIP} />
+      ),
       cell: ({ row }) => formatQuantity(row.getValue("demandQty")),
     },
     {
@@ -246,7 +276,9 @@ export function getColumns(
       sortingFn: (rowA, rowB) =>
         parseFloat(rowA.getValue("shortageQty")) -
         parseFloat(rowB.getValue("shortageQty")),
-      header: ({ column }) => <SortableHeader column={column} label="Backorder" />,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Backorder" tooltip={BACKORDER_QTY_TOOLTIP} />
+      ),
       cell: ({ row }) => {
         const value = row.getValue<string>("shortageQty");
         return (
@@ -294,7 +326,7 @@ export function getColumns(
               <SortableHeader
                 column={column}
                 label="Margin"
-                tooltip="Selling price less BOM material cost, divided by selling price."
+                tooltip="Selling price minus BOM cost, as a percent of selling price."
               />
             ),
             cell: ({ row }) => <MarginBadge row={row.original} />,
@@ -308,11 +340,7 @@ export function getColumns(
               return a - b;
             },
             header: ({ column }) => (
-              <SortableHeader
-                column={column}
-                label="Potential"
-                tooltip="Units that can be produced from current available ingredient stock."
-              />
+              <SortableHeader column={column} label="Potential" tooltip={POTENTIAL_TOOLTIP} />
             ),
             cell: ({ row }) => {
               const val = row.original.potential;

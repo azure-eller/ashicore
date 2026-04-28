@@ -32,7 +32,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
+import {
+  MANUFACTURABLE_LINES_TOOLTIP,
+  OVERSELL_TOOLTIP_COPY,
+} from "@/lib/tooltip-copy";
 import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
@@ -358,7 +361,12 @@ export function OrderDetail({
             <dd className="mt-1 text-sm">{formatDate(order.requestedDate)}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Manufacturable Lines</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Manufacturable Lines"
+                tooltip={MANUFACTURABLE_LINES_TOOLTIP}
+              />
+            </dt>
             <dd className="mt-1 text-sm">{order.manufacturableLineCount}</dd>
           </div>
           <div>
