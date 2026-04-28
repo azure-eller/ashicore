@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { items } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
+import { normalizeNumeric } from "@/lib/format";
 import {
   findExistingItem,
   orderSeedsForSync,
@@ -50,6 +51,7 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       defaultSellingPrice: items.defaultSellingPrice,
       manufacturingMode: items.manufacturingMode,
       expectedBatchYield: items.expectedBatchYield,
+      safetyStock: items.safetyStock,
       isMaster: items.isMaster,
       parentId: items.parentId,
       variantAxes: items.variantAxes,
@@ -58,6 +60,23 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       deletedAt: items.deletedAt,
     })
     .from(items);
+}
+
+function numericStringEquals(
+  existing: string | null | undefined,
+  desired: string | null | undefined
+) {
+  if (existing == null || desired == null) {
+    return existing == null && desired == null;
+  }
+
+  const existingNumber = Number(existing);
+  const desiredNumber = Number(desired);
+  if (!Number.isFinite(existingNumber) || !Number.isFinite(desiredNumber)) {
+    return existing === desired;
+  }
+
+  return normalizeNumeric(existingNumber) === normalizeNumeric(desiredNumber);
 }
 
 export function planItemsSync(
@@ -95,15 +114,17 @@ export function planItemsSync(
       (existing.category ?? null) !== seed.category ||
       (existing.description ?? null) !== seed.description ||
       (seed.defaultPurchasePrice !== undefined &&
-        existing.defaultPurchasePrice !== seed.defaultPurchasePrice) ||
+        !numericStringEquals(existing.defaultPurchasePrice, seed.defaultPurchasePrice)) ||
       (seed.currentStockUnitCost !== undefined &&
-        existing.currentStockUnitCost !== resolveSeedCurrentStockUnitCost(seed)) ||
+        !numericStringEquals(existing.currentStockUnitCost, resolveSeedCurrentStockUnitCost(seed))) ||
       (seed.defaultSellingPrice !== undefined &&
-        existing.defaultSellingPrice !== seed.defaultSellingPrice) ||
+        !numericStringEquals(existing.defaultSellingPrice, seed.defaultSellingPrice)) ||
       (seed.manufacturingMode !== undefined &&
         existing.manufacturingMode !== seed.manufacturingMode) ||
       (seed.expectedBatchYield !== undefined &&
-        existing.expectedBatchYield !== seed.expectedBatchYield) ||
+        !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+      (seed.safetyStock !== undefined &&
+        !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
       JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(seed.variantAxes ?? null) ||
       JSON.stringify(existing.variantAttrs ?? null) !== JSON.stringify(seed.variantAttrs ?? null)
     ) {
@@ -164,7 +185,7 @@ export async function applyItemsSyncInTx(
           defaultPurchasePrice: seed.defaultPurchasePrice ?? null,
           currentStockUnitCost: resolveSeedCurrentStockUnitCost(seed),
           defaultSellingPrice: seed.defaultSellingPrice ?? null,
-          safetyStock: "0",
+          safetyStock: seed.safetyStock ?? "0",
           purchaseUnitDefinitionId: purchaseUnitDefinitionId ?? null,
           purchaseToStockFactor: seed.purchaseToStockFactor ?? null,
           manufacturingMode: seed.manufacturingMode ?? "discrete",
@@ -217,6 +238,9 @@ export async function applyItemsSyncInTx(
       if (seed.expectedBatchYield !== undefined) {
         nextValues.expectedBatchYield = seed.expectedBatchYield;
       }
+      if (seed.safetyStock !== undefined) {
+        nextValues.safetyStock = seed.safetyStock ?? "0";
+      }
 
       const hasChanges =
         existing.sku !== seed.sku ||
@@ -227,19 +251,21 @@ export async function applyItemsSyncInTx(
         (existing.description ?? null) !== seed.description ||
         existing.deletedAt != null ||
         (seed.defaultPurchasePrice !== undefined &&
-          existing.defaultPurchasePrice !== seed.defaultPurchasePrice) ||
+          !numericStringEquals(existing.defaultPurchasePrice, seed.defaultPurchasePrice)) ||
         (seed.currentStockUnitCost !== undefined &&
-          existing.currentStockUnitCost !== resolveSeedCurrentStockUnitCost(seed)) ||
+          !numericStringEquals(existing.currentStockUnitCost, resolveSeedCurrentStockUnitCost(seed))) ||
         (seed.defaultSellingPrice !== undefined &&
-          existing.defaultSellingPrice !== seed.defaultSellingPrice) ||
+          !numericStringEquals(existing.defaultSellingPrice, seed.defaultSellingPrice)) ||
         (purchaseUnitDefinitionId !== undefined &&
           existing.purchaseUnitDefinitionId !== purchaseUnitDefinitionId) ||
         (seed.purchaseToStockFactor !== undefined &&
-          existing.purchaseToStockFactor !== seed.purchaseToStockFactor) ||
+          !numericStringEquals(existing.purchaseToStockFactor, seed.purchaseToStockFactor)) ||
         (seed.manufacturingMode !== undefined &&
           existing.manufacturingMode !== seed.manufacturingMode) ||
         (seed.expectedBatchYield !== undefined &&
-          existing.expectedBatchYield !== seed.expectedBatchYield) ||
+          !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+        (seed.safetyStock !== undefined &&
+          !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
         existing.isMaster !== (seed.isMaster ?? false) ||
         existing.parentId !== resolvedParentId ||
         existing.sellable !== sellable ||

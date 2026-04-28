@@ -100,6 +100,30 @@ function buildOrderSignature(input: {
   ].join("||");
 }
 
+function addPreparedLine(
+  preparedLines: PreparedSalesImportLine[],
+  nextLine: Omit<PreparedSalesImportLine, "sortOrder">
+) {
+  const existingLine = preparedLines.find(
+    (line) => line.itemId === nextLine.itemId && line.unitPrice === nextLine.unitPrice
+  );
+
+  if (!existingLine) {
+    preparedLines.push({
+      ...nextLine,
+      sortOrder: preparedLines.length,
+    });
+    return;
+  }
+
+  existingLine.quantity = normalizeNumeric(
+    parseFloat(existingLine.quantity) + parseFloat(nextLine.quantity)
+  );
+  existingLine.lineTotal = normalizeMoney(
+    parseFloat(existingLine.lineTotal) + parseFloat(nextLine.lineTotal)
+  );
+}
+
 async function generateSalesOrderNumber(tx: Tx) {
   const result = await tx.execute(
     sql`SELECT nextval('sales.order_number_seq') AS val`
@@ -311,7 +335,7 @@ export async function evaluateSalesImportInTx(
         continue;
       }
 
-      preparedLines.push({
+      addPreparedLine(preparedLines, {
         itemId: existingItem.id,
         itemName: existingItem.name,
         itemSku: existingItem.sku,
@@ -319,7 +343,6 @@ export async function evaluateSalesImportInTx(
         quantity: normalizeNumeric(quantity),
         unitPrice: normalizeMoney(unitPriceNumber),
         lineTotal: normalizeMoney(quantity * unitPriceNumber),
-        sortOrder: preparedLines.length,
       });
     }
 
@@ -333,8 +356,12 @@ export async function evaluateSalesImportInTx(
       continue;
     }
 
-    if (preparedLines.length === 0 && !hasUnmappedLines) {
-      issues.push("No importable line items are currently mapped for this order.");
+    if (preparedLines.length === 0) {
+      issues.push(
+        hasUnmappedLines
+          ? "No mapped line items; unresolved lines require manual entry."
+          : "No importable line items are currently mapped for this order."
+      );
       orders.push({
         kind: "skipped",
         label,
@@ -409,7 +436,7 @@ export async function applySalesImportOrdersInTx(
     }
 
     const customerId = customerIdByKey.get(order.customerKey);
-    if (!customerId) {
+    if (apply && !customerId) {
       report.skippedOrders.push({
         label: order.label,
         sourceRows: order.sourceRows,
@@ -456,7 +483,7 @@ export async function applySalesImportOrdersInTx(
         await tx
           .update(salesOrders)
           .set({
-            customerId,
+            customerId: customerId!,
             customerName: order.customerName,
             requestedDate: order.requestedDate,
             notes: order.notes,
@@ -486,7 +513,7 @@ export async function applySalesImportOrdersInTx(
           .values({
             organizationId: orgId,
             orderNumber,
-            customerId,
+            customerId: customerId!,
             customerName: order.customerName,
             status: "draft",
             requestedDate: order.requestedDate,

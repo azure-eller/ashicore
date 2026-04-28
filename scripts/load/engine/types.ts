@@ -28,6 +28,7 @@ export type ItemSeed = {
   manufacturingMode?: "discrete" | "batch";
   expectedBatchYield?: string | null;
   bom?: Array<{ componentKey: string; quantity: string }>;
+  safetyStock?: string | null;
   unresolvedFormulaNote?: string;
   legacySkus?: string[];
   legacyNames?: string[];
@@ -61,6 +62,7 @@ export type ExistingItem = {
   defaultSellingPrice: string | null;
   manufacturingMode: string;
   expectedBatchYield: string | null;
+  safetyStock: string;
   isMaster: boolean;
   parentId: string | null;
   variantAxes: string[] | null;
