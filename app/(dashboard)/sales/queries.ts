@@ -587,14 +587,6 @@ function buildShippingReadiness({
     (order) => order.status === "draft" || order.status === "released"
   );
 
-  if (hasManufacturableLines) {
-    return {
-      state: "needs_manufacturing",
-      message: "Create manufacturing orders before shipping.",
-      blockers: ["Manufacturable sales lines are not linked to manufacturing orders"],
-    };
-  }
-
   if (openManufacturingOrders.length > 0) {
     return {
       state: "in_production",
@@ -606,6 +598,14 @@ function buildShippingReadiness({
   }
 
   if (stockBlockers.length > 0) {
+    if (hasManufacturableLines) {
+      return {
+        state: "needs_manufacturing",
+        message: "Create manufacturing orders or replenish stock before shipping.",
+        blockers: stockBlockers,
+      };
+    }
+
     return {
       state: "insufficient_stock",
       message: "Stock is short for one or more lines.",
@@ -2033,6 +2033,28 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           openManufacturingBySalesOrderId.set(row.salesOrderId, bucket);
         });
 
+        const itemIds = [
+          ...new Set(
+            [...manufacturingSummaries.values()]
+              .flatMap((summary) => summary.lines)
+              .map((line) => line.itemId)
+          ),
+        ];
+        const reservableRows = itemIds.length
+          ? await tx
+              .select({
+                itemId: items.id,
+                reservableOnHandQty: trimScaleNullable(
+                  projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+                ).as("reservableOnHandQty"),
+              })
+              .from(items)
+              .where(inArray(items.id, itemIds))
+          : [];
+        const reservableByItemId = new Map(
+          reservableRows.map((row) => [row.itemId, row.reservableOnHandQty])
+        );
+
         return orderRows.map((order) => {
           const manufacturingSummary = manufacturingSummaries.get(order.id);
           const summaryLines = manufacturingSummary?.lines ?? [];
@@ -2040,6 +2062,23 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             manufacturingSummary?.hasManufacturableLines ?? false;
           const openManufacturingOrders =
             openManufacturingBySalesOrderId.get(order.id) ?? [];
+          const stockBlockers = summaryLines.flatMap((line) => {
+            const reservableOnHandQty = Number(
+              reservableByItemId.get(line.itemId) ?? "0"
+            );
+            const quantity = Number(line.quantity);
+
+            if (!Number.isFinite(quantity) || reservableOnHandQty >= quantity) {
+              return [];
+            }
+
+            return [
+              `${line.itemName} needs ${formatQuantity(line.quantity)} ${line.unitName}; ${formatQuantity(
+                reservableByItemId.get(line.itemId) ?? "0"
+              )} ${line.unitName} available`,
+            ];
+          });
+
           return {
             ...order,
             status: order.status as SalesOrderListRow["status"],
@@ -2060,6 +2099,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               status: order.status as SalesOrderListRow["status"],
               hasManufacturableLines,
               linkedManufacturingOrders: openManufacturingOrders,
+              stockBlockers,
             }),
           };
         });

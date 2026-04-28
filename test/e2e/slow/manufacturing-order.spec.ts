@@ -627,7 +627,9 @@ test.describe("Manufacturing order flow", () => {
       );
 
     expect(batchIngredients).toHaveLength(2);
-    await expect(page.getByText(batchManufacturingOrder.orderNumber)).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: batchManufacturingOrder.orderNumber })
+    ).toBeVisible();
     await expect(page.locator("table").last()).toContainText("Draft");
     await expect(page.locator("table").last()).toContainText(productName);
     await expect(page.locator("table").last()).toContainText("2");
@@ -824,7 +826,7 @@ test.describe("Manufacturing order flow", () => {
     await expect(shortageDialog.locator("table")).toContainText("21");
     await expect(shortageDialog.locator("table")).toContainText("20");
     await shortageDialog.getByText("Shortage", { exact: true }).hover();
-    await expect(page.getByText("Needed minus available right now.")).toBeVisible();
+    await expect(page.getByText("Needed minus available.")).toBeVisible();
 
     await page.getByRole("button", { name: "Release Anyway" }).click();
 
