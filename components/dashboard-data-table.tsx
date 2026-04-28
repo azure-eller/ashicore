@@ -186,8 +186,6 @@ export function DashboardDataTable<TData extends { id: string }>({
   const rowSelectionConfig = enableRowSelection ?? (deleteAction != null);
   const enableSelection = rowSelectionConfig !== false;
   const hasExpansion = renderExpandedRow != null || getSubRowsProp != null;
-  const shouldAutoExpandFilteredRows =
-    hasExpansion && (globalFilter.trim().length > 0 || columnFilters.length > 0);
   // TanStack Table returns instance methods that React Compiler treats as incompatible.
   // Centralizing the hook here keeps the warning scoped to the shared table shell.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -223,7 +221,7 @@ export function DashboardDataTable<TData extends { id: string }>({
       rowSelection,
       globalFilter,
       columnFilters,
-      ...(hasExpansion ? { expanded: shouldAutoExpandFilteredRows ? true : expanded } : {}),
+      ...(hasExpansion ? { expanded } : {}),
     },
   });
 
