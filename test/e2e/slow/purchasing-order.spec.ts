@@ -268,6 +268,10 @@ test.describe("Purchasing flow", () => {
     );
 
     await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page.getByRole("dialog", { name: "Submit Purchase Order" })).toBeVisible();
+    await page.getByRole("dialog", { name: "Submit Purchase Order" })
+      .getByRole("button", { name: "Submit" })
+      .click();
     const submitResponse = await submitResponsePromise;
     expect(submitResponse.status()).toBe(200);
 

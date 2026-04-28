@@ -67,6 +67,10 @@ export type PushPurchaseOrderResult = {
   emailStatus: "sent" | "failed" | "skipped" | null;
 };
 
+type PushPurchaseOrderOptions = {
+  sendEmail?: boolean;
+};
+
 function supplierToXeroContact(supplier: SupplierForPush): XeroContactInput {
   return {
     id: supplier.id,
@@ -379,7 +383,8 @@ async function sendPurchaseOrderPdfEmail(params: {
  */
 export async function pushPurchaseOrderToXero(
   orgId: string,
-  orderId: string
+  orderId: string,
+  options: PushPurchaseOrderOptions = {}
 ): Promise<PushPurchaseOrderResult> {
   const authed = await getAuthedXeroClient(orgId);
   const connection = authed.connection;
@@ -550,7 +555,8 @@ export async function pushPurchaseOrderToXero(
   if (created) {
     const decision = decidePurchaseOrderEmail({
       statusPref,
-      autoEmailEnabled: connection.autoEmailPurchaseOrders,
+      autoEmailEnabled:
+        connection.autoEmailPurchaseOrders && options.sendEmail !== false,
       supplierEmail: data.supplier.email,
       existingEmailStatus: data.order.xeroPoEmailStatus,
     });

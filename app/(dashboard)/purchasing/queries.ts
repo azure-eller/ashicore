@@ -689,14 +689,22 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
 
 export async function submitPurchaseOrder(
   id: string,
-  options?: { idempotencyKey?: string }
+  options?: {
+    idempotencyKey?: string;
+    syncAccounting?: boolean;
+    sendEmail?: boolean;
+  }
 ) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "submitPurchaseOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id },
+      payload: {
+        id,
+        syncAccounting: options?.syncAccounting ?? true,
+        sendEmail: options?.sendEmail ?? true,
+      },
     });
 
     if (replay.replayed) {
@@ -775,6 +783,10 @@ export async function submitPurchaseOrder(
     return result.submitted;
   }
 
+  if (options?.syncAccounting === false) {
+    return result.submitted;
+  }
+
   // Stock + expected-supply tx has committed. Attempt the Xero PO push;
   // a failure must NOT roll back the submit — the order is ordered
   // regardless of accounting state.
@@ -783,7 +795,9 @@ export async function submitPurchaseOrder(
   const { XeroError } = await import("@/lib/xero/errors");
 
   try {
-    await pushPurchaseOrderToXero(result.orgId, id);
+    await pushPurchaseOrderToXero(result.orgId, id, {
+      sendEmail: options?.sendEmail ?? true,
+    });
   } catch (error) {
     if (
       error instanceof XeroError &&

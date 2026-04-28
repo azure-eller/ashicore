@@ -2498,14 +2498,22 @@ export async function getSalesOrderForBol(
 
 export async function shipSalesOrder(
   id: string,
-  options?: { idempotencyKey?: string }
+  options?: {
+    idempotencyKey?: string;
+    syncAccounting?: boolean;
+    sendEmail?: boolean;
+  }
 ) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "shipSalesOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id },
+      payload: {
+        id,
+        syncAccounting: options?.syncAccounting ?? true,
+        sendEmail: options?.sendEmail ?? true,
+      },
     });
 
     if (replay.replayed) {
@@ -2686,6 +2694,10 @@ export async function shipSalesOrder(
     return result.shipped;
   }
 
+  if (options?.syncAccounting === false) {
+    return result.shipped;
+  }
+
   // Stock tx has committed. Attempt the Xero push; a failure must NOT roll
   // back the ship — the order is shipped regardless of accounting state.
   const { pushSalesOrderToXero, markXeroPushFailed } = await import(
@@ -2694,7 +2706,9 @@ export async function shipSalesOrder(
   const { XeroError } = await import("@/lib/xero/errors");
 
   try {
-    await pushSalesOrderToXero(result.orgId, id);
+    await pushSalesOrderToXero(result.orgId, id, {
+      sendEmail: options?.sendEmail ?? true,
+    });
   } catch (error) {
     if (
       error instanceof XeroError &&
@@ -2713,6 +2727,13 @@ export async function shipSalesOrder(
   }
 
   return result.shipped;
+}
+
+export async function getXeroOnlineInvoiceUrlForSalesOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { getOnlineInvoiceUrlForOrder } = await import("@/lib/xero/push-invoice");
+    return { url: await getOnlineInvoiceUrlForOrder(orgId, id) };
+  });
 }
 
 export async function retryXeroPushForSalesOrder(id: string) {

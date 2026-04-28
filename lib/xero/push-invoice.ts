@@ -74,6 +74,10 @@ export type PushInvoiceResult = {
   emailStatus: "sent" | "failed" | "skipped" | null;
 };
 
+type PushInvoiceOptions = {
+  sendEmail?: boolean;
+};
+
 function customerToXeroContact(customer: CustomerForPush): XeroContactInput {
   return {
     id: customer.id,
@@ -336,7 +340,8 @@ async function sendInvoiceEmail(
  */
 export async function pushSalesOrderToXero(
   orgId: string,
-  orderId: string
+  orderId: string,
+  options: PushInvoiceOptions = {}
 ): Promise<PushInvoiceResult> {
   const authed = await getAuthedXeroClient(orgId);
   const connection = authed.connection;
@@ -498,7 +503,8 @@ export async function pushSalesOrderToXero(
   if (created) {
     const decision = decideEmail({
       statusPref,
-      autoEmailEnabled: connection.autoEmailSalesInvoices,
+      autoEmailEnabled:
+        connection.autoEmailSalesInvoices && options.sendEmail !== false,
       customerEmail: data.customer.email,
       existingEmailStatus: data.order.xeroEmailStatus,
     });
@@ -530,6 +536,42 @@ export async function pushSalesOrderToXero(
     adopted,
     emailStatus,
   };
+}
+
+export async function getOnlineInvoiceUrlForOrder(
+  orgId: string,
+  orderId: string
+): Promise<string> {
+  const authed = await getAuthedXeroClient(orgId);
+
+  const order = await withOrgContext(orgId, async (tx) => {
+    const [row] = await tx
+      .select({
+        xeroInvoiceId: salesOrders.xeroInvoiceId,
+        xeroPushStatus: salesOrders.xeroPushStatus,
+      })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)));
+    return row ?? null;
+  });
+
+  if (!order) {
+    throw new XeroError("Order not found.", 404);
+  }
+  if (!order.xeroInvoiceId || order.xeroPushStatus !== "pushed") {
+    throw new XeroError("Push the invoice to Xero before opening it.", 409);
+  }
+
+  const response = await authed.client.accountingApi.getOnlineInvoice(
+    authed.tenantId,
+    order.xeroInvoiceId
+  );
+  const url = response.body.onlineInvoices?.[0]?.onlineInvoiceUrl;
+  if (!url) {
+    throw new XeroError("Xero did not return an online invoice URL.", 502);
+  }
+
+  return url;
 }
 
 /**

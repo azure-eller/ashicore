@@ -3,13 +3,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
+  ArrowUpRight01Icon,
   CheckmarkCircle02Icon,
   CloudLoadingIcon,
+  Copy01Icon,
   FileSyncIcon,
   MailSend02Icon,
 } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +21,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -37,6 +47,7 @@ export type AccountingSyncDocument = {
   emailStatus: AccountingDocumentEmailStatus;
   emailError: string | null;
   emailedAt: Date | string | null;
+  emailProviderName: string;
   recipientLabel: string;
   recipientEmail: string | null;
 };
@@ -48,28 +59,53 @@ export type AccountingSyncStage = {
   state: AccountingSyncStageState;
 };
 
+export type AccountingActionOptions = {
+  syncAccounting: boolean;
+  sendEmail: boolean;
+};
+
+export type AccountingProviderAction = {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  pending?: boolean;
+};
+
 export function buildAccountingSyncStages(params: {
   document: AccountingSyncDocument;
+  includeAccounting?: boolean;
   includeEmail: boolean;
   isWorking?: boolean;
   localActionLabel?: string;
   activeStage?: "push" | "email";
 }): AccountingSyncStage[] {
-  const { document, includeEmail, isWorking = false, activeStage = "push" } = params;
+  const {
+    document,
+    includeAccounting = true,
+    includeEmail,
+    isWorking = false,
+    activeStage = "push",
+  } = params;
   const localActionLabel = params.localActionLabel ?? "Save ERP document";
   const pushLabel = `Create ${document.documentLabel} in ${document.providerName}`;
   const emailLabel = `Email ${document.documentLabel}`;
+
+  const localStage: AccountingSyncStage = {
+    id: "local",
+    label: localActionLabel,
+    detail: null,
+    state: "success",
+  };
+
+  if (!includeAccounting) {
+    return [localStage];
+  }
 
   if (isWorking) {
     const pushStage = buildPushStage(document, pushLabel);
 
     return [
-      {
-        id: "local",
-        label: localActionLabel,
-        detail: null,
-        state: "success",
-      },
+      localStage,
       {
         id: "push",
         label: pushLabel,
@@ -93,12 +129,7 @@ export function buildAccountingSyncStages(params: {
 
   const pushStage = buildPushStage(document, pushLabel);
   return [
-    {
-      id: "local",
-      label: localActionLabel,
-      detail: null,
-      state: "success",
-    },
+    localStage,
     pushStage,
     ...(includeEmail ? [buildEmailStage(document, emailLabel, pushStage.state)] : []),
   ];
@@ -110,12 +141,14 @@ export function AccountingSyncStatus({
   retryPushPending = false,
   onRetryEmail,
   retryEmailPending = false,
+  providerAction,
 }: {
   document: AccountingSyncDocument;
   onRetryPush?: () => void;
   retryPushPending?: boolean;
   onRetryEmail?: () => void;
   retryEmailPending?: boolean;
+  providerAction?: AccountingProviderAction;
 }) {
   if (!document.pushStatus) return null;
 
@@ -139,6 +172,35 @@ export function AccountingSyncStatus({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {providerAction && document.pushStatus === "pushed" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (providerAction.href) {
+                  window.open(providerAction.href, "_blank", "noopener,noreferrer");
+                  return;
+                }
+                providerAction.onClick?.();
+              }}
+              disabled={providerAction.pending}
+            >
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} data-icon="inline-start" />
+              {providerAction.pending ? "Opening..." : providerAction.label}
+            </Button>
+          ) : null}
+          {document.documentNumber && document.pushStatus === "pushed" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void navigator.clipboard.writeText(document.documentNumber ?? "")}
+            >
+              <HugeiconsIcon icon={Copy01Icon} size={14} data-icon="inline-start" />
+              Copy number
+            </Button>
+          ) : null}
           {onRetryPush && document.pushStatus === "failed" ? (
             <Button
               type="button"
@@ -175,6 +237,107 @@ export function AccountingSyncStatus({
         <p className="text-xs text-muted-foreground">Sync attempts: {document.retryCount}</p>
       ) : null}
     </div>
+  );
+}
+
+export function AccountingActionConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel,
+  pendingLabel,
+  summary,
+  options,
+  onOptionsChange,
+  onConfirm,
+  onOpenChange,
+  isPending = false,
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  pendingLabel: string;
+  summary: Array<{ label: string; value: string }>;
+  options: AccountingActionOptions;
+  onOptionsChange: (options: AccountingActionOptions) => void;
+  onConfirm: () => void;
+  onOpenChange: (open: boolean) => void;
+  isPending?: boolean;
+}) {
+  const emailDisabled = !options.syncAccounting;
+
+  return (
+    <Dialog open={open} onOpenChange={isPending ? undefined : onOpenChange}>
+      <DialogContent size="lg" className="bg-background text-foreground">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 rounded-md border bg-card p-3 text-card-foreground sm:grid-cols-2">
+          {summary.map((item) => (
+            <div key={item.label} className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+              <p className="truncate text-sm">{item.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <FieldGroup className="gap-3">
+          <Field orientation="horizontal">
+            <Checkbox
+              id="syncAccounting"
+              checked={options.syncAccounting}
+              onCheckedChange={(checked) => {
+                const syncAccounting = checked === true;
+                onOptionsChange({
+                  syncAccounting,
+                  sendEmail: syncAccounting ? options.sendEmail : false,
+                });
+              }}
+            />
+            <FieldContent>
+              <FieldLabel htmlFor="syncAccounting">Create in Xero</FieldLabel>
+              <FieldDescription>
+                Creates the accounting document after the ERP action succeeds.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+
+          <Field orientation="horizontal" data-disabled={emailDisabled}>
+            <Checkbox
+              id="sendEmail"
+              checked={options.sendEmail}
+              disabled={emailDisabled}
+              onCheckedChange={(checked) =>
+                onOptionsChange({ ...options, sendEmail: checked === true })
+              }
+            />
+            <FieldContent>
+              <FieldLabel htmlFor="sendEmail">Email recipient</FieldLabel>
+              <FieldDescription>
+                Sends through the configured provider when the document is eligible.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+        </FieldGroup>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isPending}
+          >
+            Back
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={isPending}>
+            {isPending ? pendingLabel : confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -285,6 +448,7 @@ function buildEmailStage(
       id: "email",
       label,
       detail: [
+        `Accepted by ${document.emailProviderName}`,
         document.recipientEmail ? `To ${document.recipientEmail}` : `To ${document.recipientLabel}`,
         document.emailedAt ? formatAccountingDateTime(document.emailedAt) : null,
       ]

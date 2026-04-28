@@ -9,9 +9,11 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import {
+  AccountingActionConfirmDialog,
   AccountingSyncDialog,
   AccountingSyncStatus,
   buildAccountingSyncStages,
+  type AccountingActionOptions,
   type AccountingSyncDocument,
   type AccountingSyncStage,
 } from "@/components/accounting-sync-status";
@@ -88,6 +90,7 @@ function salesOrderAccountingDocument(
     emailStatus: order.xeroEmailStatus,
     emailError: order.xeroEmailError,
     emailedAt: order.xeroEmailedAt,
+    emailProviderName: "Xero",
     recipientLabel: order.customerName,
     recipientEmail: order.customerEmail,
   };
@@ -104,6 +107,11 @@ export function OrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [shipConfirmOpen, setShipConfirmOpen] = useState(false);
+  const [shipOptions, setShipOptions] = useState<AccountingActionOptions>({
+    syncAccounting: true,
+    sendEmail: order.customerEmail != null && order.customerEmail.trim() !== "",
+  });
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -114,12 +122,14 @@ export function OrderDetail({
     title,
     description,
     localActionLabel,
+    includeAccounting = true,
     includeEmail = true,
     activeStage = "push",
   }: {
     title: string;
     description: string;
     localActionLabel: string;
+    includeAccounting?: boolean;
     includeEmail?: boolean;
     activeStage?: "push" | "email";
   }) => {
@@ -128,6 +138,7 @@ export function OrderDetail({
       description,
       stages: buildAccountingSyncStages({
         document: accountingDocument,
+        includeAccounting,
         includeEmail,
         isWorking: true,
         localActionLabel,
@@ -142,11 +153,13 @@ export function OrderDetail({
     title,
     description,
     localActionLabel,
+    includeAccounting = true,
     includeEmail = true,
   }: {
     title: string;
     description: string;
     localActionLabel: string;
+    includeAccounting?: boolean;
     includeEmail?: boolean;
   }) => {
     const latest = await fetchSalesOrderDetail(order.id);
@@ -155,6 +168,7 @@ export function OrderDetail({
       description,
       stages: buildAccountingSyncStages({
         document: salesOrderAccountingDocument(latest),
+        includeAccounting,
         includeEmail,
         localActionLabel,
       }),
@@ -287,33 +301,48 @@ export function OrderDetail({
   });
 
   const shipMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (options: AccountingActionOptions) => {
       const response = await fetch(`/api/sales-orders/${order.id}/ship`, {
         method: "POST",
-        headers: createIdempotencyHeaders("sales-order-ship"),
+        headers: createIdempotencyHeaders("sales-order-ship", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          syncAccounting: options.syncAccounting,
+          sendEmail: options.sendEmail,
+        }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(body?.error ?? "Failed to ship order.");
       }
     },
-    onMutate: () => {
+    onMutate: (options) => {
       setActionError(null);
+      setShipConfirmOpen(false);
       openSyncDialog({
         title: "Shipping Sales Order",
-        description: "The order will ship, sync an invoice to Xero, and email the customer when enabled.",
+        description: options.syncAccounting
+          ? "The order will ship, sync an invoice to Xero, and email the customer when enabled."
+          : "The order will ship in ERP only.",
         localActionLabel: "Ship sales order",
+        includeAccounting: options.syncAccounting,
+        includeEmail: options.sendEmail,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, options) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
       await finishSyncDialog({
         title: "Sales Order Shipped",
-        description: "ERP shipping is complete. Xero and email results are shown below.",
+        description: options.syncAccounting
+          ? "ERP shipping is complete. Xero and email results are shown below."
+          : "ERP shipping is complete.",
         localActionLabel: "Ship sales order",
+        includeAccounting: options.syncAccounting,
+        includeEmail: options.sendEmail,
       });
       router.refresh();
     },
@@ -406,6 +435,28 @@ export function OrderDetail({
         localActionLabel: "Prepare email",
         message: error.message,
       });
+    },
+  });
+
+  const onlineInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/xero-online-invoice`
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to open online invoice.");
+      }
+      return body as { url: string };
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: ({ url }) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    onError: (error) => {
+      setActionError(error.message);
     },
   });
 
@@ -524,9 +575,9 @@ export function OrderDetail({
               </Button>
             ) : null}
             {canShip ? (
-              <Button
+          <Button
                 size="sm"
-                onClick={() => shipMutation.mutate()}
+                onClick={() => setShipConfirmOpen(true)}
                 disabled={shipMutation.isPending}
               >
                 {shipMutation.isPending ? "Shipping..." : "Ship"}
@@ -563,6 +614,11 @@ export function OrderDetail({
           retryPushPending={xeroPushMutation.isPending}
           onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
           retryEmailPending={xeroEmailMutation.isPending}
+          providerAction={{
+            label: "Open online invoice",
+            onClick: () => onlineInvoiceMutation.mutate(),
+            pending: onlineInvoiceMutation.isPending,
+          }}
         />
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
@@ -755,6 +811,25 @@ export function OrderDetail({
           onDone={() => setSyncDialog(null)}
         />
       ) : null}
+
+      <AccountingActionConfirmDialog
+        open={shipConfirmOpen}
+        title="Ship Sales Order"
+        description="Review the ERP and accounting actions before shipping."
+        confirmLabel="Ship"
+        pendingLabel="Shipping..."
+        summary={[
+          { label: "Customer", value: order.customerName },
+          { label: "Email", value: order.customerEmail ?? "No customer email" },
+          { label: "Total", value: formatPrice(order.totalAmount) ?? "-" },
+          { label: "Lines", value: String(order.lines.length) },
+        ]}
+        options={shipOptions}
+        onOptionsChange={setShipOptions}
+        onConfirm={() => shipMutation.mutate(shipOptions)}
+        onOpenChange={setShipConfirmOpen}
+        isPending={shipMutation.isPending}
+      />
 
       <AlertDialog open={oversellWarning != null} onOpenChange={(open) => {
         if (!open) {

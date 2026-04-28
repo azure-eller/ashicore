@@ -12,9 +12,11 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import {
+  AccountingActionConfirmDialog,
   AccountingSyncDialog,
   AccountingSyncStatus,
   buildAccountingSyncStages,
+  type AccountingActionOptions,
   type AccountingSyncDocument,
   type AccountingSyncStage,
 } from "@/components/accounting-sync-status";
@@ -80,6 +82,9 @@ type SyncDialogState = {
   isWorking: boolean;
 };
 
+const XERO_PURCHASE_ORDERS_URL =
+  "https://go.xero.com/Accounts/Payable/PurchaseOrders.aspx";
+
 async function fetchPurchaseOrderDetail(id: string): Promise<PurchaseOrderDetailType> {
   const response = await fetch(`/api/purchase-orders/${id}`);
   const body = await response.json().catch(() => null);
@@ -105,6 +110,7 @@ function purchaseOrderAccountingDocument(
     emailStatus: order.xeroPoEmailStatus,
     emailError: order.xeroPoEmailError,
     emailedAt: order.xeroPoEmailedAt,
+    emailProviderName: "Resend",
     recipientLabel: order.supplierName,
     recipientEmail: order.supplierEmail,
   };
@@ -122,6 +128,11 @@ export function PurchaseOrderDetail({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
+  const [submitOptions, setSubmitOptions] = useState<AccountingActionOptions>({
+    syncAccounting: true,
+    sendEmail: order.supplierEmail != null && order.supplierEmail.trim() !== "",
+  });
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
   const accountingDocument = purchaseOrderAccountingDocument(order);
@@ -159,12 +170,14 @@ export function PurchaseOrderDetail({
     title,
     description,
     localActionLabel,
+    includeAccounting = true,
     includeEmail = true,
     activeStage = "push",
   }: {
     title: string;
     description: string;
     localActionLabel: string;
+    includeAccounting?: boolean;
     includeEmail?: boolean;
     activeStage?: "push" | "email";
   }) => {
@@ -173,6 +186,7 @@ export function PurchaseOrderDetail({
       description,
       stages: buildAccountingSyncStages({
         document: accountingDocument,
+        includeAccounting,
         includeEmail,
         isWorking: true,
         localActionLabel,
@@ -187,11 +201,13 @@ export function PurchaseOrderDetail({
     title,
     description,
     localActionLabel,
+    includeAccounting = true,
     includeEmail = true,
   }: {
     title: string;
     description: string;
     localActionLabel: string;
+    includeAccounting?: boolean;
     includeEmail?: boolean;
   }) => {
     const latest = await fetchPurchaseOrderDetail(order.id);
@@ -200,6 +216,7 @@ export function PurchaseOrderDetail({
       description,
       stages: buildAccountingSyncStages({
         document: purchaseOrderAccountingDocument(latest),
+        includeAccounting,
         includeEmail,
         localActionLabel,
       }),
@@ -236,30 +253,45 @@ export function PurchaseOrderDetail({
   };
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (options: AccountingActionOptions) => {
       const response = await fetch(`/api/purchase-orders/${order.id}/submit`, {
         method: "POST",
-        headers: createIdempotencyHeaders("purchase-order-submit"),
+        headers: createIdempotencyHeaders("purchase-order-submit", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          syncAccounting: options.syncAccounting,
+          sendEmail: options.sendEmail,
+        }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(body?.error ?? "Failed to submit purchase order.");
       }
     },
-    onMutate: () => {
+    onMutate: (options) => {
       setActionError(null);
+      setSubmitConfirmOpen(false);
       openSyncDialog({
         title: "Submitting Purchase Order",
-        description: "The purchase order will be submitted, synced to Xero, and emailed when enabled.",
+        description: options.syncAccounting
+          ? "The purchase order will be submitted, synced to Xero, and emailed when enabled."
+          : "The purchase order will be submitted in ERP only.",
         localActionLabel: "Submit purchase order",
+        includeAccounting: options.syncAccounting,
+        includeEmail: options.sendEmail,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, options) => {
       await refreshQueries();
       await finishSyncDialog({
         title: "Purchase Order Submitted",
-        description: "ERP submission is complete. Xero and email results are shown below.",
+        description: options.syncAccounting
+          ? "ERP submission is complete. Xero and email results are shown below."
+          : "ERP submission is complete.",
         localActionLabel: "Submit purchase order",
+        includeAccounting: options.syncAccounting,
+        includeEmail: options.sendEmail,
       });
       router.refresh();
     },
@@ -537,7 +569,7 @@ export function PurchaseOrderDetail({
             {canSubmit ? (
               <Button
                 size="sm"
-                onClick={() => submitMutation.mutate()}
+                onClick={() => setSubmitConfirmOpen(true)}
                 disabled={submitMutation.isPending}
               >
                 {submitMutation.isPending ? "Submitting..." : "Submit"}
@@ -569,6 +601,10 @@ export function PurchaseOrderDetail({
           retryPushPending={xeroPushMutation.isPending}
           onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
           retryEmailPending={xeroEmailMutation.isPending}
+          providerAction={{
+            label: "Open Xero purchase orders",
+            href: XERO_PURCHASE_ORDERS_URL,
+          }}
         />
 
         <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
@@ -702,6 +738,25 @@ export function PurchaseOrderDetail({
           onDone={() => setSyncDialog(null)}
         />
       ) : null}
+
+      <AccountingActionConfirmDialog
+        open={submitConfirmOpen}
+        title="Submit Purchase Order"
+        description="Review the ERP and accounting actions before submitting."
+        confirmLabel="Submit"
+        pendingLabel="Submitting..."
+        summary={[
+          { label: "Supplier", value: order.supplierName },
+          { label: "Email", value: order.supplierEmail ?? "No supplier email" },
+          { label: "Total", value: formatPrice(order.totalAmount) ?? "-" },
+          { label: "Lines", value: String(order.lines.length) },
+        ]}
+        options={submitOptions}
+        onOptionsChange={setSubmitOptions}
+        onConfirm={() => submitMutation.mutate(submitOptions)}
+        onOpenChange={setSubmitConfirmOpen}
+        isPending={submitMutation.isPending}
+      />
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <AlertDialogContent className="bg-background text-foreground">
