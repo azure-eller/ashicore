@@ -1,7 +1,6 @@
 import { after } from "next/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Providers } from "@/app/providers";
-import { ReadabilityPreferenceBootstrap } from "./readability-preference-bootstrap";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import {
   getRequestLogContext,
@@ -33,7 +32,6 @@ export default async function DashboardLayout({
 
   return (
     <Providers>
-      <ReadabilityPreferenceBootstrap />
       <SidebarProvider>
         <AppSidebar
           user={user}

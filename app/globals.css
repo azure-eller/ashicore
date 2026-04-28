@@ -137,20 +137,6 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-:root[data-readability="medium"] {
-  font-size: 19px;
-  --table-head-height: 3.125rem;
-  --table-cell-px: 0.85rem;
-  --table-cell-py: 0.85rem;
-}
-
-:root[data-readability="large"] {
-  font-size: 21px;
-  --table-head-height: 3.5rem;
-  --table-cell-px: 1rem;
-  --table-cell-py: 1rem;
-}
-
 html.dark [data-sidebar-bar] {
   --sidebar: oklch(0.269 0.001 0);
   --sidebar-foreground: oklch(0.985 0 0);

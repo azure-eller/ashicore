@@ -152,7 +152,7 @@ async function OrdersData() {
 }
 ```
 
-Route-level `loading.tsx` only appears after parent layouts start rendering. Keep `app/layout.tsx` and shared dashboard layouts free of non-essential auth/DB preference reads, or those parent awaits will block the fallback and make navigation look frozen. For UI preferences like readability, initialize SSR from a cookie and let the settings API keep that cookie in sync.
+Route-level `loading.tsx` only appears after parent layouts start rendering. Keep `app/layout.tsx` and shared dashboard layouts free of non-essential auth, DB, or preference reads, or those parent awaits will block the fallback and make navigation look frozen.
 
 For create/edit routes that share the same form, reuse one route-level loading component per item type instead of duplicating a separate loader for `new` and `edit`.
 

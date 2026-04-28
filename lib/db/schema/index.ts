@@ -12,5 +12,4 @@ export * from "./sales";
 export * from "./manufacturing";
 export * from "./purchasing";
 export * from "./auth";
-export * from "./user-preferences";
 export * from "./xero";
