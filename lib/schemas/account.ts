@@ -98,22 +98,6 @@ export const accountSettingsSchema = z
     }
   });
 
-export const READABILITY_OPTIONS = ["small", "medium", "large"] as const;
-export type ReadabilityOption = (typeof READABILITY_OPTIONS)[number];
-
-export function normalizeReadabilityOption(
-  value: string | null | undefined
-): ReadabilityOption {
-  if (value === "small" || value === "medium" || value === "large") {
-    return value;
-  }
-  return "small";
-}
-
-export const updateReadabilitySchema = z.object({
-  readability: z.enum(READABILITY_OPTIONS),
-});
-
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

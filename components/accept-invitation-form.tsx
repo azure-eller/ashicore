@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import type { PublicInvitationDetails } from "@/app/(dashboard)/settings/types";
 import { authClient } from "@/lib/auth-client";
 import { formatAccessPresetLabel } from "@/lib/authz";
-import { clearReadabilityCookie } from "@/lib/readability-cookie";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -201,7 +200,6 @@ export function AcceptInvitationForm({
         return;
       }
 
-      clearReadabilityCookie();
       router.refresh();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to log out");
