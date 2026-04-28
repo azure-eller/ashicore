@@ -1253,6 +1253,15 @@ function computeBatchCount(item: PlanningItemRecord, quantity: number) {
   return Math.ceil(quantity / expectedBatchYield);
 }
 
+function computeBomExplosionMultiplier(item: PlanningItemRecord, quantity: number) {
+  const expectedBatchYield = nullableNumber(item.expectedBatchYield);
+  if (item.manufacturingMode !== "batch" || expectedBatchYield == null || expectedBatchYield <= 0) {
+    return quantity;
+  }
+
+  return Math.ceil(quantity / expectedBatchYield);
+}
+
 function computeProductionMetadata(args: {
   item: PlanningItemRecord;
   shortageQuantity: number;
@@ -1477,6 +1486,7 @@ function addBomExplosionDemand(args: {
   itemById: Map<string, PlanningItemRecord>;
   bomByProductId: Map<string, CurrentBomRecord>;
   demandFactsByItem: Map<string, InternalDemandFact[]>;
+  componentMultiplier: number;
   level: number;
   warnings: PlanningWarning[];
 }): {
@@ -1505,7 +1515,7 @@ function addBomExplosionDemand(args: {
 
   for (const component of bom.components) {
     const componentQuantity = roundQuantity(
-      parentShortageQuantity * toQuantity(component.quantity)
+      args.componentMultiplier * toQuantity(component.quantity)
     );
     if (componentQuantity <= 0) {
       continue;
@@ -1597,7 +1607,7 @@ function buildRowsWithBomExplosion(args: {
   const itemById = new Map(args.itemsList.map((item) => [item.id, item]));
   const demandFacts: InternalDemandFact[] = [...args.baseDemandFacts];
   const bomRequirementFacts: BomRequirementFact[] = [];
-  const explodedParentKeys = new Set<string>();
+  const explodedMultiplierByItemId = new Map<string, number>();
   let rows = buildPlanningRows({
     itemsList: args.itemsList,
     demandFacts,
@@ -1628,17 +1638,25 @@ function buildRowsWithBomExplosion(args: {
       .sort((left, right) => left.item.name.localeCompare(right.item.name));
 
     for (const row of parentRows) {
-      const parentKey = `${row.item.id}:${row.shortageQuantity}`;
-      if (explodedParentKeys.has(parentKey)) {
+      const parentItem = itemById.get(row.item.id);
+      if (!parentItem) {
         continue;
       }
-      explodedParentKeys.add(parentKey);
+      const shortageQuantity = toQuantity(row.shortageQuantity);
+      const requiredMultiplier = computeBomExplosionMultiplier(parentItem, shortageQuantity);
+      const alreadyExploded = explodedMultiplierByItemId.get(row.item.id) ?? 0;
+      const incrementalMultiplier = roundQuantity(requiredMultiplier - alreadyExploded);
+      if (incrementalMultiplier <= 0) {
+        continue;
+      }
+      explodedMultiplierByItemId.set(row.item.id, requiredMultiplier);
 
       const explosion = addBomExplosionDemand({
         row,
         itemById,
         bomByProductId: args.bomByProductId,
         demandFactsByItem,
+        componentMultiplier: incrementalMultiplier,
         level,
         warnings: args.warnings,
       });
