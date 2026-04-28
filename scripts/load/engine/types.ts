@@ -105,6 +105,22 @@ export type CustomerSeed = {
   phone: string | null;
 };
 
+export type SupplierSeed = {
+  name: string;
+  code: string;
+  contactName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingRegion?: string | null;
+  billingPostcode?: string | null;
+  billingCountry?: string | null;
+  paymentTerms?: string | null;
+  notes?: string | null;
+};
+
 export type CustomerPlan = {
   key: string;
   seed: CustomerSeed;
@@ -186,6 +202,10 @@ export type Report = {
   stockLotsCreated: string[];
   stockLotsExisting: string[];
   stockLotsSkippedMissingCost: string[];
+  createdSuppliers: string[];
+  updatedSuppliers: string[];
+  reactivatedSuppliers: string[];
+  unchangedSuppliers: string[];
   repairedSoSnapshots: number;
 };
 
@@ -205,6 +225,10 @@ export function createEmptyReport(): Report {
     stockLotsCreated: [],
     stockLotsExisting: [],
     stockLotsSkippedMissingCost: [],
+    createdSuppliers: [],
+    updatedSuppliers: [],
+    reactivatedSuppliers: [],
+    unchangedSuppliers: [],
     repairedSoSnapshots: 0,
   };
 }
@@ -260,6 +284,7 @@ export type LoaderConfig = {
   units: UnitSeed[];
   seeds: ItemSeed[];
   initialStockByKey: Record<string, InitialStockEntry>;
+  suppliers?: SupplierSeed[];
   openingLotPrefix: string;
   internalOnlyProductCategories?: Set<string>;
   bomRevisionNote?: string;

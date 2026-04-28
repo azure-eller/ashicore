@@ -100,6 +100,20 @@ function lineTotalLabel(quantity: string | null | undefined, unitPrice: string |
   return formatPrice((qty * price).toFixed(2)) ?? "\u2014";
 }
 
+function salesItemSearchLabel(item: SalesOrderItemOption | undefined) {
+  if (!item) return "";
+
+  return [
+    item.displayName,
+    item.name !== item.displayName ? item.name : null,
+    item.sku,
+    item.itemType === "material" ? "material" : "product",
+    item.unitName,
+  ]
+    .filter((part): part is string => part != null && part.trim() !== "")
+    .join(" ");
+}
+
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
 
 type ApiError = {
@@ -1122,7 +1136,7 @@ function OrderLineRow({
                 items={itemIds}
                 value={field.value ?? ""}
                 onValueChange={(value) => onItemChange(value ?? "")}
-                itemToStringLabel={(value) => itemMap.get(value)?.displayName ?? ""}
+                itemToStringLabel={(value) => salesItemSearchLabel(itemMap.get(value))}
               >
                 <ComboboxInput placeholder="Search items..." />
                 <ComboboxContent>
@@ -1131,7 +1145,6 @@ function OrderLineRow({
                     {(value: string) => {
                       const current = itemMap.get(value);
                       const metadata = [
-                        current?.sku,
                         current ? (current.itemType === "material" ? "Material" : "Product") : null,
                       ]
                         .filter((part): part is string => part != null)
@@ -1139,9 +1152,23 @@ function OrderLineRow({
 
                       return (
                         <ComboboxItem key={value} value={value}>
-                          <span>{current?.displayName ?? value}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate">
+                              {current?.displayName ?? value}
+                            </span>
+                            {current ? (
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {current.sku ? `${current.sku} · ` : ""}
+                                {current.unitName}
+                                {current.defaultSellingPrice
+                                  ? ` · ${formatPrice(current.defaultSellingPrice) ?? "\u2014"}`
+                                  : ""}
+                                {` · Available ${current.availableQty}`}
+                              </span>
+                            ) : null}
+                          </span>
                           {metadata && (
-                            <span className="ml-auto text-xs text-muted-foreground">
+                            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                               {metadata}
                             </span>
                           )}

@@ -98,6 +98,18 @@ export async function upsertXeroContact(
   );
 
   try {
+    if (!contact.xeroContactId) {
+      const existing = await findXeroContactByExactName(
+        tenantId,
+        accountingApi,
+        contact.name
+      );
+      if (existing?.contactID) {
+        await persistXeroContactId(orgId, contact, existing.contactID);
+        return existing.contactID;
+      }
+    }
+
     const response = contact.xeroContactId
       ? await accountingApi.updateOrCreateContacts(
           tenantId,
@@ -124,11 +136,43 @@ export async function upsertXeroContact(
     return returned.contactID;
   } catch (error) {
     if (error instanceof XeroError) throw error;
+    const existing = !contact.xeroContactId
+      ? await findXeroContactByExactName(tenantId, accountingApi, contact.name)
+      : null;
+    if (existing?.contactID) {
+      await persistXeroContactId(orgId, contact, existing.contactID);
+      return existing.contactID;
+    }
     console.error("Xero contact upsert failed:", redactXeroError(error));
     throw new XeroError(
       `Could not sync ${contact.source} to Xero: ${extractXeroMessage(error)}`,
       502
     );
+  }
+}
+
+async function findXeroContactByExactName(
+  tenantId: string,
+  accountingApi: import("xero-node").AccountingApi,
+  name: string
+) {
+  try {
+    const response = await accountingApi.getContacts(
+      tenantId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
+      true,
+      undefined,
+      name,
+      100
+    );
+
+    return (response.body.contacts ?? []).find((row) => row.name === name) ?? null;
+  } catch {
+    return null;
   }
 }
 

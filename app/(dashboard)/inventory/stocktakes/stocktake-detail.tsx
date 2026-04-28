@@ -657,7 +657,10 @@ export function StocktakeDetail({
           }
         }}
       >
-        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground sm:max-w-3xl">
+        <DialogContent
+          size="3xl"
+          className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
+        >
           <DialogHeader>
             <DialogTitle>Complete with changed stock?</DialogTitle>
             <DialogDescription>

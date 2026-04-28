@@ -29,6 +29,10 @@ export function printReport(report: Report, dryRun: boolean) {
   console.log(
     `  Stock lots skipped (missing cost): ${report.stockLotsSkippedMissingCost.length}`
   );
+  console.log(`  Suppliers created: ${report.createdSuppliers.length}`);
+  console.log(`  Suppliers reactivated: ${report.reactivatedSuppliers.length}`);
+  console.log(`  Suppliers updated: ${report.updatedSuppliers.length}`);
+  console.log(`  Suppliers unchanged: ${report.unchangedSuppliers.length}`);
   console.log(`  SO snapshots repaired: ${report.repairedSoSnapshots}`);
 
   if (report.stockLotsCreated.length > 0) {

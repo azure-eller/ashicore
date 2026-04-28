@@ -412,7 +412,7 @@ export async function createSupplier(data: InsertSupplier) {
         organizationId: orgId,
         ...data,
       })
-      .returning({ id: suppliers.id });
+      .returning({ id: suppliers.id, name: suppliers.name });
 
     return supplier;
   });

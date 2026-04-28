@@ -166,11 +166,17 @@ export function AccountingSyncStatus({
   if (compact) {
     const emailSummary =
       document.emailStatus === "sent"
-        ? "Email sent"
+        ? emailStage.detail
+          ? `Email sent · ${emailStage.detail}`
+          : "Email sent"
         : document.emailStatus === "failed"
-          ? "Email failed"
+          ? emailStage.detail
+            ? `Email failed · ${emailStage.detail}`
+            : "Email failed"
           : document.emailStatus === "skipped"
-          ? "Email skipped"
+          ? emailStage.detail
+            ? `Email skipped · ${emailStage.detail}`
+            : "Email skipped"
             : null;
     const documentSummary = document.documentNumber
       ? `${document.providerName} ${document.documentLabel} · ${document.documentNumber}`

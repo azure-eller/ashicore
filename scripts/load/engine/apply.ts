@@ -6,6 +6,7 @@ import { getUnitSignature } from "./org";
 import { applyBomsSyncInTx } from "./sync-boms";
 import { applyItemsSyncInTx, assertNoDuplicateSkus, loadExistingItemsInTx } from "./sync-items";
 import { applyStockSyncInTx } from "./sync-stock";
+import { applySuppliersSyncInTx } from "./sync-suppliers";
 import { applyUnitsSyncInTx, assertNoDuplicateUnits, loadExistingUnitsInTx } from "./sync-units";
 import { createEmptyReport } from "./types";
 import type { ExistingItem, LoaderConfig, Report } from "./types";
@@ -81,6 +82,8 @@ export async function applyChanges(
       actorUserId,
       idempotencyKeyPrefix
     );
+
+    await applySuppliersSyncInTx(tx, config.suppliers, orgId, report);
 
     // Repair historical SO line snapshots for variant items.
     // Snapshots used to be "Raised Bed Mix 2 Cubic Foot Bag" (old format).

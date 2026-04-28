@@ -120,7 +120,8 @@ export function MoStageAction({
             <AlertDialogHeader>
               <AlertDialogTitle>Release with shortages?</AlertDialogTitle>
               <AlertDialogDescription>
-                Releasing is still allowed, but one or more ingredients are short right now.
+                Releasing is still allowed, but picking and completion will stay blocked
+                until these ingredients are produced or purchased.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="rounded-md border">
@@ -161,6 +162,12 @@ export function MoStageAction({
               </Table>
             </div>
             <AlertDialogFooter>
+              <Button variant="outline" asChild>
+                <Link href="/purchasing/orders/new">Create PO</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/manufacturing/orders/new">Create MO</Link>
+              </Button>
               <AlertDialogCancel>Back</AlertDialogCancel>
               <AlertDialogAction
                 disabled={releaseMutation.isPending}
