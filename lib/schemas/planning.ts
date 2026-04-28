@@ -128,7 +128,6 @@ const planningSupplierItemSchema = z
 
 export const updatePlanningRulesSchema = z.object({
   planningEnabled: z.boolean().optional(),
-  reorderPoint: nullableDecimalString("Reorder point"),
   targetCoverDays: nullableDayCount("Target cover days"),
   leadTimeDaysOverride: nullableDayCount("Lead time"),
   productionLeadTimeDays: nullableDayCount("Production lead time"),

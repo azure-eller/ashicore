@@ -57,7 +57,6 @@ type PlanningItemRecord = {
   unitName: string | null;
   unitUom: string | null;
   safetyStock: string;
-  reorderPoint: string | null;
   targetCoverDays: string | null;
   planningEnabled: boolean;
   leadTimeDaysOverride: string | null;
@@ -279,7 +278,6 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       unitName: unitDefinitions.name,
       unitUom: unitDefinitions.uom,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-      reorderPoint: trimScaleNullable(items.reorderPoint).as("reorderPoint"),
       targetCoverDays: trimScaleNullable(items.targetCoverDays).as("targetCoverDays"),
       planningEnabled: items.planningEnabled,
       leadTimeDaysOverride: trimScaleNullable(items.leadTimeDaysOverride).as(
@@ -1091,6 +1089,10 @@ function applyOrderRounding(args: {
   const minimum = nullableNumber(args.minimumOrderQuantity);
   const multiple = nullableNumber(args.orderMultiple);
 
+  if (factor > 1) {
+    quantity = Math.ceil(quantity / factor) * factor;
+  }
+
   if (minimum != null && minimum > 0) {
     quantity = Math.max(quantity, minimum * factor);
   }
@@ -1149,12 +1151,7 @@ function computeReplenishmentMetadata(args: {
         : sum,
     0
   );
-  const explicitReorderPoint = nullableNumber(args.item.reorderPoint);
-  const reorderThreshold = Math.max(explicitReorderPoint ?? 0, safetyStockTarget);
-  const reorderPoint =
-    reorderThreshold > 0
-      ? normalizeQuantity(reorderThreshold)
-      : args.item.reorderPoint;
+  const safetyStockThreshold = safetyStockTarget;
   const targetCoverDays = nullableNumber(args.item.targetCoverDays);
   const leadTime = resolveLeadTime({
     item: args.item,
@@ -1182,12 +1179,13 @@ function computeReplenishmentMetadata(args: {
       toQuantity(fact.quantity) > 0
   );
   let projected = args.onHandStock;
-  let crossingDate: string | null = projected <= Math.max(reorderThreshold, 0) ? args.horizonStart : null;
+  let crossingDate: string | null =
+    projected <= Math.max(safetyStockThreshold, 0) ? args.horizonStart : null;
 
   for (const event of events) {
     if (crossingDate != null) break;
     projected = roundQuantity(projected + event.quantity);
-    if (projected <= reorderThreshold || projected <= 0) {
+    if (projected <= safetyStockThreshold || projected <= 0) {
       crossingDate = event.date;
     }
   }
@@ -1224,7 +1222,6 @@ function computeReplenishmentMetadata(args: {
     windowEnd == null
       ? args.shortageQuantity
       : demandWithinWindow(args.itemDemandFacts, windowEnd) +
-        Math.max(0, reorderThreshold - safetyStockTarget) -
         args.onHandStock -
         supplyWithinWindow(args.itemSupplyFacts, windowEnd);
   const roundedSuggestion = applyOrderRounding({
@@ -1235,7 +1232,6 @@ function computeReplenishmentMetadata(args: {
   });
 
   return {
-    reorderPoint,
     targetCoverDays,
     daysOfCover,
     daysOfCoverStatus,
@@ -1423,7 +1419,6 @@ function buildPlanningRows(args: {
       shortageQuantity: normalizeQuantity(shortageQuantity),
       earliestRequiredDate,
       safetyStock: item.safetyStock,
-      reorderPoint: replenishment.reorderPoint,
       targetCoverDays: replenishment.targetCoverDays,
       daysOfCover: replenishment.daysOfCover,
       daysOfCoverStatus: replenishment.daysOfCoverStatus,

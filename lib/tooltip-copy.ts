@@ -328,7 +328,7 @@ export const PLANNING_SHORT_TOOLTIP =
   "Required quantity not covered by stock.";
 
 export const PLANNING_REORDER_COMPARISON_TOOLTIP =
-  "Current stock compared with the reorder point.";
+  "Current stock compared with safety stock.";
 
 export const PLANNING_DAYS_COVER_TOOLTIP =
   "Estimated days current stock covers demand.";

@@ -56,7 +56,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
-import { formatQuantity } from "@/lib/format";
+import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import {
   PLANNING_DAYS_COVER_TOOLTIP,
   PLANNING_MOQ_TOOLTIP,
@@ -157,7 +157,7 @@ type ReplenishmentItem = {
   status: "order-now" | "order-soon" | "stocked" | "unknown";
   supplierName: string;
   onHand: number;
-  reorderAt: number;
+  safetyStock: number;
   suggestedQuantity: string | null;
   daysCover: number | null;
 };
@@ -177,7 +177,6 @@ type DownstreamUse = {
 
 type PlanningRulesPayload = {
   planningEnabled?: boolean;
-  reorderPoint?: string | null;
   targetCoverDays?: string | null;
   leadTimeDaysOverride?: string | null;
   productionLeadTimeDays?: string | null;
@@ -262,6 +261,22 @@ function buyGroupKey(group: BuyGroup) {
 
 function formatRowQuantity(row: PlanningItemRow, value: string | null | undefined) {
   return formatQuantityWithUnit(value, itemUnit(row));
+}
+
+function purchaseUnit(row: PlanningItemRow) {
+  return row.purchaseUnitName ?? itemUnit(row);
+}
+
+function formatPurchaseQuantity(row: PlanningItemRow, value: string | null | undefined) {
+  const factor = toQuantity(row.purchaseToStockFactor ?? "1");
+  if (!row.purchaseUnitName || factor <= 0) {
+    return formatRowQuantity(row, value);
+  }
+
+  return formatQuantityWithUnit(
+    normalizeNumeric(toQuantity(value) / factor),
+    purchaseUnit(row)
+  );
 }
 
 function compactPackageLabel(value: string | null | undefined) {
@@ -568,7 +583,7 @@ function getActionSummary(
 
   if (recommendation.recommendationType === "create_purchase_order") {
     const supplier = recommendation.suggestedSupplierName ?? "preferred supplier";
-    return `Buy ${quantity} from ${supplier}.`;
+    return `Buy ${formatPurchaseQuantity(row, recommendation.quantity)} from ${supplier}.`;
   }
 
   if (recommendation.recommendationType === "create_manufacturing_order") {
@@ -841,7 +856,7 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
     .map((entry) => {
       const shortage = toQuantity(entry.row.shortageQuantity);
       const available = Math.max(0, toQuantity(entry.row.availableStock));
-      const reorderAt = Math.max(0, toQuantity(entry.row.reorderPoint));
+      const safetyStock = Math.max(0, toQuantity(entry.row.safetyStock));
       const status: ReplenishmentItem["status"] =
         entry.row.daysOfCoverStatus === "order_now"
           ? "order-now"
@@ -861,7 +876,7 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
           entry.recommendation?.suggestedSupplierName ??
           "Supplier needed",
         onHand: available,
-        reorderAt,
+        safetyStock,
         suggestedQuantity: entry.row.suggestedOrderQuantity,
         daysCover: entry.row.daysOfCover,
       };
@@ -1614,9 +1629,9 @@ function StatusChip({ status }: { status: ReplenishmentItem["status"] }) {
 }
 
 function StockMeter({ item }: { item: ReplenishmentItem }) {
-  const max = Math.max(item.onHand, item.reorderAt * 2, 1);
+  const max = Math.max(item.onHand, item.safetyStock * 2, 1);
   const fillPct = Math.min(100, (item.onHand / max) * 100);
-  const markerPct = Math.min(100, (item.reorderAt / max) * 100);
+  const markerPct = Math.min(100, (item.safetyStock / max) * 100);
   const fillClass =
     item.status === "order-now"
       ? "bg-destructive"
@@ -1638,10 +1653,11 @@ function StockMeter({ item }: { item: ReplenishmentItem }) {
       </div>
       <div className="flex justify-between gap-3 text-[0.68rem] text-muted-foreground">
         <span className="font-mono tabular-nums">
-          <b className="text-foreground">{formatQuantity(String(item.onHand))}</b>{" "}
-          {itemUnit(item.entry.row)}
+          <b className="text-foreground">
+            {formatPurchaseQuantity(item.entry.row, String(item.onHand))}
+          </b>
         </span>
-        <span>reorder at {formatQuantity(String(item.reorderAt))}</span>
+        <span>safety {formatPurchaseQuantity(item.entry.row, String(item.safetyStock))}</span>
       </div>
     </div>
   );
@@ -1721,14 +1737,14 @@ function ReplenishmentPlanningView({
           {
             label: "Order now",
             value: String(orderNow.length),
-            suffix: "at or below reorder point",
+            suffix: "at or below safety stock",
             icon: Alert01Icon,
             danger: orderNow.length > 0,
           },
           {
             label: "Order soon",
             value: String(orderSoon.length),
-            suffix: "approaching reorder",
+            suffix: "approaching safety stock",
             icon: Calendar01Icon,
           },
           {
@@ -1821,7 +1837,7 @@ function ReplenishmentPlanningView({
           }}
         >
           <HugeiconsIcon icon={Settings02Icon} data-icon="inline-start" />
-          Reorder rules
+          Planning rules
         </Button>
       </div>
 
@@ -1834,7 +1850,7 @@ function ReplenishmentPlanningView({
               <TableHead>Status</TableHead>
               <TableHead>
                 <TooltipHeader
-                  label="On hand vs reorder"
+                  label="Stock vs safety"
                   tooltip={PLANNING_REORDER_COMPARISON_TOOLTIP}
                 />
               </TableHead>
@@ -1909,7 +1925,7 @@ function ReplenishmentPlanningView({
                     </TableCell>
                     <TableCell className="text-right font-mono font-medium tabular-nums">
                       {item.suggestedQuantity
-                        ? `${formatRowQuantity(item.entry.row, item.suggestedQuantity)}`
+                        ? `${formatPurchaseQuantity(item.entry.row, item.suggestedQuantity)}`
                         : "—"}
                     </TableCell>
                     <TableCell className="text-right">
@@ -1986,7 +2002,6 @@ function PlanningRulesForm({
   const [planningEnabled, setPlanningEnabled] = useState(
     !row.reasonCodes.includes("planning_disabled")
   );
-  const [reorderPoint, setReorderPoint] = useState(row.reorderPoint ?? "");
   const [targetCoverDays, setTargetCoverDays] = useState(
     row.targetCoverDays == null ? "" : String(row.targetCoverDays)
   );
@@ -2010,7 +2025,6 @@ function PlanningRulesForm({
 
     const payload: PlanningRulesPayload = {
       planningEnabled,
-      reorderPoint: emptyToNull(reorderPoint),
       targetCoverDays: emptyToNull(targetCoverDays),
     };
 
@@ -2072,16 +2086,6 @@ function PlanningRulesForm({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="planning-reorder-point">Reorder point</Label>
-          <Input
-            id="planning-reorder-point"
-            value={reorderPoint}
-            onChange={(event) => setReorderPoint(event.target.value)}
-            inputMode="decimal"
-            disabled={!permissions.canUpdatePlanningRules || isPending}
-          />
-        </div>
         <div className="space-y-1.5">
           <Label htmlFor="planning-target-cover">Target cover days</Label>
           <Input
@@ -2949,7 +2953,7 @@ export function PlanningWorkspace({
   const subtitle =
     activeTab === "production"
       ? "What you need to make next, ordered by what your sales orders demand."
-      : "Raw materials approaching reorder. Bulk-order to keep production stocked.";
+      : "Raw materials approaching safety stock. Bulk-order to keep production stocked.";
 
   return (
     <>
