@@ -742,15 +742,18 @@ export function PurchaseOrderDetail({
       <AccountingActionConfirmDialog
         open={submitConfirmOpen}
         title="Submit Purchase Order"
-        description="Review the ERP and accounting actions before submitting."
+        description="Review what happens next."
         confirmLabel="Submit"
         pendingLabel="Submitting..."
-        summary={[
-          { label: "Supplier", value: order.supplierName },
-          { label: "Email", value: order.supplierEmail ?? "No supplier email" },
-          { label: "Total", value: formatPrice(order.totalAmount) ?? "-" },
-          { label: "Lines", value: String(order.lines.length) },
-        ]}
+        localStep={{ title: "Submit PO", detail: order.orderNumber }}
+        accountingStep={{
+          title: "Create in Xero",
+          detail: "Xero purchase order",
+        }}
+        emailStep={{
+          title: "Email supplier",
+          detail: order.supplierEmail ?? "No supplier email",
+        }}
         options={submitOptions}
         onOptionsChange={setSubmitOptions}
         onConfirm={() => submitMutation.mutate(submitOptions)}

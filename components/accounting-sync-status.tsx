@@ -22,11 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Field,
-  FieldContent,
-  FieldDescription,
   FieldGroup,
-  FieldLabel,
 } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
 import { formatDateTime } from "@/lib/format";
@@ -69,6 +65,11 @@ export type AccountingProviderAction = {
   href?: string;
   onClick?: () => void;
   pending?: boolean;
+};
+
+export type AccountingActionConfirmStep = {
+  title: string;
+  detail: string;
 };
 
 export function buildAccountingSyncStages(params: {
@@ -246,7 +247,9 @@ export function AccountingActionConfirmDialog({
   description,
   confirmLabel,
   pendingLabel,
-  summary,
+  localStep,
+  accountingStep,
+  emailStep,
   options,
   onOptionsChange,
   onConfirm,
@@ -258,7 +261,9 @@ export function AccountingActionConfirmDialog({
   description: string;
   confirmLabel: string;
   pendingLabel: string;
-  summary: Array<{ label: string; value: string }>;
+  localStep: AccountingActionConfirmStep;
+  accountingStep: AccountingActionConfirmStep;
+  emailStep: AccountingActionConfirmStep;
   options: AccountingActionOptions;
   onOptionsChange: (options: AccountingActionOptions) => void;
   onConfirm: () => void;
@@ -275,52 +280,42 @@ export function AccountingActionConfirmDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 rounded-md border bg-card p-3 text-card-foreground sm:grid-cols-2">
-          {summary.map((item) => (
-            <div key={item.label} className="min-w-0">
-              <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-              <p className="truncate text-sm">{item.value}</p>
-            </div>
-          ))}
-        </div>
-
-        <FieldGroup className="gap-3">
-          <Field orientation="horizontal">
-            <Checkbox
-              id="syncAccounting"
-              checked={options.syncAccounting}
-              onCheckedChange={(checked) => {
-                const syncAccounting = checked === true;
-                onOptionsChange({
-                  syncAccounting,
-                  sendEmail: syncAccounting ? options.sendEmail : false,
-                });
-              }}
-            />
-            <FieldContent>
-              <FieldLabel htmlFor="syncAccounting">Create in Xero</FieldLabel>
-              <FieldDescription>
-                Creates the accounting document after the ERP action succeeds.
-              </FieldDescription>
-            </FieldContent>
-          </Field>
-
-          <Field orientation="horizontal" data-disabled={emailDisabled}>
-            <Checkbox
-              id="sendEmail"
-              checked={options.sendEmail}
-              disabled={emailDisabled}
-              onCheckedChange={(checked) =>
-                onOptionsChange({ ...options, sendEmail: checked === true })
-              }
-            />
-            <FieldContent>
-              <FieldLabel htmlFor="sendEmail">Email recipient</FieldLabel>
-              <FieldDescription>
-                Sends through the configured provider when the document is eligible.
-              </FieldDescription>
-            </FieldContent>
-          </Field>
+        <FieldGroup className="relative gap-3 pl-10">
+          <div
+            aria-hidden
+            className="absolute bottom-8 left-4 top-8 border-l border-border"
+          />
+          <ActionTimelineStep
+            number="1"
+            title={localStep.title}
+            detail={localStep.detail}
+            badge="Required"
+          />
+          <ActionTimelineStep
+            number="2"
+            title={accountingStep.title}
+            detail={accountingStep.detail}
+            checked={options.syncAccounting}
+            checkboxId="syncAccounting"
+            onCheckedChange={(checked) => {
+              const syncAccounting = checked === true;
+              onOptionsChange({
+                syncAccounting,
+                sendEmail: syncAccounting ? options.sendEmail : false,
+              });
+            }}
+          />
+          <ActionTimelineStep
+            number="3"
+            title={emailStep.title}
+            detail={emailStep.detail}
+            checked={options.sendEmail}
+            checkboxId="sendEmail"
+            disabled={emailDisabled}
+            onCheckedChange={(checked) =>
+              onOptionsChange({ ...options, sendEmail: checked === true })
+            }
+          />
         </FieldGroup>
 
         <DialogFooter>
@@ -338,6 +333,63 @@ export function AccountingActionConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ActionTimelineStep({
+  number,
+  title,
+  detail,
+  badge,
+  checked,
+  checkboxId,
+  disabled = false,
+  onCheckedChange,
+}: {
+  number: string;
+  title: string;
+  detail: string;
+  badge?: string;
+  checked?: boolean;
+  checkboxId?: string;
+  disabled?: boolean;
+  onCheckedChange?: (checked: boolean | "indeterminate") => void;
+}) {
+  return (
+    <div className="relative">
+      <div
+        aria-hidden
+        className={cn(
+          "absolute -left-10 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-xs font-medium",
+          number === "1" && "bg-primary text-primary-foreground"
+        )}
+      >
+        {number}
+      </div>
+      <div
+        className={cn(
+          "flex items-center justify-between gap-4 rounded-md border bg-background p-3",
+          disabled && "opacity-60"
+        )}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">{title}</p>
+            {badge ? <Badge variant="secondary">{badge}</Badge> : null}
+          </div>
+          <p className="mt-1 truncate text-sm text-muted-foreground">{detail}</p>
+        </div>
+        {checkboxId ? (
+          <Checkbox
+            id={checkboxId}
+            checked={checked}
+            disabled={disabled}
+            onCheckedChange={onCheckedChange}
+            aria-label={title}
+          />
+        ) : null}
+      </div>
+    </div>
   );
 }
 

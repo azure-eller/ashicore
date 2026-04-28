@@ -815,15 +815,18 @@ export function OrderDetail({
       <AccountingActionConfirmDialog
         open={shipConfirmOpen}
         title="Ship Sales Order"
-        description="Review the ERP and accounting actions before shipping."
+        description="Review what happens next."
         confirmLabel="Ship"
         pendingLabel="Shipping..."
-        summary={[
-          { label: "Customer", value: order.customerName },
-          { label: "Email", value: order.customerEmail ?? "No customer email" },
-          { label: "Total", value: formatPrice(order.totalAmount) ?? "-" },
-          { label: "Lines", value: String(order.lines.length) },
-        ]}
+        localStep={{ title: "Ship order", detail: order.orderNumber }}
+        accountingStep={{
+          title: "Create invoice",
+          detail: "Xero invoice",
+        }}
+        emailStep={{
+          title: "Email customer",
+          detail: order.customerEmail ?? "No customer email",
+        }}
         options={shipOptions}
         onOptionsChange={setShipOptions}
         onConfirm={() => shipMutation.mutate(shipOptions)}
