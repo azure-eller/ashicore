@@ -50,6 +50,27 @@ function getInventoryAttention(row: ItemRow): InventoryAttention | null {
   return null;
 }
 
+function MarginBadge({ row }: { row: ItemRow }) {
+  if (row.marginPercent == null || row.marginTier == null) {
+    return "—";
+  }
+
+  const variant =
+    row.marginTier === "negative"
+      ? "destructive"
+      : row.marginTier === "low"
+        ? "warning"
+        : row.marginTier === "high"
+          ? "success"
+          : "secondary";
+
+  return (
+    <Badge variant={variant} className="font-mono text-xs">
+      {row.marginPercent}%
+    </Badge>
+  );
+}
+
 export function getColumns(
   itemType: ItemType,
   view?: InventoryProductView,
@@ -203,6 +224,27 @@ export function getColumns(
     },
     ...(isProduct && !isSubAssemblies
       ? [
+          {
+            accessorKey: "marginPercent",
+            sortDescFirst: true,
+            sortingFn: (rowA, rowB) => {
+              const a = rowA.original.marginPercent != null
+                ? parseFloat(rowA.original.marginPercent)
+                : Number.NEGATIVE_INFINITY;
+              const b = rowB.original.marginPercent != null
+                ? parseFloat(rowB.original.marginPercent)
+                : Number.NEGATIVE_INFINITY;
+              return a - b;
+            },
+            header: ({ column }) => (
+              <SortableHeader
+                column={column}
+                label="Margin"
+                tooltip="Selling price minus BOM cost, as a percent of selling price."
+              />
+            ),
+            cell: ({ row }) => <MarginBadge row={row.original} />,
+          } satisfies ColumnDef<ItemRow>,
           {
             accessorKey: "potential",
             sortDescFirst: false,
