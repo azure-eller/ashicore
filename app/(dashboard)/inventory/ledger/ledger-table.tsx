@@ -14,6 +14,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Popover,
   PopoverContent,
@@ -52,6 +53,21 @@ import {
   INVENTORY_LEDGER_SCOPE_VALUES,
   INVENTORY_LEDGER_SOURCE_TYPES,
 } from "@/lib/inventory/ledger";
+import {
+  LEDGER_ACTOR_TOOLTIP,
+  LEDGER_CHANGE_TOOLTIP,
+  LEDGER_DOCUMENT_TYPE_TOOLTIP,
+  LEDGER_EVENT_TOOLTIP,
+  LEDGER_EVENT_TYPE_TOOLTIP,
+  LEDGER_LOT_TOOLTIP,
+  LEDGER_MOVEMENT_TOOLTIP,
+  LEDGER_ON_HAND_AFTER_TOOLTIP,
+  LEDGER_OCCURRED_TOOLTIP,
+  LEDGER_SCOPE_TOOLTIP,
+  LEDGER_SOURCE_TOOLTIP,
+  LEDGER_VALUE_CHANGE_TOOLTIP,
+  ITEM_TYPE_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
 import { ITEM_TYPES } from "../types";
 import { buildInventoryLedgerSearchParams } from "./filters";
@@ -237,7 +253,9 @@ export function LedgerTable({
           </Field>
 
           <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">From</FieldLabel>
+            <FieldLabel className="text-xs text-muted-foreground">
+              <TooltipHeader label="From" tooltip="Start date for occurred timestamps." />
+            </FieldLabel>
             <DatePicker
               value={draftFilters.dateFrom ?? ""}
               onChange={(value) =>
@@ -251,7 +269,9 @@ export function LedgerTable({
           </Field>
 
           <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">To</FieldLabel>
+            <FieldLabel className="text-xs text-muted-foreground">
+              <TooltipHeader label="To" tooltip="End date for occurred timestamps." />
+            </FieldLabel>
             <DatePicker
               value={draftFilters.dateTo ?? ""}
               onChange={(value) =>
@@ -265,7 +285,9 @@ export function LedgerTable({
           </Field>
 
           <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">Movement</FieldLabel>
+            <FieldLabel className="text-xs text-muted-foreground">
+              <TooltipHeader label="Movement" tooltip={LEDGER_MOVEMENT_TOOLTIP} />
+            </FieldLabel>
             <Select
               value={draftFilters.eventClass ?? ALL_VALUE}
               onValueChange={(value) =>
@@ -295,7 +317,9 @@ export function LedgerTable({
           </Field>
 
           <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">Item Type</FieldLabel>
+            <FieldLabel className="text-xs text-muted-foreground">
+              <TooltipHeader label="Item Type" tooltip={ITEM_TYPE_TOOLTIP} />
+            </FieldLabel>
             <Select
               value={draftFilters.itemType ?? ALL_VALUE}
               onValueChange={(value) =>
@@ -340,7 +364,9 @@ export function LedgerTable({
               <PopoverContent align="end" className="w-80">
                 <FieldGroup className="gap-3">
                   <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">Lot</FieldLabel>
+                    <FieldLabel className="text-xs text-muted-foreground">
+                      <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
+                    </FieldLabel>
                     <Input
                       aria-label="Filter by lot"
                       placeholder="Lot number"
@@ -352,7 +378,9 @@ export function LedgerTable({
                   </Field>
 
                   <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">Scope</FieldLabel>
+                    <FieldLabel className="text-xs text-muted-foreground">
+                      <TooltipHeader label="Scope" tooltip={LEDGER_SCOPE_TOOLTIP} />
+                    </FieldLabel>
                     <Select
                       value={draftFilters.scope ?? "stock"}
                       onValueChange={(value) =>
@@ -378,7 +406,7 @@ export function LedgerTable({
 
                   <Field className="gap-1.5">
                     <FieldLabel className="text-xs text-muted-foreground">
-                      Event Type
+                      <TooltipHeader label="Event Type" tooltip={LEDGER_EVENT_TYPE_TOOLTIP} />
                     </FieldLabel>
                     <Select
                       value={draftFilters.eventType ?? ALL_VALUE}
@@ -408,7 +436,10 @@ export function LedgerTable({
 
                   <Field className="gap-1.5">
                     <FieldLabel className="text-xs text-muted-foreground">
-                      Document Type
+                      <TooltipHeader
+                        label="Document Type"
+                        tooltip={LEDGER_DOCUMENT_TYPE_TOOLTIP}
+                      />
                     </FieldLabel>
                     <Select
                       value={draftFilters.documentType ?? ALL_VALUE}
@@ -437,7 +468,9 @@ export function LedgerTable({
                   </Field>
 
                   <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">Actor</FieldLabel>
+                    <FieldLabel className="text-xs text-muted-foreground">
+                      <TooltipHeader label="Actor" tooltip={LEDGER_ACTOR_TOOLTIP} />
+                    </FieldLabel>
                     <Select
                       value={draftFilters.actorUserId ?? ALL_VALUE}
                       onValueChange={(value) =>
@@ -494,15 +527,31 @@ export function LedgerTable({
             <Table className="min-w-[1180px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Occurred</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Occurred" tooltip={LEDGER_OCCURRED_TOOLTIP} />
+                  </TableHead>
                   <TableHead>Item</TableHead>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Lot</TableHead>
-                  <TableHead className="text-right">Change</TableHead>
-                  <TableHead className="text-right">On hand after</TableHead>
-                  <TableHead className="text-right">Value change</TableHead>
-                  <TableHead>Actor</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Event" tooltip={LEDGER_EVENT_TOOLTIP} />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Source" tooltip={LEDGER_SOURCE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Change" tooltip={LEDGER_CHANGE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="On hand after" tooltip={LEDGER_ON_HAND_AFTER_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Value change" tooltip={LEDGER_VALUE_CHANGE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Actor" tooltip={LEDGER_ACTOR_TOOLTIP} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

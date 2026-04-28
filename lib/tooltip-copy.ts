@@ -4,8 +4,11 @@ export const CALCULATED_STOCK_TOOLTIP =
 export const CALCULATED_STOCK_ALERT_TOOLTIP =
   "Below safety stock after demand and expected supply.";
 
+export const ON_HAND_STOCK_TOOLTIP =
+  "Physical stock currently on hand.";
+
 export const AVAILABLE_QTY_TOOLTIP =
-  "Stock still available to reserve.";
+  "Available-disposition stock minus existing reservations.";
 
 export const RESERVED_QTY_TOOLTIP =
   "Stock already reserved for demand.";
@@ -14,10 +17,55 @@ export const DEMAND_QTY_TOOLTIP =
   "Demand from confirmed sales and released manufacturing orders.";
 
 export const BACKORDER_QTY_TOOLTIP =
-  "Demand not covered by reservations.";
+  "Accepted demand not covered by reservations.";
+
+export const EXPECTED_QTY_TOOLTIP =
+  "Inbound supply from open manufacturing and purchase orders.";
+
+export const SAFETY_STOCK_TOOLTIP =
+  "Stock held back as a buffer.";
 
 export const POTENTIAL_TOOLTIP =
   "Units producible from available ingredient stock.";
+
+export const STOCKING_UNIT_TOOLTIP =
+  "Unit used for inventory balances and stock movements.";
+
+export const ITEM_SKU_TOOLTIP =
+  "Stock keeping unit used as the item code.";
+
+export const ITEM_TYPE_TOOLTIP =
+  "Inventory classification: material or product.";
+
+export const ITEM_CATEGORY_TOOLTIP =
+  "Grouping used to organize inventory items.";
+
+export const VARIANT_AXES_TOOLTIP =
+  "Attributes that define product variants.";
+
+export const UNIT_TOOLTIP =
+  "Unit used for this line quantity.";
+
+export const CURRENT_STOCK_UNIT_COST_TOOLTIP =
+  "Material cost basis per stocking unit.";
+
+export const PURCHASE_PRICE_TOOLTIP =
+  "Default supplier price per purchase unit.";
+
+export const SELLING_PRICE_TOOLTIP =
+  "Default sales price per selling unit.";
+
+export const MARGIN_TOOLTIP =
+  "Selling price minus BOM cost, as a percent of selling price.";
+
+export const LOT_PHYSICAL_TOOLTIP =
+  "Physical lot balance across all dispositions.";
+
+export const LOT_NUMBER_TOOLTIP =
+  "Lot identifier assigned to inventory stock.";
+
+export const LOT_UNIT_COST_TOOLTIP =
+  "Inventory value assigned to one stocking unit.";
 
 export const NOT_SELLABLE_TOOLTIP = "Hidden from sales order pickers.";
 
@@ -59,13 +107,25 @@ export const PICK_PROGRESS_TOOLTIP = {
 export const MANUFACTURING_PLANNED_QTY_TOOLTIP =
   "Output scheduled after batch rounding.";
 
+export const MANUFACTURING_ACTUAL_QTY_TOOLTIP =
+  "Good output completed on the order.";
+
+export const MANUFACTURING_SALES_ORDER_TOOLTIP =
+  "Sales order line claimed by this manufacturing order.";
+
+export const MANUFACTURING_EXECUTION_TOOLTIP =
+  "Ingredient picking progress for the order.";
+
+export const MANUFACTURING_COMPONENT_COST_TOOLTIP =
+  "Actual cost consumed for this ingredient.";
+
 export const OVERSELL_TOOLTIP_COPY = {
-  currentAvailable: "Stock still available to reserve.",
+  currentAvailable: "Available-disposition stock minus existing reservations.",
   currentReserved: "Stock already reserved.",
   currentDemand: "Demand before this order.",
   currentShortage: "Unreserved demand before this order.",
-  expected: "Inbound supply from open manufacturing and purchase orders.",
-  safety: "Stock held back as a buffer.",
+  expected: EXPECTED_QTY_TOOLTIP,
+  safety: SAFETY_STOCK_TOOLTIP,
   currentCalculated: "Stock - demand + expected - safety stock.",
   projectedDemand: "Demand after confirming this order.",
   projectedShortage: "Unreserved demand after confirming this order.",
@@ -86,6 +146,12 @@ export const MANUFACTURING_REMAINING_QTY_TOOLTIP =
 
 export const MANUFACTURING_PLANNED_TOTAL_TOOLTIP =
   "Quantity per unit times planned units.";
+
+export const BOM_QTY_PER_BATCH_TOOLTIP =
+  "Component quantity required per batch.";
+
+export const BOM_QTY_PER_UNIT_TOOLTIP =
+  "Component quantity required per finished unit.";
 
 export const MATERIAL_COST_TOOLTIP = "Sum of actual ingredient costs.";
 
@@ -108,8 +174,38 @@ export const PURCHASE_ORDER_STATUS_TOOLTIP = {
 export const PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP =
   "Status values: draft, ordered, partial, received, cancelled.";
 
+export const EXPECTED_DELIVERY_DATE_TOOLTIP =
+  "Supplier delivery date used for inbound supply planning.";
+
 export const PO_REMAINING_QTY_TOOLTIP =
   "Quantity still to receive.";
+
+export const PO_ORDERED_QTY_TOOLTIP =
+  "Quantity ordered from the supplier.";
+
+export const PURCHASE_UNIT_TOOLTIP =
+  "Supplier unit used on purchase orders.";
+
+export const PURCHASE_UNIT_COST_TOOLTIP =
+  "Cost per purchase unit.";
+
+export const PURCHASE_CONVERSION_TOOLTIP =
+  "Purchase units converted to stocking units.";
+
+export const SUPPLIER_CODE_TOOLTIP =
+  "Internal supplier identifier.";
+
+export const PAYMENT_TERMS_TOOLTIP =
+  "Default payment terms for supplier purchases.";
+
+export const PO_RECEIVED_QTY_TOOLTIP =
+  "Quantity already received against the order.";
+
+export const PO_RECEIVE_NOW_TOOLTIP =
+  "Quantity to receive in this transaction.";
+
+export const RECEIPT_DISPOSITION_TOOLTIP =
+  "Receipt lot status: available or blocked.";
 
 export const STOCKTAKE_STATUS_TOOLTIP = {
   draft: "Counts can still be entered or edited.",
@@ -119,6 +215,12 @@ export const STOCKTAKE_STATUS_TOOLTIP = {
 
 export const STOCKTAKE_STATUS_COLUMN_TOOLTIP =
   "Status values: draft, completed, cancelled.";
+
+export const STOCKTAKE_SCOPE_TOOLTIP =
+  "Items included in the stocktake snapshot.";
+
+export const STOCKTAKE_ITEM_COUNT_TOOLTIP =
+  "Stocktake lines included in the snapshot.";
 
 export const STOCKTAKE_COUNTED_TOOLTIP =
   "Counted lines so far.";
@@ -141,11 +243,107 @@ export const STOCKTAKE_CURRENT_QTY_TOOLTIP =
 export const CUSTOMER_PRICING_TOOLTIP =
   "Customer's assigned price tier.";
 
+export const PRICING_CATEGORY_TOOLTIP =
+  "Customer group used for pricing rules.";
+
 export const PRICING_BREAKS_TOOLTIP =
   "Quantity thresholds for tiered pricing.";
 
 export const PRICING_SCOPE_TOOLTIP =
   "Customers this schedule applies to.";
 
+export const PRICING_UNIT_TOOLTIP =
+  "Unit the price breaks apply to.";
+
 export const MANUFACTURABLE_LINES_TOOLTIP =
   "Lines eligible for manufacturing orders.";
+
+export const REQUESTED_DATE_TOOLTIP =
+  "Customer-requested fulfillment date.";
+
+export const SALES_ADDED_QTY_TOOLTIP =
+  "Quantity added by confirming this order.";
+
+export const SALES_LINE_QTY_TOOLTIP =
+  "Quantity requested by the sales line.";
+
+export const SALES_UNIT_PRICE_TOOLTIP =
+  "Price charged per sales unit.";
+
+export const LINE_TOTAL_TOOLTIP =
+  "Quantity times unit price.";
+
+export const ORDER_TOTAL_TOOLTIP =
+  "Sum of order line totals.";
+
+export const DISCOUNT_PERCENT_TOOLTIP =
+  "Percent discount applied to base price.";
+
+export const MIN_QTY_TOOLTIP =
+  "Minimum quantity for this price break.";
+
+export const MAX_QTY_TOOLTIP =
+  "Maximum quantity for this price break.";
+
+export const LEDGER_OCCURRED_TOOLTIP =
+  "Timestamp when the inventory event posted.";
+
+export const LEDGER_EVENT_TOOLTIP =
+  "Inventory event posted to the ledger.";
+
+export const LEDGER_SOURCE_TOOLTIP =
+  "Business document that caused the event.";
+
+export const LEDGER_LOT_TOOLTIP =
+  "Lot affected by the event.";
+
+export const LEDGER_ACTOR_TOOLTIP =
+  "User or system process that posted the event.";
+
+export const LEDGER_MOVEMENT_TOOLTIP =
+  "Movement category for stock and value events.";
+
+export const LEDGER_SCOPE_TOOLTIP =
+  "Stock-only events or all ledger events.";
+
+export const LEDGER_EVENT_TYPE_TOOLTIP =
+  "Specific inventory ledger event type.";
+
+export const LEDGER_DOCUMENT_TYPE_TOOLTIP =
+  "Business document type linked to ledger events.";
+
+export const LEDGER_CHANGE_TOOLTIP =
+  "Signed quantity posted by the event.";
+
+export const LEDGER_ON_HAND_AFTER_TOOLTIP =
+  "On-hand stock after the event posted.";
+
+export const LEDGER_VALUE_CHANGE_TOOLTIP =
+  "Signed inventory value change for the event.";
+
+export const PLANNING_NEED_TOOLTIP =
+  "Quantity required to satisfy open demand.";
+
+export const PLANNING_SHORT_TOOLTIP =
+  "Required quantity not covered by stock.";
+
+export const PLANNING_REORDER_COMPARISON_TOOLTIP =
+  "Current stock compared with the reorder point.";
+
+export const PLANNING_DAYS_COVER_TOOLTIP =
+  "Estimated days current stock covers demand.";
+
+export const PLANNING_SUGGESTED_QTY_TOOLTIP =
+  "Recommended purchase quantity from planning rules.";
+
+export const PLANNING_NEEDED_BY_TOOLTIP =
+  "Date demand needs this supply.";
+
+export const PLANNING_NEEDED_FOR_TOOLTIP =
+  "Demand source that requires this item.";
+
+export const PLANNING_MOQ_TOOLTIP =
+  "Minimum purchase quantity for this supplier item.";
+
+export const PLANNING_ORDER_MULTIPLE_TOOLTIP =
+  "Required purchase increment for this supplier item.";

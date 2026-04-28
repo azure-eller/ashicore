@@ -65,7 +65,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  ON_HAND_STOCK_TOOLTIP,
   OVERSELL_TOOLTIP_COPY,
+  REQUESTED_DATE_TOOLTIP,
+  SALES_ADDED_QTY_TOOLTIP,
   SALES_ORDER_STATUS_COLUMN_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
@@ -159,7 +162,9 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   },
   {
     accessorKey: "requestedDate",
-    header: ({ column }) => <SortableHeader column={column} label="Requested" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Requested" tooltip={REQUESTED_DATE_TOOLTIP} />
+    ),
     cell: ({ row }) => formatDate(row.original.requestedDate),
   },
   {
@@ -554,7 +559,9 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                     <TableHeader>
                       <TableRow>
                         <TableHead>Item</TableHead>
-                        <TableHead>Current Stock</TableHead>
+                        <TableHead>
+                          <TooltipHeader label="Current Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+                        </TableHead>
                         <TableHead>
                           <TooltipHeader
                             label="Available"
@@ -597,7 +604,9 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                             tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
                           />
                         </TableHead>
-                        <TableHead>Added Qty</TableHead>
+                        <TableHead>
+                          <TooltipHeader label="Added Qty" tooltip={SALES_ADDED_QTY_TOOLTIP} />
+                        </TableHead>
                         <TableHead>
                           <TooltipHeader
                             label="Projected Demand"

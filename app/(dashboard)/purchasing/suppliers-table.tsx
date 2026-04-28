@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { SortableHeader } from "@/components/sortable-header";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
+import { SUPPLIER_CODE_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "./types";
 
 const columns: ColumnDef<SupplierRow>[] = [
@@ -42,7 +44,7 @@ const columns: ColumnDef<SupplierRow>[] = [
   },
   {
     accessorKey: "code",
-    header: "Code",
+    header: () => <TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />,
     cell: ({ row }) => row.original.code ?? "\u2014",
   },
   {

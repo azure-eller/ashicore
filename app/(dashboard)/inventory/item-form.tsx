@@ -72,9 +72,23 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
+import {
+  CURRENT_STOCK_UNIT_COST_TOOLTIP,
+  ITEM_CATEGORY_TOOLTIP,
+  ITEM_SKU_TOOLTIP,
+  ON_HAND_STOCK_TOOLTIP,
+  PURCHASE_CONVERSION_TOOLTIP,
+  PURCHASE_PRICE_TOOLTIP,
+  PURCHASE_UNIT_TOOLTIP,
+  SAFETY_STOCK_TOOLTIP,
+  SELLING_PRICE_TOOLTIP,
+  STOCKING_UNIT_TOOLTIP,
+  BATCH_YIELD_TOOLTIP,
+} from "@/lib/tooltip-copy";
 
 const CREATE_NEW_UNIT = "__create_new__";
 const POSITIVE_NUMBER_RE = /^\d+\.?\d*$/;
@@ -569,7 +583,9 @@ export function ItemForm({
                     control={form.control}
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>SKU</FieldLabel>
+                        <FieldLabel htmlFor={field.name}>
+                          <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+                        </FieldLabel>
                         <Input
                           {...field}
                           id={field.name}
@@ -591,7 +607,9 @@ export function ItemForm({
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Category</FieldLabel>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Category" tooltip={ITEM_CATEGORY_TOOLTIP} />
+                      </FieldLabel>
                       <Combobox
                         items={categoryItems}
                         value={field.value ?? ""}
@@ -626,7 +644,9 @@ export function ItemForm({
 
               {!isMaster && initialData ? (
                 <Field>
-                  <FieldLabel>Stocking Unit</FieldLabel>
+                  <FieldLabel>
+                    <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+                  </FieldLabel>
                   <p className="py-2 text-sm">
                     {initialData.unitName} ({initialData.unitSize} {initialData.unitUom})
                   </p>
@@ -637,7 +657,9 @@ export function ItemForm({
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Stocking Unit</FieldLabel>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+                      </FieldLabel>
                       <Select
                         key={field.value as string}
                         name={field.name}
@@ -683,7 +705,9 @@ export function ItemForm({
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Purchase Unit</FieldLabel>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
+                      </FieldLabel>
                       <Select
                         name={field.name}
                         value={(field.value as string | null) ?? "__none__"}
@@ -745,7 +769,12 @@ export function ItemForm({
 
               {!isMaster && purchaseUnit && stockingUnit && derivedPurchaseFactor != null ? (
                 <Field>
-                  <FieldLabel>Purchase Conversion</FieldLabel>
+                  <FieldLabel>
+                    <TooltipHeader
+                      label="Purchase Conversion"
+                      tooltip={PURCHASE_CONVERSION_TOOLTIP}
+                    />
+                  </FieldLabel>
                   <p className="py-2 text-sm text-muted-foreground">
                     1 {purchaseUnit.name} = {derivedPurchaseFactor} {stockingUnit.name}
                   </p>
@@ -759,7 +788,10 @@ export function ItemForm({
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
                       <FieldLabel htmlFor={field.name}>
-                        Stocking Units per 1 Purchase Unit
+                        <TooltipHeader
+                          label="Stocking Units per 1 Purchase Unit"
+                          tooltip={PURCHASE_CONVERSION_TOOLTIP}
+                        />
                       </FieldLabel>
                       <Input
                         {...field}
@@ -836,7 +868,7 @@ export function ItemForm({
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
-                          Purchase Price
+                          <TooltipHeader label="Purchase Price" tooltip={PURCHASE_PRICE_TOOLTIP} />
                         </FieldLabel>
                         <Input
                           {...field}
@@ -867,7 +899,10 @@ export function ItemForm({
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
-                          Current Stock Unit Cost
+                          <TooltipHeader
+                            label="Current Stock Unit Cost"
+                            tooltip={CURRENT_STOCK_UNIT_COST_TOOLTIP}
+                          />
                         </FieldLabel>
                         <Input
                           {...field}
@@ -916,10 +951,10 @@ export function ItemForm({
                   name="defaultSellingPrice"
                   control={form.control}
                   render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>
-                        Selling Price
-                      </FieldLabel>
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          <TooltipHeader label="Selling Price" tooltip={SELLING_PRICE_TOOLTIP} />
+                        </FieldLabel>
                       <Input
                         {...field}
                         id={field.name}
@@ -941,7 +976,9 @@ export function ItemForm({
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Stock</FieldLabel>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+                      </FieldLabel>
                       <Input
                         {...field}
                         id={field.name}
@@ -963,7 +1000,9 @@ export function ItemForm({
                   control={form.control}
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Safety Stock</FieldLabel>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Safety Stock" tooltip={SAFETY_STOCK_TOOLTIP} />
+                      </FieldLabel>
                       <Input
                         {...field}
                         id={field.name}
@@ -1061,7 +1100,12 @@ export function ItemForm({
                     name="expectedBatchYield"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>Expected Batch Yield</FieldLabel>
+                        <FieldLabel htmlFor={field.name}>
+                          <TooltipHeader
+                            label="Expected Batch Yield"
+                            tooltip={BATCH_YIELD_TOOLTIP}
+                          />
+                        </FieldLabel>
                         <Input
                           {...field}
                           id={field.name}

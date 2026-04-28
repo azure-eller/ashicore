@@ -53,6 +53,14 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  DISCOUNT_PERCENT_TOOLTIP,
+  MAX_QTY_TOOLTIP,
+  MIN_QTY_TOOLTIP,
+  PRICING_SCOPE_TOOLTIP,
+  PRICING_UNIT_TOOLTIP,
+} from "@/lib/tooltip-copy";
 
 const EVERYONE_SCOPE_VALUE = "__everyone__";
 const CREATE_NEW_CATEGORY = "__create_new__";
@@ -250,7 +258,9 @@ export function PricingScheduleForm({
                   name="customerCategoryId"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Customer Scope</FieldLabel>
+                      <FieldLabel>
+                        <TooltipHeader label="Customer Scope" tooltip={PRICING_SCOPE_TOOLTIP} />
+                      </FieldLabel>
                       <Select
                         key={field.value}
                         name={field.name}
@@ -296,7 +306,9 @@ export function PricingScheduleForm({
                   name="unitDefinitionId"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Unit / Package Type</FieldLabel>
+                      <FieldLabel>
+                        <TooltipHeader label="Unit / Package Type" tooltip={PRICING_UNIT_TOOLTIP} />
+                      </FieldLabel>
                       <Select
                         name={field.name}
                         value={field.value ?? ""}
@@ -379,7 +391,9 @@ export function PricingScheduleForm({
                       name={`breaks.${index}.minQuantity`}
                       render={({ field: breakField, fieldState }) => (
                         <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={breakField.name}>Min Qty</FieldLabel>
+                          <FieldLabel htmlFor={breakField.name}>
+                            <TooltipHeader label="Min Qty" tooltip={MIN_QTY_TOOLTIP} />
+                          </FieldLabel>
                           <Input
                             {...breakField}
                             id={breakField.name}
@@ -399,7 +413,9 @@ export function PricingScheduleForm({
                       name={`breaks.${index}.maxQuantity`}
                       render={({ field: breakField, fieldState }) => (
                         <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={breakField.name}>Max Qty</FieldLabel>
+                          <FieldLabel htmlFor={breakField.name}>
+                            <TooltipHeader label="Max Qty" tooltip={MAX_QTY_TOOLTIP} />
+                          </FieldLabel>
                           <Input
                             {...breakField}
                             id={breakField.name}
@@ -420,7 +436,12 @@ export function PricingScheduleForm({
                       name={`breaks.${index}.discountPercent`}
                       render={({ field: breakField, fieldState }) => (
                         <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={breakField.name}>Discount %</FieldLabel>
+                          <FieldLabel htmlFor={breakField.name}>
+                            <TooltipHeader
+                              label="Discount %"
+                              tooltip={DISCOUNT_PERCENT_TOOLTIP}
+                            />
+                          </FieldLabel>
                           <Input
                             {...breakField}
                             id={breakField.name}

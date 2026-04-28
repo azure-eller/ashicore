@@ -10,6 +10,8 @@ import { formatDate } from "@/lib/format";
 import {
   STOCKTAKE_STATUS_COLUMN_TOOLTIP,
   STOCKTAKE_COUNTED_TOOLTIP,
+  STOCKTAKE_ITEM_COUNT_TOOLTIP,
+  STOCKTAKE_SCOPE_TOOLTIP,
   STOCKTAKE_VARIANCE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { StocktakeStatusBadge } from "./status-badge";
@@ -58,7 +60,9 @@ const columns: ColumnDef<StocktakeListRow>[] = [
   },
   {
     accessorKey: "scope",
-    header: ({ column }) => <SortableHeader column={column} label="Scope" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Scope" tooltip={STOCKTAKE_SCOPE_TOOLTIP} />
+    ),
     cell: ({ row }) => formatScope(row.original.scope),
   },
   {
@@ -75,7 +79,9 @@ const columns: ColumnDef<StocktakeListRow>[] = [
   },
   {
     accessorKey: "itemCount",
-    header: ({ column }) => <SortableHeader column={column} label="Items" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Items" tooltip={STOCKTAKE_ITEM_COUNT_TOOLTIP} />
+    ),
   },
   {
     accessorKey: "countedCount",

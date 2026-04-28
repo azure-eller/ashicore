@@ -64,7 +64,19 @@ import {
 import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
-import { PO_REMAINING_QTY_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  EXPECTED_DELIVERY_DATE_TOOLTIP,
+  ITEM_SKU_TOOLTIP,
+  LINE_TOTAL_TOOLTIP,
+  ORDER_TOTAL_TOOLTIP,
+  PO_ORDERED_QTY_TOOLTIP,
+  PO_RECEIVE_NOW_TOOLTIP,
+  PO_RECEIVED_QTY_TOOLTIP,
+  PO_REMAINING_QTY_TOOLTIP,
+  PURCHASE_UNIT_COST_TOOLTIP,
+  PURCHASE_UNIT_TOOLTIP,
+  RECEIPT_DISPOSITION_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderDetail as PurchaseOrderDetailType } from "./types";
 
@@ -631,11 +643,15 @@ export function PurchaseOrderDetail({
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Expected Date</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Expected Date" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{formatDate(order.expectedDate)}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Total</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Total" tooltip={ORDER_TOTAL_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{formatPrice(order.totalAmount) ?? "\u2014"}</dd>
           </div>
           <div>
@@ -675,15 +691,27 @@ export function PurchaseOrderDetail({
               <TableHeader>
                 <TableRow>
                   <TableHead>Material</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Ordered</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Ordered" tooltip={PO_ORDERED_QTY_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Received" tooltip={PO_RECEIVED_QTY_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">
                     <TooltipHeader label="Remaining" tooltip={PO_REMAINING_QTY_TOOLTIP} />
                   </TableHead>
-                  <TableHead>Purchase Unit</TableHead>
-                  <TableHead className="text-right">Unit Cost</TableHead>
-                  <TableHead className="text-right">Line Total</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Unit Cost" tooltip={PURCHASE_UNIT_COST_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -840,12 +868,24 @@ export function PurchaseOrderDetail({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Material</TableHead>
-                    <TableHead className="text-right">Ordered</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">Remaining</TableHead>
-                    <TableHead>Purchase Unit</TableHead>
-                    <TableHead className="w-44">Disposition</TableHead>
-                    <TableHead className="w-44">Receive Now</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Ordered" tooltip={PO_ORDERED_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Received" tooltip={PO_RECEIVED_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Remaining" tooltip={PO_REMAINING_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="w-44">
+                      <TooltipHeader label="Disposition" tooltip={RECEIPT_DISPOSITION_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="w-44">
+                      <TooltipHeader label="Receive Now" tooltip={PO_RECEIVE_NOW_TOOLTIP} />
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

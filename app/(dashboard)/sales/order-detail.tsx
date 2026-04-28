@@ -43,7 +43,17 @@ import {
 } from "@/components/ui/table";
 import {
   MANUFACTURABLE_LINES_TOOLTIP,
+  MANUFACTURING_PLANNED_QTY_TOOLTIP,
+  ITEM_SKU_TOOLTIP,
+  ON_HAND_STOCK_TOOLTIP,
   OVERSELL_TOOLTIP_COPY,
+  REQUESTED_DATE_TOOLTIP,
+  SALES_ADDED_QTY_TOOLTIP,
+  SALES_LINE_QTY_TOOLTIP,
+  SALES_UNIT_PRICE_TOOLTIP,
+  LINE_TOTAL_TOOLTIP,
+  UNIT_TOOLTIP,
+  ORDER_TOTAL_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
@@ -726,7 +736,9 @@ export function OrderDetail({
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Requested Date</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Requested Date" tooltip={REQUESTED_DATE_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{formatDate(order.requestedDate)}</dd>
           </div>
           <div>
@@ -739,7 +751,9 @@ export function OrderDetail({
             <dd className="mt-1 text-sm">{order.manufacturableLineCount}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Total</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Total" tooltip={ORDER_TOTAL_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{formatPrice(order.totalAmount) ?? "\u2014"}</dd>
           </div>
           <div>
@@ -767,11 +781,21 @@ export function OrderDetail({
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Unit Price</TableHead>
-                  <TableHead className="text-right">Line Total</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -847,8 +871,12 @@ export function OrderDetail({
                   <TableRow>
                     <TableHead>MO</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead>Unit</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Qty" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
+                    </TableHead>
+                    <TableHead>
+                      <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
+                    </TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -967,7 +995,9 @@ export function OrderDetail({
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
-                  <TableHead>Current Stock</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Current Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+                  </TableHead>
                   <TableHead>
                     <TooltipHeader
                       label="Available"
@@ -1010,7 +1040,9 @@ export function OrderDetail({
                       tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
                     />
                   </TableHead>
-                  <TableHead>Added Qty</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Added Qty" tooltip={SALES_ADDED_QTY_TOOLTIP} />
+                  </TableHead>
                   <TableHead>
                     <TooltipHeader
                       label="Projected Demand"

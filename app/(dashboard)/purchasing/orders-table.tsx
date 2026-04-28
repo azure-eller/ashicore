@@ -7,7 +7,10 @@ import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate, formatPrice } from "@/lib/format";
-import { PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  EXPECTED_DELIVERY_DATE_TOOLTIP,
+  PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderListRow } from "./types";
 
@@ -72,7 +75,9 @@ const columns: ColumnDef<PurchaseOrderListRow>[] = [
   },
   {
     accessorKey: "expectedDate",
-    header: ({ column }) => <SortableHeader column={column} label="Expected" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Expected" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
+    ),
     cell: ({ row }) => formatDate(row.original.expectedDate),
   },
 ];

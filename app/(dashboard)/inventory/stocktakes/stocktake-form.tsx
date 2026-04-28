@@ -30,10 +30,12 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   insertStocktakeSchema,
   stocktakeDefaultValues,
 } from "@/lib/schemas/stocktakes";
+import { STOCKTAKE_SCOPE_TOOLTIP } from "@/lib/tooltip-copy";
 import type { StocktakeScopeOptionGroup } from "./types";
 
 type ApiError = {
@@ -160,7 +162,9 @@ export function StocktakeForm({
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Scope</FieldLabel>
+                    <FieldLabel htmlFor={field.name}>
+                      <TooltipHeader label="Scope" tooltip={STOCKTAKE_SCOPE_TOOLTIP} />
+                    </FieldLabel>
                     <Select
                       name={field.name}
                       value={field.value}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Table,
   TableBody,
@@ -17,6 +18,7 @@ import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import { cn } from "@/lib/utils";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
+import { BOM_QTY_PER_UNIT_TOOLTIP } from "@/lib/tooltip-copy";
 
 export default async function ProductBomHistoryPage({
   params,
@@ -133,7 +135,9 @@ export default async function ProductBomHistoryPage({
                   <TableRow>
                     <TableHead>Component</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Qty" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -34,10 +34,18 @@ import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/f
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   BATCH_YIELD_TOOLTIP,
+  BOM_QTY_PER_BATCH_TOOLTIP,
+  BOM_QTY_PER_UNIT_TOOLTIP,
   COST_PER_UNIT_TOOLTIP,
+  MANUFACTURING_ACTUAL_QTY_TOOLTIP,
+  MANUFACTURING_COMPONENT_COST_TOOLTIP,
+  MANUFACTURING_EXECUTION_TOOLTIP,
   MANUFACTURING_PICKED_QTY_TOOLTIP,
+  MANUFACTURING_PLANNED_QTY_TOOLTIP,
   MANUFACTURING_REMAINING_QTY_TOOLTIP,
+  MANUFACTURING_SALES_ORDER_TOOLTIP,
   MATERIAL_COST_TOOLTIP,
+  LEDGER_LOT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
@@ -202,7 +210,12 @@ export function ManufacturingOrderDetail({
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Planned Quantity</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Planned Quantity"
+                tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
+              />
+            </dt>
             <dd className="mt-1 text-sm">
               {order.plannedQuantity} {order.unitName}
               {order.manufacturingMode === "batch" && order.numberOfBatches != null && (
@@ -221,7 +234,9 @@ export function ManufacturingOrderDetail({
             </div>
           )}
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Actual Quantity</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Actual Quantity" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               {order.actualQuantity != null
                 ? `${order.actualQuantity} ${order.unitName}`
@@ -229,7 +244,9 @@ export function ManufacturingOrderDetail({
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Execution</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Execution" tooltip={MANUFACTURING_EXECUTION_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               <ManufacturingPickProgressBadge status={order.pickProgressStatus} />
             </dd>
@@ -239,7 +256,9 @@ export function ManufacturingOrderDetail({
             <dd className="mt-1 text-sm">{formatDate(order.plannedDate)}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Sales Order</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Sales Order" tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               {order.salesOrderNumber
                 ? `${order.salesOrderNumber} - ${order.salesCustomerName ?? "\u2014"}`
@@ -292,8 +311,12 @@ export function ManufacturingOrderDetail({
                     <TableRow>
                       <TableHead>Batch</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Planned</TableHead>
-                      <TableHead className="text-right">Actual</TableHead>
+                      <TableHead className="text-right">
+                        <TooltipHeader label="Planned" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+                      </TableHead>
                       <TableHead>Started</TableHead>
                       <TableHead>Completed</TableHead>
                     </TableRow>
@@ -343,17 +366,30 @@ export function ManufacturingOrderDetail({
                   <TableHead>Ingredient</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">
-                    {order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
+                    <TooltipHeader
+                      label={order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
+                      tooltip={
+                        order.manufacturingMode === "batch"
+                          ? BOM_QTY_PER_BATCH_TOOLTIP
+                          : BOM_QTY_PER_UNIT_TOOLTIP
+                      }
+                    />
                   </TableHead>
-                  <TableHead className="text-right">Planned</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Planned" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">
                     <TooltipHeader label="Picked" tooltip={MANUFACTURING_PICKED_QTY_TOOLTIP} />
                   </TableHead>
                   <TableHead className="text-right">
                     <TooltipHeader label="Remaining" tooltip={MANUFACTURING_REMAINING_QTY_TOOLTIP} />
                   </TableHead>
-                  <TableHead className="text-right">Actual</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -409,8 +445,12 @@ export function ManufacturingOrderDetail({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Batch</TableHead>
-                    <TableHead>Lot</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead>
+                      <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Quantity" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+                    </TableHead>
                     <TableHead className="text-right">
                       <TooltipHeader label="Cost / Unit" tooltip={COST_PER_UNIT_TOOLTIP} />
                     </TableHead>

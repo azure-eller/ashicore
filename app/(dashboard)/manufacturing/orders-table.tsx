@@ -4,12 +4,15 @@ import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/format";
 import {
+  MANUFACTURING_ACTUAL_QTY_TOOLTIP,
   MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP,
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
+  MANUFACTURING_SALES_ORDER_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
@@ -60,7 +63,9 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
   {
     accessorKey: "salesOrderNumber",
-    header: "Sales Order",
+    header: () => (
+      <TooltipHeader label="Sales Order" tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP} />
+    ),
     cell: ({ row }) => row.original.salesOrderNumber ?? "\u2014",
   },
   {
@@ -84,7 +89,9 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
   {
     accessorKey: "actualQuantity",
-    header: "Actual",
+    header: () => (
+      <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+    ),
     cell: ({ row }) =>
       row.original.actualQuantity != null
         ? `${row.original.actualQuantity} ${row.original.unitName}`

@@ -29,9 +29,34 @@ import {
   formatQuantity,
 } from "@/lib/format";
 import {
+  AVAILABLE_QTY_TOOLTIP,
+  BACKORDER_QTY_TOOLTIP,
+  BATCH_YIELD_TOOLTIP,
+  BOM_QTY_PER_BATCH_TOOLTIP,
+  BOM_QTY_PER_UNIT_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
+  CURRENT_STOCK_UNIT_COST_TOOLTIP,
+  DEMAND_QTY_TOOLTIP,
+  EXPECTED_QTY_TOOLTIP,
+  ITEM_CATEGORY_TOOLTIP,
+  ITEM_SKU_TOOLTIP,
+  ITEM_TYPE_TOOLTIP,
+  LEDGER_CHANGE_TOOLTIP,
+  LEDGER_LOT_TOOLTIP,
   LOT_DISPOSITION_TOOLTIP,
+  LOT_PHYSICAL_TOOLTIP,
+  LOT_UNIT_COST_TOOLTIP,
+  LOT_NUMBER_TOOLTIP,
+  ON_HAND_STOCK_TOOLTIP,
+  PURCHASE_CONVERSION_TOOLTIP,
+  PURCHASE_PRICE_TOOLTIP,
+  PURCHASE_UNIT_TOOLTIP,
+  RESERVED_QTY_TOOLTIP,
+  SAFETY_STOCK_TOOLTIP,
+  SELLING_PRICE_TOOLTIP,
+  STOCKING_UNIT_TOOLTIP,
+  VARIANT_AXES_TOOLTIP,
 } from "@/lib/tooltip-copy";
 
 interface ItemDetailProps {
@@ -198,11 +223,15 @@ export function ItemDetail({
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Category</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Category" tooltip={ITEM_CATEGORY_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{item.category ?? "\u2014"}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Variant Axes</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Variant Axes" tooltip={VARIANT_AXES_TOOLTIP} />
+            </dt>
             <dd className="mt-1 flex flex-wrap gap-1.5">
               {axes.length > 0
                 ? axes.map((axis) => (
@@ -231,12 +260,18 @@ export function ItemDetail({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Variant</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">
-                      <TooltipHeader label="Available" tooltip={CALCULATED_STOCK_TOOLTIP} />
+                    <TableHead>
+                      <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
                     </TableHead>
-                    <TableHead className="text-right">Price</TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Calculated Stock" tooltip={CALCULATED_STOCK_TOOLTIP} />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <TooltipHeader label="Price" tooltip={SELLING_PRICE_TOOLTIP} />
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -370,21 +405,29 @@ export function ItemDetail({
       {/* Metadata grid */}
       <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">SKU</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{item.sku ?? "\u2014"}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Category</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Category" tooltip={ITEM_CATEGORY_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{item.category ?? "\u2014"}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Stocking Unit</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">
             {item.unitName} ({item.unitSize} {item.unitUom})
           </dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Purchase Unit</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">
             {item.purchaseUnitName && item.purchaseUnitSize && item.purchaseUnitUom
               ? `${item.purchaseUnitName} (${item.purchaseUnitSize} ${item.purchaseUnitUom})`
@@ -392,7 +435,9 @@ export function ItemDetail({
           </dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Purchase Conversion</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Purchase Conversion" tooltip={PURCHASE_CONVERSION_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">
             {item.purchaseUnitName && item.purchaseToStockFactor
               ? `1 ${item.purchaseUnitName} = ${item.purchaseToStockFactor} ${item.unitName}`
@@ -401,7 +446,9 @@ export function ItemDetail({
         </div>
         {!isMaster && itemType === "material" && (
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Purchase Price</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Purchase Price" tooltip={PURCHASE_PRICE_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               <span>{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</span>
               <span className="block text-xs text-muted-foreground">
@@ -415,7 +462,10 @@ export function ItemDetail({
         {!isMaster && itemType === "material" && (
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
-              Current Stock Unit Cost
+              <TooltipHeader
+                label="Current Stock Unit Cost"
+                tooltip={CURRENT_STOCK_UNIT_COST_TOOLTIP}
+              />
             </dt>
             <dd className="mt-1 text-sm">
               <span>{formatCost(item.currentStockUnitCost) ?? "\u2014"}</span>
@@ -428,50 +478,73 @@ export function ItemDetail({
         )}
         {!isMaster && (
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Selling Price</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Selling Price" tooltip={SELLING_PRICE_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatPrice(item.defaultSellingPrice) ?? "\u2014"}</dd>
         </div>
         )}
         {itemType === "product" && (
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Manufacturing Mode</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Manufacturing Mode"
+                tooltip="Production execution style for this product."
+              />
+            </dt>
             <dd className="mt-1 text-sm capitalize">{item.manufacturingMode ?? "discrete"}</dd>
           </div>
         )}
         {itemType === "product" && item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Expected Batch Yield</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Expected Batch Yield" tooltip={BATCH_YIELD_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{item.expectedBatchYield} {item.unitName}</dd>
           </div>
         )}
         {!isMaster && (
         <>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Physical Stock</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Physical Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.stock)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Available</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.availableQty)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Reserved</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Reserved" tooltip={RESERVED_QTY_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.committedQty)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Demand</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Demand" tooltip={DEMAND_QTY_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.demandQty)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Backorder</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Backorder" tooltip={BACKORDER_QTY_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.shortageQty)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Expected</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Expected" tooltip={EXPECTED_QTY_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{formatQuantity(item.expectedQty)} {item.unitName}</dd>
         </div>
         <div>
-          <dt className="text-sm font-medium text-muted-foreground">Safety Stock</dt>
+          <dt className="text-sm font-medium text-muted-foreground">
+            <TooltipHeader label="Safety Stock" tooltip={SAFETY_STOCK_TOOLTIP} />
+          </dt>
           <dd className="mt-1 text-sm">{item.safetyStock} {item.unitName}</dd>
         </div>
         </>
@@ -546,12 +619,23 @@ export function ItemDetail({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Component</TableHead>
-                      <TableHead>Type</TableHead>
+                      <TableHead>
+                        <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />
+                      </TableHead>
                       <TableHead className="text-right">
-                        {item.manufacturingMode === "batch" ? "Qty / Batch" : "Qty"}
+                        <TooltipHeader
+                          label={item.manufacturingMode === "batch" ? "Qty / Batch" : "Qty"}
+                          tooltip={
+                            item.manufacturingMode === "batch"
+                              ? BOM_QTY_PER_BATCH_TOOLTIP
+                              : BOM_QTY_PER_UNIT_TOOLTIP
+                          }
+                        />
                       </TableHead>
                       {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-                        <TableHead className="text-right">Qty / Unit</TableHead>
+                        <TableHead className="text-right">
+                          <TooltipHeader label="Qty / Unit" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
+                        </TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
@@ -644,12 +728,18 @@ export function ItemDetail({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Lot Number</TableHead>
-                  <TableHead className="text-right">Physical</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Lot Number" tooltip={LOT_NUMBER_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Physical" tooltip={LOT_PHYSICAL_TOOLTIP} />
+                  </TableHead>
                   <TableHead>
                     <TooltipHeader label="Disposition" tooltip={LOT_DISPOSITION_TOOLTIP} />
                   </TableHead>
-                  <TableHead className="text-right">Cost / Unit</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Cost / Unit" tooltip={LOT_UNIT_COST_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">Received</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -721,8 +811,12 @@ export function ItemDetail({
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead>Lot</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Quantity" tooltip={LEDGER_CHANGE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Tooltip,
   TooltipContent,
@@ -16,8 +17,12 @@ import {
 import {
   AVAILABLE_QTY_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
+  ITEM_SKU_TOOLTIP,
+  MARGIN_TOOLTIP,
   NOT_SELLABLE_TOOLTIP,
+  ON_HAND_STOCK_TOOLTIP,
   POTENTIAL_TOOLTIP,
+  STOCKING_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatQuantity } from "@/lib/format";
 import { calcStock } from "./types";
@@ -208,7 +213,9 @@ export function getColumns(
       sortDescFirst: false,
       sortingFn: (rowA, rowB) =>
         parseFloat(rowA.getValue("stock")) - parseFloat(rowB.getValue("stock")),
-      header: ({ column }) => <SortableHeader column={column} label="Stock" />,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+      ),
       cell: ({ row }) => formatQuantity(row.getValue("stock")),
     },
     {
@@ -240,7 +247,7 @@ export function getColumns(
               <SortableHeader
                 column={column}
                 label="Margin"
-                tooltip="Selling price minus BOM cost, as a percent of selling price."
+                tooltip={MARGIN_TOOLTIP}
               />
             ),
             cell: ({ row }) => <MarginBadge row={row.original} />,
@@ -271,12 +278,14 @@ export function getColumns(
       : []),
     {
       accessorKey: "unit",
-      header: "Stocking Unit",
+      header: () => (
+        <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+      ),
       cell: ({ row }) => row.original.unit ?? "—",
     },
     {
       accessorKey: "sku",
-      header: "SKU",
+      header: () => <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />,
       cell: ({ row }) => {
         if (row.original.isMaster) return "—";
         return (row.getValue("sku") as string | null) ?? "—";

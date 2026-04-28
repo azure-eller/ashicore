@@ -46,6 +46,8 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipHeader } from "@/components/tooltip-header";
+import { PRICING_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
 
 type CustomerFormValues = z.input<typeof insertCustomerSchema>;
 const EVERYONE_CATEGORY_VALUE = "__everyone__";
@@ -331,7 +333,12 @@ export function CustomerForm({
                   name="customerCategoryId"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Pricing Category</FieldLabel>
+                      <FieldLabel>
+                        <TooltipHeader
+                          label="Pricing Category"
+                          tooltip={PRICING_CATEGORY_TOOLTIP}
+                        />
+                      </FieldLabel>
                       <Select
                         key={field.value}
                         name={field.name}

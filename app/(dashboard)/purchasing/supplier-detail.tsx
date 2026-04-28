@@ -19,7 +19,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { formatAddress, formatDateTime } from "@/lib/format";
+import { PAYMENT_TERMS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "./types";
 
 export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
@@ -99,7 +101,9 @@ export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
             <dd className="mt-1 text-sm">{supplier.contactName ?? "\u2014"}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Payment Terms</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Payment Terms" tooltip={PAYMENT_TERMS_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{supplier.paymentTerms ?? "\u2014"}</dd>
           </div>
           <div>

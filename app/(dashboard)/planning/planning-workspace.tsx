@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
@@ -56,6 +57,18 @@ import {
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { formatQuantity } from "@/lib/format";
+import {
+  PLANNING_DAYS_COVER_TOOLTIP,
+  PLANNING_MOQ_TOOLTIP,
+  PLANNING_NEED_TOOLTIP,
+  PLANNING_NEEDED_BY_TOOLTIP,
+  PLANNING_NEEDED_FOR_TOOLTIP,
+  PLANNING_ORDER_MULTIPLE_TOOLTIP,
+  PLANNING_REORDER_COMPARISON_TOOLTIP,
+  PLANNING_SHORT_TOOLTIP,
+  PLANNING_SUGGESTED_QTY_TOOLTIP,
+  PURCHASE_CONVERSION_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import {
   ToggleGroup,
   ToggleGroupItem,
@@ -1795,10 +1808,22 @@ function ReplenishmentPlanningView({
               <TableHead className="w-9" />
               <TableHead>Material</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>On hand vs reorder</TableHead>
-              <TableHead className="text-right">Days of cover</TableHead>
+              <TableHead>
+                <TooltipHeader
+                  label="On hand vs reorder"
+                  tooltip={PLANNING_REORDER_COMPARISON_TOOLTIP}
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader
+                  label="Days of cover"
+                  tooltip={PLANNING_DAYS_COVER_TOOLTIP}
+                />
+              </TableHead>
               <TableHead>Supplier</TableHead>
-              <TableHead className="text-right">Suggested</TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Suggested" tooltip={PLANNING_SUGGESTED_QTY_TOOLTIP} />
+              </TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -2067,7 +2092,9 @@ function PlanningRulesForm({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="planning-minimum-order">MOQ</Label>
+              <Label htmlFor="planning-minimum-order">
+                <TooltipHeader label="MOQ" tooltip={PLANNING_MOQ_TOOLTIP} />
+              </Label>
               <Input
                 id="planning-minimum-order"
                 value={minimumOrderQuantity}
@@ -2077,7 +2104,12 @@ function PlanningRulesForm({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="planning-order-multiple">Order multiple</Label>
+              <Label htmlFor="planning-order-multiple">
+                <TooltipHeader
+                  label="Order multiple"
+                  tooltip={PLANNING_ORDER_MULTIPLE_TOOLTIP}
+                />
+              </Label>
               <Input
                 id="planning-order-multiple"
                 value={orderMultiple}
@@ -2087,7 +2119,12 @@ function PlanningRulesForm({
               />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="planning-purchase-factor">Purchase conversion</Label>
+              <Label htmlFor="planning-purchase-factor">
+                <TooltipHeader
+                  label="Purchase conversion"
+                  tooltip={PURCHASE_CONVERSION_TOOLTIP}
+                />
+              </Label>
               <Input
                 id="planning-purchase-factor"
                 value={purchaseToStockFactor}
@@ -2150,8 +2187,12 @@ function DemandLinesTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-[52%]">Sales order</TableHead>
-            <TableHead className="w-[28%] text-right">Qty</TableHead>
-            <TableHead className="w-[20%]">Needed by</TableHead>
+            <TableHead className="w-[28%] text-right">
+              <TooltipHeader label="Qty" tooltip={PLANNING_NEED_TOOLTIP} />
+            </TableHead>
+            <TableHead className="w-[20%]">
+              <TooltipHeader label="Needed by" tooltip={PLANNING_NEEDED_BY_TOOLTIP} />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -2199,9 +2240,15 @@ function ProductionBlockersList({
         <TableHeader>
           <TableRow>
             <TableHead className="w-[34%]">Constraint</TableHead>
-            <TableHead className="w-[24%] text-right">Required</TableHead>
-            <TableHead className="w-[22%] text-right">Short</TableHead>
-            <TableHead className="w-[20%]">Needed by</TableHead>
+            <TableHead className="w-[24%] text-right">
+              <TooltipHeader label="Required" tooltip={PLANNING_NEED_TOOLTIP} />
+            </TableHead>
+            <TableHead className="w-[22%] text-right">
+              <TooltipHeader label="Short" tooltip={PLANNING_SHORT_TOOLTIP} />
+            </TableHead>
+            <TableHead className="w-[20%]">
+              <TooltipHeader label="Needed by" tooltip={PLANNING_NEEDED_BY_TOOLTIP} />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -2441,9 +2488,15 @@ function BuyGroupDrawerContent({
           <TableHeader>
             <TableRow>
               <TableHead className="w-[30%]">Item</TableHead>
-              <TableHead className="w-[24%] text-right">Need</TableHead>
-              <TableHead className="w-[20%]">Needed by</TableHead>
-              <TableHead className="w-[26%]">Needed for</TableHead>
+              <TableHead className="w-[24%] text-right">
+                <TooltipHeader label="Need" tooltip={PLANNING_NEED_TOOLTIP} />
+              </TableHead>
+              <TableHead className="w-[20%]">
+                <TooltipHeader label="Needed by" tooltip={PLANNING_NEEDED_BY_TOOLTIP} />
+              </TableHead>
+              <TableHead className="w-[26%]">
+                <TooltipHeader label="Needed for" tooltip={PLANNING_NEEDED_FOR_TOOLTIP} />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

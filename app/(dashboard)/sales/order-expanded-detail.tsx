@@ -15,7 +15,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatPrice, formatQuantity } from "@/lib/format";
-import { POTENTIAL_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  ITEM_SKU_TOOLTIP,
+  ON_HAND_STOCK_TOOLTIP,
+  POTENTIAL_TOOLTIP,
+  SALES_LINE_QTY_TOOLTIP,
+  SALES_UNIT_PRICE_TOOLTIP,
+  LINE_TOTAL_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import type { SalesOrderDetail } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
@@ -47,15 +54,25 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="text-xs text-right">Qty</TableHead>
+            <TableHead className="text-xs text-right">
+              <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
+            </TableHead>
             <TableHead className="text-xs">Item</TableHead>
-            <TableHead className="text-xs">SKU</TableHead>
-            <TableHead className="text-xs text-right">In Stock</TableHead>
+            <TableHead className="text-xs">
+              <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+            </TableHead>
+            <TableHead className="text-xs text-right">
+              <TooltipHeader label="In Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+            </TableHead>
             <TableHead className="text-xs text-right">
               <TooltipHeader label="Potential" tooltip={POTENTIAL_TOOLTIP} />
             </TableHead>
-            <TableHead className="text-xs text-right">Unit Price</TableHead>
-            <TableHead className="text-xs text-right">Line Total</TableHead>
+            <TableHead className="text-xs text-right">
+              <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
+            </TableHead>
+            <TableHead className="text-xs text-right">
+              <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

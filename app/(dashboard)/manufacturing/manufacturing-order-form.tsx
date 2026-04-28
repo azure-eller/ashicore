@@ -52,7 +52,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { getFieldArrayError, parsePositive } from "@/lib/format";
-import { MANUFACTURING_PLANNED_TOTAL_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  BOM_QTY_PER_BATCH_TOOLTIP,
+  BOM_QTY_PER_UNIT_TOOLTIP,
+  MANUFACTURING_PLANNED_TOTAL_TOOLTIP,
+  MANUFACTURING_PLANNED_QTY_TOOLTIP,
+  MANUFACTURING_SALES_ORDER_TOOLTIP,
+  SALES_LINE_QTY_TOOLTIP,
+  UNIT_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import type {
   ManufacturingOrderEditData,
   ManufacturingProductOption,
@@ -495,7 +503,12 @@ export function ManufacturingOrderForm({
                   name="salesOrderId"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Sales Order</FieldLabel>
+                      <FieldLabel>
+                        <TooltipHeader
+                          label="Sales Order"
+                          tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP}
+                        />
+                      </FieldLabel>
                       <Combobox
                         items={salesOrderIds}
                         value={field.value ?? ""}
@@ -568,7 +581,12 @@ export function ManufacturingOrderForm({
                       name="salesOrderLineId"
                       render={({ field, fieldState }) => (
                         <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>Sales Order Line</FieldLabel>
+                          <FieldLabel htmlFor={field.name}>
+                            <TooltipHeader
+                              label="Sales Order Line"
+                              tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP}
+                            />
+                          </FieldLabel>
                           <Combobox
                             items={salesLineIds}
                             value={field.value ?? ""}
@@ -668,7 +686,12 @@ export function ManufacturingOrderForm({
                     name="plannedQuantity"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>Planned Quantity</FieldLabel>
+                        <FieldLabel htmlFor={field.name}>
+                          <TooltipHeader
+                            label="Planned Quantity"
+                            tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
+                          />
+                        </FieldLabel>
                         <Input
                           {...field}
                           id={field.name}
@@ -778,8 +801,12 @@ export function ManufacturingOrderForm({
                         <TableHeader>
                           <TableRow>
                             <TableHead>Product</TableHead>
-                            <TableHead className="w-32 text-right">Qty</TableHead>
-                            <TableHead className="w-28">Unit</TableHead>
+                            <TableHead className="w-32 text-right">
+                              <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
+                            </TableHead>
+                            <TableHead className="w-28">
+                              <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
+                            </TableHead>
                             <TableHead className="w-40">Status</TableHead>
                             <TableHead>Reason</TableHead>
                           </TableRow>
@@ -853,14 +880,25 @@ export function ManufacturingOrderForm({
                       <TableHeader>
                         <TableRow>
                           <TableHead>Ingredient</TableHead>
-                          <TableHead className="w-40">{isBatchMode ? "Qty / Batch" : "Qty / Unit"}</TableHead>
+                          <TableHead className="w-40">
+                            <TooltipHeader
+                              label={isBatchMode ? "Qty / Batch" : "Qty / Unit"}
+                              tooltip={
+                                isBatchMode
+                                  ? BOM_QTY_PER_BATCH_TOOLTIP
+                                  : BOM_QTY_PER_UNIT_TOOLTIP
+                              }
+                            />
+                          </TableHead>
                           <TableHead className="w-40">
                             <TooltipHeader
                               label="Planned Total"
                               tooltip={MANUFACTURING_PLANNED_TOTAL_TOOLTIP}
                             />
                           </TableHead>
-                          <TableHead className="w-28">Unit</TableHead>
+                          <TableHead className="w-28">
+                            <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

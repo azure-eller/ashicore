@@ -33,6 +33,14 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  ITEM_SKU_TOOLTIP,
+  PURCHASE_PRICE_TOOLTIP,
+  SAFETY_STOCK_TOOLTIP,
+  SELLING_PRICE_TOOLTIP,
+  STOCKING_UNIT_TOOLTIP,
+} from "@/lib/tooltip-copy";
 
 interface VariantFormProps {
   masterId: string;
@@ -205,7 +213,9 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Stocking Unit</FieldLabel>
+                    <FieldLabel htmlFor={field.name}>
+                      <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+                    </FieldLabel>
                     <Select
                       key={field.value as string}
                       name={field.name}
@@ -258,7 +268,9 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>SKU</FieldLabel>
+                    <FieldLabel htmlFor={field.name}>
+                      <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+                    </FieldLabel>
                     <Input
                       {...field}
                       id={field.name}
@@ -305,10 +317,12 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
               <div className="grid gap-4 md:grid-cols-2">
                 <Controller
                   name="defaultSellingPrice"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Selling Price</FieldLabel>
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Selling Price" tooltip={SELLING_PRICE_TOOLTIP} />
+                      </FieldLabel>
                       <Input
                         {...field}
                         id={field.name}
@@ -327,10 +341,12 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                 />
                 <Controller
                   name="defaultPurchasePrice"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Purchase Price</FieldLabel>
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Purchase Price" tooltip={PURCHASE_PRICE_TOOLTIP} />
+                      </FieldLabel>
                       <Input
                         {...field}
                         id={field.name}
@@ -347,10 +363,12 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
               <div className="grid gap-4 md:grid-cols-2">
                 <Controller
                   name="safetyStock"
-                  control={form.control}
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Safety Stock</FieldLabel>
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Safety Stock" tooltip={SAFETY_STOCK_TOOLTIP} />
+                      </FieldLabel>
                       <Input
                         {...field}
                         id={field.name}

@@ -16,6 +16,11 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  PAYMENT_TERMS_TOOLTIP,
+  SUPPLIER_CODE_TOOLTIP,
+} from "@/lib/tooltip-copy";
 
 export type SupplierFormValues = z.input<typeof insertSupplierSchema>;
 
@@ -56,7 +61,9 @@ export function SupplierFieldGroups({
               name="code"
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Code</FieldLabel>
+                  <FieldLabel htmlFor={field.name}>
+                    <TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />
+                  </FieldLabel>
                   <Input
                     {...field}
                     id={field.name}
@@ -96,7 +103,9 @@ export function SupplierFieldGroups({
               name="paymentTerms"
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor={field.name}>Payment Terms</FieldLabel>
+                  <FieldLabel htmlFor={field.name}>
+                    <TooltipHeader label="Payment Terms" tooltip={PAYMENT_TERMS_TOOLTIP} />
+                  </FieldLabel>
                   <Input
                     {...field}
                     id={field.name}

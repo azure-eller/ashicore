@@ -45,6 +45,7 @@ import {
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Table,
   TableBody,
@@ -54,6 +55,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  EXPECTED_DELIVERY_DATE_TOOLTIP,
+  LINE_TOTAL_TOOLTIP,
+  PO_ORDERED_QTY_TOOLTIP,
+  PURCHASE_UNIT_COST_TOOLTIP,
+  PURCHASE_UNIT_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import type {
   PurchaseOrderEditData,
   PurchaseOrderMaterialOption,
@@ -262,7 +270,9 @@ export function PurchaseOrderForm({
                 name="expectedDate"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Expected Date</FieldLabel>
+                    <FieldLabel htmlFor={field.name}>
+                      <TooltipHeader label="Expected Date" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
+                    </FieldLabel>
                     <DatePicker
                       id={field.name}
                       value={field.value ?? ""}
@@ -291,10 +301,18 @@ export function PurchaseOrderForm({
                     <TableHeader>
                       <TableRow>
                         <TableHead>Material</TableHead>
-                        <TableHead className="w-32">Ordered Qty</TableHead>
-                        <TableHead className="w-32">Purchase Unit</TableHead>
-                        <TableHead className="w-40">Unit Cost</TableHead>
-                        <TableHead className="w-32 text-right">Line Total</TableHead>
+                        <TableHead className="w-32">
+                          <TooltipHeader label="Ordered Qty" tooltip={PO_ORDERED_QTY_TOOLTIP} />
+                        </TableHead>
+                        <TableHead className="w-32">
+                          <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
+                        </TableHead>
+                        <TableHead className="w-40">
+                          <TooltipHeader label="Unit Cost" tooltip={PURCHASE_UNIT_COST_TOOLTIP} />
+                        </TableHead>
+                        <TableHead className="w-32 text-right">
+                          <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
+                        </TableHead>
                         <TableHead className="w-12" />
                       </TableRow>
                     </TableHeader>

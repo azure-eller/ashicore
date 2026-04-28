@@ -51,10 +51,15 @@ import {
   updateStocktakeCountsSchema,
 } from "@/lib/schemas/stocktakes";
 import {
+  ITEM_TYPE_TOOLTIP,
   STOCKTAKE_COUNT_QTY_TOOLTIP,
   STOCKTAKE_CURRENT_QTY_TOOLTIP,
+  STOCKTAKE_COUNTED_TOOLTIP,
+  STOCKTAKE_ITEM_COUNT_TOOLTIP,
   STOCKTAKE_LINE_VARIANCE_TOOLTIP,
+  STOCKTAKE_SCOPE_TOOLTIP,
   STOCKTAKE_SNAPSHOT_QTY_TOOLTIP,
+  UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { StocktakeStatusBadge } from "./status-badge";
@@ -454,7 +459,9 @@ export function StocktakeDetail({
 
         <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Scope</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Scope" tooltip={STOCKTAKE_SCOPE_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{formatScope(stocktake.scope)}</dd>
           </div>
           <div>
@@ -464,11 +471,15 @@ export function StocktakeDetail({
             </dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Items</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Items" tooltip={STOCKTAKE_ITEM_COUNT_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">{stocktake.lines.length}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-muted-foreground">Available Count</dt>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader label="Available Count" tooltip={STOCKTAKE_COUNTED_TOOLTIP} />
+            </dt>
             <dd className="mt-1 text-sm">
               {canEditCounts ? liveCountedCount : savedCountedCount} / {stocktake.lines.length}
             </dd>
@@ -526,8 +537,12 @@ export function StocktakeDetail({
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Unit</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">
                     <TooltipHeader label="Available Snapshot" tooltip={STOCKTAKE_SNAPSHOT_QTY_TOOLTIP} />
                   </TableHead>

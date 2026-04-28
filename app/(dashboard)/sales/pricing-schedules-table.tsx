@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/format";
 import {
   PRICING_BREAKS_TOOLTIP,
   PRICING_SCOPE_TOOLTIP,
+  PRICING_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { PricingScheduleRow } from "./types";
 
@@ -56,7 +57,9 @@ const columns: ColumnDef<PricingScheduleRow>[] = [
   },
   {
     accessorKey: "unitLabel",
-    header: ({ column }) => <SortableHeader column={column} label="Unit" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Unit" tooltip={PRICING_UNIT_TOOLTIP} />
+    ),
   },
   {
     accessorKey: "breakSummary",

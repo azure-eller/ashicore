@@ -75,7 +75,16 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
-import { OVERSELL_TOOLTIP_COPY } from "@/lib/tooltip-copy";
+import {
+  ON_HAND_STOCK_TOOLTIP,
+  OVERSELL_TOOLTIP_COPY,
+  REQUESTED_DATE_TOOLTIP,
+  SALES_ADDED_QTY_TOOLTIP,
+  SALES_LINE_QTY_TOOLTIP,
+  SALES_UNIT_PRICE_TOOLTIP,
+  LINE_TOTAL_TOOLTIP,
+  UNIT_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import type {
   CustomerOption,
   OversellWarningPayload,
@@ -593,7 +602,9 @@ export function OrderForm({
                     name="requestedDate"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>Requested Date</FieldLabel>
+                        <FieldLabel htmlFor={field.name}>
+                          <TooltipHeader label="Requested Date" tooltip={REQUESTED_DATE_TOOLTIP} />
+                        </FieldLabel>
                         <DatePicker
                           id={field.name}
                           value={field.value ?? ""}
@@ -645,10 +656,18 @@ export function OrderForm({
                       <TableHeader>
                         <TableRow>
                           <TableHead>Item</TableHead>
-                          <TableHead className="w-32">Qty</TableHead>
-                          <TableHead className="w-28">Unit</TableHead>
-                          <TableHead className="w-40">Unit Price</TableHead>
-                          <TableHead className="w-32 text-right">Line Total</TableHead>
+                          <TableHead className="w-32">
+                            <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
+                          </TableHead>
+                          <TableHead className="w-28">
+                            <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
+                          </TableHead>
+                          <TableHead className="w-40">
+                            <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
+                          </TableHead>
+                          <TableHead className="w-32 text-right">
+                            <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
+                          </TableHead>
                           <TableHead className="w-12" />
                         </TableRow>
                       </TableHeader>
@@ -808,7 +827,9 @@ export function OrderForm({
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
-                  <TableHead>Current Stock</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Current Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
+                  </TableHead>
                   <TableHead>
                     <TooltipHeader
                       label="Available"
@@ -851,7 +872,9 @@ export function OrderForm({
                       tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
                     />
                   </TableHead>
-                  <TableHead>Added Qty</TableHead>
+                  <TableHead>
+                    <TooltipHeader label="Added Qty" tooltip={SALES_ADDED_QTY_TOOLTIP} />
+                  </TableHead>
                   <TableHead>
                     <TooltipHeader
                       label="Projected Demand"
