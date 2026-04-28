@@ -191,6 +191,8 @@ export async function resolvePositiveStockUnitCostInTx(
         currentStockUnitCost: items.currentStockUnitCost,
         defaultPurchasePrice: items.defaultPurchasePrice,
         purchaseToStockFactor: items.purchaseToStockFactor,
+        manufacturingMode: items.manufacturingMode,
+        expectedBatchYield: items.expectedBatchYield,
       })
       .from(items)
       .where(eq(items.id, currentItemId));
@@ -255,6 +257,13 @@ export async function resolvePositiveStockUnitCostInTx(
         await deriveCost(component.itemId, nextVisited)
       );
       total += parseFloat(component.quantityPerUnit ?? "0") * componentUnitCost;
+    }
+
+    if (item.manufacturingMode === "batch" && item.expectedBatchYield != null) {
+      const expectedBatchYield = parseFloat(item.expectedBatchYield);
+      if (Number.isFinite(expectedBatchYield) && expectedBatchYield > 0) {
+        return normalizeNumericScale(total / expectedBatchYield, 6);
+      }
     }
 
     return normalizeNumericScale(total, 6);

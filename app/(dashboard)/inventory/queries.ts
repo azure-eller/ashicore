@@ -406,9 +406,18 @@ async function getMaterialCostByProductIdInTx(tx: Tx, productIds: string[]) {
       SELECT
         br.product_id,
         brc.component_id,
-        brc.quantity::numeric,
+        brc.quantity::numeric / CASE
+          WHEN parent.manufacturing_mode = 'batch'
+            AND parent.expected_batch_yield IS NOT NULL
+            AND parent.expected_batch_yield > 0
+            THEN parent.expected_batch_yield
+          ELSE 1
+        END,
         ARRAY[br.product_id, brc.component_id]
       FROM inventory.bom_revisions br
+      INNER JOIN inventory.items parent
+        ON parent.id = br.product_id
+        AND parent.deleted_at IS NULL
       INNER JOIN inventory.bom_revision_components brc
         ON brc.bom_revision_id = br.id
       INNER JOIN inventory.items component
@@ -422,12 +431,21 @@ async function getMaterialCostByProductIdInTx(tx: Tx, productIds: string[]) {
       SELECT
         bt.product_id,
         brc.component_id,
-        bt.extended_quantity * brc.quantity,
+        bt.extended_quantity * brc.quantity::numeric / CASE
+          WHEN parent.manufacturing_mode = 'batch'
+            AND parent.expected_batch_yield IS NOT NULL
+            AND parent.expected_batch_yield > 0
+            THEN parent.expected_batch_yield
+          ELSE 1
+        END,
         bt.path || brc.component_id
       FROM bom_tree bt
       INNER JOIN inventory.bom_revisions br
         ON br.product_id = bt.component_id
         AND br.is_current = true
+      INNER JOIN inventory.items parent
+        ON parent.id = br.product_id
+        AND parent.deleted_at IS NULL
       INNER JOIN inventory.bom_revision_components brc
         ON brc.bom_revision_id = br.id
       INNER JOIN inventory.items component
