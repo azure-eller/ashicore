@@ -1,1 +1,1 @@
-export { default } from "../orders-table-skeleton";
+export { default } from "@/components/dashboard-route-loading";

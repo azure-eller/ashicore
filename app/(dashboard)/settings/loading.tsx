@@ -1,1 +1,1 @@
-export { default } from "./settings-loading";
+export { default } from "@/components/dashboard-route-loading";

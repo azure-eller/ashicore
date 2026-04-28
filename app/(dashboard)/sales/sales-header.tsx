@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NavigationLink } from "@/components/navigation-pending";
 import { Separator } from "@/components/ui/separator";
 import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 
@@ -30,13 +30,13 @@ export function SalesHeader() {
                 {tab.label}
               </span>
             ) : (
-              <Link
+              <NavigationLink
                 key={tab.href}
                 href={tab.href}
                 className="text-muted-foreground transition-colors hover:text-foreground"
               >
                 {tab.label}
-              </Link>
+              </NavigationLink>
             );
           })}
         </nav>

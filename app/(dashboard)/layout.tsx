@@ -17,7 +17,13 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const requestContext = await getRequestLogContext();
+  const requestContextPromise = getRequestLogContext();
+
+  after(async () => {
+    const requestContext = await requestContextPromise;
+    logObservedEvent("rsc.dashboard_layout.complete", requestContext);
+  });
+
   const context = await getAuthedMemberContext();
   const user = {
     name: context.name,
@@ -25,10 +31,6 @@ export default async function DashboardLayout({
     avatar: context.avatar,
   };
   const agentEnabled = await getAgentEnabled(context.assignedRoles);
-
-  after(() => {
-    logObservedEvent("rsc.dashboard_layout.complete", requestContext);
-  });
 
   return (
     <Providers>
