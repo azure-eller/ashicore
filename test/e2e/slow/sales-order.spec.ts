@@ -948,11 +948,22 @@ test.describe("Sales order flow", () => {
       0
     );
 
-    const shipResponse = await testFetch(
-      `/api/sales-orders/${shipOrderId}/ship`,
-      { method: "POST" }
-    );
-    expect(shipResponse.status).toBe(200);
+    const [shipOrderBeforeUi] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, shipOrderId));
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", shipOrderBeforeUi.orderNumber);
+    const confirmedRow = page.getByRole("row", {
+      name: new RegExp(shipOrderBeforeUi.orderNumber),
+    });
+    await confirmedRow.getByRole("button", { name: "Ship" }).click();
+    await expect(page.getByRole("dialog", { name: "Ship Sales Order" })).toBeVisible();
+    await expect(page.getByText("Create invoice")).toBeVisible();
+    await page.getByRole("button", { name: "Ship" }).click();
+    await expect(page.getByRole("dialog", { name: "Sales Order Shipped" })).toBeVisible();
+    await page.getByRole("button", { name: "Done" }).click();
 
     const [shippedOrder] = await db
       .select({
@@ -1014,10 +1025,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByRole("button", { name: "Ship" })).toHaveCount(0);
 
     await page.goto("/sales/orders");
-    const [shippedOrderRow] = await db
-      .select({ orderNumber: salesOrders.orderNumber })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, shipOrderId));
+    const shippedOrderRow = shipOrderBeforeUi;
     await filterList(page, "Search orders", shippedOrderRow.orderNumber);
     const shippedRow = page.getByRole("row", {
       name: new RegExp(shippedOrderRow.orderNumber),

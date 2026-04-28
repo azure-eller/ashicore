@@ -523,6 +523,7 @@ export async function getPurchaseOrder(
         id: purchaseOrders.id,
         supplierId: purchaseOrders.supplierId,
         supplierName: purchaseOrders.supplierName,
+        supplierEmail: suppliers.email,
         orderNumber: purchaseOrders.orderNumber,
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
@@ -531,11 +532,23 @@ export async function getPurchaseOrder(
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
         cancelledAt: purchaseOrders.cancelledAt,
+        xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
+        xeroPurchaseOrderNumber: purchaseOrders.xeroPurchaseOrderNumber,
+        xeroPushStatus: purchaseOrders.xeroPushStatus,
+        xeroPushError: purchaseOrders.xeroPushError,
+        xeroPushedAt: purchaseOrders.xeroPushedAt,
+        xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
+        xeroLastPushAttemptAt: purchaseOrders.xeroLastPushAttemptAt,
+        xeroRetryCount: purchaseOrders.xeroRetryCount,
+        xeroPoEmailStatus: purchaseOrders.xeroPoEmailStatus,
+        xeroPoEmailError: purchaseOrders.xeroPoEmailError,
+        xeroPoEmailedAt: purchaseOrders.xeroPoEmailedAt,
         deletedAt: purchaseOrders.deletedAt,
         createdAt: purchaseOrders.createdAt,
         updatedAt: purchaseOrders.updatedAt,
       })
       .from(purchaseOrders)
+      .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
       .where(and(...conditions));
 
     if (!order) {
@@ -547,6 +560,10 @@ export async function getPurchaseOrder(
     return {
       ...order,
       status: order.status as PurchaseOrderStatus,
+      xeroPushStatus:
+        order.xeroPushStatus as PurchaseOrderDetail["xeroPushStatus"],
+      xeroPoEmailStatus:
+        order.xeroPoEmailStatus as PurchaseOrderDetail["xeroPoEmailStatus"],
       lines: lines.map((line) => ({
         ...line,
         quantityRemaining: normalizeNumeric(
@@ -672,18 +689,30 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
 
 export async function submitPurchaseOrder(
   id: string,
-  options?: { idempotencyKey?: string }
+  options?: {
+    idempotencyKey?: string;
+    syncAccounting?: boolean;
+    sendEmail?: boolean;
+  }
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "submitPurchaseOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id },
+      payload: {
+        id,
+        syncAccounting: options?.syncAccounting ?? true,
+        sendEmail: options?.sendEmail ?? false,
+      },
     });
 
     if (replay.replayed) {
-      return replay.result;
+      return {
+        replayed: true as const,
+        submitted: replay.result,
+        orgId,
+      };
     }
 
     const order = await getLockedPurchaseOrderInTx(tx, id);
@@ -694,7 +723,11 @@ export async function submitPurchaseOrder(
         idempotencyKey: options?.idempotencyKey ?? null,
         result: null,
       });
-      return null;
+      return {
+        replayed: false as const,
+        submitted: null,
+        orgId,
+      };
     }
 
     if (order.status !== "draft") {
@@ -727,15 +760,89 @@ export async function submitPurchaseOrder(
       })),
     });
 
-    const result = { id };
+    const submitted = { id };
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
-      result,
+      result: submitted,
     });
 
-    return result;
+    return {
+      replayed: false as const,
+      submitted,
+      orgId,
+    };
+  });
+
+  if (!result.submitted) {
+    return null;
+  }
+
+  if (result.replayed) {
+    return result.submitted;
+  }
+
+  if (options?.syncAccounting === false) {
+    return result.submitted;
+  }
+
+  // Stock + expected-supply tx has committed. Attempt the Xero PO push;
+  // a failure must NOT roll back the submit — the order is ordered
+  // regardless of accounting state.
+  const { pushPurchaseOrderToXero, markXeroPurchaseOrderPushFailed } =
+    await import("@/lib/xero/push-purchase-order");
+  const { XeroError } = await import("@/lib/xero/errors");
+
+  try {
+    await pushPurchaseOrderToXero(result.orgId, id, {
+      sendEmail: options?.sendEmail,
+    });
+  } catch (error) {
+    if (
+      error instanceof XeroError &&
+      (error.message.includes("not connected") ||
+        error.status === 409 ||
+        error.status === 500)
+    ) {
+      if (!error.message.includes("not connected")) {
+        await markXeroPurchaseOrderPushFailed(result.orgId, id, error);
+      }
+    } else {
+      await markXeroPurchaseOrderPushFailed(result.orgId, id, error);
+    }
+  }
+
+  return result.submitted;
+}
+
+export async function retryXeroPushForPurchaseOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { pushPurchaseOrderToXero, markXeroPurchaseOrderPushFailed } =
+      await import("@/lib/xero/push-purchase-order");
+    const { XeroError } = await import("@/lib/xero/errors");
+
+    try {
+      const result = await pushPurchaseOrderToXero(orgId, id);
+      return { ok: true as const, result };
+    } catch (error) {
+      if (error instanceof XeroError && (error.status === 404 || error.status === 409)) {
+        throw error;
+      }
+
+      await markXeroPurchaseOrderPushFailed(orgId, id, error);
+      throw error;
+    }
+  });
+}
+
+export async function retryXeroEmailForPurchaseOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { emailPurchaseOrderForOrder } = await import(
+      "@/lib/xero/push-purchase-order"
+    );
+    const result = await emailPurchaseOrderForOrder(orgId, id);
+    return { ok: true as const, result };
   });
 }
 

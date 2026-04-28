@@ -64,6 +64,7 @@ When you discover a new pattern or gotcha:
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
+| Xero integration, OAuth, push retry | `docs/xero.md` |
 
 ## Database Roles
 
@@ -570,6 +571,10 @@ Invite, verification, and password-reset emails must use the configured canonica
 ```ts
 const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL
 ```
+
+### Xero PO emails
+
+Xero has no API endpoint to email purchase orders. Fetch the Xero-rendered PDF, send it through `sendTransactionalEmail`, and track `xero_po_email_status`.
 
 ### Playwright email outbox
 

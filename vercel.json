@@ -4,6 +4,10 @@
     {
       "path": "/api/internal/inventory-reconciliation",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/internal/xero-retry",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

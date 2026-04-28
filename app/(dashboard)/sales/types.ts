@@ -155,6 +155,7 @@ export type SalesOrderListRow = {
   id: string;
   orderNumber: string;
   customerName: string;
+  customerEmail: string | null;
   status: SalesOrderStatus;
   requestedDate: string | null;
   shippedAt: Date | null;
@@ -198,6 +199,7 @@ export type SalesOrderDetail = {
   id: string;
   customerId: string;
   customerName: string;
+  customerEmail: string | null;
   orderNumber: string;
   status: SalesOrderStatus;
   requestedDate: string | null;
@@ -214,6 +216,12 @@ export type SalesOrderDetail = {
   xeroPushStatus: "pending" | "pushed" | "failed" | null;
   xeroPushError: string | null;
   xeroPushedAt: Date | null;
+  xeroPushPayloadHash: string | null;
+  xeroLastPushAttemptAt: Date | null;
+  xeroRetryCount: number;
+  xeroEmailStatus: "sent" | "failed" | "skipped" | null;
+  xeroEmailError: string | null;
+  xeroEmailedAt: Date | null;
   totalAmount: string;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;

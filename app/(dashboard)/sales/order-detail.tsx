@@ -8,6 +8,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import {
+  AccountingActionConfirmDialog,
+  AccountingSyncDialog,
+  AccountingSyncStatus,
+  buildAccountingSyncStages,
+  type AccountingActionOptions,
+  type AccountingSyncDocument,
+  type AccountingSyncStage,
+} from "@/components/accounting-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
@@ -83,6 +92,47 @@ function ShipToAddress({ order }: { order: SalesOrderDetailType }) {
   );
 }
 
+type SyncDialogState = {
+  title: string;
+  description: string;
+  stages: AccountingSyncStage[];
+  error: string | null;
+  isWorking: boolean;
+  documentNumber?: string | null;
+  showProviderAction?: boolean;
+};
+
+async function fetchSalesOrderDetail(id: string): Promise<SalesOrderDetailType> {
+  const response = await fetch(`/api/sales-orders/${id}`);
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(body?.error ?? "Failed to refresh sales order.");
+  }
+
+  return body as SalesOrderDetailType;
+}
+
+function salesOrderAccountingDocument(
+  order: SalesOrderDetailType
+): AccountingSyncDocument {
+  return {
+    providerName: "Xero",
+    documentLabel: "invoice",
+    documentNumber: order.xeroInvoiceNumber,
+    pushStatus: order.xeroPushStatus,
+    pushError: order.xeroPushError,
+    pushedAt: order.xeroPushedAt,
+    retryCount: order.xeroRetryCount,
+    emailStatus: order.xeroEmailStatus,
+    emailError: order.xeroEmailError,
+    emailedAt: order.xeroEmailedAt,
+    emailProviderName: "Resend",
+    recipientLabel: order.customerName,
+    recipientEmail: order.customerEmail,
+  };
+}
+
 export function OrderDetail({
   order,
   canViewLedger = false,
@@ -94,10 +144,118 @@ export function OrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [shipOpen, setShipOpen] = useState(false);
+  const [shipConfirmOpen, setShipConfirmOpen] = useState(false);
+  const [shipOptions, setShipOptions] = useState<AccountingActionOptions>({
+    syncAccounting: true,
+    sendEmail: order.customerEmail != null && order.customerEmail.trim() !== "",
+  });
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
+  const accountingDocument = salesOrderAccountingDocument(order);
+
+  const openSyncDialog = ({
+    title,
+    description,
+    localActionLabel,
+    includeAccounting = true,
+    includeEmail = true,
+    activeStage = "push",
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    includeAccounting?: boolean;
+    includeEmail?: boolean;
+    activeStage?: "push" | "email";
+  }) => {
+    setSyncDialog({
+      title,
+      description,
+      stages: buildAccountingSyncStages({
+        document: accountingDocument,
+        includeAccounting,
+        includeEmail,
+        isWorking: true,
+        localActionLabel,
+        activeStage,
+      }),
+      error: null,
+      isWorking: true,
+      documentNumber: null,
+      showProviderAction: false,
+    });
+  };
+
+  const finishSyncDialog = async ({
+    title,
+    description,
+    localActionLabel,
+    includeAccounting = true,
+    includeEmail = true,
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    includeAccounting?: boolean;
+    includeEmail?: boolean;
+  }) => {
+    try {
+      const latest = await fetchSalesOrderDetail(order.id);
+      const latestDocument = salesOrderAccountingDocument(latest);
+      setSyncDialog({
+        title,
+        description,
+        stages: buildAccountingSyncStages({
+          document: latestDocument,
+          includeAccounting,
+          includeEmail,
+          localActionLabel,
+        }),
+        error: null,
+        isWorking: false,
+        documentNumber: includeAccounting ? latestDocument.documentNumber : null,
+        showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
+      });
+    } catch {
+      failSyncDialog({
+        title,
+        description,
+        localActionLabel,
+        message: "Failed to reload order status.",
+      });
+    }
+  };
+
+  const failSyncDialog = ({
+    title,
+    description,
+    localActionLabel,
+    message,
+  }: {
+    title: string;
+    description: string;
+    localActionLabel: string;
+    message: string;
+  }) => {
+    setSyncDialog({
+      title,
+      description,
+      stages: [
+        {
+          id: "local",
+          label: localActionLabel,
+          detail: message,
+          state: "failed",
+        },
+      ],
+      error: message,
+      isWorking: false,
+      documentNumber: null,
+      showProviderAction: false,
+    });
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -196,29 +354,59 @@ export function OrderDetail({
   });
 
   const shipMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (options: AccountingActionOptions) => {
       const response = await fetch(`/api/sales-orders/${order.id}/ship`, {
         method: "POST",
-        headers: createIdempotencyHeaders("sales-order-ship"),
+        headers: createIdempotencyHeaders("sales-order-ship", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          syncAccounting: options.syncAccounting,
+          sendEmail: options.sendEmail,
+        }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(body?.error ?? "Failed to ship order.");
       }
     },
-    onMutate: () => {
+    onMutate: (options) => {
       setActionError(null);
+      setShipConfirmOpen(false);
+      openSyncDialog({
+        title: "Shipping Sales Order",
+        description: options.syncAccounting
+          ? "The order will ship, sync an invoice to Xero, and email the customer when enabled."
+          : "The order will ship in ERP only.",
+        localActionLabel: "Ship sales order",
+        includeAccounting: options.syncAccounting,
+        includeEmail: options.sendEmail,
+      });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, options) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
-      setShipOpen(false);
+      await finishSyncDialog({
+        title: "Sales Order Shipped",
+        description: options.syncAccounting
+          ? "ERP shipping is complete. Xero and email results are shown below."
+          : "ERP shipping is complete.",
+        localActionLabel: "Ship sales order",
+        includeAccounting: options.syncAccounting,
+        includeEmail: options.sendEmail,
+      });
       router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
+      failSyncDialog({
+        title: "Sales Order Not Shipped",
+        description: "The sales order was not shipped.",
+        localActionLabel: "Ship sales order",
+        message: error.message,
+      });
     },
   });
 
@@ -234,13 +422,91 @@ export function OrderDetail({
     },
     onMutate: () => {
       setActionError(null);
+      openSyncDialog({
+        title: "Syncing Invoice",
+        description: "The invoice will be retried in Xero and emailed when eligible.",
+        localActionLabel: "Start retry",
+      });
     },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
+      await finishSyncDialog({
+        title: "Invoice Sync Complete",
+        description: "The latest Xero and email results are shown below.",
+        localActionLabel: "Start retry",
+      });
       router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+      failSyncDialog({
+        title: "Invoice Sync Failed",
+        description: "The retry did not complete.",
+        localActionLabel: "Start retry",
+        message: error.message,
+      });
+    },
+  });
+
+  const xeroEmailMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/xero-email`,
+        { method: "POST" }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to email invoice.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+      openSyncDialog({
+        title: "Emailing Invoice",
+        description: "Sending the existing invoice to the customer.",
+        localActionLabel: "Prepare email",
+        activeStage: "email",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      await finishSyncDialog({
+        title: "Invoice Email Complete",
+        description: "The latest email result is shown below.",
+        localActionLabel: "Prepare email",
+      });
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+      failSyncDialog({
+        title: "Invoice Email Failed",
+        description: "The email retry did not complete.",
+        localActionLabel: "Prepare email",
+        message: error.message,
+      });
+    },
+  });
+
+  const onlineInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/xero-online-invoice`
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to open online invoice.");
+      }
+      return body as { url: string };
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: ({ url }) => {
+      window.open(url, "_blank", "noopener,noreferrer");
     },
     onError: (error) => {
       setActionError(error.message);
@@ -257,6 +523,10 @@ export function OrderDetail({
   const canRetryXeroPush =
     order.status === "shipped" &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
+  const canRetryXeroEmail =
+    order.status === "shipped" &&
+    order.xeroPushStatus === "pushed" &&
+    order.xeroEmailStatus === "failed";
   const canCreateMOs = !isDeleted && order.status === "confirmed";
   const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
   const canConfirmShipment = canShip && order.shippingReadiness.state === "ready";
@@ -319,6 +589,15 @@ export function OrderDetail({
                     },
                   ]
                 : []),
+              ...(canRetryXeroEmail
+                ? [
+                    {
+                      label: "Retry Xero email",
+                      onSelect: () => xeroEmailMutation.mutate(),
+                      disabled: xeroEmailMutation.isPending,
+                    },
+                  ]
+                : []),
               ...(canCancel
                 ? [
                     {
@@ -350,13 +629,20 @@ export function OrderDetail({
               </Button>
             ) : null}
             {canShip ? (
-              <Button
-                size="sm"
-                onClick={() => setShipOpen(true)}
-                disabled={shipMutation.isPending}
-              >
-                {shipMutation.isPending ? "Shipping..." : "Ship"}
-              </Button>
+              canConfirmShipment ? (
+                <Button
+                  size="sm"
+                  onClick={() => setShipConfirmOpen(true)}
+                  disabled={shipMutation.isPending}
+                >
+                  {shipMutation.isPending ? "Shipping..." : "Ship"}
+                </Button>
+              ) : (
+                <DisabledTooltipButton
+                  label="Ship"
+                  tooltip={order.shippingReadiness.message}
+                />
+              )
             ) : null}
             {canCreateMOs &&
               (order.hasManufacturableLines ? (
@@ -410,6 +696,24 @@ export function OrderDetail({
           </div>
         )}
 
+        <AccountingSyncStatus
+          document={accountingDocument}
+          onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
+          retryPushPending={xeroPushMutation.isPending}
+          onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
+          retryEmailPending={xeroEmailMutation.isPending}
+          providerAction={
+            order.xeroPushStatus === "pushed"
+              ? {
+                  label: "Open online invoice",
+                  onClick: () => onlineInvoiceMutation.mutate(),
+                  pending: onlineInvoiceMutation.isPending,
+                }
+              : undefined
+          }
+          compact
+        />
+
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Customer</dt>
@@ -446,18 +750,6 @@ export function OrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
           </div>
-          {order.xeroPushStatus && (
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Xero Invoice</dt>
-              <dd className="mt-1 text-sm">
-                {order.xeroPushStatus === "pushed" && order.xeroInvoiceNumber
-                  ? `Pushed — ${order.xeroInvoiceNumber}`
-                  : order.xeroPushStatus === "failed"
-                    ? `Failed — ${order.xeroPushError ?? "unknown error"}`
-                    : "Pending"}
-              </dd>
-            </div>
-          )}
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
@@ -602,6 +894,60 @@ export function OrderDetail({
           )}
         </div>
       </div>
+
+      {syncDialog ? (
+        <AccountingSyncDialog
+          open
+          title={syncDialog.title}
+          description={syncDialog.description}
+          stages={syncDialog.stages}
+          error={syncDialog.error}
+          isWorking={syncDialog.isWorking}
+          stageActions={
+            syncDialog.showProviderAction
+              ? {
+                  push: {
+                    label: "Open online invoice",
+                    onClick: () => onlineInvoiceMutation.mutate(),
+                    pending: onlineInvoiceMutation.isPending,
+                  },
+                }
+              : undefined
+          }
+          onOpenChange={(open) => {
+            if (!open) setSyncDialog(null);
+          }}
+          onDone={() => setSyncDialog(null)}
+        />
+      ) : null}
+
+      <AccountingActionConfirmDialog
+        open={shipConfirmOpen}
+        title="Ship Sales Order"
+        description="Review what happens next."
+        confirmLabel="Ship"
+        pendingLabel="Shipping..."
+        localStep={{
+          title: "Ship order",
+          detail: order.orderNumber,
+          meta: `${order.customerName} · ${formatPrice(order.totalAmount) ?? "-"} · ${order.lines.length} ${order.lines.length === 1 ? "line" : "lines"}`,
+        }}
+        accountingStep={{
+          title: "Create invoice",
+          detail: "Invoice",
+          meta: "Xero",
+        }}
+        emailStep={{
+          title: "Email customer",
+          detail: order.customerEmail ?? "No customer email",
+          meta: order.customerName,
+        }}
+        options={shipOptions}
+        onOptionsChange={setShipOptions}
+        onConfirm={() => shipMutation.mutate(shipOptions)}
+        onOpenChange={setShipConfirmOpen}
+        isPending={shipMutation.isPending}
+      />
 
       <AlertDialog open={oversellWarning != null} onOpenChange={(open) => {
         if (!open) {
@@ -768,56 +1114,6 @@ export function OrderDetail({
               onClick={() => cancelMutation.mutate()}
             >
               {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={shipOpen} onOpenChange={setShipOpen}>
-        <AlertDialogContent size="lg" className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Ship {order.orderNumber}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Shipping consumes stock FIFO and marks this sales order shipped.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="flex flex-col gap-4 text-sm">
-            <div className="flex flex-col gap-1">
-              <span className="font-medium">{order.shippingReadiness.message}</span>
-              {order.shippingReadiness.blockers.length > 0 ? (
-                <ul className="flex flex-col gap-1 text-muted-foreground">
-                  {order.shippingReadiness.blockers.map((blocker) => (
-                    <li key={blocker}>{blocker}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <div className="font-medium">Customer</div>
-                <div className="text-muted-foreground">{order.customerName}</div>
-              </div>
-              <div>
-                <div className="font-medium">Lines</div>
-                <div className="text-muted-foreground">{order.lines.length}</div>
-              </div>
-            </div>
-
-            <ShipToAddress order={order} />
-          </div>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={shipMutation.isPending}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!canConfirmShipment || shipMutation.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                shipMutation.mutate();
-              }}
-            >
-              {shipMutation.isPending ? "Shipping..." : "Ship order"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

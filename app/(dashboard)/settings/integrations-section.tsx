@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { XeroConnectionSummary } from "@/lib/dal/xero";
+import type { XeroConnectionWithHealth } from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -30,6 +30,35 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Xero rejected the connection. Double-check your client credentials and retry.",
   access_denied: "You declined the Xero authorization request.",
 };
+
+type HealthState = "connected" | "needs_reauthorization" | "missing_scope" | "transient_error";
+
+const HEALTH_LABEL: Record<HealthState | "disconnected", string> = {
+  connected: "Connected",
+  disconnected: "Not connected",
+  needs_reauthorization: "Reconnect required",
+  missing_scope: "Missing scope",
+  transient_error: "Connection issue",
+};
+
+function StatusPill({ state }: { state: HealthState | "disconnected" }) {
+  const tone =
+    state === "connected"
+      ? "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400"
+      : state === "disconnected"
+        ? "border-muted-foreground/30 text-muted-foreground"
+        : "border-destructive/40 bg-destructive/10 text-destructive";
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+        tone
+      )}
+    >
+      {HEALTH_LABEL[state]}
+    </span>
+  );
+}
 
 function XeroLogo() {
   return (
@@ -49,7 +78,7 @@ function XeroRow({
   canImportCustomers,
   canImportSuppliers,
 }: {
-  connection: XeroConnectionSummary | null;
+  connection: XeroConnectionWithHealth | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
@@ -65,6 +94,50 @@ function XeroRow({
   const [invoiceStatus, setInvoiceStatus] = useState<"DRAFT" | "AUTHORISED">(
     (connection?.invoiceStatusPreference as "DRAFT" | "AUTHORISED") ?? "AUTHORISED"
   );
+  const autoEmailInvoices = connection?.autoEmailSalesInvoices ?? false;
+  const autoEmailPurchaseOrders = connection?.autoEmailPurchaseOrders ?? false;
+  const [poAccountCode, setPoAccountCode] = useState(
+    connection?.purchaseOrderDefaultAccountCode ?? ""
+  );
+  const [poTaxType, setPoTaxType] = useState(
+    connection?.purchaseOrderDefaultTaxType ?? ""
+  );
+  const [poStatus, setPoStatus] = useState<"DRAFT" | "SUBMITTED" | "AUTHORISED">(
+    (connection?.purchaseOrderStatusPreference as
+      | "DRAFT"
+      | "SUBMITTED"
+      | "AUTHORISED") ?? "DRAFT"
+  );
+  const [pendingTenantId, setPendingTenantId] = useState(
+    connection?.tenantId ?? ""
+  );
+
+  const healthState: HealthState | "disconnected" = connection
+    ? connection.health.state
+    : "disconnected";
+  const healthMessage = connection?.health.message ?? null;
+  const needsReconnect =
+    healthState === "needs_reauthorization" ||
+    healthState === "missing_scope";
+
+  const switchTenantMutation = useMutation({
+    mutationFn: async (tenantId: string) => {
+      const res = await fetch("/api/xero/switch-tenant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to switch tenant.");
+      }
+    },
+    onSuccess: () => {
+      setFormError(null);
+      router.refresh();
+    },
+    onError: (err) => setFormError((err as Error).message),
+  });
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -87,6 +160,11 @@ function XeroRow({
           defaultAccountCode: accountCode.trim() || null,
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
+          autoEmailSalesInvoices: autoEmailInvoices,
+          autoEmailPurchaseOrders,
+          purchaseOrderDefaultAccountCode: poAccountCode.trim() || null,
+          purchaseOrderDefaultTaxType: poTaxType.trim() || null,
+          purchaseOrderStatusPreference: poStatus,
         }),
       });
       if (!res.ok) {
@@ -110,20 +188,19 @@ function XeroRow({
         <div className="flex min-w-0 items-center gap-3">
           <XeroLogo />
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">Xero</span>
-              {isConnected ? (
-                <span className="rounded-full border border-green-600/40 bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
-                  Connected
-                </span>
-              ) : (
-                <span className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  Not connected
-                </span>
-              )}
+              <StatusPill state={healthState} />
+              {needsReconnect && canManageConnection ? (
+                <Button asChild size="sm" variant="outline" className="h-6 px-2 text-xs">
+                  <a href="/api/xero/connect">Reconnect</a>
+                </Button>
+              ) : null}
             </div>
             <div className="truncate text-xs text-muted-foreground">
-              Accounting{connection?.tenantName ? ` · ${connection.tenantName}` : ""}
+              {healthMessage
+                ? healthMessage
+                : `Accounting${connection?.tenantName ? ` · ${connection.tenantName}` : ""}`}
             </div>
           </div>
         </div>
@@ -178,44 +255,136 @@ function XeroRow({
         <div className="space-y-6 border-t bg-muted/30 px-6 py-5">
           {formError ? <FieldError>{formError}</FieldError> : null}
 
+          {canManageConnection &&
+          (connection?.authorizedTenants?.length ?? 0) > 1 ? (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-foreground">
+                Active Xero organisation
+              </h3>
+              <div className="flex flex-wrap items-center gap-3">
+                <Select
+                  value={pendingTenantId}
+                  onValueChange={setPendingTenantId}
+                >
+                  <SelectTrigger className="max-w-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {connection?.authorizedTenants.map((tenant) => (
+                      <SelectItem key={tenant.tenantId} value={tenant.tenantId}>
+                        {tenant.tenantName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => switchTenantMutation.mutate(pendingTenantId)}
+                  disabled={
+                    switchTenantMutation.isPending ||
+                    pendingTenantId === connection?.tenantId
+                  }
+                >
+                  {switchTenantMutation.isPending ? "Switching…" : "Switch"}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Pushes go to this organisation. Token already covers all
+                  authorised tenants — no re-OAuth needed to swap.
+                </span>
+              </div>
+            </div>
+          ) : null}
+
           {canManageConnection ? (
-            <FieldGroup className="gap-4">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field>
-                  <FieldLabel htmlFor="xero-account-code">Account code</FieldLabel>
-                  <Input
-                    id="xero-account-code"
-                    value={accountCode}
-                    onChange={(event) => setAccountCode(event.target.value)}
-                    placeholder="200"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="xero-tax-type">Tax type</FieldLabel>
-                  <Input
-                    id="xero-tax-type"
-                    value={taxType}
-                    onChange={(event) => setTaxType(event.target.value)}
-                    placeholder="NONE"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="xero-invoice-status">Invoice status</FieldLabel>
-                  <Select
-                    value={invoiceStatus}
-                    onValueChange={(value) =>
-                      setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
-                    }
-                  >
-                    <SelectTrigger id="xero-invoice-status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
-                      <SelectItem value="DRAFT">DRAFT</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
+            <FieldGroup className="gap-6">
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-foreground">
+                  Sales invoice defaults
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field>
+                    <FieldLabel htmlFor="xero-account-code">Account code</FieldLabel>
+                    <Input
+                      id="xero-account-code"
+                      value={accountCode}
+                      onChange={(event) => setAccountCode(event.target.value)}
+                      placeholder="200"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-tax-type">Tax type</FieldLabel>
+                    <Input
+                      id="xero-tax-type"
+                      value={taxType}
+                      onChange={(event) => setTaxType(event.target.value)}
+                      placeholder="NONE"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-invoice-status">Invoice status</FieldLabel>
+                    <Select
+                      value={invoiceStatus}
+                      onValueChange={(value) =>
+                        setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
+                      }
+                    >
+                      <SelectTrigger id="xero-invoice-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
+                        <SelectItem value="DRAFT">DRAFT</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-foreground">
+                  Purchase order defaults
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field>
+                    <FieldLabel htmlFor="xero-po-account-code">
+                      Account code
+                    </FieldLabel>
+                    <Input
+                      id="xero-po-account-code"
+                      value={poAccountCode}
+                      onChange={(event) => setPoAccountCode(event.target.value)}
+                      placeholder="Falls back to invoice code"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-po-tax-type">Tax type</FieldLabel>
+                    <Input
+                      id="xero-po-tax-type"
+                      value={poTaxType}
+                      onChange={(event) => setPoTaxType(event.target.value)}
+                      placeholder="Falls back to invoice tax type"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="xero-po-status">PO status</FieldLabel>
+                    <Select
+                      value={poStatus}
+                      onValueChange={(value) =>
+                        setPoStatus(value as "DRAFT" | "SUBMITTED" | "AUTHORISED")
+                      }
+                    >
+                      <SelectTrigger id="xero-po-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DRAFT">DRAFT</SelectItem>
+                        <SelectItem value="SUBMITTED">SUBMITTED</SelectItem>
+                        <SelectItem value="AUTHORISED">AUTHORISED</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
               </div>
 
               <div className="flex justify-end">
@@ -247,7 +416,7 @@ export function IntegrationsSection({
   canImportCustomers,
   canImportSuppliers,
 }: {
-  connection: XeroConnectionSummary | null;
+  connection: XeroConnectionWithHealth | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;

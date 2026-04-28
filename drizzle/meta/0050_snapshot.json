@@ -1,5 +1,5 @@
 {
-  "id": "0671fa1c-d836-4798-b57b-c2bb55fbb7cc",
+  "id": "939e8322-93c2-466f-a268-68378c363d31",
   "prevId": "86277448-13e8-482f-9e41-2a66f53325b1",
   "version": "7",
   "dialect": "postgresql",
@@ -4101,6 +4101,43 @@
           "primaryKey": false,
           "notNull": false
         },
+        "xero_push_payload_hash": {
+          "name": "xero_push_payload_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "xero_last_push_attempt_at": {
+          "name": "xero_last_push_attempt_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "xero_retry_count": {
+          "name": "xero_retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "xero_email_status": {
+          "name": "xero_email_status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "xero_email_error": {
+          "name": "xero_email_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "xero_emailed_at": {
+          "name": "xero_emailed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "total_amount": {
           "name": "total_amount",
           "type": "numeric(12, 2)",
@@ -6539,6 +6576,61 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "system.user_preferences": {
+      "name": "user_preferences",
+      "schema": "system",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "readability": {
+          "name": "readability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'small'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_preferences_user_id_user_id_fk": {
+          "name": "user_preferences_user_id_user_id_fk",
+          "tableFrom": "user_preferences",
+          "tableTo": "user",
+          "schemaTo": "system",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "xero.xero_connections": {
       "name": "xero_connections",
       "schema": "xero",
@@ -6597,6 +6689,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'AUTHORISED'"
+        },
+        "auto_email_sales_invoices": {
+          "name": "auto_email_sales_invoices",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",

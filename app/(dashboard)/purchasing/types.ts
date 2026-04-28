@@ -78,6 +78,7 @@ export type PurchaseOrderDetail = {
   id: string;
   supplierId: string;
   supplierName: string;
+  supplierEmail: string | null;
   orderNumber: string;
   status: PurchaseOrderStatus;
   expectedDate: string | null;
@@ -86,6 +87,17 @@ export type PurchaseOrderDetail = {
   orderedAt: Date | null;
   receivedAt: Date | null;
   cancelledAt: Date | null;
+  xeroPurchaseOrderId: string | null;
+  xeroPurchaseOrderNumber: string | null;
+  xeroPushStatus: "pending" | "pushed" | "failed" | null;
+  xeroPushError: string | null;
+  xeroPushedAt: Date | null;
+  xeroPushPayloadHash: string | null;
+  xeroLastPushAttemptAt: Date | null;
+  xeroRetryCount: number;
+  xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
+  xeroPoEmailError: string | null;
+  xeroPoEmailedAt: Date | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
