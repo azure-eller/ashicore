@@ -48,6 +48,15 @@ next-env.d.ts
 
 # superpowers plugin
 .superpowers/
+/docs/superpowers/plans/*.md
+/docs/superpowers/specs/*.md
+
+# local agent/tooling artifacts
+/.claude/
+/.tmp/
+/entities.json
+/mempalace.yaml
+/scripts/peek-*.ts
 
 # git worktrees
 .worktrees/
