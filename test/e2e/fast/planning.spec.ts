@@ -643,7 +643,7 @@ test.describe("Planning workspace", () => {
     expect(row.leadTimeSampleCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("production planning exposes start bucket, capacity, confidence, and batch count", async () => {
+  test("production planning exposes start bucket and batch count", async () => {
     const componentId = await createMaterial("Production Batch Component", {
       stock: "100",
       skuKey: "PROD-BATCH-COMP",
@@ -667,7 +667,6 @@ test.describe("Planning workspace", () => {
     const productId = product.body.id as string;
     const update = await updatePlanningRules(productId, {
       productionLeadTimeDays: "5",
-      dailyCapacity: "10",
     });
     expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "9");
@@ -682,9 +681,6 @@ test.describe("Planning workspace", () => {
     expect(row.manufacturingMode).toBe("batch");
     expect(row.expectedBatchYield).toBe("4");
     expect(row.plannedBatchCount).toBe(3);
-    expect(row.dailyCapacity).toBe("10");
-    expect(row.capacityUtilizationPct).toBeGreaterThan(0);
-    expect(row.scheduleConfidence).toBe("high");
     expect(
       planning.productionBlockerFacts.some(
         (fact) => fact.parentItemId === productId
@@ -887,7 +883,7 @@ test.describe("Planning workspace", () => {
 
     await page.goto("/planning");
     await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
-    await page.getByRole("button", { name: /Replenishment/ }).click();
+    await page.getByRole("radio", { name: /Replenishment/ }).click();
     await page.getByLabel("Search planning").fill(item.sku);
     const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
     await expect(materialRow).toBeVisible();
@@ -942,7 +938,7 @@ test.describe("Planning workspace", () => {
     await createConfirmedDemand(secondItem.id, "5");
 
     await page.goto("/planning");
-    await page.getByRole("button", { name: /Replenishment/ }).click();
+    await page.getByRole("radio", { name: /Replenishment/ }).click();
     await page.getByLabel("Search planning").fill(searchToken);
 
     await expect(page.getByRole("row", { name: new RegExp(firstItem.name) })).toBeVisible();

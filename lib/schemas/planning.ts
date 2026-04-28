@@ -132,7 +132,6 @@ export const updatePlanningRulesSchema = z.object({
   targetCoverDays: nullableDayCount("Target cover days"),
   leadTimeDaysOverride: nullableDayCount("Lead time"),
   productionLeadTimeDays: nullableDayCount("Production lead time"),
-  dailyCapacity: nullableDecimalString("Daily capacity", { positive: true }),
   preferredSupplierItem: planningSupplierItemSchema.optional(),
 });
 

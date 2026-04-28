@@ -8,6 +8,7 @@ import {
   ShoppingBag02Icon,
   Layers01Icon,
   Store04Icon,
+  ChartAnalysisIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import {
@@ -19,6 +20,14 @@ import {
 } from "@/components/ui/menubar"
 
 const modules = [
+  {
+    title: "Planning",
+    url: "/planning",
+    icon: ChartAnalysisIcon,
+    items: [
+      { title: "Planning", url: "/planning" },
+    ],
+  },
   {
     title: "Inventory",
     url: "/inventory",

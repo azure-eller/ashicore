@@ -166,7 +166,6 @@ export async function updatePlanningRules(itemId: string, data: UpdatePlanningRu
     setDefined(itemUpdates, "targetCoverDays", data.targetCoverDays);
     setDefined(itemUpdates, "leadTimeDaysOverride", data.leadTimeDaysOverride);
     setDefined(itemUpdates, "productionLeadTimeDays", data.productionLeadTimeDays);
-    setDefined(itemUpdates, "dailyCapacity", data.dailyCapacity);
 
     if (Object.keys(itemUpdates).length > 1) {
       await tx.update(items).set(itemUpdates).where(eq(items.id, itemId));

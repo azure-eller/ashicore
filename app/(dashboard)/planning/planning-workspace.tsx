@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
   type FormEvent,
+  type DragEvent,
   type KeyboardEvent,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -11,15 +12,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Add01Icon,
   Alert01Icon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
   Calendar01Icon,
   Factory01Icon,
-  FilterHorizontalIcon,
   Layers01Icon,
+  MoreHorizontalIcon,
   Package01Icon,
   Search01Icon,
   Settings02Icon,
-  ShoppingCart01Icon,
   Sorting05Icon,
+  ShoppingCart01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +31,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetContent,
@@ -45,6 +55,12 @@ import {
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { formatQuantity } from "@/lib/format";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
+import { PlanningHeader } from "./planning-header";
 import type {
   BomRequirementFact,
   CreatePurchaseOrderDraftActionPayload,
@@ -131,13 +147,25 @@ type ReplenishmentItem = {
   daysCover: number | null;
 };
 
+type DownstreamUse = {
+  key: string;
+  quantity: string;
+  quantityUnit: string | null;
+  productName: string;
+  packageLabel: string | null;
+  label: string;
+  dueDate: string | null;
+  relationship: "final-stage" | "feeds-another-mo";
+  requiresAgingHold: boolean;
+  agingTooltip: string | null;
+};
+
 type PlanningRulesPayload = {
   planningEnabled?: boolean;
   reorderPoint?: string | null;
   targetCoverDays?: string | null;
   leadTimeDaysOverride?: string | null;
   productionLeadTimeDays?: string | null;
-  dailyCapacity?: string | null;
   preferredSupplierItem?: {
     supplierId: string;
     supplierSku?: string | null;
@@ -191,14 +219,6 @@ function productionBlockerLabel(entry: OperationalRow) {
     return "Lead time missing";
   }
 
-  if (entry.row.reasonCodes.includes("missing_capacity")) {
-    return "Capacity missing";
-  }
-
-  if (entry.row.reasonCodes.includes("capacity_overrun")) {
-    return "Over capacity";
-  }
-
   return "Waits on setup";
 }
 
@@ -207,7 +227,7 @@ function formatQuantityWithUnit(value: string | null | undefined, unitName: stri
 }
 
 function itemUnit(row: PlanningItemRow) {
-  return row.item.unitUom ?? row.item.unitName;
+  return row.item.unitName ?? row.item.unitUom;
 }
 
 function planningRowKey(row: OperationalRow) {
@@ -222,10 +242,104 @@ function formatRowQuantity(row: PlanningItemRow, value: string | null | undefine
   return formatQuantityWithUnit(value, itemUnit(row));
 }
 
+function compactPackageLabel(value: string | null | undefined) {
+  if (!value) return null;
+  return value
+    .replace(/\bCubic Foot\b/gi, "cf")
+    .replace(/\bCubic Feet\b/gi, "cf")
+    .replace(/\bYard\b/gi, "yd")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function displayPackageLabel(row: PlanningItemRow) {
+  return (
+    compactPackageLabel(row.item.displayAttrs[0]) ??
+    compactPackageLabel(row.item.unitName) ??
+    row.item.unitUom
+  );
+}
+
+function quantityUnitLabel(row: PlanningItemRow) {
+  const packageLabel = displayPackageLabel(row);
+  if (!packageLabel) return itemUnit(row);
+
+  if (/\bbags?\b/.test(packageLabel)) return "bags";
+  if (/\btotes?\b/.test(packageLabel)) return "totes";
+  if (/\bpacks?\b/.test(packageLabel)) return "packs";
+  if (/\brolls?\b/.test(packageLabel)) return "rolls";
+  if (/\bpal(lets?)?\b/.test(packageLabel)) return "pallets";
+  if (/\beach\b/.test(packageLabel)) return "ea";
+
+  return itemUnit(row);
+}
+
+function singularOutputUnit(unit: string | null) {
+  if (!unit) return null;
+  if (unit === "bags") return "bag";
+  if (unit === "totes") return "tote";
+  if (unit === "packs") return "pack";
+  if (unit === "rolls") return "roll";
+  if (unit === "pallets") return "pallet";
+  return unit;
+}
+
+function isDiscreteOutputUnit(unit: string | null) {
+  return Boolean(unit && /^(bags?|totes?|packs?|rolls?|pallets?|ea)$/.test(unit));
+}
+
+function productionQuantityParts(row: PlanningItemRow, value: string | null | undefined) {
+  const unit = quantityUnitLabel(row);
+  return displayQuantityParts(value, unit);
+}
+
+function displayQuantityParts(value: string | null | undefined, unit: string | null) {
+  const parsed = Number.parseFloat(value ?? "0");
+
+  if (!Number.isFinite(parsed)) {
+    return { quantity: formatQuantity(value), unit };
+  }
+
+  if (!isDiscreteOutputUnit(unit)) {
+    return { quantity: formatQuantity(value), unit };
+  }
+
+  const quantity = Math.ceil(parsed);
+  return {
+    quantity: String(quantity),
+    unit: quantity === 1 ? singularOutputUnit(unit) : unit,
+  };
+}
+
+function packageText(row: PlanningItemRow) {
+  const label = displayPackageLabel(row);
+  if (!label) return null;
+  const unit = quantityUnitLabel(row);
+  if (label === unit) return singularOutputUnit(unit);
+  return label;
+}
+
+function salesOrderQueueLabel(row: OperationalRow) {
+  const salesOrders = uniqueSalesOrderLabels(row.demandFacts).map(normalizeSalesOrderLabel);
+  if (salesOrders.length === 1) return salesOrders[0];
+  if (salesOrders.length > 1) return `${salesOrders[0]} +${salesOrders.length - 1} more`;
+  return row.neededFor;
+}
+
+function normalizeSalesOrderLabel(label: string) {
+  return label.replace(/^so-/i, "SO-");
+}
+
 function formatShortDate(value: string | null) {
   if (!value) return "No date";
   const date = new Date(`${value}T00:00:00`);
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function isPastDate(value: string | null) {
+  const days = daysUntil(value);
+  return days != null && days < 0;
 }
 
 function daysUntil(value: string | null) {
@@ -310,6 +424,50 @@ function uniqueSalesOrderLabels(facts: DemandFact[]) {
   return uniqueSourceLabels(facts, "sales_order");
 }
 
+function downstreamUses(
+  row: OperationalRow,
+  rowsByItemId: Map<string, OperationalRow>
+): DownstreamUse[] {
+  const byKey = new Map<string, DownstreamUse>();
+
+  for (const fact of row.demandFacts) {
+    const salesRefs = uniqueSourceRefs(
+      fact.sourceRefs.filter((ref) => ref.sourceType === "sales_order")
+    );
+    const refs = salesRefs.length > 0 ? salesRefs : uniqueSourceRefs(fact.sourceRefs);
+    const relationship: DownstreamUse["relationship"] =
+      fact.demandType === "sales_order" ? "final-stage" : "feeds-another-mo";
+    const leafRow =
+      relationship === "feeds-another-mo" && fact.parentItemId
+        ? rowsByItemId.get(fact.parentItemId)?.row ?? row.row
+        : row.row;
+    const leafProductName = leafRow.item.displayName || leafRow.item.name;
+    const leafPackageLabel = packageText(leafRow);
+
+    for (const ref of refs) {
+      const key = sourceRefKey(ref);
+      byKey.set(key, {
+        key,
+        quantity: ref.quantity ?? fact.quantity,
+        quantityUnit: quantityUnitLabel(leafRow),
+        productName: leafProductName,
+        packageLabel: leafPackageLabel,
+        label: normalizeSalesOrderLabel(ref.label),
+        dueDate: ref.date ?? fact.requiredDate,
+        relationship,
+        requiresAgingHold: false,
+        agingTooltip: null,
+      });
+    }
+  }
+
+  return [...byKey.values()].sort((left, right) => {
+    const dateSort = compareRequiredDates(left.dueDate, right.dueDate);
+    if (dateSort !== 0) return dateSort;
+    return left.label.localeCompare(right.label);
+  });
+}
+
 function summarizeNeededFor(facts: DemandFact[]) {
   const salesOrders = uniqueSourceLabels(facts, "sales_order");
   if (salesOrders.length === 1) return salesOrders[0];
@@ -360,13 +518,6 @@ function getActionLabel(
     row.reasonCodes.includes("missing_production_lead_time")
   ) {
     return "Set lead time";
-  }
-
-  if (
-    row.reasonCodes.includes("missing_capacity") ||
-    row.reasonCodes.includes("capacity_overrun")
-  ) {
-    return "Review capacity";
   }
 
   if (
@@ -475,8 +626,6 @@ function isSetupIssue(entry: OperationalRow) {
         "missing_purchase_price",
         "missing_lead_time",
         "missing_production_lead_time",
-        "missing_capacity",
-        "capacity_overrun",
         "planning_disabled",
         "missing_bom",
         "bom_cycle_detected",
@@ -494,8 +643,6 @@ function setupProblemLabel(row: OperationalRow) {
   if (row.row.reasonCodes.includes("missing_purchase_price")) return "Missing price";
   if (row.row.reasonCodes.includes("missing_lead_time")) return "Missing lead time";
   if (row.row.reasonCodes.includes("missing_production_lead_time")) return "Missing lead time";
-  if (row.row.reasonCodes.includes("missing_capacity")) return "Missing capacity";
-  if (row.row.reasonCodes.includes("capacity_overrun")) return "Over capacity";
   if (row.row.reasonCodes.includes("planning_disabled")) return "Planning disabled";
   if (row.row.reasonCodes.includes("missing_bom")) return "Missing BOM";
   if (row.row.reasonCodes.includes("bom_cycle_detected")) return "BOM cycle";
@@ -557,6 +704,35 @@ function formatCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function addIsoDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function bucketTitle(bucket: ProductionBucketKey, horizonStart: string | null) {
+  if (bucket === "now") return "Start today";
+  if (!horizonStart) {
+    if (bucket === "this-week") return "This week";
+    if (bucket === "next-week") return "Next week";
+    return "Later";
+  }
+
+  if (bucket === "this-week") {
+    return `${formatShortDate(addIsoDays(horizonStart, 1))} - ${formatShortDate(
+      addIsoDays(horizonStart, 7)
+    )}`;
+  }
+
+  if (bucket === "next-week") {
+    return `${formatShortDate(addIsoDays(horizonStart, 8))} - ${formatShortDate(
+      addIsoDays(horizonStart, 14)
+    )}`;
+  }
+
+  return `${formatShortDate(addIsoDays(horizonStart, 15))}+`;
+}
+
 function attentionProblemLabel(row: OperationalRow) {
   if (row.row.planningType === "make" && row.componentShortageCount > 0) {
     return "Materials short";
@@ -602,11 +778,10 @@ function buildProductionWorkItems(rows: OperationalRow[]): ProductionWorkItem[] 
       const days = daysUntil(entry.row.latestStartDate);
       const isBlocked =
         entry.componentShortageCount > 0 ||
-        isSetupIssue(entry) ||
-        entry.row.scheduleConfidence === "blocked";
+        isSetupIssue(entry);
       const urgency: ProductionWorkItem["urgency"] = isBlocked
         ? "blocked"
-        : entry.row.scheduleConfidence === "low" || (days != null && days <= 7)
+        : days != null && days <= 7
           ? "critical"
           : "normal";
 
@@ -622,13 +797,6 @@ function buildProductionWorkItems(rows: OperationalRow[]): ProductionWorkItem[] 
       };
     })
     .sort((left, right) => compareQueuePriority(left.entry, right.entry));
-}
-
-function bucketTitle(bucket: ProductionBucketKey) {
-  if (bucket === "now") return "Start today";
-  if (bucket === "this-week") return "This week";
-  if (bucket === "next-week") return "Next week";
-  return "Later";
 }
 
 function bucketLabel(bucket: ProductionBucketKey) {
@@ -785,10 +953,6 @@ function openablePanelProps(onOpen: () => void) {
   };
 }
 
-function MetaDot() {
-  return <span className="text-muted-foreground/70">·</span>;
-}
-
 function DrawerSummary({
   items,
 }: {
@@ -815,41 +979,38 @@ function DrawerSummary({
   );
 }
 
-function PlanningTabButton({
-  active,
-  icon,
-  label,
-  count,
-  onClick,
+function PlanningTabs({
+  value,
+  productionCount,
+  replenishmentCount,
+  onChange,
 }: {
-  active: boolean;
-  icon: typeof Package01Icon;
-  label: string;
-  count: number;
-  onClick: () => void;
+  value: PlanningTab;
+  productionCount: number;
+  replenishmentCount: number;
+  onChange: (value: PlanningTab) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-medium transition-colors ${
-        active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      }`}
+    <ToggleGroup
+      type="single"
+      value={value}
+      onValueChange={(next) => {
+        if (next === "production" || next === "replenishment") onChange(next);
+      }}
+      className="rounded-lg bg-muted p-1"
+      size="sm"
     >
-      <HugeiconsIcon icon={icon} className="size-4" />
-      {label}
-      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-        {count}
-      </span>
-    </button>
-  );
-}
-
-function ItemThumb() {
-  return (
-    <div className="hidden size-7 shrink-0 rounded-md border bg-[repeating-linear-gradient(45deg,var(--muted),var(--muted)_4px,var(--background)_4px,var(--background)_8px)] sm:block" />
+      <ToggleGroupItem value="production" className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs">
+        <HugeiconsIcon icon={Factory01Icon} data-icon="inline-start" />
+        Production
+        <span className="text-muted-foreground">{productionCount}</span>
+      </ToggleGroupItem>
+      <ToggleGroupItem value="replenishment" className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs">
+        <HugeiconsIcon icon={Layers01Icon} data-icon="inline-start" />
+        Replenishment
+        <span className="text-muted-foreground">{replenishmentCount}</span>
+      </ToggleGroupItem>
+    </ToggleGroup>
   );
 }
 
@@ -893,113 +1054,233 @@ function StatStrip({
 
 function ProductionWorkCard({
   item,
-  permissions,
+  expanded,
+  draggable,
+  rowsByItemId,
   isPending,
   onOpen,
-  onCreate,
+  onToggleExpanded,
+  onDragStart,
+  onDragOver,
+  onDrop,
 }: {
   item: ProductionWorkItem;
-  permissions: PlanningPermissions;
+  expanded: boolean;
+  draggable: boolean;
+  rowsByItemId: Map<string, OperationalRow>;
   isPending: boolean;
   onOpen: () => void;
-  onCreate: (payload: PlanningActionPayload) => void;
+  onToggleExpanded: () => void;
+  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
 }) {
   const { entry } = item;
-  const canCreate = canExecuteAction(entry, permissions);
-  const payload = entry.recommendation?.actionPayload;
   const isCritical = item.urgency === "critical";
   const isBlocked = item.urgency === "blocked";
-  const actionText = isBlocked ? "Review" : isCritical ? "Start MO" : "Schedule";
+  const uses = downstreamUses(entry, rowsByItemId);
+  const hasTree = uses.some((use) => use.relationship === "feeds-another-mo");
+  const productName = entry.row.item.displayName || entry.row.item.name;
+  const packageLabel = packageText(entry.row);
+  const quantity = productionQuantityParts(entry.row, entry.row.shortageQuantity);
+  const panelProps = openablePanelProps(onOpen);
+  const requiredDateIsLate = isPastDate(entry.row.earliestRequiredDate);
 
   return (
     <div
       role="listitem"
       aria-label={`${entry.row.item.name}, ${entry.actionSummary}`}
-      {...openablePanelProps(onOpen)}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className="group"
     >
-      <div className="relative flex min-h-16 items-center gap-3 rounded-lg border bg-background px-4 py-3">
+      <div
+        {...panelProps}
+        className={cn(
+          "relative flex min-h-[76px] items-center gap-3 rounded-lg border bg-background px-3 py-3 transition-colors hover:border-border/80 hover:shadow-xs",
+          panelProps.className,
+          isBlocked && "bg-muted/40"
+        )}
+      >
         {isCritical || isBlocked ? (
           <div className="absolute inset-y-0 left-0 w-0.5 rounded-l-lg bg-destructive" />
         ) : null}
-        <div className="hidden text-muted-foreground sm:block">⋮⋮</div>
-        <ItemThumb />
+        <div
+          className="flex size-4 shrink-0 cursor-grab items-center justify-center text-sm leading-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          aria-label={`Reorder ${entry.row.item.name}`}
+          role="img"
+        >
+          ⠿
+        </div>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-medium tabular-nums">
-              {formatQuantity(entry.row.shortageQuantity)}
+          <div className="flex min-w-0 flex-wrap items-baseline gap-2">
+            <span className="inline-flex min-w-9 justify-center rounded-md bg-muted px-2 py-0.5 font-mono text-[14.5px] font-semibold tabular-nums text-foreground">
+              {quantity.quantity}
             </span>
-            <span className="truncate font-medium">{entry.row.item.name}</span>
-            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-              {itemUnit(entry.row)}
-            </span>
+            <span className="text-[14.5px] font-semibold text-foreground">{productName}</span>
+            {packageLabel ? (
+              <>
+                <span className="text-xs text-muted-foreground">·</span>
+                <span className="text-[14.5px] font-normal text-muted-foreground">
+                  {packageLabel}
+                </span>
+              </>
+            ) : null}
+            {hasTree ? (
+              <Badge
+                variant="secondary"
+                className="h-[18px] rounded-[3px] border-transparent bg-muted px-1.5 text-[11px] font-medium text-muted-foreground shadow-none"
+              >
+                Sub-assembly
+              </Badge>
+            ) : null}
             {isBlocked ? (
-              <Badge variant="destructive" className="h-5 rounded-[4px] text-xs">
+              <Badge
+                variant="destructive"
+                className="h-[18px] rounded-[3px] border-transparent px-1.5 text-[11px] font-medium shadow-none"
+              >
                 {productionBlockerLabel(entry)}
               </Badge>
             ) : null}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            {item.downstreamCount > 1 ? (
-              <span>Feeds {item.downstreamCount} downstream uses</span>
+          {!hasTree ? (
+            <div className="mt-0.5 text-[12.5px] text-muted-foreground">
+              <SalesOrderMetaLabel label={salesOrderQueueLabel(entry)} />
+            </div>
+          ) : null}
+          {hasTree ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleExpanded();
+                }}
+              >
+                <HugeiconsIcon icon={expanded ? ArrowDown01Icon : ArrowRight01Icon} />
+                {`Feeds ${uses.length} downstream ${uses.length === 1 ? "use" : "uses"}`}
+              </button>
+            </div>
+          ) : null}
+          <div className="sr-only">
+            {hasTree ? (
+              <span>{`Sub-assembly for ${uses.length} downstream ${uses.length === 1 ? "use" : "uses"}`}</span>
             ) : (
-              <span>{entry.neededFor}</span>
-            )}
-            {!isBlocked ? (
-              <>
-                <MetaDot />
-                <span>
-                  {entry.row.capacityUtilizationPct != null
-                    ? `Capacity ${entry.row.capacityUtilizationPct}%`
-                    : "Inputs in stock"}
-                </span>
-              </>
-            ) : (
-              <>
-                <MetaDot />
-                <span>{attentionImpact(entry)}</span>
-              </>
+              <SalesOrderMetaLabel label={salesOrderQueueLabel(entry)} />
             )}
           </div>
         </div>
         <div className="hidden min-w-20 text-right sm:block">
-          <div className="text-[0.68rem] text-muted-foreground">Start by</div>
+          <div className="text-[11px] font-normal text-muted-foreground">Required by</div>
           <div
-            className={`font-mono text-sm tabular-nums ${isCritical ? "text-destructive" : ""}`}
+            className={cn(
+              "font-mono text-[13px] font-medium tabular-nums text-foreground",
+              requiredDateIsLate && "font-semibold text-destructive"
+            )}
           >
-            {formatShortDate(entry.row.latestStartDate ?? entry.row.earliestRequiredDate)}
+            {formatShortDate(entry.row.earliestRequiredDate)}
           </div>
         </div>
         <Button
           type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen();
-          }}
-        >
-          <span aria-hidden>...</span>
-          <span className="sr-only">More</span>
-        </Button>
-        <Button
-          type="button"
-          variant={isCritical && canCreate ? "default" : "outline"}
+          variant="outline"
           size="sm"
+          className="h-7 px-3 text-[12.5px] font-medium"
           disabled={isPending}
           onClick={(event) => {
             event.stopPropagation();
-            if (canCreate && payload) {
-              onCreate(payload);
-              return;
-            }
             onOpen();
           }}
         >
-          {canCreate && !isBlocked ? (
-            <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-          ) : null}
-          {canCreate && !isBlocked ? actionText : "Review"}
+          Review
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-7"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <HugeiconsIcon icon={MoreHorizontalIcon} />
+              <span className="sr-only">More</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={onOpen}>Review</DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {hasTree && expanded ? <DownstreamTree uses={uses} /> : null}
+    </div>
+  );
+}
+
+function SalesOrderMetaLabel({ label }: { label: string }) {
+  const [orderNumber, ...customerParts] = label.split(" · ");
+  const customer = customerParts.join(" · ");
+
+  if (!customer) return <span>{label}</span>;
+
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="font-mono text-[11.5px] tabular-nums">{orderNumber}</span>
+      <span className="text-muted-foreground">·</span>
+      <span>{customer}</span>
+    </span>
+  );
+}
+
+function DownstreamTree({ uses }: { uses: DownstreamUse[] }) {
+  return (
+    <div className="-mt-px ml-[60px] border-l px-4 py-2 text-sm">
+      {uses.map((use) => (
+        <DownstreamTreeItem key={use.key} use={use} />
+      ))}
+    </div>
+  );
+}
+
+function DownstreamTreeItem({ use }: { use: DownstreamUse }) {
+  const quantity = displayQuantityParts(use.quantity, use.quantityUnit);
+
+  return (
+    <div className="relative py-1.5 before:absolute before:-left-4 before:top-4 before:h-px before:w-3 before:bg-border">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="inline-flex min-w-8 justify-center rounded-md bg-muted px-1.5 py-0.5 font-mono text-[13px] font-semibold tabular-nums text-foreground">
+            {quantity.quantity}
+          </span>
+          <span className="text-[13px] font-medium text-foreground">{use.productName}</span>
+          {use.packageLabel ? (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-[13px] font-normal text-muted-foreground">
+                {use.packageLabel}
+              </span>
+            </>
+          ) : null}
+          {use.requiresAgingHold ? (
+            <Badge
+              variant="secondary"
+              title={use.agingTooltip ?? undefined}
+              className="h-[17px] rounded-[3px] border-transparent bg-secondary px-1.5 text-[11px] font-medium text-secondary-foreground shadow-none"
+            >
+              requires 10+ day hold
+            </Badge>
+          ) : null}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          <SalesOrderMetaLabel label={use.label} />
+          <span className="text-muted-foreground">·</span>
+          <span>due {formatShortDate(use.dueDate)}</span>
+        </div>
       </div>
     </div>
   );
@@ -1007,21 +1288,27 @@ function ProductionWorkCard({
 
 function ProductionPlanningView({
   items,
+  horizonStart,
   search,
   onSearchChange,
-  permissions,
   isPending,
   onOpenRow,
-  onCreateManufacturingOrder,
 }: {
   items: ProductionWorkItem[];
+  horizonStart: string | null;
   search: string;
   onSearchChange: (value: string) => void;
-  permissions: PlanningPermissions;
   isPending: boolean;
   onOpenRow: (row: OperationalRow) => void;
-  onCreateManufacturingOrder: (payload: PlanningActionPayload) => void;
 }) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [bucketOrders, setBucketOrders] = useState<Record<ProductionBucketKey, string[]>>({
+    now: [],
+    "this-week": [],
+    "next-week": [],
+    later: [],
+  });
   const buckets: ProductionBucketKey[] = ["now", "this-week", "next-week", "later"];
   const byBucket = new Map<ProductionBucketKey, ProductionWorkItem[]>(
     buckets.map((bucket) => [bucket, []])
@@ -1042,24 +1329,45 @@ function ProductionPlanningView({
 
   const criticalCount = byBucket.get("now")?.length ?? 0;
   const blockedCount = items.filter((item) => item.urgency === "blocked").length;
-  const subAssemblyCount = items.reduce(
-    (sum, item) => sum + (item.entry.row.plannedBatchCount ?? 0),
-    0
+  const rowsByItemId = new Map(items.map((item) => [item.entry.row.item.id, item.entry]));
+  const subAssemblyCount = items.filter((item) =>
+    downstreamUses(item.entry, rowsByItemId).some(
+      (use) => use.relationship === "feeds-another-mo"
+    )
   );
   const salesOrderTotal = new Set(
     items.flatMap((item) => uniqueSalesOrderLabels(item.entry.demandFacts))
   ).size;
-  const confidentCount = items.filter(
-    (item) => item.entry.row.scheduleConfidence === "high"
-  ).length;
-  const confidencePct =
-    items.length === 0 ? 100 : Math.round((confidentCount / items.length) * 100);
-  const bucketCapacityLabel = (bucketItems: ProductionWorkItem[]) => {
-    const values = bucketItems
-      .map((item) => item.entry.row.capacityUtilizationPct)
-      .filter((value): value is number => value != null);
-    if (values.length === 0) return "capacity unknown";
-    return `capacity ${Math.max(...values)}%`;
+  const orderedBucketItems = (bucket: ProductionBucketKey, bucketItems: ProductionWorkItem[]) => {
+    const order = bucketOrders[bucket];
+    if (order.length === 0) return bucketItems;
+    const itemIds = bucketItems.map((item) => item.entry.row.item.id);
+    const activeOrder = order.filter((id) => itemIds.includes(id));
+    const byId = new Map(bucketItems.map((item) => [item.entry.row.item.id, item]));
+    const ordered = activeOrder
+      .map((id) => byId.get(id))
+      .filter((item): item is ProductionWorkItem => Boolean(item));
+    const missing = bucketItems.filter((item) => !activeOrder.includes(item.entry.row.item.id));
+    return [...ordered, ...missing];
+  };
+
+  const moveWithinBucket = (
+    bucket: ProductionBucketKey,
+    draggedItemId: string,
+    targetItemId: string
+  ) => {
+    if (draggedItemId === targetItemId) return;
+    const bucketItems = byBucket.get(bucket) ?? [];
+    const currentOrder = orderedBucketItems(bucket, bucketItems).map(
+      (item) => item.entry.row.item.id
+    );
+    const fromIndex = currentOrder.indexOf(draggedItemId);
+    const toIndex = currentOrder.indexOf(targetItemId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const nextOrder = [...currentOrder];
+    const [moved] = nextOrder.splice(fromIndex, 1);
+    nextOrder.splice(toIndex, 0, moved);
+    setBucketOrders((current) => ({ ...current, [bucket]: nextOrder }));
   };
 
   return (
@@ -1072,16 +1380,12 @@ function ProductionPlanningView({
           />
           <Input
             aria-label="Search planning"
-            placeholder="Search work orders..."
+            placeholder="Search production..."
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             className="h-8 w-full pl-8"
           />
         </div>
-        <Button type="button" size="sm" variant="outline">
-          <HugeiconsIcon icon={FilterHorizontalIcon} data-icon="inline-start" />
-          Filter
-        </Button>
       </div>
 
       <StatStrip
@@ -1089,13 +1393,13 @@ function ProductionPlanningView({
           {
             label: "Must start today",
             value: String(criticalCount),
-            suffix: "work orders",
+            suffix: "production items",
             icon: Alert01Icon,
             danger: criticalCount > 0,
           },
           {
             label: "Sub-assembly batches",
-            value: String(subAssemblyCount),
+            value: String(subAssemblyCount.length),
             suffix: "queued",
             icon: Layers01Icon,
           },
@@ -1106,35 +1410,36 @@ function ProductionPlanningView({
             icon: Package01Icon,
           },
           {
-            label: "Schedule confidence",
-            value: `${confidencePct}%`,
-            suffix: `${blockedCount} deps`,
-            icon: Calendar01Icon,
+            label: "Blocked / waiting",
+            value: String(blockedCount),
+            suffix: "production items",
+            icon: Alert01Icon,
+            danger: blockedCount > 0,
           },
         ]}
       />
 
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No production work orders match the current search.
+          No production items match the current search.
         </div>
       ) : null}
 
       {buckets.map((bucket) => {
-        const bucketItems = byBucket.get(bucket) ?? [];
+        const bucketItems = orderedBucketItems(bucket, byBucket.get(bucket) ?? []);
         if (bucketItems.length === 0) return null;
 
         return (
           <section key={bucket} className="space-y-3">
             <div className="flex items-baseline justify-between border-b pb-3">
-              <div className="flex items-baseline gap-3">
-                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {bucketLabel(bucket)}
+            <div className="flex items-baseline gap-3">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {bucketLabel(bucket)}
                 </span>
-                <h2 className="text-base font-semibold">{bucketTitle(bucket)}</h2>
+                <h2 className="text-base font-semibold">{bucketTitle(bucket, horizonStart)}</h2>
               </div>
               <p className="text-xs text-muted-foreground">
-                {`${formatCount(bucketItems.length, "work order")} · ${bucketCapacityLabel(bucketItems)}`}
+                {`${formatCount(bucketItems.length, "production item")} queued`}
               </p>
             </div>
             <div className="space-y-2" role="list">
@@ -1142,10 +1447,38 @@ function ProductionPlanningView({
                 <ProductionWorkCard
                   key={planningRowKey(item.entry)}
                   item={item}
-                  permissions={permissions}
+                  expanded={expandedIds.has(item.entry.row.item.id)}
+                  draggable={bucketItems.length > 1}
+                  rowsByItemId={rowsByItemId}
                   isPending={isPending}
                   onOpen={() => onOpenRow(item.entry)}
-                  onCreate={onCreateManufacturingOrder}
+                  onToggleExpanded={() => {
+                    setExpandedIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(item.entry.row.item.id)) {
+                        next.delete(item.entry.row.item.id);
+                      } else {
+                        next.add(item.entry.row.item.id);
+                      }
+                      return next;
+                    });
+                  }}
+                  onDragStart={(event) => {
+                    setDraggedId(item.entry.row.item.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", item.entry.row.item.id);
+                  }}
+                  onDragOver={(event) => {
+                    if (!draggedId || draggedId === item.entry.row.item.id) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const id = draggedId ?? event.dataTransfer.getData("text/plain");
+                    moveWithinBucket(bucket, id, item.entry.row.item.id);
+                    setDraggedId(null);
+                  }}
                 />
               ))}
             </div>
@@ -1256,7 +1589,6 @@ function ReplenishmentPlanningView({
   const orderNow = items.filter((item) => item.status === "order-now");
   const orderSoon = items.filter((item) => item.status === "order-soon");
   const stocked = items.filter((item) => item.status === "stocked");
-  const unknown = items.filter((item) => item.status === "unknown");
   const suppliers = new Set(items.map((item) => item.supplierName)).size;
   const shortest = items.reduce<ReplenishmentItem | null>(
     (current, item) => {
@@ -1328,30 +1660,42 @@ function ReplenishmentPlanningView({
             className="h-8 w-full pl-8"
           />
         </div>
-        <div className="flex rounded-lg bg-muted p-1">
+        <ToggleGroup
+          type="single"
+          value={filter}
+          onValueChange={(next) => {
+            if (
+              next === "all" ||
+              next === "order-now" ||
+              next === "order-soon" ||
+              next === "stocked"
+            ) {
+              onFilterChange(next);
+            }
+          }}
+          className="rounded-lg bg-muted p-1"
+          size="sm"
+        >
           {[
             ["all", "All", items.length],
             ["order-now", "Order now", orderNow.length],
             ["order-soon", "Soon", orderSoon.length],
-            ["unknown", "Review", unknown.length],
             ["stocked", "Stocked", stocked.length],
           ].map(([key, label, count]) => (
-            <button
+            <ToggleGroupItem
               key={key}
-              type="button"
-              onClick={() => onFilterChange(key as ReplenishmentFilter)}
-              className={`h-7 rounded-md px-3 text-xs transition-colors ${
-                filter === key ? "bg-background text-foreground shadow-xs" : "text-muted-foreground"
-              }`}
+              value={key as ReplenishmentFilter}
+              className="data-[state=on]:bg-background data-[state=on]:shadow-xs"
             >
-              {label} <span className="ml-1 text-muted-foreground">{count}</span>
-            </button>
+              {label} <span className="text-muted-foreground">{count}</span>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <div className="flex-1" />
         <Button type="button" variant="outline" size="sm">
           <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
           Days of cover
+          <HugeiconsIcon icon={ArrowDown01Icon} data-icon="inline-end" />
         </Button>
         <Button
           type="button"
@@ -1412,13 +1756,10 @@ function ReplenishmentPlanningView({
                       />
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <ItemThumb />
-                        <div>
-                          <div className="font-medium">{item.entry.row.item.name}</div>
-                          <div className="font-mono text-xs text-muted-foreground">
-                            {demandSku(item.entry.row)}
-                          </div>
+                      <div>
+                        <div className="font-medium">{item.entry.row.item.name}</div>
+                        <div className="font-mono text-xs text-muted-foreground">
+                          {demandSku(item.entry.row)}
                         </div>
                       </div>
                     </TableCell>
@@ -1524,7 +1865,6 @@ function PlanningRulesForm({
   const [productionLeadTimeDays, setProductionLeadTimeDays] = useState(
     row.productionLeadTimeDays == null ? "" : String(row.productionLeadTimeDays)
   );
-  const [dailyCapacity, setDailyCapacity] = useState(row.dailyCapacity ?? "");
   const [unitCost, setUnitCost] = useState(row.unitCost ?? "");
   const [purchaseToStockFactor, setPurchaseToStockFactor] = useState(
     row.purchaseToStockFactor ?? ""
@@ -1545,7 +1885,6 @@ function PlanningRulesForm({
 
     if (row.planningType === "make") {
       payload.productionLeadTimeDays = emptyToNull(productionLeadTimeDays);
-      payload.dailyCapacity = emptyToNull(dailyCapacity);
     }
 
     if (row.planningType === "buy") {
@@ -1679,28 +2018,16 @@ function PlanningRulesForm({
         ) : null}
 
         {row.planningType === "make" ? (
-          <>
-            <div className="space-y-1.5">
-              <Label htmlFor="planning-production-lead-time">Production lead time</Label>
-              <Input
-                id="planning-production-lead-time"
-                value={productionLeadTimeDays}
-                onChange={(event) => setProductionLeadTimeDays(event.target.value)}
-                inputMode="numeric"
-                disabled={!permissions.canUpdatePlanningRules || isPending}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="planning-daily-capacity">Daily capacity</Label>
-              <Input
-                id="planning-daily-capacity"
-                value={dailyCapacity}
-                onChange={(event) => setDailyCapacity(event.target.value)}
-                inputMode="decimal"
-                disabled={!permissions.canUpdatePlanningRules || isPending}
-              />
-            </div>
-          </>
+          <div className="space-y-1.5">
+            <Label htmlFor="planning-production-lead-time">Production lead time</Label>
+            <Input
+              id="planning-production-lead-time"
+              value={productionLeadTimeDays}
+              onChange={(event) => setProductionLeadTimeDays(event.target.value)}
+              inputMode="numeric"
+              disabled={!permissions.canUpdatePlanningRules || isPending}
+            />
+          </div>
         ) : null}
       </div>
 
@@ -1839,8 +2166,7 @@ function PlanningRowDrawerContent({
     : !isReadyBuild;
   const isBlockedBuild =
     planningRow.row.planningType === "make" &&
-    (planningRow.productionBlockers.length > 0 ||
-      planningRow.row.scheduleConfidence === "blocked");
+    planningRow.productionBlockers.length > 0;
 
   return (
     <div className="flex flex-col gap-5">
@@ -1903,13 +2229,6 @@ function PlanningRowDrawerContent({
                   {
                     label: "Start by",
                     value: formatShortDate(planningRow.row.latestStartDate),
-                  },
-                  {
-                    label: "Capacity",
-                    value:
-                      planningRow.row.capacityUtilizationPct == null
-                        ? "unknown"
-                        : `${planningRow.row.capacityUtilizationPct}%`,
                   },
                 ]
               : isBlockedBuild
@@ -2478,7 +2797,9 @@ export function PlanningWorkspace({
       : "Raw materials approaching reorder. Bulk-order to keep production stocked.";
 
   return (
-    <main className="flex w-full flex-col gap-6 px-7 py-6">
+    <>
+      <PlanningHeader />
+      <div className="flex flex-1 flex-col gap-6 p-4 group-has-data-[collapsible=icon]/sidebar-wrapper:pt-16">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-2xl font-semibold">Planning</h1>
@@ -2489,22 +2810,12 @@ export function PlanningWorkspace({
         </div>
       </div>
 
-      <div className="flex border-b">
-        <PlanningTabButton
-          active={activeTab === "production"}
-          icon={Factory01Icon}
-          label="Production"
-          count={productionItems.length}
-          onClick={() => setActiveTab("production")}
-        />
-        <PlanningTabButton
-          active={activeTab === "replenishment"}
-          icon={Layers01Icon}
-          label="Replenishment"
-          count={replenishmentItems.length}
-          onClick={() => setActiveTab("replenishment")}
-        />
-      </div>
+      <PlanningTabs
+        value={activeTab}
+        productionCount={productionItems.length}
+        replenishmentCount={replenishmentItems.length}
+        onChange={setActiveTab}
+      />
 
       {actionError ? (
         <div
@@ -2518,12 +2829,11 @@ export function PlanningWorkspace({
       {activeTab === "production" ? (
         <ProductionPlanningView
           items={productionItems}
+          horizonStart={snapshot.horizonStart}
           search={search}
           onSearchChange={setSearch}
-          permissions={permissions}
           isPending={isActionPending}
           onOpenRow={(row) => setDetailTarget({ kind: "row", key: planningRowKey(row) })}
-          onCreateManufacturingOrder={(payload) => actionMutation.mutate(payload)}
         />
       ) : (
         <ReplenishmentPlanningView
@@ -2556,6 +2866,7 @@ export function PlanningWorkspace({
         onCreatePurchaseOrders={(payloads) => purchaseGroupMutation.mutate(payloads)}
         isPending={isActionPending}
       />
-    </main>
+      </div>
+    </>
   );
 }

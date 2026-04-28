@@ -11,7 +11,6 @@
     "db:local:stop": "tsx scripts/local-db-cli.ts stop",
     "db:local:setup": "tsx scripts/setup-local-db.ts",
     "dev:seed-user": "tsx scripts/seed-dev-user.ts",
-    "seed": "tsx scripts/seed.ts",
     "xero:smoke": "tsx scripts/xero-smoke.ts",
     "load:paonia": "tsx scripts/load/paonia.ts",
     "load:paonia:dry-run": "tsx scripts/load/paonia.ts --dry-run",

@@ -66,7 +66,6 @@ export const items = inventorySchema
         precision: 8,
         scale: 2,
       }),
-      dailyCapacity: numeric("daily_capacity", { precision: 12, scale: 4 }),
 
       // Variant family
       isMaster: boolean("is_master").notNull().default(false),

@@ -11,6 +11,5 @@ export * from "./bom";
 export * from "./sales";
 export * from "./manufacturing";
 export * from "./purchasing";
-export * from "./planning";
 export * from "./auth";
 export * from "./xero";

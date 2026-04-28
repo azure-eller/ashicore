@@ -18,8 +18,6 @@ export type DaysOfCoverStatus =
 
 export type ProductionBucket = "now" | "this-week" | "next-week" | "later";
 
-export type ScheduleConfidence = "high" | "medium" | "low" | "blocked";
-
 export type PlanningRecommendationType =
   | "create_purchase_order"
   | "create_manufacturing_order"
@@ -44,8 +42,6 @@ export type PlanningReasonCode =
   | "missing_purchase_price"
   | "missing_lead_time"
   | "missing_production_lead_time"
-  | "missing_capacity"
-  | "capacity_overrun"
   | "planning_disabled"
   | "missing_bom"
   | "bom_cycle_detected"
@@ -91,6 +87,8 @@ export type PlanningAssumption = {
 export type PlanningItemSummary = {
   id: string;
   name: string;
+  displayName: string;
+  displayAttrs: string[];
   sku: string | null;
   itemType: string;
   unitName: string | null;
@@ -245,12 +243,6 @@ export type PlanningItemRow = {
   manufacturingMode: string | null;
   expectedBatchYield: string | null;
   plannedBatchCount: number | null;
-  dailyCapacity: string | null;
-  capacitySource: PlanningRuleSource;
-  bucketScheduledLoad: string | null;
-  capacityUtilizationPct: number | null;
-  scheduleConfidence: ScheduleConfidence;
-  scheduleConfidenceReasons: PlanningReasonCode[];
   suggestedAction: SuggestedPlanningAction;
   reasonCodes: PlanningReasonCode[];
   sourceRefs: PlanningSourceRef[];
@@ -274,19 +266,9 @@ export type ProductionBlockerFact = {
     | "missing_bom"
     | "bom_cycle_detected"
     | "bom_depth_limit"
-    | "missing_production_lead_time"
-    | "missing_capacity"
-    | "capacity_overrun";
+    | "missing_production_lead_time";
   earliestRequiredDate: string | null;
   sourceRefs: PlanningSourceRef[];
-};
-
-export type ProductionCapacityBucket = {
-  bucket: ProductionBucket;
-  scheduledLoad: string;
-  recommendedLoad: string;
-  capacity: string | null;
-  capacityUtilizationPct: number | null;
 };
 
 export type PlanningSnapshot = {
@@ -302,7 +284,6 @@ export type PlanningSnapshot = {
   inventoryFacts: InventoryFact[];
   bomRequirementFacts: BomRequirementFact[];
   productionBlockerFacts: ProductionBlockerFact[];
-  productionCapacityBuckets: ProductionCapacityBucket[];
   recommendations: PlanningRecommendation[];
   warnings: PlanningWarning[];
 };
