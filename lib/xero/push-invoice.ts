@@ -260,11 +260,11 @@ export async function findXeroInvoiceForSalesOrder(
 
 type EmailDecision =
   | { action: "send"; reason: null }
-  | { action: "skip"; reason: "draft" | "auto_off" | "no_email" | "already_sent" };
+  | { action: "skip"; reason: "draft" | "not_selected" | "no_email" | "already_sent" };
 
 function decideEmail(params: {
   statusPref: Invoice.StatusEnum;
-  autoEmailEnabled: boolean;
+  sendEmail: boolean;
   customerEmail: string | null;
   existingEmailStatus: string | null;
 }): EmailDecision {
@@ -274,8 +274,8 @@ function decideEmail(params: {
   if (params.statusPref !== Invoice.StatusEnum.AUTHORISED) {
     return { action: "skip", reason: "draft" };
   }
-  if (!params.autoEmailEnabled) {
-    return { action: "skip", reason: "auto_off" };
+  if (!params.sendEmail) {
+    return { action: "skip", reason: "not_selected" };
   }
   if (!params.customerEmail || params.customerEmail.trim() === "") {
     return { action: "skip", reason: "no_email" };
@@ -503,8 +503,7 @@ export async function pushSalesOrderToXero(
   if (created) {
     const decision = decideEmail({
       statusPref,
-      autoEmailEnabled:
-        connection.autoEmailSalesInvoices && options.sendEmail !== false,
+      sendEmail: options.sendEmail === true,
       customerEmail: data.customer.email,
       existingEmailStatus: data.order.xeroEmailStatus,
     });

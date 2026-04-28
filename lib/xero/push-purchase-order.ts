@@ -247,22 +247,18 @@ function resolveStatusPreference(
 
 type EmailDecision =
   | { action: "send"; reason: null }
-  | { action: "skip"; reason: "draft" | "auto_off" | "no_email" | "already_sent" };
+  | { action: "skip"; reason: "not_selected" | "no_email" | "already_sent" };
 
 function decidePurchaseOrderEmail(params: {
-  statusPref: PurchaseOrder.StatusEnum;
-  autoEmailEnabled: boolean;
+  sendEmail: boolean;
   supplierEmail: string | null;
   existingEmailStatus: string | null;
 }): EmailDecision {
   if (params.existingEmailStatus === "sent") {
     return { action: "skip", reason: "already_sent" };
   }
-  if (params.statusPref === PurchaseOrder.StatusEnum.DRAFT) {
-    return { action: "skip", reason: "draft" };
-  }
-  if (!params.autoEmailEnabled) {
-    return { action: "skip", reason: "auto_off" };
+  if (!params.sendEmail) {
+    return { action: "skip", reason: "not_selected" };
   }
   if (!params.supplierEmail || params.supplierEmail.trim() === "") {
     return { action: "skip", reason: "no_email" };
@@ -554,9 +550,7 @@ export async function pushPurchaseOrderToXero(
   let emailStatus: PushPurchaseOrderResult["emailStatus"] = null;
   if (created) {
     const decision = decidePurchaseOrderEmail({
-      statusPref,
-      autoEmailEnabled:
-        connection.autoEmailPurchaseOrders && options.sendEmail !== false,
+      sendEmail: options.sendEmail === true,
       supplierEmail: data.supplier.email,
       existingEmailStatus: data.order.xeroPoEmailStatus,
     });

@@ -80,6 +80,8 @@ type SyncDialogState = {
   stages: AccountingSyncStage[];
   error: string | null;
   isWorking: boolean;
+  documentNumber?: string | null;
+  showProviderAction?: boolean;
 };
 
 const XERO_PURCHASE_ORDERS_URL =
@@ -194,6 +196,8 @@ export function PurchaseOrderDetail({
       }),
       error: null,
       isWorking: true,
+      documentNumber: null,
+      showProviderAction: false,
     });
   };
 
@@ -211,17 +215,20 @@ export function PurchaseOrderDetail({
     includeEmail?: boolean;
   }) => {
     const latest = await fetchPurchaseOrderDetail(order.id);
+    const latestDocument = purchaseOrderAccountingDocument(latest);
     setSyncDialog({
       title,
       description,
       stages: buildAccountingSyncStages({
-        document: purchaseOrderAccountingDocument(latest),
+        document: latestDocument,
         includeAccounting,
         includeEmail,
         localActionLabel,
       }),
       error: null,
       isWorking: false,
+      documentNumber: includeAccounting ? latestDocument.documentNumber : null,
+      showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
     });
   };
 
@@ -249,6 +256,8 @@ export function PurchaseOrderDetail({
       ],
       error: message,
       isWorking: false,
+      documentNumber: null,
+      showProviderAction: false,
     });
   };
 
@@ -601,10 +610,7 @@ export function PurchaseOrderDetail({
           retryPushPending={xeroPushMutation.isPending}
           onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
           retryEmailPending={xeroEmailMutation.isPending}
-          providerAction={{
-            label: "Open Xero purchase orders",
-            href: XERO_PURCHASE_ORDERS_URL,
-          }}
+          compact
         />
 
         <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
@@ -732,6 +738,15 @@ export function PurchaseOrderDetail({
           stages={syncDialog.stages}
           error={syncDialog.error}
           isWorking={syncDialog.isWorking}
+          documentNumber={syncDialog.documentNumber}
+          providerAction={
+            syncDialog.showProviderAction
+              ? {
+                  label: "Open Xero purchase orders",
+                  href: XERO_PURCHASE_ORDERS_URL,
+                }
+              : undefined
+          }
           onOpenChange={(open) => {
             if (!open) setSyncDialog(null);
           }}
@@ -745,14 +760,20 @@ export function PurchaseOrderDetail({
         description="Review what happens next."
         confirmLabel="Submit"
         pendingLabel="Submitting..."
-        localStep={{ title: "Submit PO", detail: order.orderNumber }}
+        localStep={{
+          title: "Submit PO",
+          detail: order.orderNumber,
+          meta: `${order.supplierName} · ${formatPrice(order.totalAmount) ?? "-"} · ${order.lines.length} ${order.lines.length === 1 ? "line" : "lines"}`,
+        }}
         accountingStep={{
           title: "Create in Xero",
-          detail: "Xero purchase order",
+          detail: "Purchase order",
+          meta: "Xero",
         }}
         emailStep={{
           title: "Email supplier",
           detail: order.supplierEmail ?? "No supplier email",
+          meta: order.supplierName,
         }}
         options={submitOptions}
         onOptionsChange={setSubmitOptions}

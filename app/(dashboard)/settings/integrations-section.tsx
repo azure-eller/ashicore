@@ -8,8 +8,6 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   Field,
-  FieldContent,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -22,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { XeroConnectionWithHealth } from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
@@ -97,12 +94,8 @@ function XeroRow({
   const [invoiceStatus, setInvoiceStatus] = useState<"DRAFT" | "AUTHORISED">(
     (connection?.invoiceStatusPreference as "DRAFT" | "AUTHORISED") ?? "AUTHORISED"
   );
-  const [autoEmailInvoices, setAutoEmailInvoices] = useState(
-    connection?.autoEmailSalesInvoices ?? false
-  );
-  const [autoEmailPurchaseOrders, setAutoEmailPurchaseOrders] = useState(
-    connection?.autoEmailPurchaseOrders ?? false
-  );
+  const autoEmailInvoices = connection?.autoEmailSalesInvoices ?? false;
+  const autoEmailPurchaseOrders = connection?.autoEmailPurchaseOrders ?? false;
   const [poAccountCode, setPoAccountCode] = useState(
     connection?.purchaseOrderDefaultAccountCode ?? ""
   );
@@ -346,25 +339,6 @@ function XeroRow({
                     </Select>
                   </Field>
                 </div>
-
-                <Field orientation="horizontal">
-                  <Switch
-                    id="xero-auto-email"
-                    checked={autoEmailInvoices}
-                    onCheckedChange={(checked) =>
-                      setAutoEmailInvoices(Boolean(checked))
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel htmlFor="xero-auto-email">
-                      Auto-email sales invoices
-                    </FieldLabel>
-                    <FieldDescription>
-                      Xero emails the customer after invoice creation. Requires
-                      AUTHORISED status and an email on the customer record.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
               </div>
 
               <div className="space-y-3">
@@ -411,25 +385,6 @@ function XeroRow({
                     </Select>
                   </Field>
                 </div>
-
-                <Field orientation="horizontal">
-                  <Switch
-                    id="xero-auto-email-po"
-                    checked={autoEmailPurchaseOrders}
-                    onCheckedChange={(checked) =>
-                      setAutoEmailPurchaseOrders(Boolean(checked))
-                    }
-                  />
-                  <FieldContent>
-                    <FieldLabel htmlFor="xero-auto-email-po">
-                      Auto-email purchase orders
-                    </FieldLabel>
-                    <FieldDescription>
-                      Sends the Xero PDF through ERP email. Requires SUBMITTED
-                      or AUTHORISED status and a supplier email.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
               </div>
 
               <div className="flex justify-end">

@@ -70,6 +70,7 @@ export type AccountingProviderAction = {
 export type AccountingActionConfirmStep = {
   title: string;
   detail: string;
+  meta?: string;
 };
 
 export function buildAccountingSyncStages(params: {
@@ -143,6 +144,7 @@ export function AccountingSyncStatus({
   onRetryEmail,
   retryEmailPending = false,
   providerAction,
+  compact = false,
 }: {
   document: AccountingSyncDocument;
   onRetryPush?: () => void;
@@ -150,6 +152,7 @@ export function AccountingSyncStatus({
   onRetryEmail?: () => void;
   retryEmailPending?: boolean;
   providerAction?: AccountingProviderAction;
+  compact?: boolean;
 }) {
   if (!document.pushStatus) return null;
 
@@ -158,6 +161,53 @@ export function AccountingSyncStatus({
     `${document.documentLabel} in ${document.providerName}`
   );
   const emailStage = buildEmailStage(document, `${document.documentLabel} email`, pushStage.state);
+
+  if (compact) {
+    const emailSummary =
+      document.emailStatus === "sent"
+        ? "Email sent"
+        : document.emailStatus === "failed"
+          ? "Email failed"
+          : document.emailStatus === "skipped"
+            ? "Email skipped"
+            : null;
+
+    return (
+      <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
+        <span className="font-medium">Accounting Sync</span>
+        <SyncBadge state={pushStage.state} label={statusBadgeLabel(pushStage.state)} />
+        <span className="text-muted-foreground">
+          {document.providerName}
+          {document.documentNumber ? ` · ${document.documentNumber}` : ""}
+        </span>
+        {emailSummary ? (
+          <span className="text-muted-foreground">· {emailSummary}</span>
+        ) : null}
+        {onRetryPush && document.pushStatus === "failed" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onRetryPush}
+            disabled={retryPushPending}
+          >
+            {retryPushPending ? "Retrying..." : "Retry sync"}
+          </Button>
+        ) : null}
+        {onRetryEmail && document.pushStatus === "pushed" && document.emailStatus === "failed" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onRetryEmail}
+            disabled={retryEmailPending}
+          >
+            {retryEmailPending ? "Sending..." : "Retry email"}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="flex max-w-3xl flex-col gap-4 rounded-md border bg-card p-4 text-card-foreground">
@@ -280,21 +330,19 @@ export function AccountingActionConfirmDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <FieldGroup className="relative gap-3 pl-10">
-          <div
-            aria-hidden
-            className="absolute bottom-8 left-4 top-8 border-l border-border"
-          />
+        <Timeline className="pl-10">
           <ActionTimelineStep
             number="1"
             title={localStep.title}
             detail={localStep.detail}
+            meta={localStep.meta}
             badge="Required"
           />
           <ActionTimelineStep
             number="2"
             title={accountingStep.title}
             detail={accountingStep.detail}
+            meta={accountingStep.meta}
             checked={options.syncAccounting}
             checkboxId="syncAccounting"
             onCheckedChange={(checked) => {
@@ -309,6 +357,7 @@ export function AccountingActionConfirmDialog({
             number="3"
             title={emailStep.title}
             detail={emailStep.detail}
+            meta={emailStep.meta}
             checked={options.sendEmail}
             checkboxId="sendEmail"
             disabled={emailDisabled}
@@ -316,7 +365,7 @@ export function AccountingActionConfirmDialog({
               onOptionsChange({ ...options, sendEmail: checked === true })
             }
           />
-        </FieldGroup>
+        </Timeline>
 
         <DialogFooter>
           <Button
@@ -340,6 +389,7 @@ function ActionTimelineStep({
   number,
   title,
   detail,
+  meta,
   badge,
   checked,
   checkboxId,
@@ -349,6 +399,7 @@ function ActionTimelineStep({
   number: string;
   title: string;
   detail: string;
+  meta?: string;
   badge?: string;
   checked?: boolean;
   checkboxId?: string;
@@ -357,15 +408,9 @@ function ActionTimelineStep({
 }) {
   return (
     <div className="relative">
-      <div
-        aria-hidden
-        className={cn(
-          "absolute -left-10 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-xs font-medium",
-          number === "1" && "bg-primary text-primary-foreground"
-        )}
-      >
+      <TimelineNode active={number === "1"}>
         {number}
-      </div>
+      </TimelineNode>
       <div
         className={cn(
           "flex items-center justify-between gap-4 rounded-md border bg-background p-3",
@@ -378,6 +423,9 @@ function ActionTimelineStep({
             {badge ? <Badge variant="secondary">{badge}</Badge> : null}
           </div>
           <p className="mt-1 truncate text-sm text-muted-foreground">{detail}</p>
+          {meta ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
+          ) : null}
         </div>
         {checkboxId ? (
           <Checkbox
@@ -400,6 +448,8 @@ export function AccountingSyncDialog({
   stages,
   error,
   isWorking,
+  providerAction,
+  documentNumber,
   onOpenChange,
   onDone,
 }: {
@@ -409,9 +459,13 @@ export function AccountingSyncDialog({
   stages: AccountingSyncStage[];
   error: string | null;
   isWorking: boolean;
+  providerAction?: AccountingProviderAction;
+  documentNumber?: string | null;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
 }) {
+  const showResultActions = !isWorking && !error && (providerAction || documentNumber);
+
   return (
     <Dialog open={open} onOpenChange={isWorking ? undefined : onOpenChange}>
       <DialogContent size="md" className="bg-background text-foreground">
@@ -420,13 +474,51 @@ export function AccountingSyncDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
-          {stages.map((stage) => (
-            <StatusLine key={stage.id} stage={stage} />
+        <Timeline className="pl-10">
+          {stages.map((stage, index) => (
+            <StatusTimelineStep
+              key={stage.id}
+              number={String(index + 1)}
+              stage={stage}
+            />
           ))}
-        </div>
+        </Timeline>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        {showResultActions ? (
+          <div className="flex flex-wrap gap-2 pl-10">
+            {providerAction ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (providerAction.href) {
+                    window.open(providerAction.href, "_blank", "noopener,noreferrer");
+                    return;
+                  }
+                  providerAction.onClick?.();
+                }}
+                disabled={providerAction.pending}
+              >
+                <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} data-icon="inline-start" />
+                {providerAction.pending ? "Opening..." : providerAction.label}
+              </Button>
+            ) : null}
+            {documentNumber ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void navigator.clipboard.writeText(documentNumber)}
+              >
+                <HugeiconsIcon icon={Copy01Icon} size={14} data-icon="inline-start" />
+                Copy number
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         <DialogFooter>
           <Button type="button" onClick={onDone} disabled={isWorking}>
@@ -435,6 +527,83 @@ export function AccountingSyncDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Timeline({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <FieldGroup className={cn("relative gap-3", className)}>
+      <div
+        aria-hidden
+        className="absolute bottom-8 left-4 top-8 border-l border-border"
+      />
+      {children}
+    </FieldGroup>
+  );
+}
+
+function TimelineNode({
+  children,
+  active = false,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+}) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "absolute -left-10 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-xs font-medium",
+        active && "bg-primary text-primary-foreground"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function StatusTimelineStep({
+  number,
+  stage,
+}: {
+  number: string;
+  stage: AccountingSyncStage;
+}) {
+  return (
+    <div className="relative">
+      <TimelineNode
+        active={stage.state === "active" || stage.state === "success" || number === "1"}
+      >
+        {stage.state === "active" ? (
+          <HugeiconsIcon icon={CloudLoadingIcon} size={14} aria-hidden className="animate-spin" />
+        ) : (
+          number
+        )}
+      </TimelineNode>
+      <div
+        className={cn(
+          "flex items-center justify-between gap-4 rounded-md border bg-background p-3",
+          stage.state === "skipped" && "opacity-70"
+        )}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">{stage.label}</p>
+            <SyncBadge state={stage.state} label={statusBadgeLabel(stage.state)} />
+          </div>
+          {stage.detail ? (
+            <p className="mt-1 truncate text-sm text-muted-foreground">{stage.detail}</p>
+          ) : null}
+        </div>
+        <StatusIcon state={stage.state} />
+      </div>
+    </div>
   );
 }
 
@@ -524,7 +693,7 @@ function buildEmailStage(
       id: "email",
       label,
       detail: document.recipientEmail
-        ? "Auto-email is off, the document is draft, or email was skipped."
+        ? "Email was not sent for this sync."
         : `No email address for ${document.recipientLabel}.`,
       state: "skipped",
     };

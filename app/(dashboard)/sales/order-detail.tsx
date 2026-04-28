@@ -63,6 +63,8 @@ type SyncDialogState = {
   stages: AccountingSyncStage[];
   error: string | null;
   isWorking: boolean;
+  documentNumber?: string | null;
+  showProviderAction?: boolean;
 };
 
 async function fetchSalesOrderDetail(id: string): Promise<SalesOrderDetailType> {
@@ -146,6 +148,8 @@ export function OrderDetail({
       }),
       error: null,
       isWorking: true,
+      documentNumber: null,
+      showProviderAction: false,
     });
   };
 
@@ -163,17 +167,20 @@ export function OrderDetail({
     includeEmail?: boolean;
   }) => {
     const latest = await fetchSalesOrderDetail(order.id);
+    const latestDocument = salesOrderAccountingDocument(latest);
     setSyncDialog({
       title,
       description,
       stages: buildAccountingSyncStages({
-        document: salesOrderAccountingDocument(latest),
+        document: latestDocument,
         includeAccounting,
         includeEmail,
         localActionLabel,
       }),
       error: null,
       isWorking: false,
+      documentNumber: includeAccounting ? latestDocument.documentNumber : null,
+      showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
     });
   };
 
@@ -201,6 +208,8 @@ export function OrderDetail({
       ],
       error: message,
       isWorking: false,
+      documentNumber: null,
+      showProviderAction: false,
     });
   };
 
@@ -614,11 +623,7 @@ export function OrderDetail({
           retryPushPending={xeroPushMutation.isPending}
           onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
           retryEmailPending={xeroEmailMutation.isPending}
-          providerAction={{
-            label: "Open online invoice",
-            onClick: () => onlineInvoiceMutation.mutate(),
-            pending: onlineInvoiceMutation.isPending,
-          }}
+          compact
         />
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
@@ -805,6 +810,16 @@ export function OrderDetail({
           stages={syncDialog.stages}
           error={syncDialog.error}
           isWorking={syncDialog.isWorking}
+          documentNumber={syncDialog.documentNumber}
+          providerAction={
+            syncDialog.showProviderAction
+              ? {
+                  label: "Open online invoice",
+                  onClick: () => onlineInvoiceMutation.mutate(),
+                  pending: onlineInvoiceMutation.isPending,
+                }
+              : undefined
+          }
           onOpenChange={(open) => {
             if (!open) setSyncDialog(null);
           }}
@@ -818,14 +833,20 @@ export function OrderDetail({
         description="Review what happens next."
         confirmLabel="Ship"
         pendingLabel="Shipping..."
-        localStep={{ title: "Ship order", detail: order.orderNumber }}
+        localStep={{
+          title: "Ship order",
+          detail: order.orderNumber,
+          meta: `${order.customerName} · ${formatPrice(order.totalAmount) ?? "-"} · ${order.lines.length} ${order.lines.length === 1 ? "line" : "lines"}`,
+        }}
         accountingStep={{
           title: "Create invoice",
-          detail: "Xero invoice",
+          detail: "Invoice",
+          meta: "Xero",
         }}
         emailStep={{
           title: "Email customer",
           detail: order.customerEmail ?? "No customer email",
+          meta: order.customerName,
         }}
         options={shipOptions}
         onOptionsChange={setShipOptions}

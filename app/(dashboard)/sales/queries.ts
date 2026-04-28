@@ -2512,7 +2512,7 @@ export async function shipSalesOrder(
       payload: {
         id,
         syncAccounting: options?.syncAccounting ?? true,
-        sendEmail: options?.sendEmail ?? true,
+        sendEmail: options?.sendEmail ?? false,
       },
     });
 
@@ -2707,7 +2707,7 @@ export async function shipSalesOrder(
 
   try {
     await pushSalesOrderToXero(result.orgId, id, {
-      sendEmail: options?.sendEmail ?? true,
+      sendEmail: options?.sendEmail,
     });
   } catch (error) {
     if (
