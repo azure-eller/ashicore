@@ -1256,7 +1256,7 @@ function computeProductionMetadata(args: {
       ? subtractDays(args.earliestRequiredDate, Math.ceil(productionLeadTimeDays))
       : null;
   const productionBucket = productionBucketForDate(
-    latestStartDate,
+    latestStartDate ?? args.earliestRequiredDate,
     args.horizonStart
   );
 
