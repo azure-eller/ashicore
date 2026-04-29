@@ -168,19 +168,18 @@ export function AppSidebar({
         </div>
       </SidebarHeader>
       <SidebarContent className="gap-0 overflow-hidden">
-        <div
+        <ScrollArea
+          type="auto"
           aria-hidden={chatExpanded}
           className={cn(
-            "shrink-0 overflow-hidden transition-[max-height,opacity] duration-300 ease-out group-data-[collapsible=icon]:hidden",
+            "min-h-0 overflow-hidden transition-[max-height,opacity] duration-300 ease-out group-data-[collapsible=icon]:hidden",
             chatExpanded
               ? "pointer-events-none max-h-0 opacity-0"
-              : "max-h-[calc(100vh-10rem)] opacity-100"
+              : "max-h-[calc(100svh-10rem)] flex-1 opacity-100"
           )}
         >
-          <ScrollArea className="min-h-0">
-            <NavMain items={navMain} />
-          </ScrollArea>
-        </div>
+          <NavMain items={navMain} />
+        </ScrollArea>
 
         {agentEnabled ? (
           <AgentChatPanel
