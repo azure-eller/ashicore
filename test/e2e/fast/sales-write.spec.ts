@@ -2,11 +2,22 @@ import { asc, eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryItemBalances,
+  purchaseOrderLines,
   salesOrderLines,
   salesOrders,
   customers as salesCustomers,
 } from "../../../lib/db/schema";
-import { createItem, getUnitId } from "../../helpers/api";
+import {
+  createItem,
+  createPurchaseOrder,
+  createSalesOrder,
+  createSupplier,
+  fulfillSalesOrder,
+  getUnitId,
+  receivePurchaseOrder,
+  submitPurchaseOrder,
+  testFetch,
+} from "../../helpers/api";
 
 test.describe("Sales write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -142,5 +153,243 @@ test.describe("Sales write-path smoke", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
+  });
+
+  test("reports actual margin from FIFO lots with different costs", async ({ db }) => {
+    const materialName = `Fast Margin Material ${ts}`;
+    const materialResult = await createItem({
+      name: materialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-MARGIN-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: "Material for actual margin smoke test",
+      defaultPurchasePrice: "10",
+      defaultSellingPrice: "50",
+      stock: "1",
+      safetyStock: "0",
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const supplierResult = await createSupplier({
+      name: `Fast Margin Supplier ${ts}`,
+      code: `FMS-${ts}`,
+    });
+    expect(supplierResult.status).toBe(201);
+
+    const purchaseOrderResult = await createPurchaseOrder({
+      supplierId: supplierResult.body.id,
+      lines: [{ itemId: materialId, quantityOrdered: "1", unitCost: "20" }],
+    });
+    expect(purchaseOrderResult.status).toBe(201);
+    const purchaseOrderId = purchaseOrderResult.body.id as string;
+
+    const submitResult = await submitPurchaseOrder(purchaseOrderId);
+    expect(submitResult.status).toBe(200);
+
+    const [poLine] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId));
+    expect(poLine).toBeTruthy();
+
+    const receiveResult = await receivePurchaseOrder(purchaseOrderId, {
+      lines: [{ lineId: poLine.id, quantityReceived: "1" }],
+    });
+    expect(receiveResult.status).toBe(200);
+
+    const orderResult = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      confirmOversell: true,
+      lines: [{ itemId: materialId, quantity: "2", unitPrice: "50" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const marginOrderId = orderResult.body.id as string;
+
+    const shipResult = await fulfillSalesOrder(marginOrderId);
+    expect(shipResult.status).toBe(200);
+
+    const orderDetailResponse = await testFetch(`/api/sales-orders/${marginOrderId}`);
+    expect(orderDetailResponse.status).toBe(200);
+    const orderDetail = await orderDetailResponse.json();
+    expect(orderDetail.lines[0].actualCogs).toBe("30.00");
+    expect(orderDetail.lines[0].actualGrossProfit).toBe("70.00");
+    expect(orderDetail.lines[0].actualMarginPercent).toBe("70");
+
+    const lotsResponse = await testFetch(`/api/items/${materialId}/lots`);
+    expect(lotsResponse.status).toBe(200);
+    const marginLots = (await lotsResponse.json()) as Array<{
+      costPerUnit: string | null;
+      soldQuantity: string | null;
+      realizedRevenue: string | null;
+      realizedCogs: string | null;
+      realizedMarginPercent: string | null;
+    }>;
+    const soldLots = marginLots
+      .filter((lot) => lot.soldQuantity === "1")
+      .sort((left, right) => Number(left.costPerUnit) - Number(right.costPerUnit));
+
+    expect(soldLots).toHaveLength(2);
+    expect(soldLots[0]).toMatchObject({
+      costPerUnit: "10",
+      realizedRevenue: "50.00",
+      realizedCogs: "10.00",
+      realizedMarginPercent: "80",
+    });
+    expect(soldLots[1]).toMatchObject({
+      costPerUnit: "20",
+      realizedRevenue: "50.00",
+      realizedCogs: "20.00",
+      realizedMarginPercent: "60",
+    });
+  });
+
+  test("estimates margin from stocked subassembly cost before nested BOM cost", async () => {
+    const suffix = `${ts}-SUB`;
+    const materialResult = await createItem({
+      name: `Fast Estimate Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-EST-MAT-${suffix}`,
+      category: `Fast Estimate ${suffix}`,
+      description: "Material for nested estimated margin",
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const subassemblyResult = await createItem({
+      name: `Fast Estimate Subassembly ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-EST-SUB-${suffix}`,
+      category: `Fast Estimate ${suffix}`,
+      description: "Stocked subassembly for nested estimated margin",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12",
+      stock: "1",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(subassemblyResult.status).toBe(201);
+    const subassemblyId = subassemblyResult.body.id as string;
+
+    const overrideCostResponse = await testFetch(
+      `/api/items/${materialId}/current-stock-unit-cost`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ currentStockUnitCost: "10" }),
+      },
+    );
+    expect(overrideCostResponse.status).toBe(200);
+
+    const finishedResult = await createItem({
+      name: `Fast Estimate Finished ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-EST-FIN-${suffix}`,
+      category: `Fast Estimate ${suffix}`,
+      description: "Finished product using a stocked subassembly",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: subassemblyId, quantity: "1" }],
+    });
+    expect(finishedResult.status).toBe(201);
+    const finishedId = finishedResult.body.id as string;
+
+    const pricingResponse = await testFetch("/api/sales-orders/price", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        itemId: finishedId,
+        quantity: "1",
+      }),
+    });
+    expect(pricingResponse.status).toBe(200);
+    const pricing = await pricingResponse.json();
+    expect(pricing.estimatedUnitCost).toBe("5");
+
+    const productsResponse = await testFetch("/api/items?itemType=product&view=products");
+    expect(productsResponse.status).toBe(200);
+    const products = (await productsResponse.json()) as Array<{
+      id: string;
+      estimatedUnitCost: string | null;
+      marginPercent: string | null;
+    }>;
+    const finishedProduct = products.find((product) => product.id === finishedId);
+    expect(finishedProduct).toMatchObject({
+      estimatedUnitCost: "5",
+      marginPercent: "75",
+    });
+  });
+
+  test("applies batch yield to estimated product margin", async () => {
+    const suffix = `${ts}-BATCH-MARGIN`;
+    const materialResult = await createItem({
+      name: `Fast Batch Margin Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-MARGIN-MAT-${suffix}`,
+      category: `Fast Batch Margin ${suffix}`,
+      description: "Material for batch estimated margin",
+      defaultPurchasePrice: "20",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const batchProductResult = await createItem({
+      name: `Fast Batch Margin Product ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-MARGIN-PROD-${suffix}`,
+      category: `Fast Batch Margin ${suffix}`,
+      description: "Batch product for estimated margin",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "4",
+      bom: [{ componentId: materialId, quantity: "2" }],
+    });
+    expect(batchProductResult.status).toBe(201);
+    const batchProductId = batchProductResult.body.id as string;
+
+    const pricingResponse = await testFetch("/api/sales-orders/price", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        itemId: batchProductId,
+        quantity: "1",
+      }),
+    });
+    expect(pricingResponse.status).toBe(200);
+    const pricing = await pricingResponse.json();
+    expect(pricing.estimatedUnitCost).toBe("10");
+
+    const productsResponse = await testFetch("/api/items?itemType=product&view=products");
+    expect(productsResponse.status).toBe(200);
+    const products = (await productsResponse.json()) as Array<{
+      id: string;
+      estimatedUnitCost: string | null;
+      marginPercent: string | null;
+    }>;
+    const batchProduct = products.find((product) => product.id === batchProductId);
+    expect(batchProduct).toMatchObject({
+      estimatedUnitCost: "10",
+      marginPercent: "33.3",
+    });
   });
 });

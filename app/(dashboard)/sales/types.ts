@@ -106,6 +106,7 @@ export type PricingScheduleEditData = {
 export type SalesLinePricingResult = {
   baseUnitPrice: string | null;
   suggestedUnitPrice: string | null;
+  estimatedUnitCost: string | null;
   pricingSourceType: PricingSourceType;
   pricingScheduleName: string | null;
   pricingBreakLabel: string | null;
@@ -120,6 +121,7 @@ export type SalesOrderItemOption = {
   sku: string | null;
   unitName: string;
   defaultSellingPrice: string | null;
+  estimatedUnitCost: string | null;
   stock: string;
   committedQty: string;
   demandQty: string;
@@ -188,6 +190,14 @@ export type SalesOrderDetailLine = {
   pricingBreakLabel: string | null;
   isPriceOverridden: boolean;
   lineTotal: string;
+  estimatedUnitCost: string | null;
+  estimatedCogs: string | null;
+  estimatedGrossProfit: string | null;
+  estimatedMarginPercent: string | null;
+  actualUnitCost: string | null;
+  actualCogs: string | null;
+  actualGrossProfit: string | null;
+  actualMarginPercent: string | null;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;

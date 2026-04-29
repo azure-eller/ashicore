@@ -6,6 +6,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   formatVariantDisplay,
   formatQuantity,
+  normalizeNumericScale,
   normalizeNumeric,
   normalizeMoney,
   parsePositive,
@@ -16,6 +17,7 @@ import {
 import {
   customerCategories,
   customers,
+  inventoryEvents,
   items,
   manufacturingOrders,
   pricingScheduleBreaks,
@@ -54,6 +56,10 @@ import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
+import {
+  calculateMarginMetrics,
+  calculateUnitMarginMetrics,
+} from "@/lib/margin";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import type {
@@ -89,6 +95,7 @@ import type {
   SalesShippingReadiness,
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
+import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
 
 const stockSubquery = projectedOnHandQty(items.organizationId, items.id).as("stock");
 const committedQtySubquery = projectedCommittedQty(
@@ -111,6 +118,28 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
+
+async function getActualSalesLineCostsByLineIdInTx(tx: Tx, salesOrderId: string) {
+  const salesOrderLineIdExpr = sql<string>`(${inventoryEvents.metadata}->>'salesOrderLineId')`;
+  const rows = await tx
+    .select({
+      salesOrderLineId: salesOrderLineIdExpr.as("salesOrderLineId"),
+      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as("quantity"),
+      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as("cogs"),
+    })
+    .from(inventoryEvents)
+    .where(
+      and(
+        eq(inventoryEvents.referenceId, salesOrderId),
+        eq(inventoryEvents.referenceType, "sales_order"),
+        eq(inventoryEvents.eventType, "sales_consumption"),
+        sql`${inventoryEvents.metadata}->>'salesOrderLineId' IS NOT NULL`
+      )
+    )
+    .groupBy(salesOrderLineIdExpr);
+
+  return new Map(rows.map((row) => [row.salesOrderLineId, row]));
+}
 
 async function invalidateAgentOrgPromptCache(orgId: string) {
   if (!isErpAgentEnabled()) {
@@ -442,7 +471,7 @@ async function resolvePricingForProductInTx(
     product: Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
     quantity: string | null;
   }
-): Promise<SalesLinePricingResult> {
+): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
   const baseUnitPrice = values.product.defaultSellingPrice;
 
   if (baseUnitPrice == null) {
@@ -1869,12 +1898,20 @@ export async function resolveSalesLinePricing(
       throw new SalesError("Item not found", 404);
     }
 
-    return resolvePricingForProductInTx(tx, {
-      customerCategoryId: customer.customerCategoryId,
-      customerCategoryName: customer.customerCategoryName,
-      product: item,
-      quantity: values.quantity,
-    });
+    const [pricing, estimatedUnitCosts] = await Promise.all([
+      resolvePricingForProductInTx(tx, {
+        customerCategoryId: customer.customerCategoryId,
+        customerCategoryName: customer.customerCategoryName,
+        product: item,
+        quantity: values.quantity,
+      }),
+      getEstimatedUnitCostsByItemIdInTx(tx, [values.itemId]),
+    ]);
+
+    return {
+      ...pricing,
+      estimatedUnitCost: estimatedUnitCosts.get(values.itemId) ?? null,
+    };
   });
 }
 
@@ -1958,6 +1995,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           sku: row.sku,
           unitName: row.unitName,
           defaultSellingPrice: row.defaultSellingPrice,
+          estimatedUnitCost: null,
           stock: row.stock,
           committedQty: row.committedQty,
           demandQty: row.demandQty,
@@ -2239,13 +2277,55 @@ export async function getSalesOrder(
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 
+    const estimatedUnitCosts = await getEstimatedUnitCostsByItemIdInTx(
+      tx,
+      lineRows.map((line) => line.itemId)
+    );
+    const actualLineCosts = await getActualSalesLineCostsByLineIdInTx(tx, id);
+
     const lines = lineRows.map(({ variantAttrs, masterName, masterVariantAxes, ...rest }) => {
       const display = resolveVariantDisplay(
         rest.itemName,
         masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
         variantAttrs
       );
-      return { ...rest, masterName: display.masterName, attrs: display.attrs };
+      const estimatedUnitCost = estimatedUnitCosts.get(rest.itemId) ?? null;
+      const estimatedMargin = calculateUnitMarginMetrics({
+        quantity: rest.quantity,
+        unitPrice: rest.unitPrice,
+        unitCost: estimatedUnitCost,
+      });
+      const actualCost = actualLineCosts.get(rest.id) ?? null;
+      const actualMargin = actualCost
+        ? calculateMarginMetrics({
+            revenue: rest.lineTotal,
+            cogs: actualCost.cogs,
+          })
+        : null;
+      const actualQuantity = actualCost ? Number.parseFloat(actualCost.quantity) : null;
+      const actualCogs = actualCost ? Number.parseFloat(actualCost.cogs) : null;
+      const actualUnitCost =
+        actualQuantity != null &&
+        actualCogs != null &&
+        Number.isFinite(actualQuantity) &&
+        Number.isFinite(actualCogs) &&
+        actualQuantity > 0
+          ? normalizeNumericScale(actualCogs / actualQuantity, 6)
+          : null;
+
+      return {
+        ...rest,
+        masterName: display.masterName,
+        attrs: display.attrs,
+        estimatedUnitCost,
+        estimatedCogs: estimatedMargin?.cogs ?? null,
+        estimatedGrossProfit: estimatedMargin?.grossProfit ?? null,
+        estimatedMarginPercent: estimatedMargin?.marginPercent ?? null,
+        actualUnitCost,
+        actualCogs: actualMargin?.cogs ?? null,
+        actualGrossProfit: actualMargin?.grossProfit ?? null,
+        actualMarginPercent: actualMargin?.marginPercent ?? null,
+      };
     });
 
     const manufacturingSummary = (

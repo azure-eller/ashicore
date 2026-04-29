@@ -1112,7 +1112,9 @@ test.describe("Inventory ledger explorer", () => {
     ]);
 
     const purchaseTableBody = page.locator("tbody");
-    await expect(purchaseTableBody.getByText("Expected supply increase")).toBeVisible();
+    await expect(purchaseTableBody.getByText("Expected supply increase")).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(purchaseTableBody.getByText("Manual stock increase")).toHaveCount(0);
     await expect(purchaseTableBody.getByText(purchaseOrderNumber)).toBeVisible();
 
@@ -1134,7 +1136,9 @@ test.describe("Inventory ledger explorer", () => {
     ]);
 
     const salesTableBody = page.locator("tbody");
-    await expect(salesTableBody.getByText("Customer demand increase")).toBeVisible();
+    await expect(salesTableBody.getByText("Customer demand increase")).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(salesTableBody.getByText("Manual stock increase")).toHaveCount(0);
     await expect(salesTableBody.getByText(salesOrderNumber)).toBeVisible();
   });

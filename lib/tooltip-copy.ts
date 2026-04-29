@@ -56,7 +56,16 @@ export const SELLING_PRICE_TOOLTIP =
   "Default sales price per selling unit.";
 
 export const MARGIN_TOOLTIP =
-  "Selling price minus BOM cost, as a percent of selling price.";
+  "Default price minus estimated COGS, as a percent of default price.";
+
+export const ESTIMATED_MARGIN_TOOLTIP =
+  "Selling price minus estimated COGS, as a percent of selling price.";
+
+export const ACTUAL_MARGIN_TOOLTIP =
+  "Selling price minus actual FIFO COGS, as a percent of selling price.";
+
+export const LINE_COGS_TOOLTIP =
+  "Inventory cost tied to the line.";
 
 export const LOT_PHYSICAL_TOOLTIP =
   "Physical lot balance across all dispositions.";

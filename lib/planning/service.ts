@@ -1509,7 +1509,6 @@ function addBomExplosionDemand(args: {
     return { demandFacts: [], bomRequirementFacts: [] };
   }
 
-  const parentShortageQuantity = toQuantity(args.row.shortageQuantity);
   const demandFacts: InternalDemandFact[] = [];
   const bomRequirementFacts: BomRequirementFact[] = [];
 
@@ -1753,6 +1752,23 @@ function buildProductionBlockerFacts(args: {
       });
     }
 
+    if (hasShortage && row.reasonCodes.includes("missing_production_lead_time")) {
+      blockers.push({
+        id: `production:blocker:missing-production-lead-time:${row.item.id}`,
+        parentItemId: row.item.id,
+        parentItemName: row.item.name,
+        parentRecommendationId: row.recommendationId,
+        componentItemId: null,
+        componentItemName: null,
+        componentUnitName: null,
+        requiredQuantity: row.shortageQuantity,
+        availableQuantity: row.availableStock,
+        shortageQuantity: row.shortageQuantity,
+        blockerType: "missing_production_lead_time",
+        earliestRequiredDate: row.earliestRequiredDate,
+        sourceRefs: row.sourceRefs,
+      });
+    }
   }
 
   for (const warning of args.warnings) {
@@ -1927,7 +1943,11 @@ function buildRecommendations(args: {
     if (row.planningType === "make") {
       const bom = args.bomByProductId.get(item.id);
       const hasBom = Boolean(bom && bom.components.length > 0);
-      const recommendationType = hasBom
+      const missingProductionLeadTime = row.reasonCodes.includes(
+        "missing_production_lead_time"
+      );
+      const canDraftManufacturingOrder = hasBom && !missingProductionLeadTime;
+      const recommendationType = canDraftManufacturingOrder
         ? "create_manufacturing_order"
         : "review_item_setup";
       const recommendationId = buildRecommendationId({
@@ -1944,6 +1964,16 @@ function buildRecommendations(args: {
                 itemId: item.id,
                 sourceRefs: row.sourceRefs,
                 message: `${item.name} needs a current BOM before planning can draft a manufacturing order.`,
+              }),
+            ]
+          : []),
+        ...(missingProductionLeadTime
+          ? [
+              warningForRow({
+                code: "missing_production_lead_time" as const,
+                itemId: item.id,
+                sourceRefs: row.sourceRefs,
+                message: `${item.name} needs a production lead time before planning can draft a manufacturing order.`,
               }),
             ]
           : []),
@@ -1967,7 +1997,7 @@ function buildRecommendations(args: {
         sourceRefs: row.sourceRefs,
         warnings,
         actionPayload:
-          hasBom && bom
+          canDraftManufacturingOrder && bom
             ? {
                 actionType: "create_manufacturing_order",
                 inputHash: args.inputHash,

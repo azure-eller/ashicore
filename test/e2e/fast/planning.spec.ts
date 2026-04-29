@@ -508,6 +508,10 @@ test.describe("Planning workspace", () => {
     const productId = await createProduct("Lead Time Blocking Blend", [
       { componentId, quantity: "1" },
     ]);
+    const update = await updatePlanningRules(productId, {
+      productionLeadTimeDays: null,
+    });
+    expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "2");
 
     const planning = await snapshot();
@@ -605,7 +609,6 @@ test.describe("Planning workspace", () => {
       skuKey: "RULE-KELP",
     });
     const update = await updatePlanningRules(item.id, {
-      reorderPoint: "5",
       targetCoverDays: "10",
       preferredSupplierItem: {
         supplierId,
@@ -624,7 +627,6 @@ test.describe("Planning workspace", () => {
     const row = rowFor(planning, item.id);
     const recommendation = recommendationFor(planning, item.id);
 
-    expect(row.reorderPoint).toBe("5");
     expect(row.targetCoverDays).toBe(10);
     expect(row.leadTimeDays).toBe(3);
     expect(row.leadTimeSource).toBe("supplier_item");

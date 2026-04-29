@@ -94,7 +94,7 @@ function MarginBadge({ row }: { row: ItemRow }) {
 
   return (
     <Badge variant={variant} className="font-mono text-xs">
-      {row.marginPercent}%
+      {row.isMaster ? "Avg " : ""}{row.marginPercent}%
     </Badge>
   );
 }
@@ -269,7 +269,7 @@ export function getColumns(
             header: ({ column }) => (
               <SortableHeader
                 column={column}
-                label="Margin"
+                label="Est. Margin"
                 tooltip={MARGIN_TOOLTIP}
               />
             ),

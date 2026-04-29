@@ -49,9 +49,12 @@ import {
   OVERSELL_TOOLTIP_COPY,
   REQUESTED_DATE_TOOLTIP,
   SALES_ADDED_QTY_TOOLTIP,
+  ACTUAL_MARGIN_TOOLTIP,
+  ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
   SALES_UNIT_PRICE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
+  LINE_COGS_TOOLTIP,
   UNIT_TOOLTIP,
   ORDER_TOTAL_TOOLTIP,
 } from "@/lib/tooltip-copy";
@@ -69,6 +72,10 @@ type ActionError = {
   error?: string;
   oversell?: OversellWarningPayload;
 };
+
+function formatMarginPercent(value: string | null | undefined) {
+  return value == null ? "\u2014" : `${value}%`;
+}
 
 function getShipToLines(order: SalesOrderDetailType) {
   return [
@@ -796,46 +803,88 @@ export function OrderDetail({
                   <TableHead className="text-right">
                     <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
                   </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader
+                      label="COGS"
+                      tooltip={LINE_COGS_TOOLTIP}
+                    />
+                  </TableHead>
+                  <TableHead className="text-right">Profit</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader
+                      label={order.status === "shipped" ? "Actual Margin" : "Est. Margin"}
+                      tooltip={
+                        order.status === "shipped"
+                          ? ACTUAL_MARGIN_TOOLTIP
+                          : ESTIMATED_MARGIN_TOOLTIP
+                      }
+                    />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {order.lines.map((line) => (
-                  <TableRow key={line.id}>
-                    <TableCell>
-                      <Link
-                        href={itemDetailHref("product", line.itemId)}
-                        className="hover:underline"
-                      >
-                        {line.itemName}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
-                    <TableCell className="text-right">{line.quantity}</TableCell>
-                    <TableCell>{line.unitName}</TableCell>
-                    <TableCell className="text-right">
-                      <div>
-                        <div>{formatPrice(line.unitPrice) ?? "\u2014"}</div>
-                        {line.suggestedUnitPrice && (
-                          <div className="text-xs text-muted-foreground">
-                            Suggested {formatPrice(line.suggestedUnitPrice) ?? "\u2014"}
-                            {line.pricingSourceType === "schedule_break" &&
-                            line.pricingScheduleName
-                              ? ` from ${line.pricingScheduleName}${
-                                  line.pricingBreakLabel
-                                    ? `, ${line.pricingBreakLabel}`
-                                    : ""
-                                }`
-                              : " from base price"}
-                            {line.isPriceOverridden ? " · Manual override" : ""}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(line.lineTotal) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {order.lines.map((line) => {
+                  const hasActualMargin = line.actualCogs != null;
+                  const cogs = hasActualMargin ? line.actualCogs : line.estimatedCogs;
+                  const grossProfit = hasActualMargin
+                    ? line.actualGrossProfit
+                    : line.estimatedGrossProfit;
+                  const marginPercent = hasActualMargin
+                    ? line.actualMarginPercent
+                    : line.estimatedMarginPercent;
+
+                  return (
+                    <TableRow key={line.id}>
+                      <TableCell>
+                        <Link
+                          href={itemDetailHref("product", line.itemId)}
+                          className="hover:underline"
+                        >
+                          {line.itemName}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
+                      <TableCell className="text-right">{line.quantity}</TableCell>
+                      <TableCell>{line.unitName}</TableCell>
+                      <TableCell className="text-right">
+                        <div>
+                          <div>{formatPrice(line.unitPrice) ?? "\u2014"}</div>
+                          {line.suggestedUnitPrice && (
+                            <div className="text-xs text-muted-foreground">
+                              Suggested {formatPrice(line.suggestedUnitPrice) ?? "\u2014"}
+                              {line.pricingSourceType === "schedule_break" &&
+                              line.pricingScheduleName
+                                ? ` from ${line.pricingScheduleName}${
+                                    line.pricingBreakLabel
+                                      ? `, ${line.pricingBreakLabel}`
+                                      : ""
+                                  }`
+                                : " from base price"}
+                              {line.isPriceOverridden ? " · Manual override" : ""}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatPrice(line.lineTotal) ?? "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatPrice(cogs) ?? "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatPrice(grossProfit) ?? "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="font-medium">
+                          {formatMarginPercent(marginPercent)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {hasActualMargin ? "Actual" : "Estimated"}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

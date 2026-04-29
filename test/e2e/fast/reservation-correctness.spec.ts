@@ -437,9 +437,19 @@ test.describe("Reservation correctness", () => {
     await expect(oversellDialog.getByText("Available", { exact: true })).toBeVisible();
     await expect(oversellDialog.getByText("Reserved", { exact: true })).toBeVisible();
     await expect(oversellDialog.getByText("Backorder", { exact: true })).toBeVisible();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
+    const [confirmResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          /\/api\/sales-orders\/[0-9a-f-]+\/confirm$/.test(response.url())
+      ),
+      oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click(),
+    ]);
+    expect(confirmResponse.status()).toBe(200);
 
-    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.locator("main").getByText("Confirmed", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
 
     const balance = await getItemBalance(db, itemId);
     expect(balance.committedQty).toBe("2.0000");

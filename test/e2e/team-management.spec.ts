@@ -195,7 +195,7 @@ test.describe("Team management and invite flow", () => {
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
     await page.getByRole("button", { name: "Create Organization" }).click();
-    await page.waitForURL("**/inventory/products");
+    await page.waitForURL("**/planning");
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));
     expect(ownerUser).toBeTruthy();
@@ -283,7 +283,7 @@ test.describe("Team management and invite flow", () => {
         browser,
         TEST_OWNER_EMAIL,
         TEST_OWNER_PASSWORD,
-        "/inventory/products"
+        "/planning"
       );
 
       await page.goto("/settings");
@@ -309,7 +309,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       TEST_OWNER_EMAIL,
       TEST_OWNER_PASSWORD,
-      "/inventory/products"
+      "/planning"
     );
 
     await page.goto(`/accept-invitation?id=${inviteId}`);
@@ -418,7 +418,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       adminEmail,
       adminPassword,
-      "/inventory/products"
+      "/planning"
     );
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();

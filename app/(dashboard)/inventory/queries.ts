@@ -39,6 +39,7 @@ import {
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   getCurrentOnHandQtyInTx,
+  ledgerLotUnitCostByOrigin,
   lockItemsInTx,
   manualDecreaseStockInTx,
   manualIncreaseStockInTx,
@@ -57,6 +58,8 @@ import {
   normalizeStockUnitCost,
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
+import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import { calculateMarginMetrics } from "@/lib/margin";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
 import type { QualityDispositionAction } from "@/lib/schemas/inventory-disposition";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
@@ -179,14 +182,14 @@ function formatAggregateNumber(value: number): string {
 
 function calculateMarginPercent(
   defaultSellingPrice: string | null | undefined,
-  materialCost: string | null | undefined,
+  estimatedUnitCost: string | null | undefined,
 ) {
-  if (defaultSellingPrice == null || materialCost == null) {
+  if (defaultSellingPrice == null || estimatedUnitCost == null) {
     return null;
   }
 
   const sellingPrice = Number.parseFloat(defaultSellingPrice);
-  const cost = Number.parseFloat(materialCost);
+  const cost = Number.parseFloat(estimatedUnitCost);
 
   if (!Number.isFinite(sellingPrice) || sellingPrice <= 0 || !Number.isFinite(cost)) {
     return null;
@@ -405,107 +408,6 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
   );
 }
 
-async function getMaterialCostByProductIdInTx(tx: Tx, productIds: string[]) {
-  const uniqueProductIds = [...new Set(productIds)];
-
-  if (uniqueProductIds.length === 0) {
-    return new Map<string, string>();
-  }
-
-  const productIdList = sql.join(uniqueProductIds.map((id) => sql`${id}`), sql`, `);
-  const result = await tx.execute<{
-    productId: string;
-    materialCost: string | null;
-  }>(sql`
-    WITH RECURSIVE bom_tree(product_id, component_id, extended_quantity, path) AS (
-      SELECT
-        br.product_id,
-        brc.component_id,
-        brc.quantity::numeric / CASE
-          WHEN parent.manufacturing_mode = 'batch'
-            AND parent.expected_batch_yield IS NOT NULL
-            AND parent.expected_batch_yield > 0
-            THEN parent.expected_batch_yield
-          ELSE 1
-        END,
-        ARRAY[br.product_id, brc.component_id]
-      FROM inventory.bom_revisions br
-      INNER JOIN inventory.items parent
-        ON parent.id = br.product_id
-        AND parent.deleted_at IS NULL
-      INNER JOIN inventory.bom_revision_components brc
-        ON brc.bom_revision_id = br.id
-      INNER JOIN inventory.items component
-        ON component.id = brc.component_id
-        AND component.deleted_at IS NULL
-      WHERE br.product_id IN (${productIdList})
-        AND br.is_current = true
-
-      UNION ALL
-
-      SELECT
-        bt.product_id,
-        brc.component_id,
-        bt.extended_quantity * brc.quantity::numeric / CASE
-          WHEN parent.manufacturing_mode = 'batch'
-            AND parent.expected_batch_yield IS NOT NULL
-            AND parent.expected_batch_yield > 0
-            THEN parent.expected_batch_yield
-          ELSE 1
-        END,
-        bt.path || brc.component_id
-      FROM bom_tree bt
-      INNER JOIN inventory.bom_revisions br
-        ON br.product_id = bt.component_id
-        AND br.is_current = true
-      INNER JOIN inventory.items parent
-        ON parent.id = br.product_id
-        AND parent.deleted_at IS NULL
-      INNER JOIN inventory.bom_revision_components brc
-        ON brc.bom_revision_id = br.id
-      INNER JOIN inventory.items component
-        ON component.id = brc.component_id
-        AND component.deleted_at IS NULL
-      WHERE NOT brc.component_id = ANY(bt.path)
-    )
-    SELECT
-      bt.product_id AS "productId",
-      ${trimScaleNullable(sql`
-        SUM(
-          CASE WHEN child_bom.id IS NULL THEN
-            bt.extended_quantity * COALESCE(
-              component.current_stock_unit_cost,
-              CASE
-                WHEN component.item_type = 'material'
-                  AND component.default_purchase_price IS NOT NULL
-                  AND COALESCE(component.purchase_to_stock_factor, 1) > 0
-                  THEN component.default_purchase_price
-                    / COALESCE(component.purchase_to_stock_factor, 1)
-                ELSE NULL
-              END,
-              0
-            )
-          ELSE 0 END
-        )
-      `)} AS "materialCost"
-    FROM bom_tree bt
-    INNER JOIN inventory.items component
-      ON component.id = bt.component_id
-      AND component.deleted_at IS NULL
-    LEFT JOIN inventory.bom_revisions child_bom
-      ON child_bom.product_id = bt.component_id
-      AND child_bom.is_current = true
-    GROUP BY bt.product_id
-  `);
-  const rows = result.rows as Array<{ productId: string; materialCost: string | null }>;
-
-  return new Map(
-    rows
-      .filter((row): row is typeof row & { materialCost: string } => row.materialCost != null)
-      .map((row) => [row.productId, row.materialCost]),
-  );
-}
-
 async function createBomRevisionInTx(
   tx: Tx,
   params: {
@@ -650,7 +552,7 @@ export async function getItems(filters?: {
             unitUom: row.unitUom ?? null,
             category: row.category,
             potential: row.potential,
-            materialCost: null,
+            estimatedUnitCost: null,
             marginPercent: null,
             marginTier: null,
             isMaster: false,
@@ -774,7 +676,7 @@ export async function getItems(filters?: {
                 unitUom: row.unitUom ?? null,
                 category: row.category,
                 potential: null,
-                materialCost: null,
+                estimatedUnitCost: null,
                 marginPercent: null,
                 marginTier: null,
                 isMaster: false,
@@ -866,11 +768,11 @@ export async function getItems(filters?: {
           ...topLevelRows.filter((row) => !row.isMaster).map((row) => row.id),
           ...variantRows.map((row) => row.id),
         ];
-        const [hasBomSet, usedInCounts, revenueByItemId, materialCostByProductId] = await Promise.all([
+        const [hasBomSet, usedInCounts, revenueByItemId, estimatedUnitCostByItemId] = await Promise.all([
           getCurrentBomProductIdSetInTx(tx, leafIds),
           getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
           getRevenue30dByItemIdInTx(tx, leafIds),
-          getMaterialCostByProductIdInTx(tx, leafIds),
+          getEstimatedUnitCostsByItemIdInTx(tx, leafIds),
         ]);
 
         const variantsByParent = new Map<string, typeof variantRows>();
@@ -888,7 +790,7 @@ export async function getItems(filters?: {
               }
 
               const usedInCount = usedInCounts.get(row.id) ?? 0;
-              const materialCost = materialCostByProductId.get(row.id) ?? null;
+              const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
               return [{
                 id: row.id,
                 name: row.name,
@@ -908,8 +810,8 @@ export async function getItems(filters?: {
                 unitUom: row.unitUom ?? null,
                 category: row.category,
                 potential: row.potential,
-                materialCost,
-                marginPercent: calculateMarginPercent(row.defaultSellingPrice, materialCost),
+                estimatedUnitCost,
+                marginPercent: calculateMarginPercent(row.defaultSellingPrice, estimatedUnitCost),
                 marginTier: null,
                 isMaster: false,
                 parentId: null,
@@ -966,18 +868,18 @@ export async function getItems(filters?: {
             const knownVariantMargins = visibleVariants
               .map((variant) => calculateMarginPercent(
                 variant.defaultSellingPrice,
-                materialCostByProductId.get(variant.id),
+                estimatedUnitCostByItemId.get(variant.id),
               ))
               .filter((value): value is string => value != null)
               .map((value) => Number.parseFloat(value))
               .filter((value) => Number.isFinite(value));
             const marginRange = formatMarginRange(knownVariantMargins);
             const knownVariantCosts = visibleVariants
-              .map((variant) => materialCostByProductId.get(variant.id))
+              .map((variant) => estimatedUnitCostByItemId.get(variant.id))
               .filter((value): value is string => value != null)
               .map((value) => Number.parseFloat(value))
               .filter((value) => Number.isFinite(value));
-            const avgMaterialCost = knownVariantCosts.length > 0
+            const avgEstimatedUnitCost = knownVariantCosts.length > 0
               ? formatAggregateNumber(
                   knownVariantCosts.reduce((sum, value) => sum + value, 0) /
                     knownVariantCosts.length,
@@ -1003,7 +905,7 @@ export async function getItems(filters?: {
               unitUom: null,
               category: "Soil Blend",
               potential: row.potential,
-              materialCost: avgMaterialCost,
+              estimatedUnitCost: avgEstimatedUnitCost,
               marginPercent: marginRange,
               marginTier: null,
               isMaster: true,
@@ -1022,7 +924,7 @@ export async function getItems(filters?: {
               createdAt: row.createdAt,
               subRows: visibleVariants.map((variant) => {
                 const variantUsedInCount = usedInCounts.get(variant.id) ?? 0;
-                const materialCost = materialCostByProductId.get(variant.id) ?? null;
+                const estimatedUnitCost = estimatedUnitCostByItemId.get(variant.id) ?? null;
                 return {
                   id: variant.id,
                   name: variant.name,
@@ -1048,10 +950,10 @@ export async function getItems(filters?: {
                   unitUom: variant.unitUom ?? null,
                   category: variant.category,
                   potential: null,
-                  materialCost,
+                  estimatedUnitCost,
                   marginPercent: calculateMarginPercent(
                     variant.defaultSellingPrice,
-                    materialCost,
+                    estimatedUnitCost,
                   ),
                   marginTier: null,
                   isMaster: false,
@@ -1571,6 +1473,55 @@ export async function getCategories(): Promise<string[]> {
 
 export async function getLots(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
+    const realizedRows = await tx
+      .select({
+        lotId: inventoryEvents.lotId,
+        soldQuantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as(
+          "soldQuantity"
+        ),
+        revenue: trimScale(sql`
+          COALESCE(SUM(${inventoryEvents.quantity} * ${salesOrderLines.unitPrice}), 0)
+        `).as("revenue"),
+        cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
+          "cogs"
+        ),
+      })
+      .from(inventoryEvents)
+      .innerJoin(
+        salesOrderLines,
+        sql`${salesOrderLines.id}::text = ${inventoryEvents.metadata}->>'salesOrderLineId'`
+      )
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "sales_consumption"),
+          isNotNull(inventoryEvents.lotId),
+          sql`${inventoryEvents.metadata}->>'salesOrderLineId' IS NOT NULL`
+        )
+      )
+      .groupBy(inventoryEvents.lotId);
+    const realizedByLotId = new Map(
+      realizedRows
+        .filter((row): row is typeof row & { lotId: string } => row.lotId != null)
+        .map((row) => {
+          const margin = calculateMarginMetrics({
+            revenue: row.revenue,
+            cogs: row.cogs,
+          });
+
+          return [
+            row.lotId,
+            {
+              soldQuantity: row.soldQuantity,
+              realizedRevenue: margin?.revenue ?? null,
+              realizedCogs: margin?.cogs ?? null,
+              realizedGrossProfit: margin?.grossProfit ?? null,
+              realizedMarginPercent: margin?.marginPercent ?? null,
+            },
+          ];
+        })
+    );
+
     const rows = await tx
       .select({
         id: lots.id,
@@ -1579,7 +1530,12 @@ export async function getLots(itemId: string) {
           "balanceQuantity"
         ),
         disposition: inventoryLotBalances.disposition,
-        costPerUnit: projectedLotUnitCost(lots.organizationId, lots.id).as("costPerUnit"),
+        costPerUnit: trimScaleNullable(sql`
+          COALESCE(
+            ${projectedLotUnitCost(lots.organizationId, lots.id)}::numeric,
+            ${ledgerLotUnitCostByOrigin(lots.organizationId, lots.id)}::numeric
+          )
+        `).as("costPerUnit"),
         receivedAt: lots.receivedAt,
       })
       .from(lots)
@@ -1602,6 +1558,11 @@ export async function getLots(itemId: string) {
         lotNumber: string;
         quantity: string;
         costPerUnit: string | null;
+        soldQuantity: string | null;
+        realizedRevenue: string | null;
+        realizedCogs: string | null;
+        realizedGrossProfit: string | null;
+        realizedMarginPercent: string | null;
         receivedAt: Date;
         dispositionBalances: Array<{
           disposition: InventoryDisposition;
@@ -1612,6 +1573,13 @@ export async function getLots(itemId: string) {
 
     for (const row of rows) {
       const current = byLot.get(row.id) ?? {
+        ...(realizedByLotId.get(row.id) ?? {
+          soldQuantity: null,
+          realizedRevenue: null,
+          realizedCogs: null,
+          realizedGrossProfit: null,
+          realizedMarginPercent: null,
+        }),
         id: row.id,
         lotNumber: row.lotNumber,
         quantity: "0",

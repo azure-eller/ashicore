@@ -26,6 +26,7 @@ import {
   salesOrderDefaultValues,
 } from "@/lib/schemas/sales-orders";
 import { formatPrice, getFieldArrayError, parsePositive } from "@/lib/format";
+import { calculateUnitMarginMetrics } from "@/lib/margin";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,6 +81,7 @@ import {
   OVERSELL_TOOLTIP_COPY,
   REQUESTED_DATE_TOOLTIP,
   SALES_ADDED_QTY_TOOLTIP,
+  ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
   SALES_UNIT_PRICE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
@@ -98,6 +100,10 @@ function lineTotalLabel(quantity: string | null | undefined, unitPrice: string |
   const price = parsePositive(unitPrice);
   if (qty == null || price == null) return "\u2014";
   return formatPrice((qty * price).toFixed(2)) ?? "\u2014";
+}
+
+function marginPercentLabel(value: string | null | undefined) {
+  return value == null ? "\u2014" : `${value}%`;
 }
 
 function salesItemSearchLabel(item: SalesOrderItemOption | undefined) {
@@ -130,6 +136,7 @@ type LinePricingState = SalesLinePricingResult & {
 const DEFAULT_LINE_PRICING_STATE: LinePricingState = {
   baseUnitPrice: null,
   suggestedUnitPrice: null,
+  estimatedUnitCost: null,
   pricingSourceType: "base_price",
   pricingScheduleName: null,
   pricingBreakLabel: null,
@@ -353,6 +360,7 @@ export function OrderForm({
         previousState.pricingScheduleName === mergedState.pricingScheduleName &&
         previousState.pricingBreakLabel === mergedState.pricingBreakLabel &&
         previousState.customerCategoryName === mergedState.customerCategoryName &&
+        previousState.estimatedUnitCost === mergedState.estimatedUnitCost &&
         previousState.isPriceOverridden === mergedState.isPriceOverridden
       ) {
         return currentState;
@@ -391,6 +399,9 @@ export function OrderForm({
         currentState?.pricingBreakLabel ??
         line?.pricingBreakLabel ??
         DEFAULT_LINE_PRICING_STATE.pricingBreakLabel,
+      estimatedUnitCost:
+        currentState?.estimatedUnitCost ??
+        (itemId ? itemMap.get(itemId)?.estimatedUnitCost ?? null : null),
       customerCategoryName:
         currentState?.customerCategoryName ??
         DEFAULT_LINE_PRICING_STATE.customerCategoryName,
@@ -682,6 +693,9 @@ export function OrderForm({
                           <TableHead className="w-32 text-right">
                             <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
                           </TableHead>
+                          <TableHead className="w-36 text-right">
+                            <TooltipHeader label="Est. Margin" tooltip={ESTIMATED_MARGIN_TOOLTIP} />
+                          </TableHead>
                           <TableHead className="w-12" />
                         </TableRow>
                       </TableHeader>
@@ -719,6 +733,7 @@ export function OrderForm({
                                 baseUnitPrice: item?.defaultSellingPrice ?? null,
                                 suggestedUnitPrice:
                                   item?.defaultSellingPrice ?? null,
+                                estimatedUnitCost: item?.estimatedUnitCost ?? null,
                                 isPriceOverridden: false,
                               });
                             }}
@@ -1003,6 +1018,14 @@ function OrderLineRow({
   });
 
   const item = line?.itemId ? itemMap.get(line.itemId) : undefined;
+  const estimatedUnitCost = pricingState?.estimatedUnitCost ?? item?.estimatedUnitCost ?? null;
+  const estimatedMargin = item
+    ? calculateUnitMarginMetrics({
+        quantity: line?.quantity,
+        unitPrice: line?.unitPrice,
+        unitCost: estimatedUnitCost,
+      })
+    : null;
   const shouldResolveLivePricing =
     (customerId ?? "") !== "" &&
     (line?.itemId ?? "") !== "" &&
@@ -1061,6 +1084,7 @@ function OrderLineRow({
         pricingScheduleName: initialLine?.pricingScheduleName ?? null,
         pricingBreakLabel: initialLine?.pricingBreakLabel ?? null,
         customerCategoryName: null,
+        estimatedUnitCost: item.estimatedUnitCost,
         isPriceOverridden: initialLine?.isPriceOverridden ?? isPriceOverridden,
       });
       return;
@@ -1078,6 +1102,7 @@ function OrderLineRow({
         pricingScheduleName: suggestedPricing.pricingScheduleName,
         pricingBreakLabel: suggestedPricing.pricingBreakLabel,
         customerCategoryName: suggestedPricing.customerCategoryName,
+        estimatedUnitCost: suggestedPricing.estimatedUnitCost,
       });
 
       if (
@@ -1101,6 +1126,7 @@ function OrderLineRow({
       pricingScheduleName: null,
       pricingBreakLabel: null,
       customerCategoryName: null,
+      estimatedUnitCost: item.estimatedUnitCost,
     });
 
     if (!isPriceOverridden && baseUnitPrice !== (line?.unitPrice ?? null)) {
@@ -1283,6 +1309,17 @@ function OrderLineRow({
 
       <TableCell className="text-right text-sm font-medium">
         {lineTotalLabel(line?.quantity, line?.unitPrice)}
+      </TableCell>
+
+      <TableCell className="text-right text-sm">
+        <div className="font-medium">
+          {marginPercentLabel(estimatedMargin?.marginPercent)}
+        </div>
+        {estimatedMargin ? (
+          <div className="text-xs text-muted-foreground">
+            {formatPrice(estimatedMargin.grossProfit) ?? "\u2014"} profit
+          </div>
+        ) : null}
       </TableCell>
 
       <TableCell>

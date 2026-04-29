@@ -49,7 +49,7 @@ export type ItemRow = {
   unitUom: string | null;
   category: string | null;
   potential: string | null;
-  materialCost: string | null;
+  estimatedUnitCost: string | null;
   marginPercent: string | null;
   marginTier: "negative" | "low" | "mid" | "high" | null;
   isMaster: boolean;

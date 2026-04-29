@@ -30,6 +30,7 @@ import {
 } from "@/lib/format";
 import {
   AVAILABLE_QTY_TOOLTIP,
+  ACTUAL_MARGIN_TOOLTIP,
   BACKORDER_QTY_TOOLTIP,
   BATCH_YIELD_TOOLTIP,
   BOM_QTY_PER_BATCH_TOOLTIP,
@@ -58,6 +59,10 @@ import {
   STOCKING_UNIT_TOOLTIP,
   VARIANT_AXES_TOOLTIP,
 } from "@/lib/tooltip-copy";
+
+function formatMarginPercent(value: string | null | undefined) {
+  return value == null ? "\u2014" : `${value}%`;
+}
 
 interface ItemDetailProps {
   item: {
@@ -115,6 +120,11 @@ interface ItemDetailProps {
     lotNumber: string;
     quantity: string;
     costPerUnit: string | null;
+    soldQuantity: string | null;
+    realizedRevenue: string | null;
+    realizedCogs: string | null;
+    realizedGrossProfit: string | null;
+    realizedMarginPercent: string | null;
     receivedAt: Date;
     dispositionBalances: Array<{
       disposition: "available" | "blocked" | "rejected";
@@ -740,6 +750,13 @@ export function ItemDetail({
                   <TableHead className="text-right">
                     <TooltipHeader label="Cost / Unit" tooltip={LOT_UNIT_COST_TOOLTIP} />
                   </TableHead>
+                  <TableHead className="text-right">Sold</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right">COGS</TableHead>
+                  <TableHead className="text-right">Profit</TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="Actual Margin" tooltip={ACTUAL_MARGIN_TOOLTIP} />
+                  </TableHead>
                   <TableHead className="text-right">Received</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -769,6 +786,19 @@ export function ItemDetail({
                       )}
                     </TableCell>
                     <TableCell className="text-right">{formatCost(lot.costPerUnit) ?? "\u2014"}</TableCell>
+                    <TableCell className="text-right">{formatQuantity(lot.soldQuantity)}</TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(lot.realizedRevenue) ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(lot.realizedCogs) ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(lot.realizedGrossProfit) ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatMarginPercent(lot.realizedMarginPercent)}
+                    </TableCell>
                     <TableCell className="text-right">{lot.receivedAt.toLocaleDateString("en-US")}</TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-2">

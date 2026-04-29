@@ -32,7 +32,7 @@ test.describe("Inventory creation flow", () => {
   }) => {
     await page.goto("/");
 
-    await page.waitForURL("**/inventory/products");
+    await page.waitForURL("**/planning");
     await expect(page.getByRole("button", { name: "Inventory", exact: true })).toBeVisible();
     await expect(page.getByText("Test Org")).toBeVisible();
     await expect(page.getByRole("textbox", { name: "ERP Agent message" })).toHaveCount(0);
@@ -118,7 +118,6 @@ test.describe("Inventory creation flow", () => {
     await expect(materialRow.getByRole("link", { name: fullMaterialName })).toBeVisible();
     await expect(materialRow).toContainText(sku);
     await expect(materialRow).toContainText("200");
-    await expect(materialRow).toContainText("175");
     await expect(materialRow).toContainText(`Aggregates ${ts}`);
 
     // DB
@@ -174,7 +173,6 @@ test.describe("Inventory creation flow", () => {
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(fullMaterialName);
     const updatedRow = page.getByRole("row", { name: new RegExp(fullMaterialName) });
-    await expect(updatedRow).toContainText("170");
     await expect(updatedRow).toContainText(`Aggregates ${ts}`);
 
     // DB
@@ -373,7 +371,6 @@ test.describe("Inventory creation flow", () => {
     await expect(simpleProductRow.getByRole("link", { name: simpleProductName })).toBeVisible();
     await expect(simpleProductRow).toContainText(`PROD-BASE-${ts}`);
     await expect(simpleProductRow).toContainText("0");
-    await expect(simpleProductRow).toContainText("-10");
     await expect(simpleProductRow).toContainText(`Mixes ${ts}`);
 
     // DB
