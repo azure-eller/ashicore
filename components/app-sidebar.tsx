@@ -175,7 +175,7 @@ export function AppSidebar({
             "min-h-0 overflow-hidden transition-[max-height,opacity] duration-300 ease-out group-data-[collapsible=icon]:hidden",
             chatExpanded
               ? "pointer-events-none max-h-0 opacity-0"
-              : "max-h-[calc(100svh-10rem)] flex-1 opacity-100"
+              : "flex-1 opacity-100"
           )}
         >
           <NavMain items={navMain} />
