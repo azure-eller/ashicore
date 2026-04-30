@@ -12,9 +12,11 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryEvents,
+  inventoryLotBalances,
   items,
   lots,
   manufacturingOrderBatches,
+  manufacturingOrderIngredientConstraints,
   manufacturingOrderIngredients,
   manufacturingOrders,
   manufacturingPickAllocations,
@@ -47,6 +49,10 @@ import {
   reserveIngredientsForManufacturingInTx,
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
+import {
+  getMinimumLotAgeDays,
+  type BomComponentConstraint,
+} from "@/lib/bom/constraints";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -105,6 +111,7 @@ type LockedManufacturingOrder = {
   salesOrderLineId: string | null;
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
+  plannedDate: string | null;
 };
 
 type ValidatedIngredient = {
@@ -116,6 +123,7 @@ type ValidatedIngredient = {
   quantityPerUnit: string;
   plannedQuantity: string;
   sortOrder: number;
+  constraints: BomComponentConstraint[];
 };
 
 type IngredientProgressRow = {
@@ -138,6 +146,7 @@ type ExecutionIngredientRow = {
   actualQuantity: string | null;
   actualCostTotal: string | null;
   sortOrder: number;
+  constraints: BomComponentConstraint[];
 };
 
 type ExecutionBatchRow = {
@@ -248,6 +257,24 @@ function getRemainingQuantityString(plannedQuantity: string, pickedQuantity: str
   return normalizeQuantityString(getRemainingQuantityNumber(plannedQuantity, pickedQuantity));
 }
 
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoDate(date);
+}
+
+function subtractDays(value: string, days: number) {
+  return addDays(value, -days);
+}
+
+function lotAgeRequirementText(days: number) {
+  return `Lot must be at least ${days} ${days === 1 ? "day" : "days"} old.`;
+}
+
 function getPickProgressStatus(
   rows: IngredientProgressRow[]
 ): ManufacturingPickProgressStatus {
@@ -336,6 +363,7 @@ async function getLockedManufacturingOrderInTx(
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       salesOrderNumber: manufacturingOrders.salesOrderNumber,
       salesCustomerName: manufacturingOrders.salesCustomerName,
+      plannedDate: manufacturingOrders.plannedDate,
     })
     .from(manufacturingOrders)
     .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)))
@@ -540,6 +568,7 @@ async function prepareCreateIngredientsInTx(
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
       plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: index,
+      constraints: row.constraints,
     };
     }),
   };
@@ -573,9 +602,58 @@ async function prepareCreateIngredientsFromBomInTx(
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
       plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: index,
+      constraints: row.constraints,
     };
     }),
   };
+}
+
+async function insertManufacturingIngredientsInTx(
+  tx: Tx,
+  manufacturingOrderId: string,
+  ingredients: ValidatedIngredient[]
+) {
+  if (ingredients.length === 0) {
+    return;
+  }
+
+  const insertedIngredients = await tx
+    .insert(manufacturingOrderIngredients)
+    .values(
+      ingredients.map((ingredient) => ({
+        manufacturingOrderId,
+        itemId: ingredient.itemId,
+        itemName: ingredient.itemName,
+        itemSku: ingredient.itemSku,
+        itemType: ingredient.itemType,
+        unitName: ingredient.unitName,
+        quantityPerUnit: ingredient.quantityPerUnit,
+        plannedQuantity: ingredient.plannedQuantity,
+        sortOrder: ingredient.sortOrder,
+      }))
+    )
+    .returning({
+      id: manufacturingOrderIngredients.id,
+      itemId: manufacturingOrderIngredients.itemId,
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+    });
+
+  const constraintRows = insertedIngredients.flatMap((ingredient) =>
+    (ingredients.find(
+      (input) =>
+        input.itemId === ingredient.itemId &&
+        input.sortOrder === ingredient.sortOrder
+    )?.constraints ?? []).map((constraint) => ({
+      manufacturingOrderIngredientId: ingredient.id,
+      constraintType: constraint.constraintType,
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    }))
+  );
+
+  if (constraintRows.length > 0) {
+    await tx.insert(manufacturingOrderIngredientConstraints).values(constraintRows);
+  }
 }
 
 async function insertManufacturingOrderInTx(
@@ -622,19 +700,7 @@ async function insertManufacturingOrderInTx(
       orderNumber: manufacturingOrders.orderNumber,
     });
 
-  await tx.insert(manufacturingOrderIngredients).values(
-    values.ingredients.map((ingredient) => ({
-      manufacturingOrderId: order.id,
-      itemId: ingredient.itemId,
-      itemName: ingredient.itemName,
-      itemSku: ingredient.itemSku,
-      itemType: ingredient.itemType,
-      unitName: ingredient.unitName,
-      quantityPerUnit: ingredient.quantityPerUnit,
-      plannedQuantity: ingredient.plannedQuantity,
-      sortOrder: ingredient.sortOrder,
-    }))
-  );
+  await insertManufacturingIngredientsInTx(tx, order.id, values.ingredients);
 
   return order;
 }
@@ -647,6 +713,7 @@ async function prepareUpdatedIngredientsInTx(
 ): Promise<ValidatedIngredient[]> {
   const existingRows = await tx
     .select({
+      id: manufacturingOrderIngredients.id,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -657,6 +724,41 @@ async function prepareUpdatedIngredientsInTx(
     .from(manufacturingOrderIngredients)
     .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId))
     .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  const constraints =
+    existingRows.length === 0
+      ? []
+      : await tx
+          .select({
+            manufacturingOrderIngredientId:
+              manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
+            constraintType: manufacturingOrderIngredientConstraints.constraintType,
+            config: manufacturingOrderIngredientConstraints.config,
+            sortOrder: manufacturingOrderIngredientConstraints.sortOrder,
+          })
+          .from(manufacturingOrderIngredientConstraints)
+          .where(
+            inArray(
+              manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
+              existingRows.map((row) => row.id)
+            )
+          )
+          .orderBy(
+            asc(manufacturingOrderIngredientConstraints.sortOrder),
+            asc(manufacturingOrderIngredientConstraints.createdAt)
+          );
+
+  const constraintsByIngredientId = new Map<string, BomComponentConstraint[]>();
+  for (const constraint of constraints) {
+    const bucket =
+      constraintsByIngredientId.get(constraint.manufacturingOrderIngredientId) ?? [];
+    bucket.push({
+      constraintType: constraint.constraintType as BomComponentConstraint["constraintType"],
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    });
+    constraintsByIngredientId.set(constraint.manufacturingOrderIngredientId, bucket);
+  }
 
   const existingIds = new Set(existingRows.map((row) => row.itemId));
   const submittedIds = new Set(submittedIngredients.map((row) => row.itemId));
@@ -688,6 +790,7 @@ async function prepareUpdatedIngredientsInTx(
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
       plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: row.sortOrder,
+      constraints: constraintsByIngredientId.get(row.id) ?? [],
     };
   });
 }
@@ -714,11 +817,13 @@ async function validateActiveIngredientItemsInTx(
 async function getReleaseShortagesInTx(
   tx: Tx,
   organizationId: string,
-  orderId: string
+  orderId: string,
+  plannedDate: string | null
 ): Promise<ManufacturingReleaseWarningPayload["ingredients"]> {
   const location = await getDefaultInventoryLocationInTx(tx, organizationId);
   const ingredients = await tx
     .select({
+      id: manufacturingOrderIngredients.id,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       unitName: manufacturingOrderIngredients.unitName,
@@ -731,6 +836,11 @@ async function getReleaseShortagesInTx(
     .orderBy(asc(manufacturingOrderIngredients.sortOrder));
 
   const shortages: ManufacturingReleaseWarningPayload["ingredients"] = [];
+  const constraintsByIngredientId = await getIngredientConstraintsByIdInTx(
+    tx,
+    ingredients.map((ingredient) => ingredient.id)
+  );
+  const requirementDate = plannedDate ?? isoDate(new Date());
 
   for (const ingredient of ingredients) {
     const needed = normalizeQuantityNumber(parseFloat(ingredient.plannedQuantity));
@@ -750,6 +860,37 @@ async function getReleaseShortagesInTx(
         needed,
         available,
         shortage: normalizeQuantityNumber(needed - available),
+        warningType: "stock_shortage",
+      });
+      continue;
+    }
+
+    const minimumLotAgeDays = getMinimumLotAgeDays(
+      constraintsByIngredientId.get(ingredient.id)
+    );
+    if (minimumLotAgeDays == null) {
+      continue;
+    }
+
+    const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
+      organizationId,
+      locationId: location.id,
+      itemId: ingredient.itemId,
+      minimumLotAgeDays,
+      requiredDate: requirementDate,
+    });
+
+    if (ageAvailability.eligible < needed) {
+      shortages.push({
+        itemId: ingredient.itemId,
+        itemName: ingredient.itemName,
+        unitName: ingredient.unitName,
+        needed,
+        available: ageAvailability.eligible,
+        shortage: normalizeQuantityNumber(needed - ageAvailability.eligible),
+        warningType: "requirement_violation",
+        requirement: lotAgeRequirementText(minimumLotAgeDays),
+        nextEligibleDate: ageAvailability.nextEligibleDate,
       });
     }
   }
@@ -757,8 +898,108 @@ async function getReleaseShortagesInTx(
   return shortages;
 }
 
+async function getIngredientConstraintsByIdInTx(
+  tx: Tx,
+  ingredientIds: string[]
+) {
+  const uniqueIds = [...new Set(ingredientIds)];
+  if (uniqueIds.length === 0) {
+    return new Map<string, BomComponentConstraint[]>();
+  }
+
+  const rows = await tx
+    .select({
+      manufacturingOrderIngredientId:
+        manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
+      constraintType: manufacturingOrderIngredientConstraints.constraintType,
+      config: manufacturingOrderIngredientConstraints.config,
+      sortOrder: manufacturingOrderIngredientConstraints.sortOrder,
+    })
+    .from(manufacturingOrderIngredientConstraints)
+    .where(
+      inArray(
+        manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
+        uniqueIds
+      )
+    )
+    .orderBy(
+      asc(manufacturingOrderIngredientConstraints.sortOrder),
+      asc(manufacturingOrderIngredientConstraints.createdAt)
+    );
+
+  const result = new Map<string, BomComponentConstraint[]>();
+  for (const row of rows) {
+    const bucket = result.get(row.manufacturingOrderIngredientId) ?? [];
+    bucket.push({
+      constraintType: row.constraintType as BomComponentConstraint["constraintType"],
+      config: row.config,
+      sortOrder: row.sortOrder,
+    });
+    result.set(row.manufacturingOrderIngredientId, bucket);
+  }
+
+  return result;
+}
+
+async function getLotAgeAvailabilityInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    minimumLotAgeDays: number;
+    requiredDate: string;
+  }
+) {
+  const cutoffReceivedDate = subtractDays(
+    params.requiredDate,
+    params.minimumLotAgeDays
+  );
+  const rows = await tx
+    .select({
+      quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
+    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+
+  let eligible = 0;
+  let ineligible = 0;
+  let nextEligibleDate: string | null = null;
+
+  for (const row of rows) {
+    const quantity = parseFloat(row.quantity);
+    const receivedDate = isoDate(row.receivedAt);
+    const eligibleDate = addDays(receivedDate, params.minimumLotAgeDays);
+    if (receivedDate <= cutoffReceivedDate) {
+      eligible += quantity;
+      continue;
+    }
+
+    ineligible += quantity;
+    if (nextEligibleDate == null || eligibleDate < nextEligibleDate) {
+      nextEligibleDate = eligibleDate;
+    }
+  }
+
+  return {
+    eligible: normalizeQuantityNumber(eligible),
+    ineligible: normalizeQuantityNumber(ineligible),
+    nextEligibleDate,
+  };
+}
+
 async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
-  return tx
+  const rows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
       manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
@@ -792,11 +1033,22 @@ async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
         sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
       )
     )
-    .orderBy(asc(manufacturingOrderIngredients.sortOrder)) as Promise<ExecutionIngredientRow[]>;
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  const constraintsById = await getIngredientConstraintsByIdInTx(
+    tx,
+    rows.map((row) => row.id)
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    pickStatus: row.pickStatus as ManufacturingPickStatus,
+    constraints: constraintsById.get(row.id) ?? [],
+  }));
 }
 
 async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
-  return tx
+  const rows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
       manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
@@ -825,7 +1077,18 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
     })
     .from(manufacturingOrderIngredients)
     .where(eq(manufacturingOrderIngredients.manufacturingOrderBatchId, batchId))
-    .orderBy(asc(manufacturingOrderIngredients.sortOrder)) as Promise<ExecutionIngredientRow[]>;
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  const constraintsById = await getIngredientConstraintsByIdInTx(
+    tx,
+    rows.map((row) => row.id)
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    pickStatus: row.pickStatus as ManufacturingPickStatus,
+    constraints: constraintsById.get(row.id) ?? [],
+  }));
 }
 
 async function getBatchRowsInTx(tx: Tx, orderId: string) {
@@ -906,9 +1169,10 @@ async function ensureBatchExecutionRowsInTx(
       ),
     });
 
-  await tx.insert(manufacturingOrderIngredients).values(
-    insertedBatches.flatMap((batch) =>
-      templateIngredients.map((ingredient) => ({
+  const batchIngredientInputs = insertedBatches.flatMap((batch) =>
+    templateIngredients.map((ingredient) => ({
+      constraints: ingredient.constraints,
+      values: {
         manufacturingOrderId: order.id,
         manufacturingOrderBatchId: batch.id,
         itemId: ingredient.itemId,
@@ -919,9 +1183,38 @@ async function ensureBatchExecutionRowsInTx(
         quantityPerUnit: ingredient.quantityPerUnit,
         plannedQuantity: ingredient.quantityPerUnit,
         sortOrder: ingredient.sortOrder,
-      }))
-    )
+      },
+    }))
   );
+
+  const insertedIngredients = await tx
+    .insert(manufacturingOrderIngredients)
+    .values(batchIngredientInputs.map((entry) => entry.values))
+    .returning({
+      id: manufacturingOrderIngredients.id,
+      manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      itemId: manufacturingOrderIngredients.itemId,
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+    });
+
+  const constraintRows = insertedIngredients.flatMap((ingredient) =>
+    (batchIngredientInputs.find(
+      (input) =>
+        input.values.manufacturingOrderBatchId ===
+          ingredient.manufacturingOrderBatchId &&
+        input.values.itemId === ingredient.itemId &&
+        input.values.sortOrder === ingredient.sortOrder
+    )?.constraints ?? []).map((constraint) => ({
+      manufacturingOrderIngredientId: ingredient.id,
+      constraintType: constraint.constraintType,
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    }))
+  );
+
+  if (constraintRows.length > 0) {
+    await tx.insert(manufacturingOrderIngredientConstraints).values(constraintRows);
+  }
 
   await tx
     .delete(manufacturingOrderIngredients)
@@ -1007,6 +1300,7 @@ function aggregateBatchIngredients(
         actualQuantity: row.actualQuantity,
         actualCostTotal: row.actualCostTotal,
         sortOrder: row.sortOrder,
+        constraints: row.constraints,
       });
       continue;
     }
@@ -1847,19 +2141,7 @@ export async function updateManufacturingOrder(
       .delete(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id));
 
-    await tx.insert(manufacturingOrderIngredients).values(
-      ingredients.map((ingredient) => ({
-        manufacturingOrderId: id,
-        itemId: ingredient.itemId,
-        itemName: ingredient.itemName,
-        itemSku: ingredient.itemSku,
-        itemType: ingredient.itemType,
-        unitName: ingredient.unitName,
-        quantityPerUnit: ingredient.quantityPerUnit,
-        plannedQuantity: ingredient.plannedQuantity,
-        sortOrder: ingredient.sortOrder,
-      }))
-    );
+    await insertManufacturingIngredientsInTx(tx, id, ingredients);
 
     return order;
   });
@@ -1914,7 +2196,12 @@ export async function releaseManufacturingOrder(
       ingredientRows.map((row) => row.itemId)
     );
 
-    const shortages = await getReleaseShortagesInTx(tx, orgId, id);
+    const shortages = await getReleaseShortagesInTx(
+      tx,
+      orgId,
+      id,
+      order.plannedDate
+    );
 
     if (shortages.length > 0 && !confirmShortage) {
       throw new ManufacturingError(
@@ -2445,14 +2732,21 @@ export async function completeManufacturingBatch(
 export async function pickManufacturingIngredient(
   orderId: string,
   ingredientId: string,
-  options?: { idempotencyKey?: string }
+  options?: {
+    idempotencyKey?: string;
+    confirmRequirementOverride?: boolean;
+  }
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
       organizationId: orgId,
       operationName: "pickManufacturingIngredient",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { orderId, ingredientId },
+      payload: {
+        orderId,
+        ingredientId,
+        confirmRequirementOverride: options?.confirmRequirementOverride ?? false,
+      },
     });
 
     if (replay.replayed) {
@@ -2513,6 +2807,56 @@ export async function pickManufacturingIngredient(
 
     await validateActiveIngredientItemsInTx(tx, [ingredient.itemId]);
 
+    const constraintsByIngredientId = await getIngredientConstraintsByIdInTx(tx, [
+      ingredient.id,
+    ]);
+    const minimumLotAgeDays = getMinimumLotAgeDays(
+      constraintsByIngredientId.get(ingredient.id)
+    );
+    const pickDate = isoDate(new Date());
+    const minimumReceivedDate =
+      minimumLotAgeDays == null ? null : subtractDays(pickDate, minimumLotAgeDays);
+
+    if (minimumLotAgeDays != null) {
+      const location = await getDefaultInventoryLocationInTx(tx, orgId);
+      const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId: ingredient.itemId,
+        minimumLotAgeDays,
+        requiredDate: pickDate,
+      });
+
+      if (
+        ageAvailability.eligible < remainingQuantity &&
+        !options?.confirmRequirementOverride
+      ) {
+        throw new ManufacturingError(
+          `Not enough eligible ${ingredient.itemName}.`,
+          409,
+          {
+            shortage: {
+              ingredients: [
+                {
+                  itemId: ingredient.itemId,
+                  itemName: ingredient.itemName,
+                  unitName: ingredient.unitName,
+                  needed: remainingQuantity,
+                  available: ageAvailability.eligible,
+                  shortage: normalizeQuantityNumber(
+                    remainingQuantity - ageAvailability.eligible
+                  ),
+                  warningType: "requirement_violation",
+                  requirement: lotAgeRequirementText(minimumLotAgeDays),
+                  nextEligibleDate: ageAvailability.nextEligibleDate,
+                },
+              ],
+            },
+          }
+        );
+      }
+    }
+
     if (ingredient.manufacturingOrderBatchId != null) {
       const batch = assertCurrentExecutionBatch(
         lockedBatches,
@@ -2543,6 +2887,8 @@ export async function pickManufacturingIngredient(
         options?.idempotencyKey,
         `pick-ingredient:${ingredientId}`
       ),
+      minimumReceivedDate,
+      confirmRequirementOverride: options?.confirmRequirementOverride,
     });
 
     await tx

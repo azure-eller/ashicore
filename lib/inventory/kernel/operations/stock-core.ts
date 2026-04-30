@@ -53,6 +53,7 @@ export type FifoAllocation = {
   quantity: number;
   unitCost: number;
   receivedAt: Date;
+  requirementViolated?: boolean;
 };
 
 export async function generateLotNumberInTx(tx: Tx) {
@@ -421,8 +422,18 @@ export async function createPositiveStockEventInTx(
 
 async function getLockedFifoLotsInTx(
   tx: Tx,
-  params: { organizationId: string; locationId: string; itemId: string }
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    minimumReceivedDate?: string | null;
+    allowIneligibleLots?: boolean;
+  }
 ) {
+  const eligibilityCondition = params.minimumReceivedDate
+    ? sql`${inventoryLotBalances.receivedAt}::date <= ${params.minimumReceivedDate}`
+    : undefined;
+
   return tx
     .select({
       lotId: lots.id,
@@ -442,10 +453,19 @@ async function getLockedFifoLotsInTx(
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
         eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-        sql`${inventoryLotBalances.quantity} > 0`
+        sql`${inventoryLotBalances.quantity} > 0`,
+        params.minimumReceivedDate && !params.allowIneligibleLots
+          ? eligibilityCondition
+          : undefined
       )
     )
-    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId))
+    .orderBy(
+      params.minimumReceivedDate && params.allowIneligibleLots
+        ? sql`CASE WHEN ${eligibilityCondition} THEN 0 ELSE 1 END`
+        : asc(inventoryLotBalances.receivedAt),
+      asc(inventoryLotBalances.receivedAt),
+      asc(inventoryLotBalances.lotId)
+    )
     .for("update");
 }
 
@@ -464,6 +484,8 @@ export async function consumeStockFifoInTx(
     idempotencyKey?: string | null;
     occurredAt?: Date;
     metadata?: Record<string, unknown> | null;
+    minimumReceivedDate?: string | null;
+    allowIneligibleLots?: boolean;
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
@@ -536,6 +558,10 @@ export async function consumeStockFifoInTx(
       quantity: deduction,
       unitCost,
       receivedAt,
+      requirementViolated:
+        params.minimumReceivedDate != null
+          ? receivedAt.toISOString().slice(0, 10) > params.minimumReceivedDate
+          : false,
     });
     remaining = roundQuantity(remaining - deduction);
   }

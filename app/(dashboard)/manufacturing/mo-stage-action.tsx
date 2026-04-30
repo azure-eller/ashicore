@@ -51,6 +51,9 @@ export function MoStageAction({
   const [releaseWarning, setReleaseWarning] =
     useState<ManufacturingReleaseWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const hasRequirementWarning =
+    releaseWarning?.ingredients.some((ingredient) => ingredient.requirement) ??
+    false;
 
   const releaseMutation = useMutation({
     mutationFn: async (confirmShortage: boolean) => {
@@ -118,10 +121,15 @@ export function MoStageAction({
             className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
           >
             <AlertDialogHeader>
-              <AlertDialogTitle>Release with shortages?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {hasRequirementWarning
+                  ? "Release with warnings?"
+                  : "Release with shortages?"}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Releasing is still allowed, but picking and completion will stay blocked
-                until these ingredients are produced or purchased.
+                {hasRequirementWarning
+                  ? "Releasing is still allowed, but picking may need more eligible stock or confirmation."
+                  : "Releasing is still allowed, but completion will require enough available ingredients."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="rounded-md border">
@@ -146,7 +154,19 @@ export function MoStageAction({
                 <TableBody>
                   {releaseWarning?.ingredients.map((ingredient) => (
                     <TableRow key={ingredient.itemId}>
-                      <TableCell>{ingredient.itemName}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p>{ingredient.itemName}</p>
+                          {ingredient.requirement ? (
+                            <p className="text-xs text-muted-foreground">
+                              {ingredient.requirement}
+                              {ingredient.nextEligibleDate
+                                ? ` Next eligible date: ${ingredient.nextEligibleDate}.`
+                                : ""}
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right">
                         {ingredient.needed} {ingredient.unitName}
                       </TableCell>

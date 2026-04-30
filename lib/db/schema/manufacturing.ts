@@ -1,5 +1,7 @@
 import {
+  check,
   date,
+  boolean,
   index,
   integer,
   numeric,
@@ -10,9 +12,13 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { bomRevisions } from "./bom";
+import {
+  bomRevisions,
+  type BomComponentConstraintConfig,
+} from "./bom";
 import { items } from "./items";
 import { lots } from "./lots";
 import { salesOrders } from "./sales";
@@ -218,6 +224,11 @@ export const manufacturingPickAllocations = manufacturingSchema
         .references(() => lots.id),
       quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
       costPerUnit: numeric("cost_per_unit", { precision: 18, scale: 6 }),
+      requirementOverrideConfirmed: boolean("requirement_override_confirmed")
+        .notNull()
+        .default(false),
+      requirementOverrideConfirmedBy: text("requirement_override_confirmed_by"),
+      requirementOverrideConfirmedAt: timestamp("requirement_override_confirmed_at"),
       createdBy: text("created_by").notNull(),
       createdAt: timestamp("created_at").notNull().defaultNow(),
     },
@@ -226,6 +237,62 @@ export const manufacturingPickAllocations = manufacturingSchema
         table.manufacturingOrderIngredientId
       ),
       pgPolicy("manufacturing_pick_allocations_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`manufacturing_order_ingredient_id IN (
+          SELECT i.id
+          FROM manufacturing.manufacturing_order_ingredients i
+          INNER JOIN manufacturing.manufacturing_orders o
+            ON o.id = i.manufacturing_order_id
+          WHERE o.organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`manufacturing_order_ingredient_id IN (
+          SELECT i.id
+          FROM manufacturing.manufacturing_order_ingredients i
+          INNER JOIN manufacturing.manufacturing_orders o
+            ON o.id = i.manufacturing_order_id
+          WHERE o.organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const manufacturingOrderIngredientConstraints = manufacturingSchema
+  .table(
+    "manufacturing_order_ingredient_constraints",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      manufacturingOrderIngredientId: uuid("manufacturing_order_ingredient_id")
+        .notNull()
+        .references(() => manufacturingOrderIngredients.id, { onDelete: "cascade" }),
+      constraintType: varchar("constraint_type", { length: 64 }).notNull(),
+      config: jsonb("config").$type<BomComponentConstraintConfig>().notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("manufacturing_order_ingredient_constraints_ingredient_id_idx").on(
+        table.manufacturingOrderIngredientId
+      ),
+      uniqueIndex("manufacturing_order_ingredient_constraints_type_uidx").on(
+        table.manufacturingOrderIngredientId,
+        table.constraintType
+      ),
+      check(
+        "manufacturing_order_ingredient_constraints_type_check",
+        sql`constraint_type IN ('lot_age_min_days')`
+      ),
+      check(
+        "manufacturing_order_ingredient_constraints_config_check",
+        sql`constraint_type <> 'lot_age_min_days'
+          OR (
+            config->>'basis' = 'received_at'
+            AND (config->>'days') ~ '^[1-9][0-9]*$'
+          )`
+      ),
+      pgPolicy("manufacturing_order_ingredient_constraints_org_isolation", {
         for: "all",
         to: "public",
         using: sql`manufacturing_order_ingredient_id IN (

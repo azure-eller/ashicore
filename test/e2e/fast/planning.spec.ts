@@ -1,6 +1,8 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
+  inventoryLotBalances,
+  lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
   purchaseOrderLines,
@@ -173,7 +175,14 @@ test.describe("Planning workspace", () => {
     return (await createMaterialRecord(name, options)).id;
   }
 
-  async function createProduct(name: string, bom: Array<{ componentId: string; quantity: string }>) {
+  async function createProduct(
+    name: string,
+    bom: Array<{
+      componentId: string;
+      quantity: string;
+      minimumLotAgeDays?: number | null;
+    }>
+  ) {
     const result = await createItem({
       name,
       itemType: "product",
@@ -782,6 +791,45 @@ test.describe("Planning workspace", () => {
     expect(componentDemand?.parentItemId).toBe(productId);
     expect(componentDemand?.bomRevisionId).toBeTruthy();
     expect(componentDemand?.sourceRefs.some((ref) => ref.sourceType === "bom_revision")).toBe(true);
+  });
+
+  test("lot age requirements allocate eligible lots once across BOM demand", async ({
+    db,
+  }) => {
+    const componentId = await createMaterial("Aged Soil Allocation Tote", {
+      stock: "15",
+      skuKey: "AGED-ALLOC-TOTE",
+    });
+    await db
+      .update(lots)
+      .set({ receivedAt: new Date("2026-05-01T00:00:00.000Z") })
+      .where(eq(lots.itemId, componentId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: new Date("2026-05-01T00:00:00.000Z") })
+      .where(eq(inventoryLotBalances.itemId, componentId));
+
+    const firstProductId = await createProduct("Aged Soil Allocation Bag A", [
+      { componentId, quantity: "1", minimumLotAgeDays: 7 },
+    ]);
+    const secondProductId = await createProduct("Aged Soil Allocation Bag B", [
+      { componentId, quantity: "1", minimumLotAgeDays: 7 },
+    ]);
+    await updatePlanningRules(firstProductId, { productionLeadTimeDays: "1" });
+    await updatePlanningRules(secondProductId, { productionLeadTimeDays: "1" });
+    await createConfirmedDemand(firstProductId, "10");
+    await createConfirmedDemand(secondProductId, "10");
+
+    const planning = await snapshot();
+    const blockers = planning.productionBlockerFacts.filter(
+      (fact) =>
+        fact.componentItemId === componentId &&
+        fact.blockerType === "component_requirement"
+    );
+
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0].availableQuantity).toBe("5");
+    expect(blockers[0].shortageQuantity).toBe("5");
   });
 
   test("create PO draft from recommendation validates payload and creates a draft", async ({

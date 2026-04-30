@@ -44,6 +44,7 @@ export default async function EditProductPage({
           bom: bom.map((b) => ({
             componentId: b.componentId,
             quantity: b.quantity,
+            minimumLotAgeDays: b.minimumLotAgeDays,
           })),
         }}
       />

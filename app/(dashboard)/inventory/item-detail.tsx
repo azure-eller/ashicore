@@ -114,6 +114,7 @@ interface ItemDetailProps {
     componentItemType: string;
     componentUnit: string;
     quantity: string | null;
+    minimumLotAgeDays?: number | null;
   }[];
   lots: {
     id: string;
@@ -647,6 +648,7 @@ export function ItemDetail({
                           <TooltipHeader label="Qty / Unit" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
                         </TableHead>
                       )}
+                      <TableHead>Requirements</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -678,6 +680,13 @@ export function ItemDetail({
                               {perUnit != null ? `${perUnit} ${b.componentUnit}` : "\u2014"}
                             </TableCell>
                           )}
+                          <TableCell className="text-sm text-muted-foreground">
+                            {b.minimumLotAgeDays
+                              ? `Lot must be at least ${b.minimumLotAgeDays} ${
+                                  b.minimumLotAgeDays === 1 ? "day" : "days"
+                                } old.`
+                              : "\u2014"}
+                          </TableCell>
                         </TableRow>
                       );
                     })}

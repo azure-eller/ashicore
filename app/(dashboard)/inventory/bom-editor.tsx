@@ -58,9 +58,10 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
     <div className="flex w-full flex-col gap-6">
       {fields.length > 0 ? (
         <div className="space-y-3 rounded-lg border p-3">
-          <div className="hidden grid-cols-[minmax(0,1fr)_8rem_6rem_2.5rem] gap-3 px-2 text-xs font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_8rem_7rem_6rem_2.5rem] gap-3 px-2 text-xs font-medium text-muted-foreground md:grid">
             <span>Component</span>
             <span>{isBatch ? "Qty / Batch" : "Qty"}</span>
+            <span>Min Age</span>
             <span>Unit</span>
             <span />
           </div>
@@ -92,7 +93,7 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         variant="outline"
         size="sm"
         onClick={() =>
-          append({ componentId: "", quantity: null })
+          append({ componentId: "", quantity: null, minimumLotAgeDays: null })
         }
       >
         + Add Ingredient
@@ -121,7 +122,7 @@ function BomRow({
   return (
     <div
       data-testid="bom-row"
-      className="grid gap-3 rounded-lg border border-dashed p-3 md:grid-cols-[minmax(0,1fr)_8rem_6rem_2.5rem] md:items-start"
+      className="grid gap-3 rounded-lg border border-dashed p-3 md:grid-cols-[minmax(0,1fr)_8rem_7rem_6rem_2.5rem] md:items-start"
     >
       <div className="space-y-1">
         <p className="text-xs font-medium text-muted-foreground md:hidden">Component</p>
@@ -176,6 +177,31 @@ function BomRow({
                 aria-invalid={fieldState.invalid}
                 placeholder="0"
                 inputMode="decimal"
+                autoComplete="off"
+                className="w-full"
+              />
+              {fieldState.invalid && (
+                <FieldError errors={[fieldState.error]} />
+              )}
+            </div>
+          )}
+        />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground md:hidden">
+          Min Age
+        </p>
+        <Controller
+          name={`bom.${index}.minimumLotAgeDays`}
+          control={control}
+          render={({ field: f, fieldState }) => (
+            <div>
+              <Input
+                {...f}
+                value={f.value ?? ""}
+                aria-invalid={fieldState.invalid}
+                placeholder="0"
+                inputMode="numeric"
                 autoComplete="off"
                 className="w-full"
               />

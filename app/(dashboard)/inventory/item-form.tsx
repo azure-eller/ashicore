@@ -109,7 +109,11 @@ interface ItemFormProps {
   availableComponents?: AvailableComponent[];
   canManageBomLock?: boolean;
   initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
-    bom?: { componentId: string; quantity: string | null }[];
+    bom?: {
+      componentId: string;
+      quantity: string | null;
+      minimumLotAgeDays?: number | null;
+    }[];
   };
 }
 

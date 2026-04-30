@@ -202,7 +202,9 @@ export type StartManufacturingBatch = z.infer<
   typeof startManufacturingBatchSchema
 >;
 
-export const pickManufacturingIngredientSchema = z.object({});
+export const pickManufacturingIngredientSchema = z.object({
+  confirmRequirementOverride: z.boolean().optional(),
+});
 export type PickManufacturingIngredient = z.infer<
   typeof pickManufacturingIngredientSchema
 >;

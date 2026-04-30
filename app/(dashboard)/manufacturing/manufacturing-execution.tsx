@@ -8,6 +8,16 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -35,9 +45,13 @@ import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
+import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
-import type { ManufacturingExecutionDetail } from "./types";
+import type {
+  ManufacturingExecutionDetail,
+  ManufacturingReleaseWarningPayload,
+} from "./types";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 
 function getDefaultActualQuantity(execution: ManufacturingExecutionDetail) {
@@ -223,14 +237,20 @@ export function ManufacturingExecution({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [pickError, setPickError] = useState<{ id: string; message: string } | null>(null);
+  const [pickWarning, setPickWarning] = useState<{
+    ingredientId: string;
+    warning: ManufacturingReleaseWarningPayload;
+  } | null>(null);
   const [pickingIngredientId, setPickingIngredientId] = useState<string | null>(null);
   const [startBatchError, setStartBatchError] = useState<string | null>(null);
+  const [optimisticStartedBatchId, setOptimisticStartedBatchId] = useState<string | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
   const defaultActualQuantity = getDefaultActualQuantity(execution);
   const canPick =
     execution.manufacturingMode === "discrete" ||
-    execution.currentBatch?.status === "in_progress";
+    execution.currentBatch?.status === "in_progress" ||
+    execution.currentBatchId === optimisticStartedBatchId;
 
   const refreshData = async () => {
     await Promise.all([
@@ -266,42 +286,72 @@ export function ManufacturingExecution({
     onMutate: () => {
       setStartBatchError(null);
     },
-    onSuccess: refreshData,
+    onSuccess: async () => {
+      setOptimisticStartedBatchId(execution.currentBatchId);
+      await refreshData();
+    },
     onError: (error) => {
       setStartBatchError(error.message);
     },
   });
 
   const pickMutation = useMutation({
-    mutationFn: async (ingredientId: string) => {
+    mutationFn: async (input: {
+      ingredientId: string;
+      confirmRequirementOverride?: boolean;
+    }) => {
       const response = await fetch(
-        `/api/manufacturing-orders/${execution.id}/ingredients/${ingredientId}/pick`,
+        `/api/manufacturing-orders/${execution.id}/ingredients/${input.ingredientId}/pick`,
         {
           method: "POST",
           headers: createIdempotencyHeaders("manufacturing-pick", {
             "Content-Type": "application/json",
           }),
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            confirmRequirementOverride: input.confirmRequirementOverride,
+          }),
         }
       );
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to pick ingredient.");
+        throw {
+          status: response.status,
+          message: body?.error ?? "Failed to pick ingredient.",
+          shortage: body?.shortage as ManufacturingReleaseWarningPayload | undefined,
+        };
       }
-      return ingredientId;
+      return input.ingredientId;
     },
-    onMutate: (ingredientId) => {
-      setPickingIngredientId(ingredientId);
-      setPickError((prev) => (prev?.id === ingredientId ? null : prev));
+    onMutate: (input) => {
+      setPickingIngredientId(input.ingredientId);
+      setPickError((prev) => (prev?.id === input.ingredientId ? null : prev));
     },
-    onSuccess: async (_data, ingredientId) => {
+    onSuccess: async (_data, input) => {
       setPickingIngredientId(null);
-      setPickError((prev) => (prev?.id === ingredientId ? null : prev));
+      setPickError((prev) => (prev?.id === input.ingredientId ? null : prev));
+      setPickWarning(null);
       await refreshData();
     },
-    onError: (error, ingredientId) => {
+    onError: (
+      error: {
+        status?: number;
+        message?: string;
+        shortage?: ManufacturingReleaseWarningPayload;
+      },
+      input
+    ) => {
       setPickingIngredientId(null);
-      setPickError({ id: ingredientId, message: error.message });
+      if (error.status === 409 && error.shortage) {
+        setPickWarning({
+          ingredientId: input.ingredientId,
+          warning: error.shortage,
+        });
+        return;
+      }
+      setPickError({
+        id: input.ingredientId,
+        message: error.message ?? "Failed to pick ingredient.",
+      });
     },
   });
 
@@ -332,6 +382,7 @@ export function ManufacturingExecution({
     },
     onSuccess: async () => {
       setCompleteOpen(false);
+      setOptimisticStartedBatchId(null);
       await refreshData();
     },
     onError: (error) => {
@@ -373,6 +424,7 @@ export function ManufacturingExecution({
     },
     onSuccess: async () => {
       setCompleteOpen(false);
+      setOptimisticStartedBatchId(null);
       await refreshData();
     },
     onError: (error) => {
@@ -535,6 +587,7 @@ export function ManufacturingExecution({
           <div className="grid gap-3">
             {execution.ingredients.map((ingredient) => {
               const isPicked = ingredient.remainingQuantity === "0";
+              const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
 
               return (
                 <Card key={ingredient.id} size="sm" className="border border-border/80">
@@ -560,6 +613,12 @@ export function ManufacturingExecution({
                           {" • "}
                           Remaining {formatQuantity(ingredient.remainingQuantity)} {ingredient.unitName}
                         </p>
+                        {minimumLotAgeDays ? (
+                          <p className="text-sm text-muted-foreground">
+                            Lot must be at least {minimumLotAgeDays}{" "}
+                            {minimumLotAgeDays === 1 ? "day" : "days"} old.
+                          </p>
+                        ) : null}
                       </div>
                       <Button
                         variant={isPicked ? "outline" : "default"}
@@ -569,7 +628,9 @@ export function ManufacturingExecution({
                           pickMutation.isPending ||
                           isCompleting
                         }
-                        onClick={() => pickMutation.mutate(ingredient.id)}
+                        onClick={() =>
+                          pickMutation.mutate({ ingredientId: ingredient.id })
+                        }
                       >
                         {isPicked
                           ? "Picked"
@@ -597,6 +658,55 @@ export function ManufacturingExecution({
             {execution.manufacturingMode === "batch" ? "Complete Batch" : "Complete Order"}
           </Button>
         </div>
+
+        <AlertDialog
+          open={pickWarning != null}
+          onOpenChange={(open) => {
+            if (!open) setPickWarning(null);
+          }}
+        >
+          <AlertDialogContent className="bg-background text-foreground">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Pick under-age lot?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This ingredient does not have enough eligible stock for its component
+                requirement.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2 text-sm">
+              {pickWarning?.warning.ingredients.map((ingredient) => (
+                <div key={ingredient.itemId} className="rounded-md border p-3">
+                  <p className="font-medium">{ingredient.itemName}</p>
+                  <p className="text-muted-foreground">
+                    {ingredient.requirement ?? "Component requirement is not met."}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Eligible {ingredient.available} {ingredient.unitName}; needed{" "}
+                    {ingredient.needed} {ingredient.unitName}.
+                    {ingredient.nextEligibleDate
+                      ? ` Next eligible date: ${formatDate(ingredient.nextEligibleDate)}.`
+                      : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Back</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={pickMutation.isPending || pickWarning == null}
+                onClick={() => {
+                  if (!pickWarning) return;
+                  pickMutation.mutate({
+                    ingredientId: pickWarning.ingredientId,
+                    confirmRequirementOverride: true,
+                  });
+                }}
+              >
+                {pickMutation.isPending ? "Picking..." : "Pick Anyway"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <CompleteDialog
           key={

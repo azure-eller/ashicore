@@ -4,8 +4,10 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
+  inventoryLotBalances,
   items,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
@@ -26,9 +28,11 @@ import {
   projectedExpectedQty,
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
+import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
 import type {
   BomRequirementFact,
+  BomComponentRequirement,
   DemandFact,
   DaysOfCoverStatus,
   InventoryFact,
@@ -57,6 +61,7 @@ type PlanningItemRecord = {
   unitName: string | null;
   unitUom: string | null;
   safetyStock: string;
+  reorderPoint: string | null;
   targetCoverDays: string | null;
   planningEnabled: boolean;
   leadTimeDaysOverride: string | null;
@@ -73,6 +78,7 @@ type PlanningItemRecord = {
 };
 
 type BomComponentRecord = {
+  id: string;
   componentId: string;
   componentName: string;
   componentSku: string | null;
@@ -80,6 +86,7 @@ type BomComponentRecord = {
   unitName: string;
   quantity: string;
   sortOrder: number;
+  requirements: BomComponentRequirement[];
 };
 
 type CurrentBomRecord = {
@@ -118,6 +125,13 @@ type QuantityBuckets = {
   demandQuantity: number;
   incomingPurchaseOrderQuantity: number;
   incomingManufacturingOrderQuantity: number;
+};
+
+type AvailableLotFact = {
+  itemId: string;
+  lotId: string;
+  quantity: number;
+  receivedDate: string;
 };
 
 function toQuantity(value: string | null | undefined) {
@@ -160,6 +174,41 @@ function daysBetween(start: string, end: string) {
     0,
     Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000)
   );
+}
+
+async function getAvailableLotFactsInTx(
+  tx: Tx,
+  orgId: string,
+  locationId: string
+): Promise<AvailableLotFact[]> {
+  const rows = await tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      lotId: inventoryLotBalances.lotId,
+      quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, orgId),
+        eq(inventoryLotBalances.locationId, locationId),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+
+  return rows.map((row) => ({
+    itemId: row.itemId,
+    lotId: row.lotId,
+    quantity: toQuantity(row.quantity),
+    receivedDate: isoDate(row.receivedAt),
+  })).sort((left, right) => {
+    const receivedCompare = left.receivedDate.localeCompare(right.receivedDate);
+    return receivedCompare !== 0
+      ? receivedCompare
+      : left.lotId.localeCompare(right.lotId);
+  });
 }
 
 function productionBucketForDate(
@@ -278,6 +327,7 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       unitName: unitDefinitions.name,
       unitUom: unitDefinitions.uom,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
+      reorderPoint: trimScaleNullable(items.reorderPoint).as("reorderPoint"),
       targetCoverDays: trimScaleNullable(items.targetCoverDays).as("targetCoverDays"),
       planningEnabled: items.planningEnabled,
       leadTimeDaysOverride: trimScaleNullable(items.leadTimeDaysOverride).as(
@@ -682,6 +732,7 @@ async function getCurrentBomsInTx(
 
   const components = await tx
     .select({
+      id: bomRevisionComponents.id,
       bomRevisionId: bomRevisionComponents.bomRevisionId,
       componentId: bomRevisionComponents.componentId,
       componentName: items.name,
@@ -709,10 +760,43 @@ async function getCurrentBomsInTx(
       asc(bomRevisionComponents.createdAt)
     );
 
+  const constraints =
+    components.length === 0
+      ? []
+      : await tx
+          .select({
+            bomRevisionComponentId:
+              bomRevisionComponentConstraints.bomRevisionComponentId,
+            constraintType: bomRevisionComponentConstraints.constraintType,
+            config: bomRevisionComponentConstraints.config,
+            sortOrder: bomRevisionComponentConstraints.sortOrder,
+          })
+          .from(bomRevisionComponentConstraints)
+          .where(
+            inArray(
+              bomRevisionComponentConstraints.bomRevisionComponentId,
+              components.map((component) => component.id)
+            )
+          );
+  const requirementsByComponentId = new Map<string, BomComponentRequirement[]>();
+  for (const constraint of constraints) {
+    if (constraint.constraintType !== "lot_age_min_days") continue;
+    const days = Number(constraint.config.days);
+    if (!Number.isInteger(days) || days <= 0) continue;
+    const bucket = requirementsByComponentId.get(constraint.bomRevisionComponentId) ?? [];
+    bucket.push({
+      requirementType: "lot_age_min_days",
+      days,
+      basis: "received_at",
+    });
+    requirementsByComponentId.set(constraint.bomRevisionComponentId, bucket);
+  }
+
   const componentsByRevision = new Map<string, BomComponentRecord[]>();
   for (const component of components) {
     const bucket = componentsByRevision.get(component.bomRevisionId) ?? [];
     bucket.push({
+      id: component.id,
       componentId: component.componentId,
       componentName: component.componentName,
       componentSku: component.componentSku,
@@ -720,6 +804,7 @@ async function getCurrentBomsInTx(
       unitName: component.unitName,
       quantity: component.quantity,
       sortOrder: component.sortOrder,
+      requirements: requirementsByComponentId.get(component.id) ?? [],
     });
     componentsByRevision.set(component.bomRevisionId, bucket);
   }
@@ -1443,6 +1528,7 @@ function buildPlanningRows(args: {
       shortageQuantity: normalizeQuantity(shortageQuantity),
       earliestRequiredDate,
       safetyStock: item.safetyStock,
+      reorderPoint: item.reorderPoint,
       targetCoverDays: replenishment.targetCoverDays,
       daysOfCover: replenishment.daysOfCover,
       daysOfCoverStatus: replenishment.daysOfCoverStatus,
@@ -1554,6 +1640,7 @@ function addBomExplosionDemand(args: {
     }
 
     const quantity = normalizeQuantity(componentQuantity);
+    const ingredientNeedDate = args.row.latestStartDate ?? args.row.earliestRequiredDate;
     const factId = [
       "demand:bom",
       args.level,
@@ -1578,7 +1665,7 @@ function addBomExplosionDemand(args: {
       itemId: component.componentId,
       demandType: "bom_explosion",
       quantity,
-      requiredDate: args.row.earliestRequiredDate,
+      requiredDate: ingredientNeedDate,
       reasonCodes: ["bom_component_demand"],
       sourceRefs,
       parentItemId: parentItem.id,
@@ -1598,6 +1685,8 @@ function addBomExplosionDemand(args: {
       quantityPerParent: component.quantity,
       parentShortageQuantity: args.row.shortageQuantity,
       requiredQuantity: quantity,
+      ingredientNeedDate,
+      requirements: component.requirements,
       reasonCodes: ["bom_component_demand"],
       sourceRefs,
     });
@@ -1709,10 +1798,19 @@ function buildProductionBlockerFacts(args: {
   rows: PlanningItemRow[];
   bomRequirementFacts: BomRequirementFact[];
   bomByProductId: Map<string, CurrentBomRecord>;
+  availableLots: AvailableLotFact[];
+  horizonStart: string;
   warnings: PlanningWarning[];
 }): ProductionBlockerFact[] {
   const rowsByItemId = new Map(args.rows.map((row) => [row.item.id, row]));
   const blockers: ProductionBlockerFact[] = [];
+  const remainingLotsByItemId = new Map<string, AvailableLotFact[]>();
+
+  for (const lot of args.availableLots) {
+    const bucket = remainingLotsByItemId.get(lot.itemId) ?? [];
+    bucket.push({ ...lot });
+    remainingLotsByItemId.set(lot.itemId, bucket);
+  }
 
   for (const fact of args.bomRequirementFacts) {
     const parent = rowsByItemId.get(fact.parentItemId);
@@ -1722,7 +1820,31 @@ function buildProductionBlockerFacts(args: {
     }
 
     const requiredQuantity = toQuantity(fact.requiredQuantity);
-    const availableQuantity = toQuantity(component.availableStock);
+    const lotAgeRequirement = fact.requirements.find(
+      (requirement) => requirement.requirementType === "lot_age_min_days"
+    );
+    let availableQuantity = toQuantity(component.availableStock);
+
+    if (lotAgeRequirement) {
+      const needDate = fact.ingredientNeedDate ?? args.horizonStart;
+      const remainingLots = remainingLotsByItemId.get(fact.componentItemId) ?? [];
+      const eligibleLots = remainingLots.filter(
+        (lot) => addDays(lot.receivedDate, lotAgeRequirement.days) <= needDate
+      );
+      availableQuantity = eligibleLots.reduce(
+        (sum, lot) => sum + lot.quantity,
+        0
+      );
+
+      let quantityToConsume = Math.min(requiredQuantity, availableQuantity);
+      for (const lot of eligibleLots) {
+        if (quantityToConsume <= 0) break;
+        const consumed = Math.min(lot.quantity, quantityToConsume);
+        lot.quantity = roundQuantity(lot.quantity - consumed);
+        quantityToConsume = roundQuantity(quantityToConsume - consumed);
+      }
+    }
+
     const shortageQuantity = positiveQuantity(requiredQuantity - availableQuantity);
     if (shortageQuantity <= 0) {
       continue;
@@ -1737,9 +1859,11 @@ function buildProductionBlockerFacts(args: {
       componentItemName: component.item.name,
       componentUnitName: component.item.unitName,
       requiredQuantity: fact.requiredQuantity,
-      availableQuantity: component.availableStock,
+      availableQuantity: normalizeQuantity(availableQuantity),
       shortageQuantity: normalizeQuantity(shortageQuantity),
-      blockerType: "material_shortage",
+      blockerType: lotAgeRequirement
+        ? "component_requirement"
+        : "material_shortage",
       earliestRequiredDate: parent.earliestRequiredDate,
       sourceRefs: fact.sourceRefs,
     });
@@ -1960,6 +2084,12 @@ function buildRecommendations(args: {
       const missingProductionLeadTime = row.reasonCodes.includes(
         "missing_production_lead_time"
       );
+      const warningCodes = [
+        ...(!hasBom ? ["missing_bom" as const] : []),
+        ...(missingProductionLeadTime
+          ? ["missing_production_lead_time" as const]
+          : []),
+      ];
       const canDraftManufacturingOrder = hasBom && !missingProductionLeadTime;
       const recommendationType = canDraftManufacturingOrder
         ? "create_manufacturing_order"
@@ -1970,28 +2100,17 @@ function buildRecommendations(args: {
         quantity: row.shortageQuantity,
         sourceRefs: row.sourceRefs,
       });
-      const warnings = [
-        ...(!hasBom
-          ? [
-              warningForRow({
-                code: "missing_bom" as const,
-                itemId: item.id,
-                sourceRefs: row.sourceRefs,
-                message: `${item.name} needs a current BOM before planning can draft a manufacturing order.`,
-              }),
-            ]
-          : []),
-        ...(missingProductionLeadTime
-          ? [
-              warningForRow({
-                code: "missing_production_lead_time" as const,
-                itemId: item.id,
-                sourceRefs: row.sourceRefs,
-                message: `${item.name} needs a production lead time before planning can draft a manufacturing order.`,
-              }),
-            ]
-          : []),
-      ];
+      const warnings = warningCodes.map((code) =>
+        warningForRow({
+          code,
+          itemId: item.id,
+          sourceRefs: row.sourceRefs,
+          message:
+            code === "missing_bom"
+              ? `${item.name} needs a current BOM before planning can draft a manufacturing order.`
+              : `${item.name} needs a production lead time before planning can draft a manufacturing order.`,
+        })
+      );
 
       rowRecommendationIdByItem.set(item.id, recommendationId);
       recommendations.push({
@@ -2006,7 +2125,7 @@ function buildRecommendations(args: {
         reasonCodes: uniqueReasonCodes([
           ...row.reasonCodes,
           "make_item",
-          ...(hasBom ? [] : ["missing_bom" as const]),
+          ...warningCodes,
         ]),
         sourceRefs: row.sourceRefs,
         warnings,
@@ -2095,6 +2214,12 @@ export async function buildPlanningSnapshotInTx(
     .map((item) => item.id);
   const leadTimeHistory = await getLeadTimeHistoryInTx(tx, materialIds);
   const inventoryFacts = getInventoryFacts(itemsList);
+  const defaultLocation = await getDefaultInventoryLocationInTx(tx, orgId);
+  const availableLots = await getAvailableLotFactsInTx(
+    tx,
+    orgId,
+    defaultLocation.id
+  );
   const supplyFacts = [
     ...getInventorySupplyFacts(itemsList, inventoryFacts),
     ...purchaseSupplyFacts,
@@ -2144,6 +2269,7 @@ export async function buildPlanningSnapshotInTx(
     assumptions,
     items: itemsList,
     inventoryFacts,
+    availableLots,
     demandFacts,
     supplyFacts,
     bomRequirementFacts,
@@ -2166,6 +2292,8 @@ export async function buildPlanningSnapshotInTx(
     rows,
     bomRequirementFacts,
     bomByProductId,
+    availableLots,
+    horizonStart,
     warnings,
   });
 

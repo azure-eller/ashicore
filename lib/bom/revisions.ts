@@ -2,12 +2,14 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import {
+  bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
   user,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
+import type { BomComponentConstraint } from "./constraints";
 export { getCurrentActiveBomIngredientsInTx } from "./active-ingredients";
 
 export type BomRevisionComponentSnapshot = {
@@ -20,6 +22,7 @@ export type BomRevisionComponentSnapshot = {
   unitName: string;
   quantity: string;
   sortOrder: number;
+  constraints: BomComponentConstraint[];
 };
 
 export type BomRevisionWithMeta = {
@@ -74,7 +77,7 @@ export async function getBomRevisionHistoryInTx(tx: Tx, productId: string) {
 }
 
 export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string) {
-  return tx
+  const components = await tx
     .select({
       id: bomRevisionComponents.id,
       bomRevisionId: bomRevisionComponents.bomRevisionId,
@@ -89,6 +92,47 @@ export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string
     .from(bomRevisionComponents)
     .where(eq(bomRevisionComponents.bomRevisionId, bomRevisionId))
     .orderBy(asc(bomRevisionComponents.sortOrder), asc(bomRevisionComponents.createdAt));
+
+  if (components.length === 0) {
+    return [];
+  }
+
+  const constraints = await tx
+    .select({
+      bomRevisionComponentId:
+        bomRevisionComponentConstraints.bomRevisionComponentId,
+      constraintType: bomRevisionComponentConstraints.constraintType,
+      config: bomRevisionComponentConstraints.config,
+      sortOrder: bomRevisionComponentConstraints.sortOrder,
+    })
+    .from(bomRevisionComponentConstraints)
+    .where(
+      inArray(
+        bomRevisionComponentConstraints.bomRevisionComponentId,
+        components.map((component) => component.id)
+      )
+    )
+    .orderBy(
+      asc(bomRevisionComponentConstraints.sortOrder),
+      asc(bomRevisionComponentConstraints.createdAt)
+    );
+
+  const constraintsByComponentId = new Map<string, BomComponentConstraint[]>();
+  for (const constraint of constraints) {
+    const bucket =
+      constraintsByComponentId.get(constraint.bomRevisionComponentId) ?? [];
+    bucket.push({
+      constraintType: constraint.constraintType as BomComponentConstraint["constraintType"],
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    });
+    constraintsByComponentId.set(constraint.bomRevisionComponentId, bucket);
+  }
+
+  return components.map((component) => ({
+    ...component,
+    constraints: constraintsByComponentId.get(component.id) ?? [],
+  }));
 }
 
 export async function getCurrentBomComponentsInTx(tx: Tx, productId: string) {
@@ -153,10 +197,48 @@ export async function getCurrentBomCoverageInTx(tx: Tx, productIds: string[]) {
       asc(bomRevisionComponents.createdAt)
     );
 
+  const constraints =
+    components.length === 0
+      ? []
+      : await tx
+          .select({
+            bomRevisionComponentId:
+              bomRevisionComponentConstraints.bomRevisionComponentId,
+            constraintType: bomRevisionComponentConstraints.constraintType,
+            config: bomRevisionComponentConstraints.config,
+            sortOrder: bomRevisionComponentConstraints.sortOrder,
+          })
+          .from(bomRevisionComponentConstraints)
+          .where(
+            inArray(
+              bomRevisionComponentConstraints.bomRevisionComponentId,
+              components.map((component) => component.id)
+            )
+          )
+          .orderBy(
+            asc(bomRevisionComponentConstraints.sortOrder),
+            asc(bomRevisionComponentConstraints.createdAt)
+          );
+
+  const constraintsByComponentId = new Map<string, BomComponentConstraint[]>();
+  for (const constraint of constraints) {
+    const bucket =
+      constraintsByComponentId.get(constraint.bomRevisionComponentId) ?? [];
+    bucket.push({
+      constraintType: constraint.constraintType as BomComponentConstraint["constraintType"],
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    });
+    constraintsByComponentId.set(constraint.bomRevisionComponentId, bucket);
+  }
+
   const componentsByRevision = new Map<string, BomRevisionComponentSnapshot[]>();
   for (const component of components) {
     const bucket = componentsByRevision.get(component.bomRevisionId) ?? [];
-    bucket.push(component);
+    bucket.push({
+      ...component,
+      constraints: constraintsByComponentId.get(component.id) ?? [],
+    });
     componentsByRevision.set(component.bomRevisionId, bucket);
   }
 

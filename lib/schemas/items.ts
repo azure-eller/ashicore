@@ -1,6 +1,7 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { items } from "@/lib/db/schema";
+import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import {
   nullableString as nullableStringOptional,
   nullableStringStrict as nullableString,
@@ -13,9 +14,20 @@ const bomQuantitySchema = nullableString
   })
   .transform((value) => value as string);
 
+const minimumLotAgeDaysSchema = z
+  .union([z.string(), z.number()])
+  .nullable()
+  .optional()
+  .refine((value) => {
+    const normalized = normalizeMinimumLotAgeDays(value);
+    return !Number.isNaN(normalized);
+  }, "Minimum lot age must be a positive whole number of days")
+  .transform((value) => normalizeMinimumLotAgeDays(value));
+
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
   quantity: bomQuantitySchema,
+  minimumLotAgeDays: minimumLotAgeDaysSchema,
 });
 
 const nullableStringPreserveUndefined = z

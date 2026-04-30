@@ -14,11 +14,12 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     ctx as { params: Promise<{ id: string; ingredientId: string }> }
   ).params;
   const body = await request.json().catch(() => ({}));
-  pickManufacturingIngredientSchema.parse(body);
+  const data = pickManufacturingIngredientSchema.parse(body);
 
   try {
     const result = await pickManufacturingIngredient(id, ingredientId, {
       idempotencyKey,
+      confirmRequirementOverride: data.confirmRequirementOverride,
     });
     return NextResponse.json(result);
   } catch (error) {

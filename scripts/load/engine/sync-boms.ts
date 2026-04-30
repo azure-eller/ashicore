@@ -1,11 +1,13 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
   items,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { normalizeNumeric } from "@/lib/format";
+import { createLotAgeMinDaysConstraint } from "@/lib/bom/constraints";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   BomSeedRow,
@@ -20,10 +22,19 @@ export function getManagedProductSeedsWithBom(seeds: ItemSeed[]): ItemSeed[] {
 }
 
 export function buildBomSignature(
-  rows: Array<{ componentId: string; quantity: string }>
+  rows: Array<{
+    componentId: string;
+    quantity: string;
+    minimumLotAgeDays?: number | null;
+  }>
 ) {
   return rows
-    .map((row) => `${row.componentId}:${normalizeNumeric(Number(row.quantity))}`)
+    .map(
+      (row) =>
+        `${row.componentId}:${normalizeNumeric(Number(row.quantity))}:${
+          row.minimumLotAgeDays ?? ""
+        }`
+    )
     .sort()
     .join("|");
 }
@@ -33,9 +44,10 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
     return [];
   }
 
-  return tx
+  const rows = await tx
     .select({
       itemId: bomRevisions.productId,
+      bomRevisionComponentId: bomRevisionComponents.id,
       componentId: bomRevisionComponents.componentId,
       quantity: bomRevisionComponents.quantity,
     })
@@ -44,6 +56,41 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
     .where(
       and(inArray(bomRevisions.productId, productIds), eq(bomRevisions.isCurrent, true))
     );
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const constraints = await tx
+    .select({
+      bomRevisionComponentId:
+        bomRevisionComponentConstraints.bomRevisionComponentId,
+      config: bomRevisionComponentConstraints.config,
+    })
+    .from(bomRevisionComponentConstraints)
+    .where(
+      and(
+        inArray(
+          bomRevisionComponentConstraints.bomRevisionComponentId,
+          rows.map((row) => row.bomRevisionComponentId)
+        ),
+        eq(bomRevisionComponentConstraints.constraintType, "lot_age_min_days")
+      )
+    );
+  const minimumLotAgeDaysByComponentId = new Map(
+    constraints.map((constraint) => [
+      constraint.bomRevisionComponentId,
+      Number(constraint.config.days),
+    ])
+  );
+
+  return rows.map((row) => ({
+    itemId: row.itemId,
+    componentId: row.componentId,
+    quantity: row.quantity,
+    minimumLotAgeDays:
+      minimumLotAgeDaysByComponentId.get(row.bomRevisionComponentId) ?? null,
+  }));
 }
 
 export async function createLoaderBomRevisionInTx(
@@ -100,8 +147,9 @@ export async function createLoaderBomRevisionInTx(
     .where(inArray(items.id, componentIds));
   const componentById = new Map(componentRows.map((row) => [row.id, row]));
 
-  await tx.insert(bomRevisionComponents).values(
-    params.bom.map((row, index) => {
+  const insertedComponents = await tx
+    .insert(bomRevisionComponents)
+    .values(params.bom.map((row, index) => {
       const component = componentById.get(row.componentId);
 
       if (!component) {
@@ -118,8 +166,27 @@ export async function createLoaderBomRevisionInTx(
         quantity: row.quantity,
         sortOrder: index,
       };
-    })
-  );
+    }))
+    .returning({
+      id: bomRevisionComponents.id,
+    });
+
+  const constraintRows = insertedComponents.flatMap((component, index) => {
+    const constraint = createLotAgeMinDaysConstraint(
+      params.bom[index].minimumLotAgeDays ?? null
+    );
+    if (!constraint) return [];
+    return [{
+      bomRevisionComponentId: component.id,
+      constraintType: constraint.constraintType,
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    }];
+  });
+
+  if (constraintRows.length > 0) {
+    await tx.insert(bomRevisionComponentConstraints).values(constraintRows);
+  }
 }
 
 export function planBomsSync(
@@ -151,6 +218,7 @@ export function planBomsSync(
         ? {
             componentId: existingComponent.id,
             quantity: normalizeNumeric(Number(row.quantity)),
+            minimumLotAgeDays: row.minimumLotAgeDays ?? null,
           }
         : null;
     });
@@ -161,7 +229,11 @@ export function planBomsSync(
     }
 
     const nextSignature = buildBomSignature(
-      nextRows as Array<{ componentId: string; quantity: string }>
+      nextRows as Array<{
+        componentId: string;
+        quantity: string;
+        minimumLotAgeDays: number | null;
+      }>
     );
     const existingSignature = buildBomSignature(
       bomRowsByItemId.get(existingTarget.id) ?? []
@@ -218,6 +290,7 @@ export async function applyBomsSyncInTx(
       return {
         componentId,
         quantity: normalizeNumeric(Number(row.quantity)),
+        minimumLotAgeDays: row.minimumLotAgeDays ?? null,
       };
     });
 

@@ -11,6 +11,7 @@ import {
   varchar,
   index,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { inventorySchema } from "./units";
@@ -93,6 +94,71 @@ export const bomRevisionComponents = inventorySchema
           SELECT id
           FROM inventory.bom_revisions
           WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const BOM_COMPONENT_CONSTRAINT_TYPES = ["lot_age_min_days"] as const;
+export type BomComponentConstraintType =
+  (typeof BOM_COMPONENT_CONSTRAINT_TYPES)[number];
+
+export type BomComponentConstraintConfig = {
+  days: number;
+  basis: "received_at";
+};
+
+export const bomRevisionComponentConstraints = inventorySchema
+  .table(
+    "bom_revision_component_constraints",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      bomRevisionComponentId: uuid("bom_revision_component_id")
+        .notNull()
+        .references(() => bomRevisionComponents.id, { onDelete: "cascade" }),
+      constraintType: varchar("constraint_type", { length: 64 }).notNull(),
+      config: jsonb("config").$type<BomComponentConstraintConfig>().notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("bom_revision_component_constraints_component_id_idx").on(
+        table.bomRevisionComponentId
+      ),
+      uniqueIndex("bom_revision_component_constraints_component_type_uidx").on(
+        table.bomRevisionComponentId,
+        table.constraintType
+      ),
+      check(
+        "bom_revision_component_constraints_type_check",
+        sql`constraint_type IN ('lot_age_min_days')`
+      ),
+      check(
+        "bom_revision_component_constraints_config_check",
+        sql`constraint_type <> 'lot_age_min_days'
+          OR (
+            config->>'basis' = 'received_at'
+            AND (config->>'days') ~ '^[1-9][0-9]*$'
+          )`
+      ),
+      pgPolicy("bom_revision_component_constraints_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`bom_revision_component_id IN (
+          SELECT c.id
+          FROM inventory.bom_revision_components c
+          INNER JOIN inventory.bom_revisions r
+            ON r.id = c.bom_revision_id
+          WHERE r.organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`bom_revision_component_id IN (
+          SELECT c.id
+          FROM inventory.bom_revision_components c
+          INNER JOIN inventory.bom_revisions r
+            ON r.id = c.bom_revision_id
+          WHERE r.organization_id = current_setting('app.current_org_id', true)
         )`,
       }),
     ]

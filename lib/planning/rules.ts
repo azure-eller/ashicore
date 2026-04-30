@@ -162,6 +162,7 @@ export async function updatePlanningRules(itemId: string, data: UpdatePlanningRu
 
     const itemUpdates: Record<string, unknown> = { updatedAt: new Date() };
     setDefined(itemUpdates, "planningEnabled", data.planningEnabled);
+    setDefined(itemUpdates, "reorderPoint", data.reorderPoint);
     setDefined(itemUpdates, "targetCoverDays", data.targetCoverDays);
     setDefined(itemUpdates, "leadTimeDaysOverride", data.leadTimeDaysOverride);
     setDefined(itemUpdates, "productionLeadTimeDays", data.productionLeadTimeDays);

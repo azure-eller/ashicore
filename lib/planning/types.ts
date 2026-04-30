@@ -48,6 +48,12 @@ export type PlanningReasonCode =
   | "bom_depth_limit"
   | "stale_recommendation"
   | "duplicate_draft_action";
+// Component requirements are intentionally typed and narrow in v1.
+export type BomComponentRequirement = {
+  requirementType: "lot_age_min_days";
+  days: number;
+  basis: "received_at";
+};
 
 export type PlanningSourceRefType =
   | "item"
@@ -151,6 +157,8 @@ export type BomRequirementFact = {
   quantityPerParent: string;
   parentShortageQuantity: string;
   requiredQuantity: string;
+  ingredientNeedDate: string | null;
+  requirements: BomComponentRequirement[];
   reasonCodes: PlanningReasonCode[];
   sourceRefs: PlanningSourceRef[];
 };
@@ -217,6 +225,7 @@ export type PlanningItemRow = {
   shortageQuantity: string;
   earliestRequiredDate: string | null;
   safetyStock: string;
+  reorderPoint: string | null;
   targetCoverDays: number | null;
   daysOfCover: number | null;
   daysOfCoverStatus: DaysOfCoverStatus;
@@ -264,6 +273,7 @@ export type ProductionBlockerFact = {
   blockerType:
     | "material_shortage"
     | "missing_bom"
+    | "component_requirement"
     | "bom_cycle_detected"
     | "bom_depth_limit"
     | "missing_production_lead_time";

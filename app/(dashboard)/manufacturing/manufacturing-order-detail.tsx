@@ -32,6 +32,7 @@ import {
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import {
   BATCH_YIELD_TOOLTIP,
   BOM_QTY_PER_BATCH_TOOLTIP,
@@ -390,46 +391,58 @@ export function ManufacturingOrderDetail({
                   <TableHead className="text-right">
                     <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
                   </TableHead>
+                  <TableHead>Requirements</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {order.ingredients.map((ingredient) => (
-                  <TableRow key={ingredient.id}>
-                    <TableCell>
-                      <Link
-                        href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
-                        className="hover:underline"
-                      >
-                        {ingredient.itemSku
-                          ? `${ingredient.itemName} (${ingredient.itemSku})`
-                          : ingredient.itemName}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{ingredient.itemType}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.quantityPerUnit}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.plannedQuantity}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.pickedQuantity}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.remainingQuantity}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {ingredient.actualQuantity != null
-                        ? ingredient.actualQuantity
-                        : "\u2014"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(ingredient.actualCostTotal) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {order.ingredients.map((ingredient) => {
+                  const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+
+                  return (
+                    <TableRow key={ingredient.id}>
+                      <TableCell>
+                        <Link
+                          href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
+                          className="hover:underline"
+                        >
+                          {ingredient.itemSku
+                            ? `${ingredient.itemName} (${ingredient.itemSku})`
+                            : ingredient.itemName}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{ingredient.itemType}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {ingredient.quantityPerUnit}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {ingredient.plannedQuantity}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {ingredient.pickedQuantity}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {ingredient.remainingQuantity}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {ingredient.actualQuantity != null
+                          ? ingredient.actualQuantity
+                          : "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatPrice(ingredient.actualCostTotal) ?? "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {minimumLotAgeDays
+                          ? `Lot must be at least ${minimumLotAgeDays} ${
+                              minimumLotAgeDays === 1 ? "day" : "days"
+                            } old.`
+                          : "\u2014"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

@@ -27,7 +27,11 @@ export type ItemSeed = {
   purchaseToStockFactor?: string;
   manufacturingMode?: "discrete" | "batch";
   expectedBatchYield?: string | null;
-  bom?: Array<{ componentKey: string; quantity: string }>;
+  bom?: Array<{
+    componentKey: string;
+    quantity: string;
+    minimumLotAgeDays?: number | null;
+  }>;
   safetyStock?: string | null;
   unresolvedFormulaNote?: string;
   legacySkus?: string[];
@@ -75,11 +79,13 @@ export type ExistingBomRow = {
   itemId: string;
   componentId: string;
   quantity: string;
+  minimumLotAgeDays: number | null;
 };
 
 export type BomSeedRow = {
   componentId: string;
   quantity: string;
+  minimumLotAgeDays?: number | null;
 };
 
 export type ExistingCustomer = {

@@ -327,6 +327,8 @@ export async function pickManufacturingIngredientInTx(
     quantity: number;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    minimumReceivedDate?: string | null;
+    confirmRequirementOverride?: boolean;
   }
 ) {
   const replay = await beginInventoryOperationInTx<{ eventIds: string[] }>(tx, {
@@ -338,6 +340,8 @@ export async function pickManufacturingIngredientInTx(
       ingredientId: params.ingredientId,
       itemId: params.itemId,
       quantity: params.quantity,
+      minimumReceivedDate: params.minimumReceivedDate ?? null,
+      confirmRequirementOverride: params.confirmRequirementOverride ?? false,
     },
   });
 
@@ -384,6 +388,8 @@ export async function pickManufacturingIngredientInTx(
     referenceId: params.manufacturingOrderId,
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
+    minimumReceivedDate: params.minimumReceivedDate ?? null,
+    allowIneligibleLots: params.confirmRequirementOverride ?? false,
     metadata: { manufacturingOrderIngredientId: params.ingredientId },
   });
 
@@ -393,6 +399,13 @@ export async function pickManufacturingIngredientInTx(
       lotId: allocation.lotId,
       quantityUsed: normalizeNumericScale(allocation.quantity, 4),
       costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
+      requirementOverrideConfirmed: Boolean(allocation.requirementViolated),
+      requirementOverrideConfirmedBy: allocation.requirementViolated
+        ? params.actorUserId ?? "system"
+        : null,
+      requirementOverrideConfirmedAt: allocation.requirementViolated
+        ? new Date()
+        : null,
       createdBy: params.actorUserId ?? "system",
     }))
   );

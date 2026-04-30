@@ -19,6 +19,7 @@ import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import { cn } from "@/lib/utils";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { BOM_QTY_PER_UNIT_TOOLTIP } from "@/lib/tooltip-copy";
+import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 
 export default async function ProductBomHistoryPage({
   params,
@@ -138,27 +139,39 @@ export default async function ProductBomHistoryPage({
                     <TableHead className="text-right">
                       <TooltipHeader label="Qty" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
                     </TableHead>
+                    <TableHead>Requirements</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {selectedRevision.components.map((component) => (
-                    <TableRow key={component.id}>
-                      <TableCell>
-                        <Link
-                          href={itemDetailHref(component.componentItemType, component.componentId)}
-                          className="hover:underline"
-                        >
-                          {component.componentName}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{component.componentItemType}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {component.quantity} {component.unitName}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {selectedRevision.components.map((component) => {
+                    const minimumLotAgeDays = getMinimumLotAgeDays(component.constraints);
+
+                    return (
+                      <TableRow key={component.id}>
+                        <TableCell>
+                          <Link
+                            href={itemDetailHref(component.componentItemType, component.componentId)}
+                            className="hover:underline"
+                          >
+                            {component.componentName}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{component.componentItemType}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {component.quantity} {component.unitName}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {minimumLotAgeDays
+                            ? `Lot must be at least ${minimumLotAgeDays} ${
+                                minimumLotAgeDays === 1 ? "day" : "days"
+                              } old.`
+                            : "\u2014"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

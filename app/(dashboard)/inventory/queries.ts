@@ -5,6 +5,7 @@ import "server-only";
 // Create queries pass orgId explicitly so it's stored on the row.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
+  bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
   type InventoryDisposition,
@@ -31,6 +32,10 @@ import {
   getCurrentBomComponentsInTx,
   getCurrentBomRevisionInTx,
 } from "@/lib/bom/revisions";
+import {
+  createLotAgeMinDaysConstraint,
+  getMinimumLotAgeDays,
+} from "@/lib/bom/constraints";
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -135,7 +140,11 @@ const potentialSubquery = sql<string | null>`(
   ELSE NULL END
 )`.as("potential");
 
-type BomInputRow = { componentId: string; quantity: string };
+type BomInputRow = {
+  componentId: string;
+  quantity: string;
+  minimumLotAgeDays?: number | null;
+};
 type BomViewPermissions = {
   canViewUnlockedBom: boolean;
   canViewLockedBom: boolean;
@@ -145,6 +154,7 @@ function normalizeBomRows(bom: BomInputRow[]) {
   return bom.map((row, index) => ({
     componentId: row.componentId,
     quantity: row.quantity,
+    minimumLotAgeDays: row.minimumLotAgeDays ?? null,
     sortOrder: index,
   }));
 }
@@ -162,6 +172,7 @@ function hasBomChanged(currentBom: BomInputRow[], nextBom: BomInputRow[]) {
     return (
       row.componentId !== nextRow.componentId ||
       row.quantity !== nextRow.quantity ||
+      row.minimumLotAgeDays !== nextRow.minimumLotAgeDays ||
       row.sortOrder !== nextRow.sortOrder
     );
   });
@@ -463,8 +474,7 @@ async function createBomRevisionInTx(
 
     const componentById = new Map(componentRows.map((row) => [row.id, row]));
 
-    await tx.insert(bomRevisionComponents).values(
-      params.bom.map((row, index) => {
+    const componentValues = params.bom.map((row, index) => {
         const component = componentById.get(row.componentId);
 
         if (!component) {
@@ -481,8 +491,36 @@ async function createBomRevisionInTx(
           quantity: row.quantity,
           sortOrder: index,
         };
-      })
-    );
+      });
+
+    const insertedComponents = await tx
+      .insert(bomRevisionComponents)
+      .values(componentValues)
+      .returning({
+        id: bomRevisionComponents.id,
+        componentId: bomRevisionComponents.componentId,
+      });
+
+    const constraintRows = insertedComponents.flatMap((component, index) => {
+      const input = params.bom[index];
+      const constraint = createLotAgeMinDaysConstraint(
+        input?.minimumLotAgeDays ?? null
+      );
+      if (!constraint) return [];
+
+      return [
+        {
+          bomRevisionComponentId: component.id,
+          constraintType: constraint.constraintType,
+          config: constraint.config,
+          sortOrder: constraint.sortOrder,
+        },
+      ];
+    });
+
+    if (constraintRows.length > 0) {
+      await tx.insert(bomRevisionComponentConstraints).values(constraintRows);
+    }
   }
 
   return revision;
@@ -1785,6 +1823,7 @@ export async function updateItem(
           currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
+            minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
           })),
           bom
         )
@@ -2200,6 +2239,8 @@ export async function getBomComponents(itemId: string) {
       id: row.id,
       componentId: row.componentId,
       quantity: row.quantity,
+      minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+      constraints: row.constraints,
       componentName: row.componentName,
       componentItemType: row.componentItemType,
       componentUnit: row.unitName,
