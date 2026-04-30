@@ -483,9 +483,13 @@ if (item.currentStockUnitCost != null) return item.currentStockUnitCost
 return resolveStockUnitCostFromDefaultPurchasePrice(...)
 ```
 
-### Sales shipping
+### Sales shipments and BOLs
 
-Sales shipping is one-shot: `confirmed -> shipped` consumes stock FIFO, writes `sales_shipped` stock movements, and recomputes `committedQty`. Shipped orders are historical and do not block customer/product soft delete.
+Confirmed orders reserve the full order. Draft shipments only plan slices; shipped shipments consume/release their quantities. Use shipment BOLs (`draft` = planned, `shipped` = final). `partially_shipped` orders still block customer/product deletes while remaining demand exists.
+
+### Shipment costs
+
+Outbound shipment costs and customer freight recovery are margin-only. Editing them must not mutate inventory, Xero invoices, AP, GL, or BOL behavior.
 
 ### API error shape
 
@@ -605,7 +609,7 @@ Cold-start debugging uses proxy-stamped request IDs. Grab `x-erp-request-id` fro
 
 ### Product deletes with active sales orders
 
-Products referenced by active draft or confirmed sales orders cannot be soft-deleted. Block the delete in inventory instead of teaching the sales form how to recover missing draft products.
+Products referenced by active draft, confirmed, or partially shipped sales orders cannot be soft-deleted. Block the delete in inventory instead of teaching the sales form how to recover missing draft products.
 
 ```ts
 const [activeOrderRef] = await tx
@@ -616,7 +620,7 @@ const [activeOrderRef] = await tx
     and(
       eq(salesOrderLines.itemId, id),
       isNull(salesOrders.deletedAt),
-      inArray(salesOrders.status, ["draft", "confirmed"])
+      inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
     )
   )
   .limit(1)

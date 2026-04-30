@@ -101,10 +101,14 @@ export type BolLine = {
 
 export type BolOrder = {
   orderNumber: string;
+  shipmentNumber?: string | null;
   customerName: string;
   requestedDate: string | null;
+  scheduledDate?: string | null;
   shippedAt: Date | null;
   notes: string | null;
+  status?: string | null;
+  fulfillmentType?: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -134,22 +138,37 @@ export function BillOfLadingDocument({
   const shippedDisplay = order.shippedAt
     ? new Date(order.shippedAt).toLocaleDateString("en-US")
     : "\u2014";
+  const isDraft = order.status === "draft";
+  const title = isDraft ? "Draft BOL" : "Bill of Lading";
 
   return (
     <Document
-      title={`BOL ${order.orderNumber}`}
+      title={`BOL ${order.shipmentNumber ?? order.orderNumber}`}
       author={organizationName}
-      subject={`Bill of Lading for ${order.orderNumber}`}
+      subject={`${title} for ${order.shipmentNumber ?? order.orderNumber}`}
     >
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>Bill of Lading</Text>
+            <Text style={styles.title}>{title}</Text>
             <Text>{organizationName}</Text>
           </View>
           <View style={styles.meta}>
             <Text style={styles.metaLine}>Order: {order.orderNumber}</Text>
+            {order.shipmentNumber && (
+              <Text style={styles.metaLine}>Shipment: {order.shipmentNumber}</Text>
+            )}
+            {order.fulfillmentType && (
+              <Text style={styles.metaLine}>
+                Type: {order.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
+              </Text>
+            )}
             <Text style={styles.metaLine}>Shipped: {shippedDisplay}</Text>
+            {order.scheduledDate && (
+              <Text style={styles.metaLine}>
+                Scheduled: {new Date(`${order.scheduledDate}T00:00:00`).toLocaleDateString("en-US")}
+              </Text>
+            )}
             {order.requestedDate && (
               <Text style={styles.metaLine}>
                 Requested: {new Date(`${order.requestedDate}T00:00:00`).toLocaleDateString("en-US")}

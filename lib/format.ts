@@ -75,7 +75,7 @@ export function normalizeNumeric(value: number): string {
  * Normalize a money value for Postgres numeric storage (2 decimal places).
  */
 export function normalizeMoney(value: number): string {
-  return value.toFixed(2);
+  return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 /**

@@ -24,6 +24,9 @@ import {
   pricingSchedules,
   salesOrderLines,
   salesOrders,
+  salesShipmentCosts,
+  salesShipmentLines,
+  salesShipments,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -38,6 +41,7 @@ import {
   InsufficientStockError,
   lockItemsInTx,
   releaseReservationForSalesLineInTx,
+  releaseReservationForSalesQuantitiesInTx,
   projectedAvailableQty,
   projectedAvailableQtyExpr,
   projectedCommittedQty,
@@ -74,6 +78,9 @@ import type {
 import type {
   BulkConfirmSalesOrders,
   InsertSalesOrder,
+  SalesShipmentCostsInput,
+  SalesShipmentInput,
+  ShipSalesShipment,
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
 import type {
@@ -93,6 +100,8 @@ import type {
   SalesOrderListRow,
   SalesOrderItemOption,
   SalesShippingReadiness,
+  SalesMarginSummary,
+  SalesShipmentRow,
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
@@ -119,26 +128,151 @@ const expectedQtySubquery = projectedExpectedQty(
   items.id
 ).as("expectedQty");
 
+type ShipmentCostSelection = {
+  amount: number;
+  status: SalesMarginSummary["costStatus"];
+};
+
+function parseMoneyValue(value: string | null | undefined): number {
+  if (value == null) return 0;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function combineMarginStatuses(
+  statuses: SalesMarginSummary["costStatus"][]
+): SalesMarginSummary["costStatus"] {
+  if (statuses.length === 0 || statuses.includes("unknown")) {
+    return "unknown";
+  }
+
+  const unique = new Set(statuses);
+  if (unique.size > 1) {
+    return "mixed";
+  }
+
+  return statuses[0] ?? "unknown";
+}
+
+function selectShipmentCostAmount(
+  costs: SalesShipmentRow["costs"],
+  fallbackStatus: SalesMarginSummary["costStatus"]
+): ShipmentCostSelection {
+  const actualCosts = costs.filter((cost) => cost.costStatus === "actual");
+  if (actualCosts.length > 0) {
+    return {
+      amount: actualCosts.reduce((sum, cost) => sum + parseMoneyValue(cost.amount), 0),
+      status: "actual",
+    };
+  }
+
+  const estimatedCosts = costs.filter((cost) => cost.costStatus === "estimated");
+  if (estimatedCosts.length > 0) {
+    return {
+      amount: estimatedCosts.reduce(
+        (sum, cost) => sum + parseMoneyValue(cost.amount),
+        0
+      ),
+      status: "estimated",
+    };
+  }
+
+  return {
+    amount: 0,
+    status: fallbackStatus,
+  };
+}
+
+function buildSalesMarginSummary(params: {
+  productRevenue: number;
+  freightRecovery: number;
+  productCogs: number | null;
+  shipmentCosts: number;
+  costStatus: SalesMarginSummary["costStatus"];
+}): SalesMarginSummary {
+  const revenue = params.productRevenue + params.freightRecovery;
+  const totalCosts =
+    params.productCogs == null ? null : params.productCogs + params.shipmentCosts;
+  const metrics =
+    totalCosts == null
+      ? null
+      : calculateMarginMetrics({
+          revenue,
+          cogs: totalCosts,
+        });
+
+  return {
+    productRevenue: normalizeMoney(params.productRevenue),
+    freightRecovery: normalizeMoney(params.freightRecovery),
+    productCogs: params.productCogs == null ? null : normalizeMoney(params.productCogs),
+    shipmentCosts: normalizeMoney(params.shipmentCosts),
+    contributionMargin: metrics?.grossProfit ?? null,
+    marginPercent: metrics?.marginPercent ?? null,
+    costStatus: params.costStatus,
+  };
+}
+
 async function getActualSalesLineCostsByLineIdInTx(tx: Tx, salesOrderId: string) {
   const salesOrderLineIdExpr = sql<string>`(${inventoryEvents.metadata}->>'salesOrderLineId')`;
   const rows = await tx
     .select({
       salesOrderLineId: salesOrderLineIdExpr.as("salesOrderLineId"),
-      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as("quantity"),
-      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as("cogs"),
+      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as(
+        "quantity"
+      ),
+      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
+        "cogs"
+      ),
     })
     .from(inventoryEvents)
     .where(
       and(
-        eq(inventoryEvents.referenceId, salesOrderId),
-        eq(inventoryEvents.referenceType, "sales_order"),
         eq(inventoryEvents.eventType, "sales_consumption"),
-        sql`${inventoryEvents.metadata}->>'salesOrderLineId' IS NOT NULL`
+        sql`${inventoryEvents.metadata}->>'salesOrderLineId' IS NOT NULL`,
+        sql`(
+          (${inventoryEvents.referenceType} = 'sales_order' AND ${inventoryEvents.referenceId} = ${salesOrderId})
+          OR ${inventoryEvents.metadata}->>'salesOrderId' = ${salesOrderId}
+        )`
       )
     )
     .groupBy(salesOrderLineIdExpr);
 
   return new Map(rows.map((row) => [row.salesOrderLineId, row]));
+}
+
+async function getActualShipmentCogsByShipmentIdInTx(
+  tx: Tx,
+  shipmentIds: string[]
+) {
+  if (shipmentIds.length === 0) {
+    return new Map<string, { quantity: string; cogs: string }>();
+  }
+
+  const rows = await tx
+    .select({
+      shipmentId: inventoryEvents.referenceId,
+      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as(
+        "quantity"
+      ),
+      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
+        "cogs"
+      ),
+    })
+    .from(inventoryEvents)
+    .where(
+      and(
+        inArray(inventoryEvents.referenceId, shipmentIds),
+        eq(inventoryEvents.referenceType, "sales_shipment"),
+        eq(inventoryEvents.eventType, "sales_consumption")
+      )
+    )
+    .groupBy(inventoryEvents.referenceId);
+
+  return new Map(
+    rows.flatMap((row) =>
+      row.shipmentId == null ? [] : [[row.shipmentId, { quantity: row.quantity, cogs: row.cogs }]]
+    )
+  );
 }
 
 async function invalidateAgentOrgPromptCache(orgId: string) {
@@ -604,7 +738,7 @@ function buildShippingReadiness({
     };
   }
 
-  if (status !== "confirmed") {
+  if (status !== "confirmed" && status !== "partially_shipped") {
     return {
       state: "not_confirmed",
       message: "Confirm the order before shipping.",
@@ -688,6 +822,9 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
       itemSku: salesOrderLines.itemSku,
       unitName: salesOrderLines.unitName,
       quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+      cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
+        "cancelledQuantity"
+      ),
       unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
       suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
         "suggestedUnitPrice"
@@ -717,6 +854,155 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
     .for("update");
 
   return order ?? null;
+}
+
+type ShipmentLineState = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  unitName: string;
+  quantity: number;
+  cancelledQuantity: number;
+  shippedQuantity: number;
+  plannedQuantity: number;
+  sortOrder: number;
+};
+
+function normalizeShipmentQuantity(value: number) {
+  return parseFloat(normalizeNumeric(roundQuantity(value)));
+}
+
+async function getShipmentLineStatesInTx(
+  tx: Tx,
+  orderId: string,
+  options?: { excludeShipmentId?: string }
+) {
+  const orderLines = await tx
+    .select({
+      id: salesOrderLines.id,
+      itemId: salesOrderLines.itemId,
+      itemName: salesOrderLines.itemName,
+      itemSku: salesOrderLines.itemSku,
+      unitName: salesOrderLines.unitName,
+      quantity: salesOrderLines.quantity,
+      cancelledQuantity: salesOrderLines.cancelledQuantity,
+      sortOrder: salesOrderLines.sortOrder,
+    })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, orderId))
+    .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt))
+    .for("update");
+
+  const shipmentRows = await tx
+    .select({
+      salesOrderLineId: salesShipmentLines.salesOrderLineId,
+      quantity: salesShipmentLines.quantity,
+      status: salesShipments.status,
+    })
+    .from(salesShipmentLines)
+    .innerJoin(
+      salesShipments,
+      eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+    )
+    .where(
+      and(
+        eq(salesShipments.salesOrderId, orderId),
+        inArray(salesShipments.status, ["draft", "shipped"]),
+        options?.excludeShipmentId
+          ? sql`${salesShipments.id} <> ${options.excludeShipmentId}`
+          : undefined
+      )
+    );
+
+  const shippedByLine = new Map<string, number>();
+  const plannedByLine = new Map<string, number>();
+
+  shipmentRows.forEach((row) => {
+    const quantity = parseFloat(row.quantity);
+    if (row.status === "shipped") {
+      shippedByLine.set(
+        row.salesOrderLineId,
+        normalizeShipmentQuantity((shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity)
+      );
+    } else if (row.status === "draft") {
+      plannedByLine.set(
+        row.salesOrderLineId,
+        normalizeShipmentQuantity((plannedByLine.get(row.salesOrderLineId) ?? 0) + quantity)
+      );
+    }
+  });
+
+  return new Map<string, ShipmentLineState>(
+    orderLines.map((line) => [
+      line.id,
+      {
+        id: line.id,
+        itemId: line.itemId,
+        itemName: line.itemName,
+        itemSku: line.itemSku,
+        unitName: line.unitName,
+        quantity: parseFloat(line.quantity),
+        cancelledQuantity: parseFloat(line.cancelledQuantity),
+        shippedQuantity: shippedByLine.get(line.id) ?? 0,
+        plannedQuantity: plannedByLine.get(line.id) ?? 0,
+        sortOrder: line.sortOrder,
+      },
+    ])
+  );
+}
+
+function remainingToShip(line: ShipmentLineState) {
+  return normalizeShipmentQuantity(
+    line.quantity - line.shippedQuantity - line.cancelledQuantity
+  );
+}
+
+function unplannedRemaining(line: ShipmentLineState) {
+  return normalizeShipmentQuantity(remainingToShip(line) - line.plannedQuantity);
+}
+
+function buildShipmentEntries(
+  states: Map<string, ShipmentLineState>,
+  data: SalesShipmentInput
+) {
+  return data.lines.map((line, index) => {
+    const state = states.get(line.salesOrderLineId);
+    if (!state) {
+      throw new SalesError("Sales order line not found.", 404, {
+        errors: {
+          [`lines.${index}.quantity`]: ["Select a valid sales order line"],
+        },
+      });
+    }
+
+    const quantity = parseFloat(line.quantity ?? "0");
+    const available = unplannedRemaining(state);
+    if (quantity > available) {
+      throw new SalesError("Cannot plan more than the remaining quantity.", 400, {
+        errors: {
+          [`lines.${index}.quantity`]: [
+            `Must be ${normalizeNumeric(available)} or less`,
+          ],
+        },
+      });
+    }
+
+    return {
+      state,
+      quantity,
+    };
+  });
+}
+
+async function getNextShipmentSequenceInTx(tx: Tx, salesOrderId: string) {
+  const result = await tx.execute(
+    sql`SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+        FROM sales.sales_shipments
+        WHERE sales_order_id = ${salesOrderId}`
+  );
+  const raw = (result.rows[0] as { next_sequence: string | number }).next_sequence;
+  return Number(raw);
 }
 
 async function prepareDraftOrdersForConfirmationInTx(
@@ -1833,14 +2119,14 @@ async function ensureCustomersDeletableInTx(tx: Tx, customerIds: string[]) {
       and(
         inArray(salesOrders.customerId, uniqueCustomerIds),
         isNull(salesOrders.deletedAt),
-        inArray(salesOrders.status, ["draft", "confirmed"])
+        inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
       )
     )
     .limit(1);
 
   if (blockingOrder) {
     throw new SalesError(
-      "Cannot delete customer with active draft or confirmed orders.",
+      "Cannot delete customer with active draft, confirmed, or partially shipped orders.",
       400
     );
   }
@@ -2211,6 +2497,9 @@ export async function getSalesOrder(
         itemSku: salesOrderLines.itemSku,
         unitName: salesOrderLines.unitName,
         quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+        cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
+          "cancelledQuantity"
+        ),
         unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
         suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
           "suggestedUnitPrice"
@@ -2328,6 +2617,259 @@ export async function getSalesOrder(
       };
     });
 
+    const shipmentRows = await tx
+      .select({
+        id: salesShipments.id,
+        shipmentNumber: salesShipments.shipmentNumber,
+        sequence: salesShipments.sequence,
+        status: salesShipments.status,
+        fulfillmentType: salesShipments.fulfillmentType,
+        scheduledDate: salesShipments.scheduledDate,
+        shippedAt: salesShipments.shippedAt,
+        notes: salesShipments.notes,
+        customerFreightChargeAmount: trimScaleNullable(
+          salesShipments.customerFreightChargeAmount
+        ).as("customerFreightChargeAmount"),
+        createdAt: salesShipments.createdAt,
+        updatedAt: salesShipments.updatedAt,
+        lineId: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        itemId: salesShipmentLines.itemId,
+        itemName: salesShipmentLines.itemName,
+        itemSku: salesShipmentLines.itemSku,
+        unitName: salesShipmentLines.unitName,
+        lineQuantity: trimScale(salesShipmentLines.quantity).as("lineQuantity"),
+        sortOrder: salesShipmentLines.sortOrder,
+      })
+      .from(salesShipments)
+      .leftJoin(
+        salesShipmentLines,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, id))
+      .orderBy(asc(salesShipments.sequence), asc(salesShipmentLines.sortOrder));
+
+    const shipmentsById = new Map<string, SalesShipmentRow>();
+    const shippedByLine = new Map<string, number>();
+    const plannedByLine = new Map<string, number>();
+
+    shipmentRows.forEach((row) => {
+      const existing = shipmentsById.get(row.id);
+      const shipment =
+        existing ??
+        ({
+          id: row.id,
+          shipmentNumber: row.shipmentNumber,
+          sequence: row.sequence,
+          status: row.status as SalesShipmentRow["status"],
+          fulfillmentType: row.fulfillmentType as SalesShipmentRow["fulfillmentType"],
+          scheduledDate: row.scheduledDate,
+          shippedAt: row.shippedAt,
+          notes: row.notes,
+          customerFreightChargeAmount: row.customerFreightChargeAmount,
+          lines: [],
+          costs: [],
+          marginSummary: buildSalesMarginSummary({
+            productRevenue: 0,
+            freightRecovery: 0,
+            productCogs: 0,
+            shipmentCosts: 0,
+            costStatus: row.status === "shipped" ? "actual" : "estimated",
+          }),
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        } satisfies SalesShipmentRow);
+
+      if (row.lineId && row.salesOrderLineId && row.itemId && row.lineQuantity) {
+        shipment.lines.push({
+          id: row.lineId,
+          salesOrderLineId: row.salesOrderLineId,
+          itemId: row.itemId,
+          itemName: row.itemName ?? "",
+          itemSku: row.itemSku,
+          unitName: row.unitName ?? "",
+          quantity: row.lineQuantity,
+          sortOrder: row.sortOrder ?? 0,
+        });
+
+        const quantity = parseFloat(row.lineQuantity);
+        if (row.status === "shipped") {
+          shippedByLine.set(
+            row.salesOrderLineId,
+            normalizeShipmentQuantity(
+              (shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity
+            )
+          );
+        } else if (row.status === "draft") {
+          plannedByLine.set(
+            row.salesOrderLineId,
+            normalizeShipmentQuantity(
+              (plannedByLine.get(row.salesOrderLineId) ?? 0) + quantity
+            )
+          );
+        }
+      }
+
+      shipmentsById.set(row.id, shipment);
+    });
+
+    const shipments = [...shipmentsById.values()];
+    const shipmentIds = shipments.map((shipment) => shipment.id);
+    const shipmentCostRows =
+      shipmentIds.length === 0
+        ? []
+        : await tx
+            .select({
+              id: salesShipmentCosts.id,
+              salesShipmentId: salesShipmentCosts.salesShipmentId,
+              costType: salesShipmentCosts.costType,
+              costStatus: salesShipmentCosts.costStatus,
+              amount: trimScale(salesShipmentCosts.amount).as("amount"),
+              vendorName: salesShipmentCosts.vendorName,
+              referenceNumber: salesShipmentCosts.referenceNumber,
+              incurredDate: salesShipmentCosts.incurredDate,
+              notes: salesShipmentCosts.notes,
+              createdAt: salesShipmentCosts.createdAt,
+              updatedAt: salesShipmentCosts.updatedAt,
+            })
+            .from(salesShipmentCosts)
+            .where(inArray(salesShipmentCosts.salesShipmentId, shipmentIds))
+            .orderBy(
+              asc(salesShipmentCosts.costStatus),
+              asc(salesShipmentCosts.costType),
+              asc(salesShipmentCosts.createdAt)
+            );
+
+    shipmentCostRows.forEach((row) => {
+      const shipment = shipmentsById.get(row.salesShipmentId);
+      if (!shipment) return;
+
+      shipment.costs.push({
+        id: row.id,
+        costType: row.costType as SalesShipmentRow["costs"][number]["costType"],
+        costStatus: row.costStatus as SalesShipmentRow["costs"][number]["costStatus"],
+        amount: row.amount,
+        vendorName: row.vendorName,
+        referenceNumber: row.referenceNumber,
+        incurredDate: row.incurredDate,
+        notes: row.notes,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      });
+    });
+
+    const actualShipmentCogs = await getActualShipmentCogsByShipmentIdInTx(
+      tx,
+      shipmentIds
+    );
+    const orderLinesById = new Map(lines.map((line) => [line.id, line]));
+
+    shipments.forEach((shipment) => {
+      const productRevenue = shipment.lines.reduce((sum, shipmentLine) => {
+        const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
+        return (
+          sum +
+          parseMoneyValue(orderLine?.unitPrice) *
+            parseMoneyValue(shipmentLine.quantity)
+        );
+      }, 0);
+      const freightRecovery = parseMoneyValue(shipment.customerFreightChargeAmount);
+
+      let productCogs: number | null = null;
+      let productCostStatus: SalesMarginSummary["costStatus"] = "unknown";
+
+      if (shipment.status === "shipped") {
+        const actual = actualShipmentCogs.get(shipment.id);
+        productCogs = actual == null ? null : parseMoneyValue(actual.cogs);
+        productCostStatus = actual == null ? "unknown" : "actual";
+      } else if (shipment.status !== "cancelled") {
+        let estimatedCogs = 0;
+        let hasMissingCost = false;
+
+        for (const shipmentLine of shipment.lines) {
+          const estimatedUnitCost = estimatedUnitCosts.get(shipmentLine.itemId);
+          if (estimatedUnitCost == null) {
+            hasMissingCost = true;
+            break;
+          }
+
+          estimatedCogs +=
+            parseMoneyValue(estimatedUnitCost) *
+            parseMoneyValue(shipmentLine.quantity);
+        }
+
+        productCogs = hasMissingCost ? null : estimatedCogs;
+        productCostStatus = hasMissingCost ? "unknown" : "estimated";
+      }
+
+      const shipmentCostSelection = selectShipmentCostAmount(
+        shipment.costs,
+        productCostStatus
+      );
+      shipment.marginSummary = buildSalesMarginSummary({
+        productRevenue,
+        freightRecovery,
+        productCogs,
+        shipmentCosts: shipmentCostSelection.amount,
+        costStatus: combineMarginStatuses([
+          productCostStatus,
+          shipmentCostSelection.status,
+        ]),
+      });
+    });
+
+    const activeShipmentSummaries = shipments
+      .filter((shipment) => shipment.status !== "cancelled")
+      .map((shipment) => shipment.marginSummary);
+    const orderProductCogs = activeShipmentSummaries.some(
+      (summary) => summary.productCogs == null
+    )
+      ? null
+      : activeShipmentSummaries.reduce(
+          (sum, summary) => sum + parseMoneyValue(summary.productCogs),
+          0
+        );
+    const orderMarginSummary = buildSalesMarginSummary({
+      productRevenue: activeShipmentSummaries.reduce(
+        (sum, summary) => sum + parseMoneyValue(summary.productRevenue),
+        0
+      ),
+      freightRecovery: activeShipmentSummaries.reduce(
+        (sum, summary) => sum + parseMoneyValue(summary.freightRecovery),
+        0
+      ),
+      productCogs: orderProductCogs,
+      shipmentCosts: activeShipmentSummaries.reduce(
+        (sum, summary) => sum + parseMoneyValue(summary.shipmentCosts),
+        0
+      ),
+      costStatus: combineMarginStatuses(
+        activeShipmentSummaries.map((summary) => summary.costStatus)
+      ),
+    });
+
+    const linesWithFulfillment = lines.map((line) => {
+      const shippedQuantity = shippedByLine.get(line.id) ?? 0;
+      const plannedQuantity = plannedByLine.get(line.id) ?? 0;
+      const cancelledQuantity = parseFloat(line.cancelledQuantity);
+      const orderedQuantity = parseFloat(line.quantity);
+      const remainingQuantity = normalizeShipmentQuantity(
+        orderedQuantity - shippedQuantity - cancelledQuantity
+      );
+      const unplannedRemainingQuantity = normalizeShipmentQuantity(
+        remainingQuantity - plannedQuantity
+      );
+
+      return {
+        ...line,
+        shippedQuantity: normalizeNumeric(shippedQuantity),
+        plannedQuantity: normalizeNumeric(plannedQuantity),
+        cancelledQuantity: normalizeNumeric(cancelledQuantity),
+        remainingQuantity: normalizeNumeric(remainingQuantity),
+        unplannedRemainingQuantity: normalizeNumeric(unplannedRemainingQuantity),
+      };
+    });
+
     const manufacturingSummary = (
       await getSalesOrderManufacturingSummariesInTx(tx, [id])
     ).get(id);
@@ -2358,16 +2900,16 @@ export async function getSalesOrder(
       ...row,
       status: row.status as SalesOrderDetail["linkedManufacturingOrders"][number]["status"],
     }));
-    const stockBlockers = lines.flatMap((line) => {
+    const stockBlockers = linesWithFulfillment.flatMap((line) => {
       const reservableOnHandQty = Number(line.reservableOnHandQty ?? "0");
-      const quantity = Number(line.quantity);
+      const quantity = Number(line.remainingQuantity);
 
       if (!Number.isFinite(quantity) || reservableOnHandQty >= quantity) {
         return [];
       }
 
       return [
-        `${line.itemName} needs ${formatQuantity(line.quantity)} ${line.unitName}; ${formatQuantity(
+        `${line.itemName} needs ${formatQuantity(line.remainingQuantity)} ${line.unitName}; ${formatQuantity(
           line.reservableOnHandQty ?? "0"
         )} ${line.unitName} available`,
       ];
@@ -2379,7 +2921,9 @@ export async function getSalesOrder(
       xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
       xeroEmailStatus:
         order.xeroEmailStatus as SalesOrderDetail["xeroEmailStatus"],
-      lines: lines as SalesOrderDetailLine[],
+      lines: linesWithFulfillment as SalesOrderDetailLine[],
+      shipments,
+      marginSummary: orderMarginSummary,
       hasManufacturableLines,
       manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
       manufacturableDisabledReason:
@@ -2611,6 +3155,10 @@ export async function updateSalesOrder(
       throw new SalesError("Shipped orders cannot be changed.", 400);
     }
 
+    if (existingOrder.status === "partially_shipped") {
+      throw new SalesError("Use cancel remaining for partially shipped orders.", 400);
+    }
+
     if (isCancelPayload(data)) {
       throw new SalesError("Draft orders cannot be cancelled.", 400);
     }
@@ -2761,6 +3309,690 @@ export async function getSalesOrderForBol(
   });
 }
 
+export type BolSalesShipmentData = {
+  orderNumber: string;
+  shipmentNumber: string;
+  customerName: string;
+  requestedDate: string | null;
+  scheduledDate: string | null;
+  shippedAt: Date | null;
+  notes: string | null;
+  status: string;
+  fulfillmentType: string;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  lines: Array<{
+    itemName: string;
+    itemSku: string | null;
+    quantity: string;
+    unitName: string;
+  }>;
+};
+
+export async function getSalesShipmentForBol(
+  orderId: string,
+  shipmentId: string
+): Promise<BolSalesShipmentData | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const [shipment] = await tx
+      .select({
+        orderNumber: salesShipments.orderNumber,
+        shipmentNumber: salesShipments.shipmentNumber,
+        customerName: salesShipments.customerName,
+        requestedDate: salesOrders.requestedDate,
+        scheduledDate: salesShipments.scheduledDate,
+        shippedAt: salesShipments.shippedAt,
+        notes: salesShipments.notes,
+        status: salesShipments.status,
+        fulfillmentType: salesShipments.fulfillmentType,
+        shipLine1: salesShipments.shipLine1,
+        shipLine2: salesShipments.shipLine2,
+        shipCity: salesShipments.shipCity,
+        shipRegion: salesShipments.shipRegion,
+        shipPostcode: salesShipments.shipPostcode,
+        shipCountry: salesShipments.shipCountry,
+      })
+      .from(salesShipments)
+      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesShipments.id, shipmentId),
+          eq(salesShipments.salesOrderId, orderId),
+          isNull(salesOrders.deletedAt)
+        )
+      );
+
+    if (!shipment || shipment.status === "cancelled") return null;
+
+    const lines = await tx
+      .select({
+        itemName: salesShipmentLines.itemName,
+        itemSku: salesShipmentLines.itemSku,
+        quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
+        unitName: salesShipmentLines.unitName,
+      })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
+      .orderBy(asc(salesShipmentLines.sortOrder));
+
+    return {
+      ...shipment,
+      lines,
+    };
+  });
+}
+
+export async function createSalesShipment(
+  orderId: string,
+  data: SalesShipmentInput,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "createSalesShipment",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, data },
+    });
+
+    if (replay.replayed) return replay.result;
+
+    const [order] = await tx
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+        status: salesOrders.status,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
+      })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)))
+      .for("update");
+
+    if (!order) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
+    }
+
+    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+      throw new SalesError(
+        "Only confirmed or partially shipped orders can have shipments.",
+        400
+      );
+    }
+
+    const states = await getShipmentLineStatesInTx(tx, orderId);
+    const entries = buildShipmentEntries(states, data);
+    const sequence = await getNextShipmentSequenceInTx(tx, orderId);
+    const shipmentNumber = `${order.orderNumber}-S${sequence}`;
+    const now = new Date();
+
+    const [shipment] = await tx
+      .insert(salesShipments)
+      .values({
+        organizationId: orgId,
+        salesOrderId: orderId,
+        shipmentNumber,
+        sequence,
+        status: "draft",
+        fulfillmentType: data.fulfillmentType,
+        scheduledDate: data.scheduledDate,
+        notes: data.notes,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        shipLine1: order.shipLine1,
+        shipLine2: order.shipLine2,
+        shipCity: order.shipCity,
+        shipRegion: order.shipRegion,
+        shipPostcode: order.shipPostcode,
+        shipCountry: order.shipCountry,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: salesShipments.id });
+
+    await tx.insert(salesShipmentLines).values(
+      entries.map((entry) => ({
+        salesShipmentId: shipment.id,
+        salesOrderLineId: entry.state.id,
+        itemId: entry.state.itemId,
+        itemName: entry.state.itemName,
+        itemSku: entry.state.itemSku,
+        unitName: entry.state.unitName,
+        quantity: normalizeNumeric(entry.quantity),
+        sortOrder: entry.state.sortOrder,
+      }))
+    );
+
+    const result = { id: shipment.id };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
+export async function updateSalesShipment(
+  orderId: string,
+  shipmentId: string,
+  data: SalesShipmentInput,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "updateSalesShipment",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, shipmentId, data },
+    });
+
+    if (replay.replayed) return replay.result;
+
+    const [shipment] = await tx
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+      })
+      .from(salesShipments)
+      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesShipments.id, shipmentId),
+          eq(salesShipments.salesOrderId, orderId),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    if (!shipment) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
+    }
+
+    if (shipment.status !== "draft") {
+      throw new SalesError("Only draft shipments can be edited.", 400);
+    }
+
+    const states = await getShipmentLineStatesInTx(tx, orderId, {
+      excludeShipmentId: shipmentId,
+    });
+    const entries = buildShipmentEntries(states, data);
+
+    await tx.delete(salesShipmentLines).where(
+      eq(salesShipmentLines.salesShipmentId, shipmentId)
+    );
+    await tx.insert(salesShipmentLines).values(
+      entries.map((entry) => ({
+        salesShipmentId: shipmentId,
+        salesOrderLineId: entry.state.id,
+        itemId: entry.state.itemId,
+        itemName: entry.state.itemName,
+        itemSku: entry.state.itemSku,
+        unitName: entry.state.unitName,
+        quantity: normalizeNumeric(entry.quantity),
+        sortOrder: entry.state.sortOrder,
+      }))
+    );
+
+    await tx
+      .update(salesShipments)
+      .set({
+        fulfillmentType: data.fulfillmentType,
+        scheduledDate: data.scheduledDate,
+        notes: data.notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesShipments.id, shipmentId));
+
+    const result = { id: shipmentId };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
+export async function updateSalesShipmentCosts(
+  orderId: string,
+  shipmentId: string,
+  data: SalesShipmentCostsInput
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [shipment] = await tx
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+      })
+      .from(salesShipments)
+      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesShipments.id, shipmentId),
+          eq(salesShipments.salesOrderId, orderId),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    if (!shipment) {
+      return null;
+    }
+
+    if (shipment.status === "cancelled") {
+      throw new SalesError("Cancelled shipments cannot have costs edited.", 400);
+    }
+
+    const now = new Date();
+
+    await tx
+      .update(salesShipments)
+      .set({
+        customerFreightChargeAmount: data.customerFreightChargeAmount,
+        updatedAt: now,
+      })
+      .where(eq(salesShipments.id, shipmentId));
+
+    await tx
+      .delete(salesShipmentCosts)
+      .where(eq(salesShipmentCosts.salesShipmentId, shipmentId));
+
+    if (data.costs.length > 0) {
+      await tx.insert(salesShipmentCosts).values(
+        data.costs.map((cost) => ({
+          organizationId: orgId,
+          salesShipmentId: shipmentId,
+          costType: cost.costType,
+          costStatus: cost.costStatus,
+          amount: cost.amount,
+          vendorName: cost.vendorName,
+          referenceNumber: cost.referenceNumber,
+          incurredDate: cost.incurredDate,
+          notes: cost.notes,
+          createdAt: now,
+          updatedAt: now,
+        }))
+      );
+    }
+
+    return { id: shipmentId };
+  });
+}
+
+export async function cancelSalesShipment(
+  orderId: string,
+  shipmentId: string,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "cancelSalesShipment",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, shipmentId },
+    });
+
+    if (replay.replayed) return replay.result;
+
+    const [shipment] = await tx
+      .select({ id: salesShipments.id, status: salesShipments.status })
+      .from(salesShipments)
+      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesShipments.id, shipmentId),
+          eq(salesShipments.salesOrderId, orderId),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    if (!shipment) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
+    }
+
+    if (shipment.status === "shipped") {
+      throw new SalesError("Shipped shipments cannot be cancelled.", 400);
+    }
+
+    if (shipment.status !== "cancelled") {
+      await tx
+        .update(salesShipments)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(eq(salesShipments.id, shipmentId));
+    }
+
+    const result = { id: shipmentId };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
+export async function shipSalesShipment(
+  orderId: string,
+  shipmentId: string,
+  payload: ShipSalesShipment = {},
+  options?: { idempotencyKey?: string }
+) {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{
+      shipmentId: string;
+      orderId: string;
+      orderShipped: boolean;
+    } | null>(tx, {
+      organizationId: orgId,
+      operationName: "shipSalesShipment",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, shipmentId, payload },
+    });
+
+    if (replay.replayed) {
+      return { replayed: true as const, result: replay.result, orgId };
+    }
+
+    const order = await getLockedSalesOrderInTx(tx, orderId);
+    if (!order) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return { replayed: false as const, result, orgId };
+    }
+
+    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+      throw new SalesError(
+        "Only confirmed or partially shipped orders can ship shipments.",
+        400
+      );
+    }
+
+    const [shipment] = await tx
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+      })
+      .from(salesShipments)
+      .where(
+        and(
+          eq(salesShipments.id, shipmentId),
+          eq(salesShipments.salesOrderId, orderId)
+        )
+      )
+      .for("update");
+
+    if (!shipment) {
+      throw new SalesError("Shipment not found.", 404);
+    }
+
+    if (shipment.status === "shipped") {
+      throw new SalesError("Shipment is already shipped.", 400);
+    }
+    if (shipment.status === "cancelled") {
+      throw new SalesError("Cancelled shipments cannot be shipped.", 400);
+    }
+
+    const shipmentLines = await tx
+      .select({
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        itemId: salesShipmentLines.itemId,
+        itemName: salesShipmentLines.itemName,
+        quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
+      })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
+      .orderBy(asc(salesShipmentLines.sortOrder));
+
+    if (shipmentLines.length === 0) {
+      throw new SalesError("Shipment must include at least one line.", 400);
+    }
+
+    const states = await getShipmentLineStatesInTx(tx, orderId, {
+      excludeShipmentId: shipmentId,
+    });
+    for (const line of shipmentLines) {
+      const state = states.get(line.salesOrderLineId);
+      if (!state) {
+        throw new SalesError("Shipment line no longer matches this order.", 400);
+      }
+      const quantity = parseFloat(line.quantity);
+      if (quantity > remainingToShip(state)) {
+        throw new SalesError("Cannot ship more than the remaining quantity.", 400);
+      }
+    }
+
+    const shippedAt = new Date();
+    try {
+      await consumeForShipmentInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: orderId,
+        salesShipmentId: shipmentId,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "ship-sales-shipment"
+        ),
+        shippedAt,
+        lines: shipmentLines.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+    } catch (error) {
+      if (error instanceof InsufficientStockError) {
+        const blockingLine = shipmentLines.find(
+          (line) => line.itemId === error.itemId
+        );
+        throw new SalesError(
+          `Cannot ship shipment. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
+          409
+        );
+      }
+      throw error;
+    }
+
+    await tx
+      .update(salesShipments)
+      .set({
+        status: "shipped",
+        shippedAt,
+        updatedAt: shippedAt,
+      })
+      .where(eq(salesShipments.id, shipmentId));
+
+    const finalStates = await getShipmentLineStatesInTx(tx, orderId);
+    const allClosed = [...finalStates.values()].every(
+      (line) => remainingToShip(line) <= 0
+    );
+    const [updatedOrder] = await tx
+      .update(salesOrders)
+      .set({
+        status: allClosed ? "shipped" : "partially_shipped",
+        shippedAt: allClosed ? shippedAt : null,
+        updatedAt: shippedAt,
+      })
+      .where(eq(salesOrders.id, orderId))
+      .returning({ id: salesOrders.id, status: salesOrders.status });
+
+    const result = {
+      shipmentId,
+      orderId: updatedOrder.id,
+      orderShipped: updatedOrder.status === "shipped",
+    };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return { replayed: false as const, result, orgId };
+  });
+
+  if (!result.result) return null;
+  if (result.replayed || !result.result.orderShipped || payload.syncAccounting === false) {
+    return result.result;
+  }
+
+  const { pushSalesOrderToXero, markXeroPushFailed } = await import(
+    "@/lib/xero/push-invoice"
+  );
+  const { XeroError } = await import("@/lib/xero/errors");
+
+  try {
+    await pushSalesOrderToXero(result.orgId, orderId, {
+      sendEmail: payload.sendEmail,
+    });
+  } catch (error) {
+    if (
+      error instanceof XeroError &&
+      (error.message.includes("not connected") ||
+        error.status === 409 ||
+        error.status === 500)
+    ) {
+      if (!error.message.includes("not connected")) {
+        await markXeroPushFailed(result.orgId, orderId, error);
+      }
+    } else {
+      await markXeroPushFailed(result.orgId, orderId, error);
+    }
+  }
+
+  return result.result;
+}
+
+export async function cancelRemainingSalesOrder(
+  orderId: string,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "cancelRemainingSalesOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId },
+    });
+
+    if (replay.replayed) return replay.result;
+
+    const order = await getLockedSalesOrderInTx(tx, orderId);
+    if (!order) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
+    }
+
+    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+      throw new SalesError(
+        "Only confirmed or partially shipped orders can cancel remaining quantities.",
+        400
+      );
+    }
+
+    await tx
+      .update(salesShipments)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(
+        and(
+          eq(salesShipments.salesOrderId, orderId),
+          eq(salesShipments.status, "draft")
+        )
+      );
+
+    const states = await getShipmentLineStatesInTx(tx, orderId);
+    const remainingLines = [...states.values()]
+      .map((line) => ({
+        ...line,
+        remaining: remainingToShip(line),
+      }))
+      .filter((line) => line.remaining > 0);
+
+    if (remainingLines.length === 0) {
+      throw new SalesError("There is no remaining quantity to cancel.", 400);
+    }
+
+    for (const line of remainingLines) {
+      await tx
+        .update(salesOrderLines)
+        .set({
+          cancelledQuantity: normalizeNumeric(
+            line.cancelledQuantity + line.remaining
+          ),
+          updatedAt: new Date(),
+        })
+        .where(eq(salesOrderLines.id, line.id));
+    }
+
+    await releaseReservationForSalesQuantitiesInTx(tx, {
+      organizationId: orgId,
+      salesOrderId: orderId,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "cancel-remaining"
+      ),
+      reason: "cancelled",
+      lines: remainingLines.map((line) => ({
+        salesOrderLineId: line.id,
+        itemId: line.itemId,
+        quantity: line.remaining,
+      })),
+    });
+
+    await tx
+      .update(salesOrders)
+      .set({
+        status: "cancelled",
+        updatedAt: new Date(),
+      })
+      .where(eq(salesOrders.id, orderId));
+
+    const result = { id: orderId };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
 export async function shipSalesOrder(
   id: string,
   options?: {
@@ -2814,6 +4046,10 @@ export async function shipSalesOrder(
 
     if (order.status === "shipped") {
       throw new SalesError("Order is already shipped.", 400);
+    }
+
+    if (order.status === "partially_shipped") {
+      throw new SalesError("Create a shipment for the remaining quantities.", 400);
     }
 
     const lines = await getOrderLinesInTx(tx, id);

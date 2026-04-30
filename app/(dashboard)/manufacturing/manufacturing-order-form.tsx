@@ -494,7 +494,7 @@ export function ManufacturingOrderForm({
             <FieldDescription>
               {isEditing
                 ? "Adjust details for this draft order."
-                : "Select a confirmed sales order to auto-fill batch creation, or choose a product directly for a standalone order."}
+                : "Select a confirmed or partially shipped sales order to auto-fill batch creation, or choose a product directly for a standalone order."}
             </FieldDescription>
             <FieldGroup>
               {!isEditing && (
@@ -518,11 +518,11 @@ export function ManufacturingOrderForm({
                         }
                       >
                         <ComboboxInput
-                          placeholder="Search confirmed sales orders..."
+                          placeholder="Search open sales orders..."
                           showClear
                         />
                         <ComboboxContent className="bg-popover text-popover-foreground">
-                          <ComboboxEmpty>No confirmed sales orders found</ComboboxEmpty>
+                          <ComboboxEmpty>No open sales orders found</ComboboxEmpty>
                           <ComboboxList>
                             {(id: string) => {
                               const order = salesOrderMap.get(id);
@@ -860,7 +860,7 @@ export function ManufacturingOrderForm({
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
-                      Select a confirmed sales order to preview the batch.
+                      Select a confirmed or partially shipped sales order to preview the batch.
                     </p>
                   </div>
                 )}

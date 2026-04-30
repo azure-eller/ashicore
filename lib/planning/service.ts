@@ -343,11 +343,23 @@ async function getSalesDemandFactsInTx(tx: Tx): Promise<InternalDemandFact[]> {
       requestedDate: salesOrders.requestedDate,
       itemId: salesOrderLines.itemId,
       itemName: salesOrderLines.itemName,
-      quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+      quantity: trimScale(
+        sql`(
+          SELECT COALESCE(SUM(demand.quantity), 0)
+          FROM inventory.inventory_demands_summary demand
+          WHERE demand.reference_type = 'sales_order_line'
+            AND demand.reference_id = ${salesOrderLines.id}
+        )`
+      ).as("quantity"),
     })
     .from(salesOrderLines)
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-    .where(and(eq(salesOrders.status, "confirmed"), isNull(salesOrders.deletedAt)))
+    .where(
+      and(
+        inArray(salesOrders.status, ["confirmed", "partially_shipped"]),
+        isNull(salesOrders.deletedAt)
+      )
+    )
     .orderBy(
       asc(salesOrders.requestedDate),
       asc(salesOrders.orderNumber),
@@ -355,33 +367,35 @@ async function getSalesDemandFactsInTx(tx: Tx): Promise<InternalDemandFact[]> {
       asc(salesOrderLines.id)
     );
 
-  return rows.map((row) => ({
-    id: `demand:sales:${row.salesOrderLineId}`,
-    itemId: row.itemId,
-    demandType: "sales_order",
-    quantity: row.quantity,
-    requiredDate: row.requestedDate,
-    reasonCodes: ["sales_order_demand"],
-    sourceRefs: [
-      {
-        sourceType: "sales_order",
-        sourceId: row.salesOrderId,
-        label: `${row.orderNumber} · ${row.customerName}`,
-        date: row.requestedDate,
-      },
-      {
-        sourceType: "sales_order_line",
-        sourceId: row.salesOrderLineId,
-        label: `${row.orderNumber} / ${row.itemName}`,
-        itemId: row.itemId,
-        quantity: row.quantity,
-        date: row.requestedDate,
-        parentSourceId: row.salesOrderId,
-      },
-    ],
-    explanation: `${row.orderNumber} needs ${row.quantity} ${row.itemName}.`,
-    explosionPath: [row.itemId],
-  }));
+  return rows
+    .map((row) => ({
+      id: `demand:sales:${row.salesOrderLineId}`,
+      itemId: row.itemId,
+      demandType: "sales_order" as const,
+      quantity: row.quantity,
+      requiredDate: row.requestedDate,
+      reasonCodes: ["sales_order_demand"] as PlanningReasonCode[],
+      sourceRefs: [
+        {
+          sourceType: "sales_order" as const,
+          sourceId: row.salesOrderId,
+          label: `${row.orderNumber} · ${row.customerName}`,
+          date: row.requestedDate,
+        },
+        {
+          sourceType: "sales_order_line" as const,
+          sourceId: row.salesOrderLineId,
+          label: `${row.orderNumber} / ${row.itemName}`,
+          itemId: row.itemId,
+          quantity: row.quantity,
+          date: row.requestedDate,
+          parentSourceId: row.salesOrderId,
+        },
+      ],
+      explanation: `${row.orderNumber} needs ${row.quantity} ${row.itemName}.`,
+      explosionPath: [row.itemId],
+    }))
+    .filter((row) => toQuantity(row.quantity) > 0);
 }
 
 function getSafetyStockDemandFacts(itemsList: PlanningItemRecord[]) {

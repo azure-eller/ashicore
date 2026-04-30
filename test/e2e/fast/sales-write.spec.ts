@@ -214,8 +214,8 @@ test.describe("Sales write-path smoke", () => {
     const orderDetailResponse = await testFetch(`/api/sales-orders/${marginOrderId}`);
     expect(orderDetailResponse.status).toBe(200);
     const orderDetail = await orderDetailResponse.json();
-    expect(orderDetail.lines[0].actualCogs).toBe("30.00");
-    expect(orderDetail.lines[0].actualGrossProfit).toBe("70.00");
+    expect(orderDetail.lines[0].actualCogs).toBe("30");
+    expect(orderDetail.lines[0].actualGrossProfit).toBe("70");
     expect(orderDetail.lines[0].actualMarginPercent).toBe("70");
 
     const lotsResponse = await testFetch(`/api/items/${materialId}/lots`);
@@ -234,14 +234,14 @@ test.describe("Sales write-path smoke", () => {
     expect(soldLots).toHaveLength(2);
     expect(soldLots[0]).toMatchObject({
       costPerUnit: "10",
-      realizedRevenue: "50.00",
-      realizedCogs: "10.00",
+      realizedRevenue: "50",
+      realizedCogs: "10",
       realizedMarginPercent: "80",
     });
     expect(soldLots[1]).toMatchObject({
       costPerUnit: "20",
-      realizedRevenue: "50.00",
-      realizedCogs: "20.00",
+      realizedRevenue: "50",
+      realizedCogs: "20",
       realizedMarginPercent: "60",
     });
   });

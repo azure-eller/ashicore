@@ -515,7 +515,7 @@ export function SoStageAction({ order }: Props) {
   }
 
   if (order.status === "confirmed") {
-    const canShip = order.shippingReadiness.state === "ready";
+    const canShip = false;
     const shouldCreateMOs = order.shippingReadiness.state === "needs_manufacturing";
     const shouldWaitForProduction = order.shippingReadiness.state === "in_production";
 
@@ -623,6 +623,16 @@ export function SoStageAction({ order }: Props) {
           isPending={shipMutation.isPending}
         />
       </>
+    );
+  }
+
+  if (order.status === "partially_shipped") {
+    return (
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/sales/orders/${order.id}`}>Review</Link>
+        </Button>
+      </div>
     );
   }
 

@@ -12,6 +12,8 @@ import {
   pricingSchedules,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
 } from "../../../lib/db/schema";
 import {
   createCustomer,
@@ -945,17 +947,30 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, shipOrderId));
 
-    await page.goto("/sales/orders");
-    await filterList(page, "Search orders", shipOrderBeforeUi.orderNumber);
-    const confirmedRow = page.getByRole("row", {
-      name: new RegExp(shipOrderBeforeUi.orderNumber),
-    });
-    await confirmedRow.getByRole("button", { name: "Ship" }).click();
-    await expect(page.getByRole("dialog", { name: "Ship Sales Order" })).toBeVisible();
-    await expect(page.getByText("Create invoice")).toBeVisible();
-    await page.getByRole("button", { name: "Ship" }).click();
-    await expect(page.getByRole("dialog", { name: "Sales Order Shipped" })).toBeVisible();
-    await page.getByRole("button", { name: "Done" }).click();
+    await page.goto(`/sales/orders/${shipOrderId}`);
+    await page.getByRole("button", { name: "Create Shipment" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toBeVisible();
+    await expect(
+      page.getByLabel(`Shipment quantity for ${primaryProductName}`)
+    ).toHaveValue("3");
+    await page.getByRole("button", { name: "Save Shipment" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toHaveCount(0);
+
+    const [createdShipment] = await db
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, shipOrderId));
+    expect(createdShipment.id).toBeTruthy();
+    const activeShipmentId = createdShipment.id;
+
+    const shipResponse = await testFetch(
+      `/api/sales-orders/${shipOrderId}/shipments/${activeShipmentId}/ship`,
+      {
+        method: "POST",
+        body: JSON.stringify({ syncAccounting: false, sendEmail: false }),
+      }
+    );
+    expect(shipResponse.status).toBe(200);
 
     const [shippedOrder] = await db
       .select({
@@ -992,7 +1007,7 @@ test.describe("Sales order flow", () => {
       .from(inventoryEvents)
       .where(
         and(
-          eq(inventoryEvents.referenceId, shipOrderId),
+          eq(inventoryEvents.referenceId, activeShipmentId),
           eq(inventoryEvents.eventType, "sales_consumption")
         )
       );
@@ -1006,7 +1021,7 @@ test.describe("Sales order flow", () => {
     expect(secondaryProductMovements.length).toBeGreaterThanOrEqual(1);
     expect(
       secondaryProductMovements.every(
-        (movement) => movement.referenceType === "sales_order"
+        (movement) => movement.referenceType === "sales_shipment"
       )
     ).toBe(true);
 
@@ -1014,7 +1029,7 @@ test.describe("Sales order flow", () => {
     await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Shipping coverage")).toBeVisible();
     await expect(page.locator("table").first()).toContainText(primaryProductName);
-    await expect(page.getByRole("button", { name: "Ship" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create Shipment" })).toHaveCount(0);
 
     await page.goto("/sales/orders");
     const shippedOrderRow = shipOrderBeforeUi;
@@ -1023,6 +1038,126 @@ test.describe("Sales order flow", () => {
       name: new RegExp(shippedOrderRow.orderNumber),
     });
     await expect(shippedRow).toContainText("Shipped");
+  });
+
+  test("plans available partial shipment on a short order and keeps history after cancelling remaining", async ({
+    page,
+    db,
+  }) => {
+    test.slow();
+
+    const shortItemName = `Short Partial Item ${run}`;
+    const zeroLineItemName = `Zero Line Item ${run}`;
+
+    const shortItemResult = await createItem({
+      name: shortItemName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `SHORT-PARTIAL-${run}`,
+      category: `Sales ${fixtureTs}`,
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: "9.00",
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(shortItemResult.status).toBe(201);
+
+    const zeroLineItemResult = await createItem({
+      name: zeroLineItemName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `ZERO-LINE-${run}`,
+      category: `Sales ${fixtureTs}`,
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: "9.00",
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(zeroLineItemResult.status).toBe(201);
+
+    const partialCustomerResult = await createCustomer({
+      name: `Partial Shipment Customer ${run}`,
+    });
+    expect(partialCustomerResult.status).toBe(201);
+
+    const partialOrderId = await createDraftSalesOrder({
+      customerId: partialCustomerResult.body.id as string,
+      notes: "Partial shortage coverage",
+      lines: [
+        {
+          itemId: shortItemResult.body.id as string,
+          quantity: "8",
+          unitPrice: "9.00",
+        },
+        {
+          itemId: zeroLineItemResult.body.id as string,
+          quantity: "5",
+          unitPrice: "9.00",
+        },
+      ],
+    });
+
+    const confirmResponse = await testFetch(
+      `/api/sales-orders/${partialOrderId}/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmOversell: true }),
+      }
+    );
+    expect(confirmResponse.status).toBe(200);
+
+    await page.goto(`/sales/orders/${partialOrderId}`);
+    await expect(page.getByText("Partial shortage coverage")).toBeVisible();
+    await page.getByRole("button", { name: "Create Shipment" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toBeVisible();
+    await page.getByLabel(`Shipment quantity for ${shortItemName}`).fill("5");
+    await page.getByLabel(`Shipment quantity for ${zeroLineItemName}`).fill("0");
+    await page.getByRole("button", { name: "Save Shipment" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toHaveCount(0);
+
+    const [createdShipment] = await db
+      .select({ id: salesShipments.id, shipmentNumber: salesShipments.shipmentNumber })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, partialOrderId));
+    expect(createdShipment.id).toBeTruthy();
+
+    const createdShipmentLines = await db
+      .select({
+        itemId: salesShipmentLines.itemId,
+        quantity: salesShipmentLines.quantity,
+      })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, createdShipment.id));
+    expect(createdShipmentLines).toEqual([
+      {
+        itemId: shortItemResult.body.id,
+        quantity: "5.0000",
+      },
+    ]);
+
+    const shipPartialResponse = await testFetch(
+      `/api/sales-orders/${partialOrderId}/shipments/${createdShipment.id}/ship`,
+      {
+        method: "POST",
+        body: JSON.stringify({ syncAccounting: false, sendEmail: false }),
+      }
+    );
+    expect(shipPartialResponse.status).toBe(200);
+
+    const cancelRemainingResponse = await testFetch(
+      `/api/sales-orders/${partialOrderId}/cancel-remaining`,
+      { method: "POST" }
+    );
+    expect(cancelRemainingResponse.status).toBe(200);
+
+    await page.goto(`/sales/orders/${partialOrderId}`);
+    await expect(page.locator("main")).toContainText("remaining quantities were cancelled");
+    await expect(page.locator("main")).toContainText(createdShipment.shipmentNumber);
+    await expect(page.getByRole("button", { name: "BOL" })).toBeVisible();
   });
 
   /* ================================================================ */

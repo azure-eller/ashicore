@@ -1,4 +1,8 @@
-import type { SalesOrderStatus } from "@/lib/schemas/sales-orders";
+import type {
+  SalesOrderStatus,
+  SalesShipmentCostStatus,
+  SalesShipmentCostType,
+} from "@/lib/schemas/sales-orders";
 
 export type PricingSourceType = "base_price" | "schedule_break";
 
@@ -183,6 +187,11 @@ export type SalesOrderDetailLine = {
   itemSku: string | null;
   unitName: string;
   quantity: string;
+  shippedQuantity: string;
+  plannedQuantity: string;
+  cancelledQuantity: string;
+  remainingQuantity: string;
+  unplannedRemainingQuantity: string;
   unitPrice: string;
   suggestedUnitPrice: string | null;
   pricingSourceType: PricingSourceType | null;
@@ -203,6 +212,59 @@ export type SalesOrderDetailLine = {
   updatedAt: Date;
   calcStock: string | null;
   potential: string | null;
+};
+
+export type SalesShipmentLine = {
+  id: string;
+  salesOrderLineId: string;
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  unitName: string;
+  quantity: string;
+  sortOrder: number;
+};
+
+export type SalesMarginStatus = "estimated" | "actual" | "mixed" | "unknown";
+
+export type SalesMarginSummary = {
+  productRevenue: string;
+  freightRecovery: string;
+  productCogs: string | null;
+  shipmentCosts: string;
+  contributionMargin: string | null;
+  marginPercent: string | null;
+  costStatus: SalesMarginStatus;
+};
+
+export type SalesShipmentCostRow = {
+  id: string;
+  costType: SalesShipmentCostType;
+  costStatus: SalesShipmentCostStatus;
+  amount: string;
+  vendorName: string | null;
+  referenceNumber: string | null;
+  incurredDate: string | null;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type SalesShipmentRow = {
+  id: string;
+  shipmentNumber: string;
+  sequence: number;
+  status: "draft" | "shipped" | "cancelled";
+  fulfillmentType: "delivery" | "pickup";
+  scheduledDate: string | null;
+  shippedAt: Date | null;
+  notes: string | null;
+  customerFreightChargeAmount: string | null;
+  lines: SalesShipmentLine[];
+  costs: SalesShipmentCostRow[];
+  marginSummary: SalesMarginSummary;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type SalesOrderDetail = {
@@ -241,6 +303,8 @@ export type SalesOrderDetail = {
   createdAt: Date;
   updatedAt: Date;
   lines: SalesOrderDetailLine[];
+  shipments: SalesShipmentRow[];
+  marginSummary: SalesMarginSummary;
   linkedManufacturingOrders: Array<{
     id: string;
     orderNumber: string;

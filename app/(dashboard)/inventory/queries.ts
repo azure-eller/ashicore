@@ -1221,7 +1221,7 @@ export async function deleteItem(
         and(
           eq(salesOrderLines.itemId, id),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["draft", "confirmed"])
+          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
         )
       )
       .limit(1);
@@ -1349,7 +1349,7 @@ export async function deleteItems(
         and(
           inArray(salesOrderLines.itemId, uniqueIds),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["draft", "confirmed"])
+          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
         )
       )
       .limit(1);
@@ -1358,7 +1358,7 @@ export async function deleteItems(
       return {
         deletedCount: 0,
         error:
-          "Cannot delete: one or more items are used by draft or confirmed sales orders.",
+          "Cannot delete: one or more items are used by draft, confirmed, or partially shipped sales orders.",
       };
     }
 

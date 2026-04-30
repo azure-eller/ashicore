@@ -90,12 +90,13 @@ export const LOT_DISPOSITION_TOOLTIP =
 export const SALES_ORDER_STATUS_TOOLTIP = {
   draft: "Not yet submitted; reserves no stock.",
   confirmed: "Stock reserved; awaiting shipment.",
+  partially_shipped: "Some stock shipped; remaining demand still open.",
   shipped: "Stock shipped; order closed.",
   cancelled: "Cancelled; reservations released.",
 } as const;
 
 export const SALES_ORDER_STATUS_COLUMN_TOOLTIP =
-  "Status values: draft, confirmed, shipped, cancelled.";
+  "Status values: draft, confirmed, partially shipped, shipped, cancelled.";
 
 export const MANUFACTURING_ORDER_STATUS_TOOLTIP = {
   draft: "Planned but not yet released.",

@@ -455,7 +455,7 @@ async function validateSalesLineLinkInTx(
   if (
     line &&
     line.deletedAt == null &&
-    ["draft", "confirmed"].includes(line.orderStatus) &&
+    ["draft", "confirmed", "partially_shipped"].includes(line.orderStatus) &&
     line.itemId === values.productId
   ) {
     return {
@@ -480,7 +480,7 @@ async function validateSalesLineLinkInTx(
         and(
           eq(salesOrders.id, values.salesOrderId),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["draft", "confirmed"]),
+          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"]),
           eq(salesOrderLines.itemId, values.productId)
         )
       );
@@ -1304,7 +1304,7 @@ export async function getManufacturingSalesOrderOptions(): Promise<
       .where(
         and(
           isNull(salesOrders.deletedAt),
-          eq(salesOrders.status, "confirmed")
+          inArray(salesOrders.status, ["confirmed", "partially_shipped"])
         )
       )
       .orderBy(desc(salesOrders.createdAt));
@@ -1351,7 +1351,7 @@ export async function getManufacturingSalesOrderPreview(
         and(
           eq(salesOrders.id, id),
           isNull(salesOrders.deletedAt),
-          eq(salesOrders.status, "confirmed")
+          inArray(salesOrders.status, ["confirmed", "partially_shipped"])
         )
       );
 
@@ -1383,7 +1383,7 @@ export async function getManufacturingSalesLineOptions(
   return withAuthedOrgContext(async (tx) => {
     const conditions = [
       isNull(salesOrders.deletedAt),
-      inArray(salesOrders.status, ["draft", "confirmed"]),
+      inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"]),
     ];
 
     if (productId) {
@@ -1712,9 +1712,9 @@ export async function createManufacturingOrdersFromSalesOrder(
       throw new ManufacturingError("Sales order not found", 404);
     }
 
-    if (order.status !== "confirmed") {
+    if (!["confirmed", "partially_shipped"].includes(order.status)) {
       throw new ManufacturingError(
-        "Only confirmed sales orders can create manufacturing orders",
+        "Only confirmed or partially shipped sales orders can create manufacturing orders",
         400
       );
     }

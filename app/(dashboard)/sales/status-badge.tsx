@@ -12,6 +12,8 @@ export function SalesOrderStatusBadge({ status }: { status: SalesOrderStatus }) 
 
   if (status === "confirmed") {
     badge = <Badge>Confirmed</Badge>;
+  } else if (status === "partially_shipped") {
+    badge = <Badge variant="secondary">Partially Shipped</Badge>;
   } else if (status === "shipped") {
     badge = <Badge variant="outline">Shipped</Badge>;
   } else if (status === "cancelled") {

@@ -32,7 +32,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -58,13 +77,21 @@ import {
   UNIT_TOOLTIP,
   ORDER_TOTAL_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
+import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import {
+  SALES_SHIPMENT_COST_STATUSES,
+  SALES_SHIPMENT_COST_TYPES,
+  type SalesShipmentCostStatus,
+  type SalesShipmentCostType,
+} from "@/lib/schemas/sales-orders";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
 import { SalesOrderStatusBadge } from "./status-badge";
 import type {
   OversellWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
+  SalesMarginSummary,
+  SalesShipmentRow,
 } from "./types";
 
 type ActionError = {
@@ -107,6 +134,152 @@ function ShipToAddress({ order }: { order: SalesOrderDetailType }) {
       )}
     </div>
   );
+}
+
+type ShipmentFormState = {
+  shipmentId: string | null;
+  idempotencyKey: string;
+  fulfillmentType: "delivery" | "pickup";
+  scheduledDate: string;
+  notes: string;
+  quantities: Record<string, string>;
+};
+
+type ShipmentActionPayload = {
+  shipmentId: string;
+  idempotencyKey: string;
+};
+
+type ShipmentCostFormLine = {
+  costType: SalesShipmentCostType;
+  costStatus: SalesShipmentCostStatus;
+  amount: string;
+  vendorName: string;
+  referenceNumber: string;
+  incurredDate: string;
+  notes: string;
+};
+
+type ShipmentCostFormState = {
+  shipmentId: string;
+  customerFreightChargeAmount: string;
+  costs: ShipmentCostFormLine[];
+};
+
+const COST_TYPE_LABELS: Record<SalesShipmentCostType, string> = {
+  freight: "Freight",
+  delivery_labor: "Delivery labor",
+  fuel: "Fuel",
+  packaging: "Packaging",
+  accessorial: "Accessorial",
+  other: "Other",
+};
+
+const COST_STATUS_LABELS: Record<SalesShipmentCostStatus, string> = {
+  estimated: "Estimated",
+  actual: "Actual",
+};
+
+function marginStatusLabel(status: SalesMarginSummary["costStatus"]) {
+  if (status === "actual") return "Actual";
+  if (status === "estimated") return "Estimated";
+  if (status === "mixed") return "Mixed";
+  return "Unknown";
+}
+
+function emptyShipmentCostLine(): ShipmentCostFormLine {
+  return {
+    costType: "freight",
+    costStatus: "estimated",
+    amount: "",
+    vendorName: "",
+    referenceNumber: "",
+    incurredDate: "",
+    notes: "",
+  };
+}
+
+function buildShipmentFormState(
+  order: SalesOrderDetailType,
+  shipment?: SalesShipmentRow
+): ShipmentFormState {
+  const quantities: Record<string, string> = {};
+  order.lines.forEach((line) => {
+    quantities[line.id] = shipment
+      ? (shipment.lines.find((shipmentLine) => shipmentLine.salesOrderLineId === line.id)
+          ?.quantity ?? "")
+      : line.unplannedRemainingQuantity;
+  });
+
+  return {
+    shipmentId: shipment?.id ?? null,
+    idempotencyKey: `sales-shipment-${shipment ? "update" : "create"}:${crypto.randomUUID()}`,
+    fulfillmentType: shipment?.fulfillmentType ?? "delivery",
+    scheduledDate: shipment?.scheduledDate ?? "",
+    notes: shipment?.notes ?? "",
+    quantities,
+  };
+}
+
+function buildShipmentCostFormState(shipment: SalesShipmentRow): ShipmentCostFormState {
+  return {
+    shipmentId: shipment.id,
+    customerFreightChargeAmount: shipment.customerFreightChargeAmount ?? "",
+    costs:
+      shipment.costs.length > 0
+        ? shipment.costs.map((cost) => ({
+            costType: cost.costType,
+            costStatus: cost.costStatus,
+            amount: cost.amount,
+            vendorName: cost.vendorName ?? "",
+            referenceNumber: cost.referenceNumber ?? "",
+            incurredDate: cost.incurredDate ?? "",
+            notes: cost.notes ?? "",
+          }))
+        : [emptyShipmentCostLine()],
+  };
+}
+
+function shipmentPayloadFromState(state: ShipmentFormState) {
+  return {
+    fulfillmentType: state.fulfillmentType,
+    scheduledDate: state.scheduledDate || null,
+    notes: state.notes || null,
+    lines: Object.entries(state.quantities).flatMap(([salesOrderLineId, quantity]) => {
+      const trimmedQuantity = quantity.trim();
+      if (!trimmedQuantity) return [];
+
+      const parsedQuantity = Number(trimmedQuantity);
+      if (Number.isFinite(parsedQuantity) && parsedQuantity <= 0) return [];
+
+      return [{ salesOrderLineId, quantity: trimmedQuantity }];
+    }),
+  };
+}
+
+function shipmentCostsPayloadFromState(state: ShipmentCostFormState) {
+  return {
+    customerFreightChargeAmount:
+      state.customerFreightChargeAmount.trim() === ""
+        ? null
+        : state.customerFreightChargeAmount.trim(),
+    costs: state.costs
+      .filter((cost) => cost.amount.trim() !== "")
+      .map((cost) => ({
+        costType: cost.costType,
+        costStatus: cost.costStatus,
+        amount: cost.amount.trim(),
+        vendorName: cost.vendorName.trim() || null,
+        referenceNumber: cost.referenceNumber.trim() || null,
+        incurredDate: cost.incurredDate || null,
+        notes: cost.notes.trim() || null,
+      })),
+  };
+}
+
+function hasPositiveQuantity(state: ShipmentFormState | null) {
+  if (!state) return false;
+  return Object.values(state.quantities).some((value) => Number(value) > 0);
 }
 
 type SyncDialogState = {
@@ -161,6 +334,12 @@ export function OrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelRemainingOpen, setCancelRemainingOpen] = useState(false);
+  const [cancelRemainingIdempotencyKey, setCancelRemainingIdempotencyKey] =
+    useState<string | null>(null);
+  const [shipmentForm, setShipmentForm] = useState<ShipmentFormState | null>(null);
+  const [shipmentCostForm, setShipmentCostForm] =
+    useState<ShipmentCostFormState | null>(null);
   const [shipConfirmOpen, setShipConfirmOpen] = useState(false);
   const [shipOptions, setShipOptions] = useState<AccountingActionOptions>({
     syncAccounting: true,
@@ -323,6 +502,165 @@ export function OrderDetail({
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
       setCancelOpen(false);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const shipmentMutation = useMutation({
+    mutationFn: async (values: ShipmentFormState) => {
+      const isEdit = values.shipmentId != null;
+      const response = await fetch(
+        isEdit
+          ? `/api/sales-orders/${order.id}/shipments/${values.shipmentId}`
+          : `/api/sales-orders/${order.id}/shipments`,
+        {
+          method: isEdit ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": values.idempotencyKey,
+          },
+          body: JSON.stringify(shipmentPayloadFromState(values)),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to save shipment.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setShipmentForm(null);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const shipmentCostMutation = useMutation({
+    mutationFn: async (values: ShipmentCostFormState) => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/shipments/${values.shipmentId}/costs`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(shipmentCostsPayloadFromState(values)),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to save shipment costs.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      setShipmentCostForm(null);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const cancelShipmentMutation = useMutation({
+    mutationFn: async ({ shipmentId, idempotencyKey }: ShipmentActionPayload) => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/shipments/${shipmentId}`,
+        {
+          method: "DELETE",
+          headers: { "Idempotency-Key": idempotencyKey },
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to cancel shipment.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const shipShipmentMutation = useMutation({
+    mutationFn: async ({ shipmentId, idempotencyKey }: ShipmentActionPayload) => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({ syncAccounting: true, sendEmail: false }),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to ship shipment.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const cancelRemainingMutation = useMutation({
+    mutationFn: async () => {
+      if (!cancelRemainingIdempotencyKey) {
+        throw new Error("Open cancel remaining before confirming.");
+      }
+
+      const response = await fetch(`/api/sales-orders/${order.id}/cancel-remaining`, {
+        method: "POST",
+        headers: { "Idempotency-Key": cancelRemainingIdempotencyKey },
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to cancel remaining quantities.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setCancelRemainingOpen(false);
+      setCancelRemainingIdempotencyKey(null);
       router.refresh();
     },
     onError: (error) => {
@@ -533,7 +871,14 @@ export function OrderDetail({
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
   const canConfirm = !isDeleted && order.status === "draft";
-  const canShip = !isDeleted && order.status === "confirmed";
+  const canCreateShipment =
+    !isDeleted &&
+    (order.status === "confirmed" || order.status === "partially_shipped") &&
+    order.lines.some((line) => Number(line.unplannedRemainingQuantity) > 0);
+  const canCancelRemaining =
+    !isDeleted &&
+    (order.status === "confirmed" || order.status === "partially_shipped") &&
+    order.lines.some((line) => Number(line.remainingQuantity) > 0);
   const canCancel = !isDeleted && order.status === "confirmed";
   const canDelete = !isDeleted;
   const canDownloadBol = order.status === "shipped";
@@ -544,9 +889,18 @@ export function OrderDetail({
     order.status === "shipped" &&
     order.xeroPushStatus === "pushed" &&
     order.xeroEmailStatus === "failed";
-  const canCreateMOs = !isDeleted && order.status === "confirmed";
+  const canCreateMOs =
+    !isDeleted &&
+    (order.status === "confirmed" || order.status === "partially_shipped");
   const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
-  const canConfirmShipment = canShip && order.shippingReadiness.state === "ready";
+  const showShippingSection =
+    order.status === "confirmed" ||
+    order.status === "partially_shipped" ||
+    order.status === "shipped" ||
+    order.shipments.length > 0;
+  const hasCancelledRemainingHistory =
+    order.status === "cancelled" &&
+    order.shipments.some((shipment) => shipment.status === "shipped");
 
   return (
     <>
@@ -645,21 +999,10 @@ export function OrderDetail({
                 {confirmMutation.isPending ? "Confirming..." : "Confirm"}
               </Button>
             ) : null}
-            {canShip ? (
-              canConfirmShipment ? (
-                <Button
-                  size="sm"
-                  onClick={() => setShipConfirmOpen(true)}
-                  disabled={shipMutation.isPending}
-                >
-                  {shipMutation.isPending ? "Shipping..." : "Ship"}
-                </Button>
-              ) : (
-                <DisabledTooltipButton
-                  label="Ship"
-                  tooltip={order.shippingReadiness.message}
-                />
-              )
+            {canCreateShipment ? (
+              <Button size="sm" onClick={() => setShipmentForm(buildShipmentFormState(order))}>
+                Create Shipment
+              </Button>
             ) : null}
             {canCreateMOs &&
               (order.hasManufacturableLines ? (
@@ -686,22 +1029,43 @@ export function OrderDetail({
 
         {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
-        {(order.status === "confirmed" || order.status === "shipped") && (
+        {showShippingSection && (
           <div className="flex flex-col gap-3 rounded-md border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold tracking-tight">Shipping</h2>
-              <Badge
-                variant={
-                  order.shippingReadiness.state === "ready"
-                    ? "default"
-                    : order.shippingReadiness.state === "shipped"
-                      ? "outline"
-                      : "secondary"
-                }
-              >
-                {order.shippingReadiness.message}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={
+                    order.shippingReadiness.state === "ready"
+                      ? "default"
+                      : order.shippingReadiness.state === "shipped"
+                        ? "outline"
+                        : "secondary"
+                  }
+                >
+                  {order.shippingReadiness.message}
+                </Badge>
+                {canCancelRemaining ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setCancelRemainingIdempotencyKey(
+                        `sales-order-cancel-remaining:${crypto.randomUUID()}`
+                      );
+                      setCancelRemainingOpen(true);
+                    }}
+                  >
+                    Cancel Remaining
+                  </Button>
+                ) : null}
+              </div>
             </div>
+            {hasCancelledRemainingHistory ? (
+              <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+                This order shipped partially; remaining quantities were cancelled.
+              </div>
+            ) : null}
             {order.shippingReadiness.blockers.length > 0 ? (
               <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
                 {order.shippingReadiness.blockers.map((blocker) => (
@@ -710,6 +1074,161 @@ export function OrderDetail({
               </ul>
             ) : null}
             <ShipToAddress order={order} />
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Shipment</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Scheduled</TableHead>
+                    <TableHead>Lines</TableHead>
+                    <TableHead className="text-right">Revenue</TableHead>
+                    <TableHead className="text-right">COGS</TableHead>
+                    <TableHead className="text-right">Ship Cost</TableHead>
+                    <TableHead className="text-right">Margin</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {order.shipments.length > 0 ? (
+                    order.shipments.map((shipment) => (
+                      <TableRow key={shipment.id}>
+                        <TableCell>{shipment.shipmentNumber}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              shipment.status === "shipped"
+                                ? "outline"
+                                : shipment.status === "cancelled"
+                                  ? "destructive"
+                                  : "secondary"
+                            }
+                          >
+                            {shipment.status === "shipped"
+                              ? "Shipped"
+                              : shipment.status === "cancelled"
+                                ? "Cancelled"
+                                : "Draft"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
+                        </TableCell>
+                        <TableCell>{formatDate(shipment.scheduledDate)}</TableCell>
+                        <TableCell>
+                          {shipment.lines
+                            .map(
+                              (line) =>
+                                `${formatQuantity(line.quantity)} ${line.unitName} ${line.itemName}`
+                            )
+                            .join(", ")}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(shipment.marginSummary.productRevenue) ?? "\u2014"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div>
+                            {formatPrice(shipment.marginSummary.productCogs) ?? "\u2014"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {marginStatusLabel(shipment.marginSummary.costStatus)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(shipment.marginSummary.shipmentCosts) ?? "\u2014"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div>
+                            {formatPrice(shipment.marginSummary.contributionMargin) ??
+                              "\u2014"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatMarginPercent(shipment.marginSummary.marginPercent)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            {shipment.status !== "cancelled" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  window.open(
+                                    `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
+                                    "_blank",
+                                    "noopener,noreferrer"
+                                  );
+                                }}
+                              >
+                                BOL
+                              </Button>
+                            ) : null}
+                            {shipment.status !== "cancelled" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setShipmentCostForm(
+                                    buildShipmentCostFormState(shipment)
+                                  )
+                                }
+                              >
+                                Costs
+                              </Button>
+                            ) : null}
+                            {shipment.status === "draft" ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    setShipmentForm(buildShipmentFormState(order, shipment))
+                                  }
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    shipShipmentMutation.mutate({
+                                      shipmentId: shipment.id,
+                                      idempotencyKey: `sales-shipment-ship:${crypto.randomUUID()}`,
+                                    })
+                                  }
+                                  disabled={shipShipmentMutation.isPending}
+                                >
+                                  Ship
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    cancelShipmentMutation.mutate({
+                                      shipmentId: shipment.id,
+                                      idempotencyKey: `sales-shipment-cancel:${crypto.randomUUID()}`,
+                                    })
+                                  }
+                                  disabled={cancelShipmentMutation.isPending}
+                                >
+                                  Cancel
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-muted-foreground">
+                        No shipments have been planned.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         )}
 
@@ -730,6 +1249,58 @@ export function OrderDetail({
           }
           compact
         />
+
+        {order.shipments.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold tracking-tight">Order Margin</h2>
+              <Badge variant="secondary">
+                {marginStatusLabel(order.marginSummary.costStatus)}
+              </Badge>
+            </div>
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableBody>
+                  <TableRow>
+                    <TableCell>Product revenue</TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(order.marginSummary.productRevenue) ?? "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>Freight recovered</TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(order.marginSummary.freightRecovery) ?? "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>Product COGS</TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(order.marginSummary.productCogs) ?? "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>Shipment costs</TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(order.marginSummary.shipmentCosts) ?? "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>Contribution margin</TableCell>
+                    <TableCell className="text-right">
+                      <div>
+                        {formatPrice(order.marginSummary.contributionMargin) ?? "\u2014"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatMarginPercent(order.marginSummary.marginPercent)}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        ) : null}
 
         <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
@@ -794,6 +1365,9 @@ export function OrderDetail({
                   <TableHead className="text-right">
                     <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
                   </TableHead>
+                  <TableHead className="text-right">Planned</TableHead>
+                  <TableHead className="text-right">Shipped</TableHead>
+                  <TableHead className="text-right">Remaining</TableHead>
                   <TableHead>
                     <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
                   </TableHead>
@@ -845,6 +1419,9 @@ export function OrderDetail({
                       </TableCell>
                       <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
                       <TableCell className="text-right">{line.quantity}</TableCell>
+                      <TableCell className="text-right">{line.plannedQuantity}</TableCell>
+                      <TableCell className="text-right">{line.shippedQuantity}</TableCell>
+                      <TableCell className="text-right">{line.remainingQuantity}</TableCell>
                       <TableCell>{line.unitName}</TableCell>
                       <TableCell className="text-right">
                         <div>
@@ -971,6 +1548,400 @@ export function OrderDetail({
           )}
         </div>
       </div>
+
+      <Dialog
+        open={shipmentForm != null}
+        onOpenChange={(open) => {
+          if (!open) setShipmentForm(null);
+        }}
+      >
+        <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {shipmentForm?.shipmentId ? "Edit Shipment" : "Create Shipment"}
+            </DialogTitle>
+            <DialogDescription>
+              Planned shipments can produce a Draft BOL before stock leaves.
+            </DialogDescription>
+          </DialogHeader>
+          {shipmentForm ? (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                shipmentMutation.mutate(shipmentForm);
+              }}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Type</label>
+                  <Select
+                    value={shipmentForm.fulfillmentType}
+                    onValueChange={(value) =>
+                      setShipmentForm({
+                        ...shipmentForm,
+                        fulfillmentType: value as "delivery" | "pickup",
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="delivery">Delivery</SelectItem>
+                      <SelectItem value="pickup">Pickup</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Scheduled Date</label>
+                  <DatePicker
+                    value={shipmentForm.scheduledDate}
+                    onChange={(value) =>
+                      setShipmentForm({ ...shipmentForm, scheduledDate: value })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Notes</label>
+                <Textarea
+                  value={shipmentForm.notes}
+                  onChange={(event) =>
+                    setShipmentForm({ ...shipmentForm, notes: event.target.value })
+                  }
+                  rows={3}
+                />
+              </div>
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="text-right">Ordered</TableHead>
+                      <TableHead className="text-right">Planned</TableHead>
+                      <TableHead className="text-right">Shipped</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="w-36 text-right">This Shipment</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {order.lines.map((line) => (
+                      <TableRow key={line.id}>
+                        <TableCell>
+                          <div>{line.itemName}</div>
+                          {line.itemSku ? (
+                            <div className="text-xs text-muted-foreground">
+                              {line.itemSku}
+                            </div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="text-right">{line.quantity}</TableCell>
+                        <TableCell className="text-right">{line.plannedQuantity}</TableCell>
+                        <TableCell className="text-right">{line.shippedQuantity}</TableCell>
+                        <TableCell className="text-right">
+                          {line.unplannedRemainingQuantity} {line.unitName}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            aria-label={`Shipment quantity for ${line.itemName}`}
+                            inputMode="decimal"
+                            value={shipmentForm.quantities[line.id] ?? ""}
+                            onChange={(event) =>
+                              setShipmentForm({
+                                ...shipmentForm,
+                                quantities: {
+                                  ...shipmentForm.quantities,
+                                  [line.id]: event.target.value,
+                                },
+                              })
+                            }
+                            className="text-right"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShipmentForm(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={shipmentMutation.isPending || !hasPositiveQuantity(shipmentForm)}
+                >
+                  {shipmentMutation.isPending ? "Saving..." : "Save Shipment"}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={shipmentCostForm != null}
+        onOpenChange={(open) => {
+          if (!open) setShipmentCostForm(null);
+        }}
+      >
+        <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Costs & Margin</DialogTitle>
+            <DialogDescription>
+              Customer freight recovery is for margin tracking only. Not added to Xero
+              invoices.
+            </DialogDescription>
+          </DialogHeader>
+          {shipmentCostForm ? (
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                shipmentCostMutation.mutate(shipmentCostForm);
+              }}
+            >
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium" htmlFor="customer-freight-recovery">
+                  Customer freight recovery
+                </label>
+                <Input
+                  id="customer-freight-recovery"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={shipmentCostForm.customerFreightChargeAmount}
+                  onChange={(event) =>
+                    setShipmentCostForm({
+                      ...shipmentCostForm,
+                      customerFreightChargeAmount: event.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Vendor</TableHead>
+                      <TableHead>Reference</TableHead>
+                      <TableHead>Incurred</TableHead>
+                      <TableHead>Notes</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {shipmentCostForm.costs.map((cost, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <Select
+                            value={cost.costType}
+                            onValueChange={(value) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? {
+                                        ...entry,
+                                        costType: value as SalesShipmentCostType,
+                                      }
+                                    : entry
+                                ),
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-40">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {SALES_SHIPMENT_COST_TYPES.map((type) => (
+                                  <SelectItem key={type} value={type}>
+                                    {COST_TYPE_LABELS[type]}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={cost.costStatus}
+                            onValueChange={(value) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? {
+                                        ...entry,
+                                        costStatus: value as SalesShipmentCostStatus,
+                                      }
+                                    : entry
+                                ),
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {SALES_SHIPMENT_COST_STATUSES.map((status) => (
+                                  <SelectItem key={status} value={status}>
+                                    {COST_STATUS_LABELS[status]}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            aria-label="Shipment cost amount"
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={cost.amount}
+                            onChange={(event) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? { ...entry, amount: event.target.value }
+                                    : entry
+                                ),
+                              })
+                            }
+                            className="w-28 text-right"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            aria-label="Shipment cost vendor"
+                            value={cost.vendorName}
+                            onChange={(event) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? { ...entry, vendorName: event.target.value }
+                                    : entry
+                                ),
+                              })
+                            }
+                            className="w-40"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            aria-label="Shipment cost reference"
+                            value={cost.referenceNumber}
+                            onChange={(event) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? { ...entry, referenceNumber: event.target.value }
+                                    : entry
+                                ),
+                              })
+                            }
+                            className="w-36"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <DatePicker
+                            value={cost.incurredDate}
+                            onChange={(value) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? { ...entry, incurredDate: value }
+                                    : entry
+                                ),
+                              })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            aria-label="Shipment cost notes"
+                            value={cost.notes}
+                            onChange={(event) =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs: shipmentCostForm.costs.map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? { ...entry, notes: event.target.value }
+                                    : entry
+                                ),
+                              })
+                            }
+                            className="w-48"
+                          />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setShipmentCostForm({
+                                ...shipmentCostForm,
+                                costs:
+                                  shipmentCostForm.costs.length === 1
+                                    ? [emptyShipmentCostLine()]
+                                    : shipmentCostForm.costs.filter(
+                                        (_entry, entryIndex) => entryIndex !== index
+                                      ),
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex justify-between gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setShipmentCostForm({
+                      ...shipmentCostForm,
+                      costs: [...shipmentCostForm.costs, emptyShipmentCostLine()],
+                    })
+                  }
+                >
+                  Add Cost
+                </Button>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShipmentCostForm(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={shipmentCostMutation.isPending}>
+                    {shipmentCostMutation.isPending ? "Saving..." : "Save Costs"}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {syncDialog ? (
         <AccountingSyncDialog
@@ -1195,6 +2166,38 @@ export function OrderDetail({
               onClick={() => cancelMutation.mutate()}
             >
               {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={cancelRemainingOpen}
+        onOpenChange={(open) => {
+          setCancelRemainingOpen(open);
+          if (!open) {
+            setCancelRemainingIdempotencyKey(null);
+          } else if (!cancelRemainingIdempotencyKey) {
+            setCancelRemainingIdempotencyKey(
+              `sales-order-cancel-remaining:${crypto.randomUUID()}`
+            );
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel remaining quantities?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Draft shipments will be cancelled and unshipped reservations released.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cancelRemainingMutation.isPending}
+              onClick={() => cancelRemainingMutation.mutate()}
+            >
+              {cancelRemainingMutation.isPending ? "Cancelling..." : "Cancel Remaining"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

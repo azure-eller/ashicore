@@ -187,11 +187,77 @@ export async function releaseReservationForSalesLineInTx(
   return result;
 }
 
+export async function releaseReservationForSalesQuantitiesInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    salesOrderId: string;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    reason: "cancelled" | "shipped" | "edited" | "deleted";
+    lines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      quantity: number;
+    }>;
+  }
+) {
+  const replay = await beginInventoryOperationInTx<{ referenceIds: string[] }>(tx, {
+    organizationId: params.organizationId,
+    operationName: "releaseReservationForSalesQuantities",
+    idempotencyKey: params.idempotencyKey ?? null,
+    payload: {
+      salesOrderId: params.salesOrderId,
+      reason: params.reason,
+      lines: params.lines,
+    },
+  });
+
+  if (replay.replayed) {
+    return replay.result;
+  }
+
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const deltas = params.lines.map((line) => ({
+    itemId: line.itemId,
+    referenceType: "sales_order_line",
+    referenceId: line.salesOrderLineId,
+    quantity: -line.quantity,
+  }));
+  const demandEvents = await applyDemandReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    idempotencyKey: params.idempotencyKey ?? null,
+    eventSubtype: params.reason,
+    deltas,
+  });
+  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: params.reason,
+    deltas,
+  });
+
+  const result = { referenceIds: params.lines.map((line) => line.salesOrderLineId) };
+
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
+    result,
+  });
+
+  return result;
+}
+
 export async function consumeForShipmentInTx(
   tx: Tx,
   params: {
     organizationId: string;
     salesOrderId: string;
+    salesShipmentId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     shippedAt?: Date;
@@ -210,6 +276,7 @@ export async function consumeForShipmentInTx(
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       salesOrderId: params.salesOrderId,
+      salesShipmentId: params.salesShipmentId ?? null,
       lines: params.lines,
       shippedAt: params.shippedAt?.toISOString() ?? null,
     },
@@ -286,12 +353,16 @@ export async function consumeForShipmentInTx(
       quantity: line.quantity,
       eventType: "sales_consumption",
       eventSubtype: "sales_ship",
-      referenceType: "sales_order",
-      referenceId: params.salesOrderId,
+      referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
+      referenceId: params.salesShipmentId ?? params.salesOrderId,
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
       occurredAt: params.shippedAt,
-      metadata: { salesOrderLineId: line.salesOrderLineId },
+      metadata: {
+        salesOrderId: params.salesOrderId,
+        salesOrderLineId: line.salesOrderLineId,
+        salesShipmentId: params.salesShipmentId ?? null,
+      },
     });
     eventIds.push(...consumed.eventIds);
   }
@@ -314,11 +385,11 @@ export async function consumeForShipmentInTx(
     locationId: location.id,
     actorUserId: params.actorUserId ?? null,
     eventSubtype: "shipped",
-    deltas: existingReservationRows.map((row) => ({
-      itemId: row.itemId,
+    deltas: params.lines.map((line) => ({
+      itemId: line.itemId,
       referenceType: "sales_order_line",
-      referenceId: row.referenceId,
-      quantity: -parseFloat(row.quantity),
+      referenceId: line.salesOrderLineId,
+      quantity: -line.quantity,
     })),
   });
 

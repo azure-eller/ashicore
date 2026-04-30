@@ -23,7 +23,7 @@ export type ManufacturingSalesLineOption = {
   itemSku: string | null;
   quantity: string;
   unitName: string;
-  status: "draft" | "confirmed";
+  status: "draft" | "confirmed" | "partially_shipped";
 };
 
 export type ManufacturingSalesOrderOption = {

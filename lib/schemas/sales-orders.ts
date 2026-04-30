@@ -1,15 +1,56 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { salesOrders } from "@/lib/db/schema";
+import { normalizeMoney } from "@/lib/format";
 import { isValidIsoDate, nullableString } from "./shared";
 
 export const SALES_ORDER_STATUSES = [
   "draft",
   "confirmed",
+  "partially_shipped",
   "shipped",
   "cancelled",
 ] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
+
+export const SALES_SHIPMENT_STATUSES = ["draft", "shipped", "cancelled"] as const;
+export type SalesShipmentStatus = (typeof SALES_SHIPMENT_STATUSES)[number];
+
+export const SALES_SHIPMENT_FULFILLMENT_TYPES = ["delivery", "pickup"] as const;
+export type SalesShipmentFulfillmentType =
+  (typeof SALES_SHIPMENT_FULFILLMENT_TYPES)[number];
+
+export const SALES_SHIPMENT_COST_TYPES = [
+  "freight",
+  "delivery_labor",
+  "fuel",
+  "packaging",
+  "accessorial",
+  "other",
+] as const;
+export type SalesShipmentCostType = (typeof SALES_SHIPMENT_COST_TYPES)[number];
+
+export const SALES_SHIPMENT_COST_STATUSES = ["estimated", "actual"] as const;
+export type SalesShipmentCostStatus =
+  (typeof SALES_SHIPMENT_COST_STATUSES)[number];
+
+const optionalMoneyString = nullableString
+  .refine((value) => {
+    if (value == null) return true;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0;
+  }, "Amount must be a non-negative number")
+  .transform((value) => (value == null ? null : normalizeMoney(Number(value))));
+
+const positiveMoneyString = z
+  .string()
+  .trim()
+  .min(1, "Amount is required")
+  .refine((value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0;
+  }, "Amount must be greater than 0")
+  .transform((value) => normalizeMoney(Number(value)));
 
 const rawOrderLineSchema = z.object({
   itemId: z.string().default(""),
@@ -121,6 +162,17 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   orderNumber: true,
   customerName: true,
   shippedAt: true,
+  xeroInvoiceId: true,
+  xeroInvoiceNumber: true,
+  xeroPushStatus: true,
+  xeroPushError: true,
+  xeroPushedAt: true,
+  xeroPushPayloadHash: true,
+  xeroLastPushAttemptAt: true,
+  xeroRetryCount: true,
+  xeroEmailStatus: true,
+  xeroEmailError: true,
+  xeroEmailedAt: true,
   totalAmount: true,
   deletedAt: true,
   createdAt: true,
@@ -154,6 +206,87 @@ export const bulkConfirmSalesOrdersSchema = z.object({
   confirmOversell: z.boolean().optional(),
 });
 export type BulkConfirmSalesOrders = z.infer<typeof bulkConfirmSalesOrdersSchema>;
+
+const rawShipmentLineSchema = z.object({
+  salesOrderLineId: z.string().min(1, "Line is required"),
+  quantity: nullableString,
+});
+
+const shipmentLinesSchema = z
+  .array(rawShipmentLineSchema)
+  .transform((lines) =>
+    lines.filter((line) => (line.quantity?.trim() ?? "") !== "")
+  )
+  .superRefine((lines, ctx) => {
+    if (lines.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one shipment line is required",
+        path: [],
+      });
+      return;
+    }
+
+    const seen = new Set<string>();
+    lines.forEach((line, index) => {
+      if (seen.has(line.salesOrderLineId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "This order line is already included",
+          path: [index, "quantity"],
+        });
+      }
+      seen.add(line.salesOrderLineId);
+
+      const quantity = line.quantity?.trim() ?? "";
+      const parsed = Number(quantity);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Quantity must be greater than 0",
+          path: [index, "quantity"],
+        });
+      }
+    });
+  });
+
+export const salesShipmentInputSchema = z.object({
+  fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
+  scheduledDate: nullableString.refine((value) => {
+    if (value == null) return true;
+    return isValidIsoDate(value);
+  }, "Scheduled date must be a real date in YYYY-MM-DD format"),
+  notes: nullableString,
+  lines: shipmentLinesSchema,
+});
+export type SalesShipmentInput = z.infer<typeof salesShipmentInputSchema>;
+
+export const shipSalesShipmentSchema = z.object({
+  syncAccounting: z.boolean().optional(),
+  sendEmail: z.boolean().optional(),
+});
+export type ShipSalesShipment = z.infer<typeof shipSalesShipmentSchema>;
+
+export const salesShipmentCostsInputSchema = z.object({
+  customerFreightChargeAmount: optionalMoneyString,
+  costs: z.array(
+    z.object({
+      costType: z.enum(SALES_SHIPMENT_COST_TYPES),
+      costStatus: z.enum(SALES_SHIPMENT_COST_STATUSES),
+      amount: positiveMoneyString,
+      vendorName: nullableString,
+      referenceNumber: nullableString,
+      incurredDate: nullableString.refine((value) => {
+        if (value == null) return true;
+        return isValidIsoDate(value);
+      }, "Incurred date must be a real date in YYYY-MM-DD format"),
+      notes: nullableString,
+    })
+  ),
+});
+export type SalesShipmentCostsInput = z.infer<
+  typeof salesShipmentCostsInputSchema
+>;
 
 export const salesOrderDefaultValues: InsertSalesOrder = {
   customerId: "",
