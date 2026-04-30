@@ -4,6 +4,7 @@ import {
   getLots,
   getStockMovements,
   getBomComponents,
+  getItemCommitmentSummary,
   getUsedInParents,
   getVariants,
 } from "@/app/(dashboard)/inventory/queries";
@@ -46,11 +47,12 @@ export default async function ProductDetailPage({
     );
   }
 
-  const [lots, movements, bom, usedInParents] = await Promise.all([
+  const [lots, movements, bom, usedInParents, commitmentSummary] = await Promise.all([
     getLots(id),
     getStockMovements(id),
     canViewBom ? getBomComponents(id) : Promise.resolve([]),
     getUsedInParents(id),
+    getItemCommitmentSummary(id),
   ]);
 
   return (
@@ -61,6 +63,7 @@ export default async function ProductDetailPage({
       lots={lots}
       movements={movements}
       usedInParents={usedInParents}
+      commitmentSummary={commitmentSummary}
       canEdit={canEdit}
       canViewBom={canViewBom}
       canViewLedger={canViewLedger}

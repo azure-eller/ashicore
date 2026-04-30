@@ -460,4 +460,31 @@ test.describe("Reservation correctness", () => {
 
     expect(customerId).toBeTruthy();
   });
+
+  test("item detail shows stock commitments by customer", async ({ page }) => {
+    const customerName = uniqueName("Commitment card customer");
+    const materialName = uniqueName("Commitment card material");
+    const customerId = await createCustomerFixture(customerName);
+    const itemId = await createMaterial(materialName, "8");
+    const orderId = await createDraftSalesOrder({
+      customerId,
+      itemId,
+      quantity: "3",
+    });
+
+    expect((await confirmSalesOrder(orderId)).status).toBe(200);
+
+    await page.goto(`/inventory/materials/${itemId}`);
+    const commitmentCard = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Stock Commitments" });
+    await expect(commitmentCard).toBeVisible();
+    await expect(commitmentCard.getByText("On-hand stock breakdown")).toBeVisible();
+    await expect(commitmentCard.getByText("On hand")).toBeVisible();
+    await expect(commitmentCard.getByText("Available").first()).toBeVisible();
+    await expect(commitmentCard.getByText("Committed")).toBeVisible();
+    await expect(commitmentCard.getByText("Demand")).toBeVisible();
+    await expect(commitmentCard.getByText("Shortfall")).toBeVisible();
+    await expect(commitmentCard.getByText(customerName)).toBeVisible();
+  });
 });

@@ -61,7 +61,7 @@ export function ledgerOnHandDeltaExpr(
   END`;
 }
 
-function defaultLocationIdSubquery(organizationId: SqlExpression) {
+export function defaultLocationIdSubquery(organizationId: SqlExpression) {
   return sql`(
     SELECT ${inventoryLocations.id}
     FROM ${inventoryLocations}
@@ -155,6 +155,16 @@ export function projectedShortageQty(organizationId: SqlExpression, itemId: SqlE
 
 export function projectedAvailableQty(organizationId: SqlExpression, itemId: SqlExpression) {
   return trimScale(projectedAvailableQtyExpr(
+    organizationId,
+    itemId,
+  ));
+}
+
+export function projectedReservableOnHandQty(
+  organizationId: SqlExpression,
+  itemId: SqlExpression
+) {
+  return trimScale(projectedReservableOnHandQtyExpr(
     organizationId,
     itemId,
   ));

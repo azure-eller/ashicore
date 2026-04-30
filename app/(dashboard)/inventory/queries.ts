@@ -11,6 +11,7 @@ import {
   type InventoryDisposition,
   inventoryEvents,
   inventoryLotBalances,
+  inventoryReservationsSummary,
   items,
   lots,
   manufacturingOrderIngredients,
@@ -48,6 +49,7 @@ import {
   lockItemsInTx,
   manualDecreaseStockInTx,
   manualIncreaseStockInTx,
+  defaultLocationIdSubquery,
   projectedAvailableQty,
   projectedAvailableQtyExpr,
   projectedCommittedQty,
@@ -55,6 +57,7 @@ import {
   projectedExpectedQty,
   projectedLotUnitCost,
   projectedOnHandQty,
+  projectedReservableOnHandQty,
   projectedShortageQty,
   recordCostBasisChangeInTx,
   scrapLotDispositionInTx,
@@ -76,6 +79,10 @@ import type {
   ItemRow,
   ItemType,
 } from "./types";
+import {
+  buildItemCommitmentSummary,
+  type ItemCommitmentSummary,
+} from "./commitment-summary";
 
 export class InventoryError extends DomainError {
   constructor(message: string, status = 400) {
@@ -100,6 +107,10 @@ const availableQtySubquery = projectedAvailableQty(
   items.organizationId,
   items.id
 ).as("availableQty");
+const reservableOnHandQtySubquery = projectedReservableOnHandQty(
+  items.organizationId,
+  items.id
+).as("reservableOnHandQty");
 const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
@@ -1204,6 +1215,67 @@ export async function getItem(id: string) {
       purchaseUnitUom: purchaseUnit?.uom ?? null,
       currentBomRevision,
     };
+  });
+}
+
+export async function getItemCommitmentSummary(
+  itemId: string
+): Promise<ItemCommitmentSummary> {
+  return withAuthedOrgContext(async (tx) => {
+    const [itemRow] = await tx
+      .select({
+        itemId: items.id,
+        onHandQty: stockSubquery,
+        reservableOnHandQty: reservableOnHandQtySubquery,
+        availableQty: availableQtySubquery,
+        committedQty: committedQtySubquery,
+        demandQty: demandQtySubquery,
+        shortageQty: shortageQtySubquery,
+        unitName: unitDefinitions.name,
+        unitUom: unitDefinitions.uom,
+      })
+      .from(items)
+      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(and(eq(items.id, itemId), isNull(items.deletedAt)));
+
+    if (!itemRow) {
+      throw new InventoryError("Item not found", 404);
+    }
+
+    const customerReservations = await tx
+      .select({
+        customerId: salesOrders.customerId,
+        customerName: salesOrders.customerName,
+        quantity: trimScale(sql`SUM(${inventoryReservationsSummary.quantity})`).as(
+          "quantity"
+        ),
+      })
+      .from(inventoryReservationsSummary)
+      .innerJoin(
+        salesOrderLines,
+        eq(inventoryReservationsSummary.referenceId, salesOrderLines.id)
+      )
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(inventoryReservationsSummary.itemId, itemId),
+          eq(
+            inventoryReservationsSummary.locationId,
+            defaultLocationIdSubquery(inventoryReservationsSummary.organizationId)
+          ),
+          eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+          inArray(salesOrders.status, ["confirmed", "partially_shipped"]),
+          isNull(salesOrders.deletedAt),
+          sql`${inventoryReservationsSummary.quantity} > 0`
+        )
+      )
+      .groupBy(salesOrders.customerId, salesOrders.customerName)
+      .orderBy(desc(sql`SUM(${inventoryReservationsSummary.quantity})`));
+
+    return buildItemCommitmentSummary({
+      ...itemRow,
+      customerReservations,
+    });
   });
 }
 

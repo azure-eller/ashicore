@@ -4,6 +4,8 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ItemDetailActions } from "./item-detail-actions";
 import { LotDispositionActions } from "./lot-disposition-actions";
+import { ItemCommitmentSummaryCard } from "./item-commitment-summary-card";
+import type { ItemCommitmentSummary } from "./commitment-summary";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Tooltip,
@@ -164,6 +166,7 @@ interface ItemDetailProps {
   canEdit?: boolean;
   canViewBom?: boolean;
   canViewLedger?: boolean;
+  commitmentSummary?: ItemCommitmentSummary;
 }
 
 export function ItemDetail({
@@ -177,6 +180,7 @@ export function ItemDetail({
   canEdit = false,
   canViewBom = true,
   canViewLedger = false,
+  commitmentSummary,
 }: ItemDetailProps) {
   const isMaster = item.isMaster === true;
   const isVariant = item.parentId != null;
@@ -580,6 +584,8 @@ export function ItemDetail({
         </div>
         )}
       </dl>
+
+      {commitmentSummary ? <ItemCommitmentSummaryCard summary={commitmentSummary} /> : null}
 
       {/* BOM Section — renders only when bom prop is provided and non-empty */}
       {itemType === "product" && item.bomLocked && !canViewBom ? (
