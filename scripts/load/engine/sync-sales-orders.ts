@@ -51,6 +51,11 @@ function buildOrderNotes(
   // Marker must be the first line so extractOrderMarker can find it on re-import.
   const parts: string[] = [buildOrderMarker(prefix, sourceRows)];
 
+  const requestedWindow = order.requestedWindow?.trim();
+  if (requestedWindow) {
+    parts.push(`Requested window: ${requestedWindow}`);
+  }
+
   const specialInstructions = order.specialInstructions?.trim();
   if (specialInstructions) {
     parts.push(specialInstructions);

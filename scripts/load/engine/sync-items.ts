@@ -91,16 +91,19 @@ export function planItemsSync(
   const orderedSeeds = orderSeedsForSync(seeds);
 
   for (const seed of orderedSeeds) {
+    const isMaster = seed.isMaster === true;
     const existing = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
-      allowNameMatch: !seed.isMaster,
+      allowNameMatch: !isMaster,
     });
-    const desiredUnitSeed = unitByKey.get(seed.unitKey);
-    if (!desiredUnitSeed) {
+    const desiredUnitSeed = seed.unitKey ? unitByKey.get(seed.unitKey) : null;
+    if (!isMaster && !desiredUnitSeed) {
       throw new Error(`Unknown unit key "${seed.unitKey}" for ${seed.name}.`);
     }
-    const desiredUnit = existingUnitsBySignature.get(
-      getUnitSignature(desiredUnitSeed.name, desiredUnitSeed.size, desiredUnitSeed.uom)
-    );
+    const desiredUnit = desiredUnitSeed
+      ? existingUnitsBySignature.get(
+          getUnitSignature(desiredUnitSeed.name, desiredUnitSeed.size, desiredUnitSeed.uom)
+        )
+      : null;
     if (!existing) {
       report.createdItems.push(seed.name);
     } else if (existing.deletedAt) {
@@ -110,7 +113,11 @@ export function planItemsSync(
       existing.sku !== seed.sku ||
       existing.name !== seed.name ||
       existing.itemType !== seed.itemType ||
-      (desiredUnit ? existing.unitDefinitionId !== desiredUnit.id : true) ||
+      (isMaster
+        ? existing.unitDefinitionId !== null
+        : desiredUnit
+          ? existing.unitDefinitionId !== desiredUnit.id
+          : true) ||
       (existing.category ?? null) !== seed.category ||
       (existing.description ?? null) !== seed.description ||
       (seed.defaultPurchasePrice !== undefined &&
@@ -155,8 +162,9 @@ export async function applyItemsSyncInTx(
   const orderedSeeds = orderSeedsForSync(seeds);
 
   for (const seed of orderedSeeds) {
-    const unitDefinitionId = unitIdByKey.get(seed.unitKey);
-    if (!unitDefinitionId) {
+    const isMaster = seed.isMaster === true;
+    const unitDefinitionId = seed.unitKey ? unitIdByKey.get(seed.unitKey) : null;
+    if (!isMaster && !unitDefinitionId) {
       throw new Error(`Unit key "${seed.unitKey}" was not resolved for ${seed.name}.`);
     }
 
@@ -168,7 +176,7 @@ export async function applyItemsSyncInTx(
       : null;
 
     const existing = findExistingItem(seed, itemBySku, itemByName, {
-      allowNameMatch: !seed.isMaster,
+      allowNameMatch: !isMaster,
     });
     if (!existing) {
       const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
@@ -179,7 +187,7 @@ export async function applyItemsSyncInTx(
           name: seed.name,
           sku: seed.sku,
           itemType: seed.itemType,
-          unitDefinitionId,
+          unitDefinitionId: unitDefinitionId ?? null,
           category: seed.category,
           description: seed.description,
           defaultPurchasePrice: seed.defaultPurchasePrice ?? null,
@@ -205,7 +213,7 @@ export async function applyItemsSyncInTx(
         sku: seed.sku,
         name: seed.name,
         itemType: seed.itemType,
-        unitDefinitionId,
+        unitDefinitionId: unitDefinitionId ?? null,
         category: seed.category,
         description: seed.description,
         isMaster: seed.isMaster ?? false,
@@ -246,7 +254,7 @@ export async function applyItemsSyncInTx(
         existing.sku !== seed.sku ||
         existing.name !== seed.name ||
         existing.itemType !== seed.itemType ||
-        existing.unitDefinitionId !== unitDefinitionId ||
+        existing.unitDefinitionId !== (unitDefinitionId ?? null) ||
         (existing.category ?? null) !== seed.category ||
         (existing.description ?? null) !== seed.description ||
         existing.deletedAt != null ||

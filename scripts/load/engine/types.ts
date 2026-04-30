@@ -14,10 +14,10 @@ export type UnitSeed = {
 
 export type ItemSeed = {
   key: string;
-  sku: string;
+  sku: string | null;
   name: string;
   itemType: "material" | "product";
-  unitKey: string;
+  unitKey?: string;
   category: string;
   description: string;
   defaultPurchasePrice?: string | null;
@@ -271,6 +271,7 @@ export type OrderSeed = {
   sourceRows: number[];
   customerName: string;
   reference: string | null;
+  requestedWindow?: string | null;
   address: string | null;
   contact: string | null;
   specialInstructions: string | null;

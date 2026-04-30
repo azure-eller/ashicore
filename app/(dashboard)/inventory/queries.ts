@@ -2514,6 +2514,8 @@ export async function createMasterProduct(
         ...data,
         organizationId: orgId,
         itemType: "product",
+        sku: null,
+        unitDefinitionId: null,
         isMaster: true,
       })
       .returning({ id: items.id });
@@ -2525,6 +2527,60 @@ export async function createMasterProduct(
     });
 
     return item;
+  });
+}
+
+export async function updateMasterProduct(
+  id: string,
+  data: InsertMasterItem,
+  options?: { idempotencyKey?: string },
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+      organizationId: orgId,
+      operationName: "updateMasterProduct",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, data },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
+    const [item] = await tx
+      .update(items)
+      .set({
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        variantAxes: data.variantAxes,
+        sku: null,
+        unitDefinitionId: null,
+        purchaseUnitDefinitionId: null,
+        purchaseToStockFactor: null,
+        defaultPurchasePrice: null,
+        currentStockUnitCost: null,
+        defaultSellingPrice: null,
+        sellable: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(items.id, id),
+          eq(items.isMaster, true),
+          isNull(items.deletedAt)
+        )
+      )
+      .returning({ id: items.id });
+
+    const result = item ?? null;
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 

@@ -2,6 +2,7 @@ import {
   normalizeStockUnitCost,
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
+import { normalizeNumericScale } from "@/lib/format";
 import type { ExistingItem, InitialStockEntry, ItemSeed } from "./types";
 
 export function resolveSeedSellable(
@@ -70,7 +71,11 @@ export function resolveSeedOpeningQuantity(
   );
 }
 
-export function resolveSeedOpeningUnitCost(seed: ItemSeed) {
+function resolveSeedDirectOpeningUnitCost(seed: ItemSeed) {
+  if (seed.itemType !== "material") {
+    return null;
+  }
+
   return (
     resolveSeedCurrentStockUnitCost(seed) ??
     resolveStockUnitCostFromDefaultPurchasePrice({
@@ -78,6 +83,61 @@ export function resolveSeedOpeningUnitCost(seed: ItemSeed) {
       purchaseToStockFactor: seed.purchaseToStockFactor ?? null,
     })
   );
+}
+
+export function resolveSeedOpeningUnitCost(
+  seed: ItemSeed,
+  seedByKey?: Map<string, ItemSeed>,
+  visited = new Set<string>()
+): string | null {
+  const directUnitCost = resolveSeedDirectOpeningUnitCost(seed);
+  if (directUnitCost != null) {
+    return directUnitCost;
+  }
+
+  if (seed.itemType !== "product" || !seedByKey || !seed.bom?.length) {
+    return null;
+  }
+
+  if (visited.has(seed.key)) {
+    return null;
+  }
+
+  const nextVisited = new Set(visited);
+  nextVisited.add(seed.key);
+
+  let totalCost = 0;
+  for (const component of seed.bom) {
+    const componentSeed = seedByKey.get(component.componentKey);
+    const componentQuantity = Number.parseFloat(component.quantity);
+    if (!componentSeed || !Number.isFinite(componentQuantity)) {
+      return null;
+    }
+
+    const componentUnitCost = resolveSeedOpeningUnitCost(
+      componentSeed,
+      seedByKey,
+      nextVisited
+    );
+    if (componentUnitCost == null) {
+      return null;
+    }
+
+    totalCost += componentQuantity * Number.parseFloat(componentUnitCost);
+  }
+
+  const expectedBatchYield =
+    seed.manufacturingMode === "batch" && seed.expectedBatchYield != null
+      ? Number.parseFloat(seed.expectedBatchYield)
+      : null;
+  const unitCost =
+    expectedBatchYield != null &&
+    Number.isFinite(expectedBatchYield) &&
+    expectedBatchYield > 0
+      ? totalCost / expectedBatchYield
+      : totalCost;
+
+  return normalizeNumericScale(unitCost, 6);
 }
 
 export function orderSeedsForSync(itemSeeds: ItemSeed[]) {
@@ -99,7 +159,9 @@ export function findExistingItem(
   existingItemsByName: Map<string, ExistingItem>,
   options?: { allowNameMatch?: boolean }
 ) {
-  const skuCandidates = [seed.sku, ...(seed.legacySkus ?? [])];
+  const skuCandidates = [seed.sku, ...(seed.legacySkus ?? [])].filter(
+    (sku): sku is string => sku != null
+  );
   for (const sku of skuCandidates) {
     const existing = existingItemsBySku.get(sku);
     if (existing) return existing;

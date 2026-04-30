@@ -220,13 +220,18 @@ export function ItemDetail({
               <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
             </Link>
             <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
-            <Badge variant="outline">Variant Family</Badge>
+            <Badge variant="outline">Variant Master</Badge>
           </div>
           <div className="flex items-center gap-2">
             {canEdit && (
-              <Button size="sm" asChild>
-                <Link href={`/inventory/products/${item.id}/variants/new`}>Add Variant</Link>
-              </Button>
+              <>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href={`/inventory/products/${item.id}/edit`}>Edit</Link>
+                </Button>
+                <Button size="sm" asChild>
+                  <Link href={`/inventory/products/${item.id}/variants/new`}>Add Variant</Link>
+                </Button>
+              </>
             )}
           </div>
         </div>

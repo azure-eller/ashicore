@@ -162,7 +162,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor="variant-family-name">Family Name</FieldLabel>
+                  <FieldLabel htmlFor="variant-family-name">Master Name</FieldLabel>
                   <Input
                     id="variant-family-name"
                     value={masterName}
@@ -180,7 +180,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                     className="bg-muted/40 font-medium"
                   />
                   <FieldDescription>
-                    Derived from the family name and variant dimensions.
+                    Derived from the master name and variant dimensions.
                   </FieldDescription>
                 </Field>
               </div>

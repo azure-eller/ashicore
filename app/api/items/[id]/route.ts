@@ -5,8 +5,13 @@ import {
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
 import { InsufficientStockError, MissingCostBasisError } from "@/lib/inventory/kernel";
-import { updateItemSchema } from "@/lib/schemas/items";
-import { deleteItem, getItem, updateItem } from "@/app/(dashboard)/inventory/queries";
+import { insertMasterItemSchema, updateItemSchema } from "@/lib/schemas/items";
+import {
+  deleteItem,
+  getItem,
+  updateItem,
+  updateMasterProduct,
+} from "@/app/(dashboard)/inventory/queries";
 
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
@@ -19,18 +24,20 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
-  if (existingItem.isMaster) {
-    return NextResponse.json(
-      { error: "Cannot edit a master product directly — edit its variants instead" },
-      { status: 400 }
-    );
-  }
-
   if (existingItem.itemType === "product" && existingItem.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
   }
 
   const body = await request.json();
+  if (existingItem.isMaster) {
+    const data = insertMasterItemSchema.parse(body);
+    const item = await updateMasterProduct(id, data, { idempotencyKey });
+    if (!item) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+    return NextResponse.json(item);
+  }
+
   const { stock, bom, revisionNote, ...itemData } = updateItemSchema.parse(body);
   const nextItemData =
     existingItem.parentId != null

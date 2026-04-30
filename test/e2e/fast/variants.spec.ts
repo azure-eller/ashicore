@@ -4,7 +4,7 @@ import { items } from "@/lib/db/schema";
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("variant product family", () => {
+test.describe("variant master products", () => {
   const ts = Date.now();
   const masterName = `Test Soil ${ts}`;
   let masterId: string;
@@ -18,8 +18,7 @@ test.describe("variant product family", () => {
     // Fill basic fields
     await page.getByLabel("Name").fill(masterName);
 
-    // Enable variants — the Switch is inside a label that says "Has variants"
-    const variantsToggle = page.getByRole("switch", { name: "Has variants" });
+    const variantsToggle = page.getByRole("switch", { name: "Variant master" });
     await variantsToggle.click();
 
     // Wait for the Variant Axes section to appear
@@ -33,9 +32,7 @@ test.describe("variant product family", () => {
     // The axis tag should appear
     await expect(page.getByText("Package").first()).toBeVisible();
 
-    // Submit — button label is "Create Product" when isMaster is true
-    // but actually when isMaster=true the label from item-form is submitLabel = "Create Product"
-    await page.getByRole("button", { name: "Create Product" }).click();
+    await page.getByRole("button", { name: "Create Variant Master" }).click();
 
     // Should land on the master detail page
     await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+/, { timeout: 15_000 });
@@ -53,6 +50,7 @@ test.describe("variant product family", () => {
 
     expect(master).toBeTruthy();
     expect(master!.variantAxes).toEqual(["Package"]);
+    expect(master!.sku).toBeNull();
     expect(master!.unitDefinitionId).toBeNull();
   });
 
@@ -98,16 +96,16 @@ test.describe("variant product family", () => {
     expect(variant!.unitDefinitionId).not.toBeNull();
   });
 
-  test("editing a variant keeps the family name locked", async ({ page, db }) => {
+  test("editing a variant keeps the master name locked", async ({ page, db }) => {
     await page.goto(`/inventory/products/${variantId}`);
     await expect(page.getByRole("heading", { name: variantDisplayName })).toBeVisible();
 
     await page.getByRole("link", { name: "Edit" }).click();
     await page.waitForURL(new RegExp(`/inventory/products/${variantId}/edit$`), { timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "Edit Variant" })).toBeVisible();
-    await expect(page.getByLabel("Family Name")).toHaveValue(masterName);
+    await expect(page.getByLabel("Master Name")).toHaveValue(masterName);
     await expect(page.getByLabel("Variant Title")).toHaveValue(variantDisplayName);
-    await expect(page.getByLabel("Family Name")).toHaveAttribute("readonly", "");
+    await expect(page.getByLabel("Master Name")).toHaveAttribute("readonly", "");
 
     await page.getByLabel("Description").fill("Variant description updated");
 

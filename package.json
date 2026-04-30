@@ -20,6 +20,8 @@
     "verify:inventory-state": "tsx scripts/verify-inventory-state.ts",
     "verify:inventory-kernel": "tsx scripts/verify-inventory-kernel.ts",
     "verify:opening-stock-conversion": "tsx scripts/verify-opening-stock-conversion.ts",
+    "verify:paonia-loader-data": "tsx scripts/verify-paonia-loader-data.ts",
+    "verify:paonia-katana-skus": "tsx scripts/verify-paonia-katana-skus.ts",
     "verify:inventory": "pnpm verify:inventory-kernel && pnpm verify:inventory-state",
     "db:generate": "drizzle-kit generate && tsx scripts/make-migrations-idempotent.ts",
     "db:check-migrations": "tsx scripts/make-migrations-idempotent.ts --check",

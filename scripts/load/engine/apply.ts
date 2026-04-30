@@ -22,7 +22,9 @@ export async function applyChanges(
     config.units.map((unit) => getUnitSignature(unit.name, unit.size, unit.uom))
   );
   const managedItemSkus = new Set(
-    config.seeds.flatMap((seed) => [seed.sku, ...(seed.legacySkus ?? [])])
+    config.seeds
+      .flatMap((seed) => [seed.sku, ...(seed.legacySkus ?? [])])
+      .filter((sku): sku is string => sku != null)
   );
 
   return withOrgContext(orgId, async (tx) => {

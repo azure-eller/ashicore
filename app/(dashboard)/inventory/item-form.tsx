@@ -426,7 +426,7 @@ export function ItemForm({
 
   const submitLabel = isEditing
     ? (mutation.isPending ? "Saving..." : "Save Changes")
-    : (mutation.isPending ? "Creating..." : `Create ${typeLabel}`);
+    : (mutation.isPending ? "Creating..." : isMaster ? "Create Variant Master" : `Create ${typeLabel}`);
   const isBomDirty = itemType === "product" && !isMaster && Boolean((form.formState.dirtyFields as Record<string, unknown>).bom);
   const lockTarget = pendingBomLocked ?? bomLocked;
   const lockDialogTitle = lockTarget ? "Lock this BOM?" : "Unlock this BOM?";
@@ -442,11 +442,13 @@ export function ItemForm({
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
             {isEditing
-              ? isVariant
+              ? isMaster
+                ? "Edit Variant Master"
+                : isVariant
                 ? "Edit Variant"
                 : `Edit ${typeLabel}`
               : isMaster
-                ? "Add Product with Variants"
+                ? "Add Variant Master"
                 : `Add ${typeLabel}`}
           </h1>
         </div>
@@ -460,11 +462,11 @@ export function ItemForm({
                     checked={isMaster}
                     onCheckedChange={setIsMaster}
                   />
-                  Has variants
+                  Variant master
                 </label>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs">
-                Create size or color variants with separate stock, SKU, and pricing.
+                Create a parent row for variants with separate stock, SKU, and pricing.
               </TooltipContent>
             </Tooltip>
           )}
@@ -499,8 +501,10 @@ export function ItemForm({
             <FieldLegend>Basics</FieldLegend>
             <FieldDescription>
               {isVariant
-                ? "Family name is inherited, and the variant title is derived from its dimensions."
-                : `Name, category, and unit details for this ${typeLabel.toLowerCase()}.`}
+                ? "Master name is inherited, and the variant title is derived from its dimensions."
+                : isMaster
+                  ? "Name and category for this variant master."
+                  : `Name, category, and unit details for this ${typeLabel.toLowerCase()}.`}
             </FieldDescription>
             <FieldGroup>
               {isVariant ? (
@@ -512,7 +516,7 @@ export function ItemForm({
                       value={variantFamilyName}
                       readOnly
                     />
-                    <FieldLabel htmlFor="variant-family-name">Family Name</FieldLabel>
+                    <FieldLabel htmlFor="variant-family-name">Master Name</FieldLabel>
                     <Input
                       id="variant-family-name"
                       value={variantFamilyName}
@@ -530,7 +534,7 @@ export function ItemForm({
                       className="bg-muted/40 font-medium"
                     />
                     <FieldDescription>
-                      Derived from the family name and variant dimensions.
+                      Derived from the master name and variant dimensions.
                     </FieldDescription>
                   </Field>
                 </div>
@@ -828,7 +832,7 @@ export function ItemForm({
               <FieldSet className="max-w-4xl gap-5">
                 <FieldLegend>Variant Axes</FieldLegend>
                 <FieldDescription>
-                  Define the dimensions that vary across this product family (e.g. Package, Wattage, Color).
+                  Define the dimensions that vary under this variant master.
                 </FieldDescription>
                 <FieldGroup>
                   <Controller

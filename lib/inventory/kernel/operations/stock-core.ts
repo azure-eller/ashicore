@@ -56,6 +56,70 @@ export type FifoAllocation = {
   requirementViolated?: boolean;
 };
 
+function decimalPlaces(value: string) {
+  const [, fractional = ""] = value.split(".");
+  return fractional.length;
+}
+
+function decimalDigits(value: string) {
+  const normalized = value.trim();
+  const sign = normalized.startsWith("-") ? BigInt(-1) : BigInt(1);
+  const unsigned = normalized.replace(/^-/, "").replace(".", "");
+  const digits = unsigned.replace(/^0+(?=\d)/, "") || "0";
+  return {
+    sign,
+    digits: BigInt(digits),
+    scale: decimalPlaces(normalized.replace(/^-/, "")),
+  };
+}
+
+function pow10(exponent: number) {
+  return BigInt(10) ** BigInt(exponent);
+}
+
+function formatScaledDecimal(value: bigint, scale: number) {
+  if (value === BigInt(0)) return "0";
+
+  const sign = value < BigInt(0) ? "-" : "";
+  const abs = value < BigInt(0) ? -value : value;
+
+  if (scale === 0) {
+    return `${sign}${abs.toString()}`;
+  }
+
+  const divisor = pow10(scale);
+  const whole = abs / divisor;
+  const fractional = (abs % divisor).toString().padStart(scale, "0").replace(/0+$/, "");
+
+  return fractional ? `${sign}${whole.toString()}.${fractional}` : `${sign}${whole.toString()}`;
+}
+
+function multiplyNumericStrings(left: string, right: string, scale: number) {
+  const parsedLeft = decimalDigits(left);
+  const parsedRight = decimalDigits(right);
+  const sign = parsedLeft.sign * parsedRight.sign;
+  const raw = parsedLeft.digits * parsedRight.digits;
+  const rawScale = parsedLeft.scale + parsedRight.scale;
+
+  let scaled: bigint;
+  if (rawScale > scale) {
+    const divisor = pow10(rawScale - scale);
+    scaled = raw / divisor;
+    const remainder = raw % divisor;
+    if (remainder * BigInt(2) >= divisor) {
+      scaled += BigInt(1);
+    }
+  } else {
+    scaled = raw * pow10(scale - rawScale);
+  }
+
+  return formatScaledDecimal(scaled * sign, scale);
+}
+
+function calculateExtendedCost(quantity: string, unitCost: string) {
+  return multiplyNumericStrings(quantity, unitCost, 6);
+}
+
 export async function generateLotNumberInTx(tx: Tx) {
   const result = await tx.execute(
     sql`SELECT nextval('inventory.lot_number_seq') AS val`
@@ -342,10 +406,7 @@ export async function createPositiveStockEventInTx(
 
   const quantity = normalizeNumeric(params.quantity);
   const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
-  const extendedCost = normalizeNumericScale(
-    parseFloat(quantity) * parseFloat(unitCost),
-    6
-  );
+  const extendedCost = calculateExtendedCost(quantity, unitCost);
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
   const lotNumber = params.lotNumber?.trim() || (await generateLotNumberInTx(tx));
   const receivedAt = params.receivedAt ?? params.occurredAt ?? new Date();
@@ -577,9 +638,9 @@ export async function consumeStockFifoInTx(
       lotId: allocation.lotId,
       quantity: normalizeNumeric(allocation.quantity),
       unitCost: normalizeNumericScale(allocation.unitCost, 6),
-      extendedCost: normalizeNumericScale(
-        allocation.quantity * allocation.unitCost,
-        6
+      extendedCost: calculateExtendedCost(
+        normalizeNumeric(allocation.quantity),
+        normalizeNumericScale(allocation.unitCost, 6)
       ),
       disposition: DEFAULT_DISPOSITION,
       fromDisposition: DEFAULT_DISPOSITION,
@@ -649,9 +710,9 @@ export async function restockExistingLotInTx(
       lotId: params.lotId,
       quantity: normalizeNumeric(params.quantity),
       unitCost: normalizeNumericScale(parseFloat(params.unitCost), 6),
-      extendedCost: normalizeNumericScale(
-        params.quantity * parseFloat(params.unitCost),
-        6
+      extendedCost: calculateExtendedCost(
+        normalizeNumeric(params.quantity),
+        normalizeNumericScale(parseFloat(params.unitCost), 6)
       ),
       disposition,
       toDisposition: disposition,

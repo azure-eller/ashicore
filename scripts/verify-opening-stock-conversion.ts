@@ -8,9 +8,11 @@
 //   3. Object with PURCHASE unit — qty × purchaseToStockFactor.
 //   4. Object with unknown unit — throws loudly (silent fallback was the original bug).
 //   5. Object with purchase unit but no factor — throws loudly.
+//   6. Product opening stock can derive cost from its seed BOM.
 
 import {
   resolveSeedOpeningQuantity,
+  resolveSeedOpeningUnitCost,
 } from "./load/engine/seeds";
 import type { ItemSeed } from "./load/engine/types";
 
@@ -22,6 +24,7 @@ const peatLikeSeed: ItemSeed = {
   unitKey: "cubic_yard",
   purchaseUnitKey: "bale_225l",
   purchaseToStockFactor: "0.5",
+  currentStockUnitCost: "1",
   category: "test",
   description: "test",
 };
@@ -84,4 +87,27 @@ try {
 }
 assert(threw5, "Case 5 (missing factor) threw", threw5);
 
-console.log("\n✓ All 5 opening-stock conversion cases passed.");
+const finishedProductSeed: ItemSeed = {
+  key: "finished",
+  sku: "TEST-FINISHED",
+  name: "Test Finished Product",
+  itemType: "product",
+  unitKey: "each",
+  category: "test",
+  description: "test",
+  manufacturingMode: "batch",
+  expectedBatchYield: "10",
+  bom: [{ componentKey: "peat", quantity: "5" }],
+};
+const seedByKey = new Map([
+  [peatLikeSeed.key, peatLikeSeed],
+  [finishedProductSeed.key, finishedProductSeed],
+]);
+const c6 = resolveSeedOpeningUnitCost(finishedProductSeed, seedByKey);
+assert(
+  c6 === "0.5",
+  "Case 6 (product BOM opening cost) unitCost 5×1÷10=0.5",
+  c6
+);
+
+console.log("\n✓ All 6 opening-stock conversion cases passed.");
