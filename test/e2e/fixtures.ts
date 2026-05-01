@@ -239,22 +239,9 @@ export async function selectDate(
       new Date(year, month - 1, day).toLocaleDateString(),
     { year, month, day }
   );
+  const targetTime = new Date(year, month - 1, day).getTime();
 
   await trigger.click();
-
-  const today = await page.evaluate(() => {
-    const now = new Date();
-    return {
-      year: now.getFullYear(),
-      month: now.getMonth() + 1,
-    };
-  });
-  const direction =
-    year < today.year || (year === today.year && month < today.month)
-      ? "previous"
-      : "next";
-  const monthButtonClass =
-    direction === "previous" ? ".rdp-button_previous" : ".rdp-button_next";
 
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const target = page.locator(`[data-day="${targetLabel}"]`).first();
@@ -264,7 +251,23 @@ export async function selectDate(
       return;
     }
 
-    const monthButton = page.locator(monthButtonClass).last();
+    const visibleRange = await page.locator("[data-day]").evaluateAll((elements) => {
+      const times = elements
+        .map((element) => Date.parse(element.getAttribute("data-day") ?? ""))
+        .filter(Number.isFinite);
+
+      if (times.length === 0) return null;
+
+      return {
+        min: Math.min(...times),
+        max: Math.max(...times),
+      };
+    });
+    const buttonSelector =
+      visibleRange && targetTime < visibleRange.min
+        ? ".rdp-button_previous"
+        : ".rdp-button_next";
+    const monthButton = page.locator(buttonSelector).last();
     if (!(await monthButton.isVisible().catch(() => false))) {
       break;
     }

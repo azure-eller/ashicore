@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -14,7 +14,8 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 
 type NavigationPendingContextValue = {
-  start: () => void;
+  pending: boolean;
+  start: (href?: React.ComponentProps<typeof Link>["href"]) => void;
 };
 
 const NavigationPendingContext =
@@ -26,36 +27,74 @@ export function NavigationPendingProvider({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [pendingPathname, setPendingPathname] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const currentLocation = `${pathname}${searchParams.size > 0 ? `?${searchParams.toString()}` : ""}`;
+  const [pending, setPending] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousLocationRef = useRef(currentLocation);
 
-  const start = useCallback(() => {
-    setPendingPathname(pathname);
+  const start = useCallback((href?: React.ComponentProps<typeof Link>["href"]) => {
+    const targetLocation = getComparableLocation(href);
+
+    if (targetLocation === currentLocation) {
+      return;
+    }
+
+    setPending(true);
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
+    if (settleTimeoutRef.current) {
+      clearTimeout(settleTimeoutRef.current);
+      settleTimeoutRef.current = null;
+    }
     timeoutRef.current = setTimeout(() => {
-      setPendingPathname(null);
+      setPending(false);
       timeoutRef.current = null;
     }, 10_000);
-  }, [pathname]);
+  }, [currentLocation]);
+
+  useEffect(() => {
+    if (previousLocationRef.current === currentLocation) {
+      return;
+    }
+
+    previousLocationRef.current = currentLocation;
+
+    if (!pending) {
+      return;
+    }
+
+    settleTimeoutRef.current = setTimeout(() => {
+      setPending(false);
+      settleTimeoutRef.current = null;
+    }, 250);
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, [currentLocation, pending]);
 
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      if (settleTimeoutRef.current) {
+        clearTimeout(settleTimeoutRef.current);
+      }
     };
   }, []);
 
-  const value = useMemo(() => ({ start }), [start]);
-  const pending = pendingPathname === pathname;
+  const value = useMemo(() => ({ pending, start }), [pending, start]);
 
   return (
     <NavigationPendingContext.Provider value={value}>
       {children}
       {pending ? (
-        <div className="pointer-events-none fixed right-4 top-4 rounded-md border bg-background px-3 py-2 text-muted-foreground shadow-xs">
+        <div className="pointer-events-none fixed right-4 top-4 z-50 rounded-md border bg-background p-3 shadow-xs">
           <Spinner className="text-foreground" />
         </div>
       ) : null}
@@ -67,13 +106,14 @@ export function useNavigationPending() {
   const context = useContext(NavigationPendingContext);
 
   if (!context) {
-    return { start: () => {} };
+    return { pending: false, start: () => {} };
   }
 
   return context;
 }
 
 export function NavigationLink({
+  href,
   onClick,
   target,
   ...props
@@ -83,6 +123,7 @@ export function NavigationLink({
   return (
     <Link
       {...props}
+      href={href}
       target={target}
       onClick={(event) => {
         onClick?.(event);
@@ -99,8 +140,41 @@ export function NavigationLink({
           return;
         }
 
-        start();
+        start(href);
       }}
     />
   );
+}
+
+function getComparableLocation(href?: React.ComponentProps<typeof Link>["href"]) {
+  if (!href) {
+    return null;
+  }
+
+  if (typeof href === "string") {
+    const url = new URL(href, window.location.origin);
+    return `${url.pathname}${url.search}`;
+  }
+
+  const pathname = href.pathname ?? window.location.pathname;
+  const params = new URLSearchParams();
+
+  if (href.query) {
+    for (const [key, value] of Object.entries(href.query)) {
+      if (value == null) {
+        continue;
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => params.append(key, String(item)));
+        continue;
+      }
+
+      params.set(key, String(value));
+    }
+  }
+
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+
+  return `${pathname}${query}`;
 }

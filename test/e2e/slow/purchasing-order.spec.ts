@@ -144,7 +144,7 @@ test.describe("Purchasing flow", () => {
     await supplierInput.pressSequentially(supplierName);
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
-    await selectDate(page, page.locator("#expectedDate"), "2026-05-01");
+    await selectDate(page, page.locator("#expectedDate"), expectedCreateDate);
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
@@ -226,7 +226,7 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("link", { name: "Edit" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
 
-    await selectDate(page, page.locator("#expectedDate"), "2026-05-03");
+    await selectDate(page, page.locator("#expectedDate"), expectedEditDate);
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
     const secondRow = page.locator("tbody tr").nth(1);

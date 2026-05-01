@@ -124,9 +124,7 @@ export function SidebarCollapsedBar() {
                             : "text-sidebar-foreground/70 focus:bg-sidebar-accent focus:text-sidebar-accent-foreground"
                         )}
                         onSelect={() => {
-                          if (!isActive) {
-                            start()
-                          }
+                          start(item.url)
                           router.push(item.url)
                         }}
                       >

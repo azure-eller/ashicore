@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { DataTable } from "../data-table";
-import DataTableSkeleton from "../data-table-skeleton";
+import DataTableLoading from "../data-table-loading";
 import { getItems } from "../queries";
 
 export default function ProductsPage() {
   return (
-    <Suspense fallback={<DataTableSkeleton />}>
+    <Suspense fallback={<DataTableLoading />}>
       <ProductsData />
     </Suspense>
   );

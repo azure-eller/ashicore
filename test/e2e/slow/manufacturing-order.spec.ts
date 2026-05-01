@@ -586,7 +586,7 @@ test.describe("Manufacturing order flow", () => {
       "Product has no active BOM ingredients."
     );
 
-    await selectDate(page, page.getByLabel("Batch Planned Date"), "2026-05-01");
+    await selectDate(page, page.getByLabel("Batch Planned Date"), expectedBatchPlannedDate);
     await page.getByLabel("Notes").fill("Batch manufacturing coverage");
     await page.getByRole("button", { name: "Create 1 Order" }).click();
 

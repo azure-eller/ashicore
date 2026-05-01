@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { SuppliersTable } from "@/app/(dashboard)/purchasing/suppliers-table";
 import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
-import DataTableSkeleton from "../data-table-skeleton";
+import DataTableLoading from "../data-table-loading";
 
 export default function SuppliersPage() {
   return (
-    <Suspense fallback={<DataTableSkeleton />}>
+    <Suspense fallback={<DataTableLoading />}>
       <SuppliersData />
     </Suspense>
   );

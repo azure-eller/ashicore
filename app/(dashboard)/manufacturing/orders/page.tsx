@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { OrdersTable } from "@/app/(dashboard)/manufacturing/orders-table";
 import { getManufacturingOrders } from "@/app/(dashboard)/manufacturing/queries";
-import DataTableSkeleton from "../data-table-skeleton";
+import DataTableLoading from "../data-table-loading";
 
 export default function ManufacturingOrdersPage() {
   return (
-    <Suspense fallback={<DataTableSkeleton />}>
+    <Suspense fallback={<DataTableLoading />}>
       <ManufacturingOrdersData />
     </Suspense>
   );

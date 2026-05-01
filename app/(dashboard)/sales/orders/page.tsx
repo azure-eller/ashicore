@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { OrdersTable } from "@/app/(dashboard)/sales/orders-table";
 import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
-import OrdersTableSkeleton from "../orders-table-skeleton";
+import OrdersTableLoading from "../orders-table-loading";
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<OrdersTableSkeleton />}>
+    <Suspense fallback={<OrdersTableLoading />}>
       <SalesOrdersData />
     </Suspense>
   );

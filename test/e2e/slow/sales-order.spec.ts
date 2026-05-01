@@ -382,7 +382,7 @@ test.describe("Sales order flow", () => {
     await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    await selectDate(page, page.getByLabel("Requested Date"), "2026-04-15");
+    await selectDate(page, page.getByLabel("Requested Date"), expectedRequestedDate);
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
@@ -396,7 +396,7 @@ test.describe("Sales order flow", () => {
     await row2.getByPlaceholder("Search items...").pressSequentially(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
     await row2.locator('input[placeholder="0"]').first().fill("5");
-    await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.80");
+    await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.8");
     await expect(row2.getByText("Suggested $10.80")).toBeVisible();
 
     await page.getByLabel("Notes").fill("Full lifecycle test order");

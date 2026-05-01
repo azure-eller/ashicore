@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -75,15 +75,13 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
         </TableHeader>
         <TableBody>
           {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <TableRow key={i}>
-                {Array.from({ length: 7 }).map((_, j) => (
-                  <TableCell key={j}>
-                    <Skeleton className="h-4 w-20" />
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))
+            <TableRow>
+              <TableCell colSpan={7}>
+                <div className="flex min-h-24 items-center justify-center">
+                  <Spinner className="text-foreground" />
+                </div>
+              </TableCell>
+            </TableRow>
           ) : data?.lines.length ? (
             data.lines.map((line) => {
               const lineQty = parseFloat(line.quantity);
