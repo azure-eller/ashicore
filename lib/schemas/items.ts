@@ -28,6 +28,14 @@ const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
   quantity: bomQuantitySchema,
   minimumLotAgeDays: minimumLotAgeDaysSchema,
+  alternates: z
+    .array(
+      z.object({
+        itemId: z.string().min(1, "Alternate is required"),
+      })
+    )
+    .optional()
+    .default([]),
 });
 
 const nullableStringPreserveUndefined = z
@@ -165,7 +173,10 @@ function batchYieldRefine(
   }
 }
 
-function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.RefinementCtx) {
+function bomRefine(
+  data: { bom?: Array<{ componentId: string; alternates?: Array<{ itemId: string }> }> },
+  ctx: z.RefinementCtx
+) {
   if (!data.bom || data.bom.length === 0) return;
   const seen = new Set<string>();
   for (let i = 0; i < data.bom.length; i++) {
@@ -177,6 +188,29 @@ function bomRefine(data: { bom?: Array<{ componentId: string }> }, ctx: z.Refine
       });
     }
     seen.add(data.bom[i].componentId);
+
+    const alternatesSeen = new Set<string>();
+    for (let j = 0; j < (data.bom[i].alternates ?? []).length; j++) {
+      const alternateItemId = data.bom[i].alternates?.[j]?.itemId;
+      if (!alternateItemId) continue;
+
+      if (alternateItemId === data.bom[i].componentId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Alternate must be different from the default component",
+          path: ["bom", i, "alternates", j, "itemId"],
+        });
+      }
+
+      if (alternatesSeen.has(alternateItemId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Duplicate alternate",
+          path: ["bom", i, "alternates", j, "itemId"],
+        });
+      }
+      alternatesSeen.add(alternateItemId);
+    }
   }
 }
 

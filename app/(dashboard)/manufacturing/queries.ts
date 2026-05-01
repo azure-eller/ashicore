@@ -27,8 +27,10 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { resolveVariantDisplay } from "@/lib/format";
 import {
+  getBomRevisionComponentsInTx,
   getCurrentActiveBomIngredientsInTx,
   getCurrentBomCoverageInTx,
+  type BomRevisionComponentSnapshot,
 } from "@/lib/bom/revisions";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -112,6 +114,7 @@ type LockedManufacturingOrder = {
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   plannedDate: string | null;
+  bomRevisionId: string | null;
 };
 
 type ValidatedIngredient = {
@@ -353,6 +356,7 @@ async function getLockedManufacturingOrderInTx(
     .select({
       id: manufacturingOrders.id,
       productId: manufacturingOrders.productId,
+      bomRevisionId: manufacturingOrders.bomRevisionId,
       status: manufacturingOrders.status,
       manufacturingMode: manufacturingOrders.manufacturingMode,
       numberOfBatches: manufacturingOrders.numberOfBatches,
@@ -539,38 +543,76 @@ async function prepareCreateIngredientsInTx(
     throw new ManufacturingError("Products need a BOM before creating a manufacturing order", 400);
   }
 
-  const bomIds = new Set(bomRows.map((row) => row.itemId));
-  const submittedIds = new Set(submittedIngredients.map((row) => row.itemId));
-
-  if (
-    bomRows.length !== submittedIngredients.length ||
-    bomRows.some((row) => !submittedIds.has(row.itemId)) ||
-    submittedIngredients.some((row) => !bomIds.has(row.itemId))
-  ) {
+  if (bomRows.length !== submittedIngredients.length) {
     throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
   }
-
-  const submittedById = new Map(
-    submittedIngredients.map((row) => [row.itemId, row.quantityPerUnit])
-  );
 
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
     ingredients: bomRows.map((row, index) => {
-    const quantityPerUnit = Number(submittedById.get(row.itemId));
+    const submitted = submittedIngredients[index];
+    const selected =
+      submitted.itemId === row.itemId
+        ? {
+            itemId: row.itemId,
+            itemName: row.itemName,
+            itemSku: row.itemSku,
+            itemType: row.itemType,
+            unitName: row.unitName,
+          }
+        : row.alternates.find((alternate) => alternate.itemId === submitted.itemId);
+
+    if (!selected) {
+      throw new ManufacturingError(
+        "Select an approved alternate for this ingredient.",
+        400
+      );
+    }
+    const quantityPerUnit = Number(submitted.quantityPerUnit);
 
     return {
-      itemId: row.itemId,
-      itemName: row.itemName,
-      itemSku: row.itemSku,
-      itemType: row.itemType,
-      unitName: row.unitName,
+      itemId: selected.itemId,
+      itemName: selected.itemName,
+      itemSku: selected.itemSku,
+      itemType: selected.itemType,
+      unitName: selected.unitName,
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
       plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: index,
       constraints: row.constraints,
     };
     }),
+  };
+}
+
+function getApprovedBomMaterialOption(
+  row: BomRevisionComponentSnapshot,
+  itemId: string
+) {
+  if (itemId === row.componentId) {
+    return {
+      itemId: row.componentId,
+      itemName: row.componentName,
+      itemSku: row.componentSku,
+      itemType: row.componentItemType,
+      unitName: row.unitName,
+    };
+  }
+
+  const alternate = row.alternates.find(
+    (candidate) => candidate.alternateItemId === itemId
+  );
+
+  if (!alternate) {
+    throw new ManufacturingError("Select an approved alternate for this ingredient.", 400);
+  }
+
+  return {
+    itemId: alternate.alternateItemId,
+    itemName: alternate.alternateItemName,
+    itemSku: alternate.alternateItemSku,
+    itemType: alternate.alternateItemType,
+    unitName: alternate.unitName,
   };
 }
 
@@ -638,12 +680,13 @@ async function insertManufacturingIngredientsInTx(
       sortOrder: manufacturingOrderIngredients.sortOrder,
     });
 
+  const inputByInsertedKey = new Map(
+    ingredients.map((input) => [`${input.itemId}:${input.sortOrder}`, input])
+  );
+
   const constraintRows = insertedIngredients.flatMap((ingredient) =>
-    (ingredients.find(
-      (input) =>
-        input.itemId === ingredient.itemId &&
-        input.sortOrder === ingredient.sortOrder
-    )?.constraints ?? []).map((constraint) => ({
+    (inputByInsertedKey.get(`${ingredient.itemId}:${ingredient.sortOrder}`)
+      ?.constraints ?? []).map((constraint) => ({
       manufacturingOrderIngredientId: ingredient.id,
       constraintType: constraint.constraintType,
       config: constraint.config,
@@ -707,90 +750,38 @@ async function insertManufacturingOrderInTx(
 
 async function prepareUpdatedIngredientsInTx(
   tx: Tx,
-  orderId: string,
+  bomRevisionId: string | null,
   ingredientMultiplier: number,
   submittedIngredients: UpdateManufacturingOrder["ingredients"]
 ): Promise<ValidatedIngredient[]> {
-  const existingRows = await tx
-    .select({
-      id: manufacturingOrderIngredients.id,
-      itemId: manufacturingOrderIngredients.itemId,
-      itemName: manufacturingOrderIngredients.itemName,
-      itemSku: manufacturingOrderIngredients.itemSku,
-      itemType: manufacturingOrderIngredients.itemType,
-      unitName: manufacturingOrderIngredients.unitName,
-      sortOrder: manufacturingOrderIngredients.sortOrder,
-    })
-    .from(manufacturingOrderIngredients)
-    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId))
-    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
-
-  const constraints =
-    existingRows.length === 0
-      ? []
-      : await tx
-          .select({
-            manufacturingOrderIngredientId:
-              manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
-            constraintType: manufacturingOrderIngredientConstraints.constraintType,
-            config: manufacturingOrderIngredientConstraints.config,
-            sortOrder: manufacturingOrderIngredientConstraints.sortOrder,
-          })
-          .from(manufacturingOrderIngredientConstraints)
-          .where(
-            inArray(
-              manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
-              existingRows.map((row) => row.id)
-            )
-          )
-          .orderBy(
-            asc(manufacturingOrderIngredientConstraints.sortOrder),
-            asc(manufacturingOrderIngredientConstraints.createdAt)
-          );
-
-  const constraintsByIngredientId = new Map<string, BomComponentConstraint[]>();
-  for (const constraint of constraints) {
-    const bucket =
-      constraintsByIngredientId.get(constraint.manufacturingOrderIngredientId) ?? [];
-    bucket.push({
-      constraintType: constraint.constraintType as BomComponentConstraint["constraintType"],
-      config: constraint.config,
-      sortOrder: constraint.sortOrder,
-    });
-    constraintsByIngredientId.set(constraint.manufacturingOrderIngredientId, bucket);
+  if (!bomRevisionId) {
+    throw new ManufacturingError("The order BOM snapshot is missing.", 400);
   }
 
-  const existingIds = new Set(existingRows.map((row) => row.itemId));
-  const submittedIds = new Set(submittedIngredients.map((row) => row.itemId));
+  const bomRows = await getBomRevisionComponentsInTx(tx, bomRevisionId);
 
-  if (
-    existingRows.length !== submittedIngredients.length ||
-    existingRows.some((row) => !submittedIds.has(row.itemId)) ||
-    submittedIngredients.some((row) => !existingIds.has(row.itemId))
-  ) {
+  if (bomRows.length !== submittedIngredients.length) {
     throw new ManufacturingError(
       "Ingredient rows cannot be added or removed after the order is created",
       400
     );
   }
 
-  const submittedById = new Map(
-    submittedIngredients.map((row) => [row.itemId, row.quantityPerUnit])
-  );
-
-  return existingRows.map((row) => {
-    const quantityPerUnit = Number(submittedById.get(row.itemId));
+  return bomRows.map((row, index) => {
+    const submitted = submittedIngredients[index];
+    const selected = getApprovedBomMaterialOption(row, submitted.itemId);
+    const quantityPerUnit = Number(submitted.quantityPerUnit);
 
     return {
-      itemId: row.itemId,
-      itemName: row.itemName,
-      itemSku: row.itemSku,
-      itemType: row.itemType,
-      unitName: row.unitName,
+      itemId: selected.itemId,
+      itemName: selected.itemName,
+      itemSku: selected.itemSku,
+      itemType: selected.itemType,
+      unitName: selected.unitName,
       quantityPerUnit: normalizeQuantityString(quantityPerUnit),
       plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
       sortOrder: row.sortOrder,
-      constraints: constraintsByIngredientId.get(row.id) ?? [],
+      constraints: row.constraints,
     };
   });
 }
@@ -1271,6 +1262,12 @@ function toIngredientDetail(ingredient: ExecutionIngredientRow): ManufacturingOr
       ingredient.plannedQuantity,
       ingredient.pickedQuantity
     ),
+    defaultItemId: null,
+    defaultItemName: null,
+    defaultItemSku: null,
+    defaultUnitName: null,
+    defaultQuantityPerUnit: null,
+    alternates: [],
   };
 }
 
@@ -1301,6 +1298,12 @@ function aggregateBatchIngredients(
         actualCostTotal: row.actualCostTotal,
         sortOrder: row.sortOrder,
         constraints: row.constraints,
+        defaultItemId: null,
+        defaultItemName: null,
+        defaultItemSku: null,
+        defaultUnitName: null,
+        defaultQuantityPerUnit: null,
+        alternates: [],
       });
       continue;
     }
@@ -1538,6 +1541,16 @@ export async function getManufacturingProductTemplates(): Promise<
         itemType: string;
         unitName: string;
         quantityPerUnit: string;
+        defaultQuantityPerUnit: string;
+        alternates: Array<{
+          itemId: string;
+          itemName: string;
+          itemSku: string | null;
+          itemType: string;
+          unitName: string;
+          quantityFactor: string;
+          sortOrder: number;
+        }>;
       }>;
     }
   >
@@ -1577,6 +1590,16 @@ export async function getManufacturingProductTemplates(): Promise<
           itemType: row.componentItemType,
           unitName: row.unitName,
           quantityPerUnit: row.quantity ?? "0",
+          defaultQuantityPerUnit: row.quantity ?? "0",
+          alternates: row.alternates.map((alternate) => ({
+            itemId: alternate.alternateItemId,
+            itemName: alternate.alternateItemName,
+            itemSku: alternate.alternateItemSku,
+            itemType: alternate.alternateItemType,
+            unitName: alternate.unitName,
+            quantityFactor: alternate.quantityFactor,
+            sortOrder: alternate.sortOrder,
+          })),
         })),
       }));
   });
@@ -1715,6 +1738,7 @@ export async function getManufacturingOrder(
         id: manufacturingOrders.id,
         orderNumber: manufacturingOrders.orderNumber,
         productId: manufacturingOrders.productId,
+        bomRevisionId: manufacturingOrders.bomRevisionId,
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
         unitName: manufacturingOrders.unitName,
@@ -1796,10 +1820,60 @@ export async function getManufacturingOrder(
             .orderBy(asc(manufacturingOrderIngredients.sortOrder))
         : await getTemplateIngredientsInTx(tx, id);
 
-    const ingredients =
+    const batchRawIngredients =
       order.manufacturingMode === "batch" && order.status !== "draft"
-        ? aggregateBatchIngredients(rawIngredients as ExecutionIngredientRow[])
+        ? (rawIngredients as Omit<ExecutionIngredientRow, "constraints">[])
+        : null;
+    const batchIngredientsWithDetails =
+      batchRawIngredients == null
+        ? null
+        : await (async () => {
+            const ingredientIds = batchRawIngredients.map((ingredient) => ingredient.id);
+            const constraintsById = await getIngredientConstraintsByIdInTx(
+              tx,
+              ingredientIds
+            );
+
+            return batchRawIngredients.map((ingredient) => ({
+              ...ingredient,
+              pickStatus: ingredient.pickStatus as ManufacturingPickStatus,
+              constraints: constraintsById.get(ingredient.id) ?? [],
+            }));
+          })();
+
+    const ingredients =
+      batchIngredientsWithDetails != null
+        ? aggregateBatchIngredients(batchIngredientsWithDetails)
         : (rawIngredients as ExecutionIngredientRow[]).map(toIngredientDetail);
+    const detailIngredients =
+      order.status === "draft" && order.bomRevisionId != null
+        ? await (async () => {
+            const bomRows = await getBomRevisionComponentsInTx(tx, order.bomRevisionId!);
+            return ingredients.map((ingredient) => {
+              const bomRow = bomRows.find((row) => row.sortOrder === ingredient.sortOrder);
+
+              if (!bomRow) return ingredient;
+
+              return {
+                ...ingredient,
+                defaultItemId: bomRow.componentId,
+                defaultItemName: bomRow.componentName,
+                defaultItemSku: bomRow.componentSku,
+                defaultUnitName: bomRow.unitName,
+                defaultQuantityPerUnit: bomRow.quantity,
+                alternates: bomRow.alternates.map((alternate) => ({
+                  itemId: alternate.alternateItemId,
+                  itemName: alternate.alternateItemName,
+                  itemSku: alternate.alternateItemSku,
+                  itemType: alternate.alternateItemType,
+                  unitName: alternate.unitName,
+                  quantityFactor: alternate.quantityFactor,
+                  sortOrder: alternate.sortOrder,
+                })),
+              };
+            });
+          })()
+        : ingredients;
 
     const producedLots =
       batches.length > 0
@@ -1854,7 +1928,7 @@ export async function getManufacturingOrder(
                 pickedQuantity: ingredient.pickedQuantity,
               }))
             ),
-      ingredients,
+      ingredients: detailIngredients,
       batches,
       producedLots,
     };
@@ -1869,6 +1943,7 @@ export async function getManufacturingOrderEditData(
       .select({
         id: manufacturingOrders.id,
         productId: manufacturingOrders.productId,
+        bomRevisionId: manufacturingOrders.bomRevisionId,
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
         unitName: manufacturingOrders.unitName,
@@ -1923,9 +1998,33 @@ export async function getManufacturingOrderEditData(
       )
       .orderBy(asc(manufacturingOrderIngredients.sortOrder));
 
+    const bomRows =
+      order.bomRevisionId == null
+        ? []
+        : await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
+
     return {
       ...order,
-      ingredients,
+      ingredients: ingredients.map((ingredient, index) => {
+        const bomRow = bomRows[index];
+        return {
+          ...ingredient,
+          defaultItemId: bomRow?.componentId ?? ingredient.itemId,
+          defaultItemName: bomRow?.componentName ?? ingredient.itemName,
+          defaultItemSku: bomRow?.componentSku ?? ingredient.itemSku,
+          defaultUnitName: bomRow?.unitName ?? ingredient.unitName,
+          defaultQuantityPerUnit: bomRow?.quantity ?? ingredient.quantityPerUnit,
+          alternates: (bomRow?.alternates ?? []).map((alternate) => ({
+            itemId: alternate.alternateItemId,
+            itemName: alternate.alternateItemName,
+            itemSku: alternate.alternateItemSku,
+            itemType: alternate.alternateItemType,
+            unitName: alternate.unitName,
+            quantityFactor: alternate.quantityFactor,
+            sortOrder: alternate.sortOrder,
+          })),
+        };
+      }),
     };
   });
 }
@@ -2115,7 +2214,7 @@ export async function updateManufacturingOrder(
       : null);
     const ingredients = await prepareUpdatedIngredientsInTx(
       tx,
-      id,
+      existing.bomRevisionId,
       ingredientMultiplier,
       payload.ingredients
     );

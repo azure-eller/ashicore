@@ -113,6 +113,7 @@ interface ItemFormProps {
       componentId: string;
       quantity: string | null;
       minimumLotAgeDays?: number | null;
+      alternates?: Array<{ itemId: string }>;
     }[];
   };
 }

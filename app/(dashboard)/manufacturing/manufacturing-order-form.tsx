@@ -51,7 +51,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { getFieldArrayError, parsePositive } from "@/lib/format";
+import { getFieldArrayError, normalizeNumeric, parsePositive } from "@/lib/format";
 import {
   BOM_QTY_PER_BATCH_TOOLTIP,
   BOM_QTY_PER_UNIT_TOOLTIP,
@@ -77,6 +77,20 @@ type ManufacturingProductTemplate = ManufacturingProductOption & {
     itemType: string;
     unitName: string;
     quantityPerUnit: string;
+    defaultItemId?: string | null;
+    defaultItemName?: string | null;
+    defaultItemSku?: string | null;
+    defaultUnitName?: string | null;
+    defaultQuantityPerUnit: string;
+    alternates: Array<{
+      itemId: string;
+      itemName: string;
+      itemSku: string | null;
+      itemType: string;
+      unitName: string;
+      quantityFactor: string;
+      sortOrder: number;
+    }>;
   }>;
 };
 
@@ -104,6 +118,16 @@ function formatSalesLineLabel(
   if (!line) return "";
 
   return `${line.salesOrderNumber} - ${line.customerName} - ${line.quantity} ${line.unitName}`;
+}
+
+function multiplyQuantityString(quantity: string, factor: string) {
+  const quantityNumber = Number(quantity);
+  const factorNumber = Number(factor);
+  if (!Number.isFinite(quantityNumber) || !Number.isFinite(factorNumber)) {
+    return quantity;
+  }
+
+  return normalizeNumeric(quantityNumber * factorNumber);
 }
 
 export function ManufacturingOrderForm({
@@ -906,6 +930,33 @@ export function ManufacturingOrderForm({
                           const templateIngredient = isEditing
                             ? initialData?.ingredients[index]
                             : selectedProduct?.bom[index];
+                          const selectedIngredientId =
+                            watchedIngredients?.[index]?.itemId ?? field.itemId;
+                          const materialOptions = templateIngredient
+                            ? [
+                                {
+                                  itemId:
+                                    templateIngredient.defaultItemId ??
+                                    templateIngredient.itemId,
+                                  itemName:
+                                    templateIngredient.defaultItemName ??
+                                    templateIngredient.itemName,
+                                  itemSku:
+                                    templateIngredient.defaultItemSku ??
+                                    templateIngredient.itemSku,
+                                  itemType: templateIngredient.itemType,
+                                  unitName:
+                                    templateIngredient.defaultUnitName ??
+                                    templateIngredient.unitName,
+                                  quantityFactor: "1",
+                                },
+                                ...templateIngredient.alternates,
+                              ]
+                            : [];
+                          const selectedMaterial =
+                            materialOptions.find(
+                              (option) => option.itemId === selectedIngredientId
+                            ) ?? materialOptions[0];
                           const quantityPerUnit =
                             watchedIngredients?.[index]?.quantityPerUnit ?? "";
                           const perUnit = parsePositive(quantityPerUnit);
@@ -924,17 +975,73 @@ export function ManufacturingOrderForm({
                             <TableRow key={field.id}>
                               <TableCell>
                                 <div className="space-y-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium">
-                                      {templateIngredient?.itemName ?? field.itemId}
-                                    </span>
-                                    <Badge variant="outline">
-                                      {templateIngredient?.itemType ?? "item"}
-                                    </Badge>
-                                  </div>
-                                  {templateIngredient?.itemSku && (
+                                  {materialOptions.length > 1 ? (
+                                    <Combobox
+                                      items={materialOptions.map((option) => option.itemId)}
+                                      value={selectedIngredientId}
+                                      onValueChange={(value) => {
+                                        const option = materialOptions.find(
+                                          (candidate) => candidate.itemId === value
+                                        );
+                                        if (!option || !templateIngredient) return;
+
+                                        form.setValue(
+                                          `ingredients.${index}.itemId`,
+                                          option.itemId,
+                                          { shouldValidate: true, shouldDirty: true }
+                                        );
+                                        form.setValue(
+                                          `ingredients.${index}.quantityPerUnit`,
+                                          multiplyQuantityString(
+                                            templateIngredient.defaultQuantityPerUnit,
+                                            option.quantityFactor
+                                          ),
+                                          { shouldValidate: true, shouldDirty: true }
+                                        );
+                                      }}
+                                      itemToStringLabel={(value) =>
+                                        materialOptions.find(
+                                          (option) => option.itemId === value
+                                        )?.itemName ?? ""
+                                      }
+                                    >
+                                      <ComboboxInput placeholder="Select material..." />
+                                      <ComboboxContent className="bg-popover text-popover-foreground">
+                                        <ComboboxEmpty>No materials found</ComboboxEmpty>
+                                        <ComboboxList>
+                                          {(id: string) => {
+                                            const option = materialOptions.find(
+                                              (candidate) => candidate.itemId === id
+                                            );
+                                            return (
+                                              <ComboboxItem key={id} value={id}>
+                                                <div className="flex min-w-0 flex-1 items-center gap-2">
+                                                  <span className="truncate">
+                                                    {option?.itemName}
+                                                  </span>
+                                                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                                                    {option?.unitName}
+                                                  </span>
+                                                </div>
+                                              </ComboboxItem>
+                                            );
+                                          }}
+                                        </ComboboxList>
+                                      </ComboboxContent>
+                                    </Combobox>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium">
+                                        {selectedMaterial?.itemName ?? field.itemId}
+                                      </span>
+                                      <Badge variant="outline">
+                                        {selectedMaterial?.itemType ?? "item"}
+                                      </Badge>
+                                    </div>
+                                  )}
+                                  {selectedMaterial?.itemSku && (
                                     <p className="text-xs text-muted-foreground">
-                                      {templateIngredient.itemSku}
+                                      {selectedMaterial.itemSku}
                                     </p>
                                   )}
                                 </div>
@@ -960,13 +1067,13 @@ export function ManufacturingOrderForm({
                                 />
                                 <input
                                   type="hidden"
-                                  value={field.itemId}
+                                  value={selectedIngredientId}
                                   {...form.register(`ingredients.${index}.itemId`)}
                                 />
                               </TableCell>
                               <TableCell>{plannedTotal}</TableCell>
                               <TableCell>
-                                {templateIngredient?.unitName ?? "\u2014"}
+                                {selectedMaterial?.unitName ?? "\u2014"}
                               </TableCell>
                             </TableRow>
                           );

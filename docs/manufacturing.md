@@ -143,6 +143,14 @@ Batch picking rules:
 - starting a batch marks it `in_progress`
 - a fully picked batch records `pickedAt`
 
+## Material Alternates
+
+BOM component rows may define approved material alternates. Alternates are draft-planning choices for the same finished product; they do not create alternate BOM outputs or separate finished products.
+
+Draft manufacturing order ingredient rows may use the default BOM material or one of the approved alternates for that BOM line. The draft form converts the quantity from the BOM line's alternate factor, and release reserves whichever material is on the ingredient row.
+
+Released execution does not change materials. Picking consumes the selected ingredient through the normal inventory kernel flow, and completion still requires all ingredients to be picked first.
+
 ## Completion Behavior
 
 ### Discrete Orders

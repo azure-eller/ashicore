@@ -242,6 +242,20 @@ export async function selectDate(
 
   await trigger.click();
 
+  const today = await page.evaluate(() => {
+    const now = new Date();
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+    };
+  });
+  const direction =
+    year < today.year || (year === today.year && month < today.month)
+      ? "previous"
+      : "next";
+  const monthButtonClass =
+    direction === "previous" ? ".rdp-button_previous" : ".rdp-button_next";
+
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const target = page.locator(`[data-day="${targetLabel}"]`).first();
 
@@ -250,12 +264,12 @@ export async function selectDate(
       return;
     }
 
-    const nextMonthButton = page.locator(".rdp-button_next").last();
-    if (!(await nextMonthButton.isVisible().catch(() => false))) {
+    const monthButton = page.locator(monthButtonClass).last();
+    if (!(await monthButton.isVisible().catch(() => false))) {
       break;
     }
 
-    await nextMonthButton.click();
+    await monthButton.click();
   }
 
   throw new Error(`Could not find calendar day ${value} in the date picker.`);

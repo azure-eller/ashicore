@@ -715,6 +715,16 @@ if (unpickedIngredients.length > 0) {
 }
 ```
 
+### Manufacturing material alternates
+
+BOM line alternates are approved draft-planning choices, not separate finished products. Choose the material before release; released execution only picks the chosen ingredient.
+
+```ts
+// Release reserves whichever approved material is already on the draft ingredient row.
+await releaseManufacturingOrder(orderId)
+await pickManufacturingIngredient(orderId, ingredientId)
+```
+
 ### Manufacturing batch execution
 
 Batch-mode orders create execution batches on release, pick/complete one batch at a time, and stay `released` until the final batch completes. Batch completion creates one produced lot per batch; direct parent completion is invalid for batch-mode orders.

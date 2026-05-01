@@ -44,6 +44,9 @@ export default async function EditProductPage({
             componentId: b.componentId,
             quantity: b.quantity,
             minimumLotAgeDays: b.minimumLotAgeDays,
+            alternates: b.alternates.map((alternate) => ({
+              itemId: alternate.itemId,
+            })),
           })),
         }}
       />

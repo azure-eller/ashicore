@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
+  bomRevisionComponentAlternates,
   bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
@@ -50,28 +51,56 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
     return [];
   }
 
-  const constraints = await tx
-    .select({
-      bomRevisionComponentId:
-        bomRevisionComponentConstraints.bomRevisionComponentId,
-      constraintType: bomRevisionComponentConstraints.constraintType,
-      config: bomRevisionComponentConstraints.config,
-      sortOrder: bomRevisionComponentConstraints.sortOrder,
-    })
-    .from(bomRevisionComponentConstraints)
-    .where(
-      and(
-        eq(bomRevisionComponentConstraints.constraintType, "lot_age_min_days"),
-        inArray(
+  const bomRevisionComponentIds = rows.map((row) => row.bomRevisionComponentId);
+  const [constraints, alternates] = await Promise.all([
+    tx
+      .select({
+        bomRevisionComponentId:
           bomRevisionComponentConstraints.bomRevisionComponentId,
-          rows.map((row) => row.bomRevisionComponentId)
+        constraintType: bomRevisionComponentConstraints.constraintType,
+        config: bomRevisionComponentConstraints.config,
+        sortOrder: bomRevisionComponentConstraints.sortOrder,
+      })
+      .from(bomRevisionComponentConstraints)
+      .where(
+        and(
+          eq(bomRevisionComponentConstraints.constraintType, "lot_age_min_days"),
+          inArray(
+            bomRevisionComponentConstraints.bomRevisionComponentId,
+            bomRevisionComponentIds
+          )
         )
       )
-    )
-    .orderBy(
-      asc(bomRevisionComponentConstraints.sortOrder),
-      asc(bomRevisionComponentConstraints.createdAt)
-    );
+      .orderBy(
+        asc(bomRevisionComponentConstraints.sortOrder),
+        asc(bomRevisionComponentConstraints.createdAt)
+      ),
+    tx
+      .select({
+        bomRevisionComponentId:
+          bomRevisionComponentAlternates.bomRevisionComponentId,
+        alternateItemId: bomRevisionComponentAlternates.alternateItemId,
+        alternateItemName: bomRevisionComponentAlternates.alternateItemName,
+        alternateItemSku: bomRevisionComponentAlternates.alternateItemSku,
+        alternateItemType: bomRevisionComponentAlternates.alternateItemType,
+        unitName: bomRevisionComponentAlternates.unitName,
+        quantityFactor: trimScale(bomRevisionComponentAlternates.quantityFactor).as(
+          "quantityFactor"
+        ),
+        sortOrder: bomRevisionComponentAlternates.sortOrder,
+      })
+      .from(bomRevisionComponentAlternates)
+      .where(
+        inArray(
+          bomRevisionComponentAlternates.bomRevisionComponentId,
+          bomRevisionComponentIds
+        )
+      )
+      .orderBy(
+        asc(bomRevisionComponentAlternates.sortOrder),
+        asc(bomRevisionComponentAlternates.createdAt)
+      ),
+  ]);
 
   const constraintsByComponentId = new Map<string, BomComponentConstraint[]>();
   for (const constraint of constraints) {
@@ -85,8 +114,35 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
     constraintsByComponentId.set(constraint.bomRevisionComponentId, bucket);
   }
 
+  const alternatesByComponentId = new Map<
+    string,
+    Array<{
+      itemId: string;
+      itemName: string;
+      itemSku: string | null;
+      itemType: string;
+      unitName: string;
+      quantityFactor: string;
+      sortOrder: number;
+    }>
+  >();
+  for (const alternate of alternates) {
+    const bucket = alternatesByComponentId.get(alternate.bomRevisionComponentId) ?? [];
+    bucket.push({
+      itemId: alternate.alternateItemId,
+      itemName: alternate.alternateItemName,
+      itemSku: alternate.alternateItemSku,
+      itemType: alternate.alternateItemType,
+      unitName: alternate.unitName,
+      quantityFactor: alternate.quantityFactor,
+      sortOrder: alternate.sortOrder,
+    });
+    alternatesByComponentId.set(alternate.bomRevisionComponentId, bucket);
+  }
+
   return rows.map((row) => ({
     ...row,
     constraints: constraintsByComponentId.get(row.bomRevisionComponentId) ?? [],
+    alternates: alternatesByComponentId.get(row.bomRevisionComponentId) ?? [],
   }));
 }

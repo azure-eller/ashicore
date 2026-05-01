@@ -31,6 +31,7 @@ export type ItemSeed = {
     componentKey: string;
     quantity: string;
     minimumLotAgeDays?: number | null;
+    alternates?: Array<{ itemKey: string }>;
   }>;
   safetyStock?: string | null;
   unresolvedFormulaNote?: string;
@@ -80,12 +81,14 @@ export type ExistingBomRow = {
   componentId: string;
   quantity: string;
   minimumLotAgeDays: number | null;
+  alternateItemIds: string[];
 };
 
 export type BomSeedRow = {
   componentId: string;
   quantity: string;
   minimumLotAgeDays?: number | null;
+  alternates?: Array<{ itemId: string }>;
 };
 
 export type ExistingCustomer = {

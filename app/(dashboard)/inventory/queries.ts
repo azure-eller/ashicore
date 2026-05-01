@@ -5,6 +5,7 @@ import "server-only";
 // Create queries pass orgId explicitly so it's stored on the row.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
+  bomRevisionComponentAlternates,
   bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
@@ -68,6 +69,7 @@ import {
 } from "@/lib/inventory/cost";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { calculateMarginMetrics } from "@/lib/margin";
+import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
 import type { QualityDispositionAction } from "@/lib/schemas/inventory-disposition";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
@@ -155,6 +157,7 @@ type BomInputRow = {
   componentId: string;
   quantity: string;
   minimumLotAgeDays?: number | null;
+  alternates?: Array<{ itemId: string }>;
 };
 type BomViewPermissions = {
   canViewUnlockedBom: boolean;
@@ -166,6 +169,7 @@ function normalizeBomRows(bom: BomInputRow[]) {
     componentId: row.componentId,
     quantity: row.quantity,
     minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+    alternates: (row.alternates ?? []).map((alternate) => alternate.itemId).sort(),
     sortOrder: index,
   }));
 }
@@ -184,6 +188,7 @@ function hasBomChanged(currentBom: BomInputRow[], nextBom: BomInputRow[]) {
       row.componentId !== nextRow.componentId ||
       row.quantity !== nextRow.quantity ||
       row.minimumLotAgeDays !== nextRow.minimumLotAgeDays ||
+      row.alternates.join(",") !== nextRow.alternates.join(",") ||
       row.sortOrder !== nextRow.sortOrder
     );
   });
@@ -478,6 +483,8 @@ async function createBomRevisionInTx(
         sku: items.sku,
         itemType: items.itemType,
         unitName: unitDefinitions.name,
+        unitSize: trimScale(unitDefinitions.size).as("unitSize"),
+        unitUom: unitDefinitions.uom,
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -508,9 +515,34 @@ async function createBomRevisionInTx(
       .insert(bomRevisionComponents)
       .values(componentValues)
       .returning({
-        id: bomRevisionComponents.id,
-        componentId: bomRevisionComponents.componentId,
-      });
+      id: bomRevisionComponents.id,
+      componentId: bomRevisionComponents.componentId,
+    });
+
+    const alternateItemIds = [
+      ...new Set(
+        params.bom.flatMap((row) =>
+          (row.alternates ?? []).map((alternate) => alternate.itemId)
+        )
+      ),
+    ];
+    const alternateRows =
+      alternateItemIds.length === 0
+        ? []
+        : await tx
+            .select({
+              id: items.id,
+              name: items.name,
+              sku: items.sku,
+              itemType: items.itemType,
+              unitName: unitDefinitions.name,
+              unitSize: trimScale(unitDefinitions.size).as("unitSize"),
+              unitUom: unitDefinitions.uom,
+            })
+            .from(items)
+            .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+            .where(and(inArray(items.id, alternateItemIds), isNull(items.deletedAt)));
+    const alternateById = new Map(alternateRows.map((row) => [row.id, row]));
 
     const constraintRows = insertedComponents.flatMap((component, index) => {
       const input = params.bom[index];
@@ -531,6 +563,46 @@ async function createBomRevisionInTx(
 
     if (constraintRows.length > 0) {
       await tx.insert(bomRevisionComponentConstraints).values(constraintRows);
+    }
+
+    const alternateValues = insertedComponents.flatMap((component, index) => {
+      const input = params.bom[index];
+      const defaultComponent = componentById.get(component.componentId);
+
+      return (input?.alternates ?? []).map((alternate, alternateIndex) => {
+        const alternateItem = alternateById.get(alternate.itemId);
+
+        if (!defaultComponent || !alternateItem) {
+          throw new InventoryError("BOM alternate component not found", 400);
+        }
+
+        const quantityFactor = derivePurchaseToStockFactor(
+          { size: defaultComponent.unitSize, uom: defaultComponent.unitUom },
+          { size: alternateItem.unitSize, uom: alternateItem.unitUom }
+        );
+
+        if (quantityFactor == null) {
+          throw new InventoryError(
+            `${alternateItem.name} is not unit-compatible with ${defaultComponent.name}.`,
+            400
+          );
+        }
+
+        return {
+          bomRevisionComponentId: component.id,
+          alternateItemId: alternateItem.id,
+          alternateItemName: alternateItem.name,
+          alternateItemSku: alternateItem.sku,
+          alternateItemType: alternateItem.itemType,
+          unitName: alternateItem.unitName,
+          quantityFactor: normalizeNumeric(quantityFactor),
+          sortOrder: alternateIndex,
+        };
+      });
+    });
+
+    if (alternateValues.length > 0) {
+      await tx.insert(bomRevisionComponentAlternates).values(alternateValues);
     }
   }
 
@@ -1826,7 +1898,7 @@ export async function updateItem(
   id: string,
   itemData: Omit<UpdateItem, "stock" | "bom" | "revisionNote">,
   stock?: number,
-  bom?: Array<{ componentId: string; quantity: string }>,
+  bom?: BomInputRow[],
   revisionNote?: string | null,
   options?: { idempotencyKey?: string },
 ): Promise<{ id: string } | null> {
@@ -1896,6 +1968,9 @@ export async function updateItem(
             componentId: row.componentId,
             quantity: row.quantity,
             minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+            alternates: row.alternates.map((alternate) => ({
+              itemId: alternate.alternateItemId,
+            })),
           })),
           bom
         )
@@ -2034,7 +2109,7 @@ export async function updateItem(
 export async function createItemWithLot(
   data: Omit<InsertItem, "stock" | "bom" | "revisionNote">,
   stock: string,
-  bom?: Array<{ componentId: string; quantity: string }>,
+  bom?: BomInputRow[],
   revisionNote?: string | null,
   options?: { idempotencyKey?: string },
 ): Promise<{ id: string }> {
@@ -2316,6 +2391,14 @@ export async function getBomComponents(itemId: string) {
       componentName: row.componentName,
       componentItemType: row.componentItemType,
       componentUnit: row.unitName,
+      alternates: row.alternates.map((alternate) => ({
+        itemId: alternate.alternateItemId,
+        itemName: alternate.alternateItemName,
+        itemSku: alternate.alternateItemSku,
+        itemType: alternate.alternateItemType,
+        unitName: alternate.unitName,
+        quantityFactor: alternate.quantityFactor,
+      })),
     }));
   });
 }

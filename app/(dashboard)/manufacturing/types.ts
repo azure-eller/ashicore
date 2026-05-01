@@ -158,6 +158,20 @@ export type ManufacturingOrderIngredientDetail = {
   actualCostTotal: string | null;
   sortOrder: number;
   constraints: BomComponentConstraint[];
+  defaultItemId: string | null;
+  defaultItemName: string | null;
+  defaultItemSku: string | null;
+  defaultUnitName: string | null;
+  defaultQuantityPerUnit: string | null;
+  alternates: Array<{
+    itemId: string;
+    itemName: string;
+    itemSku: string | null;
+    itemType: string;
+    unitName: string;
+    quantityFactor: string;
+    sortOrder: number;
+  }>;
 };
 
 export type ManufacturingOrderBatchDetail = {
@@ -278,5 +292,19 @@ export type ManufacturingOrderEditData = {
     itemType: string;
     unitName: string;
     quantityPerUnit: string;
+    defaultItemId: string | null;
+    defaultItemName: string | null;
+    defaultItemSku: string | null;
+    defaultUnitName: string | null;
+    defaultQuantityPerUnit: string;
+    alternates: Array<{
+      itemId: string;
+      itemName: string;
+      itemSku: string | null;
+      itemType: string;
+      unitName: string;
+      quantityFactor: string;
+      sortOrder: number;
+    }>;
   }>;
 };

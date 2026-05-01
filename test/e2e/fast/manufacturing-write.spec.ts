@@ -1,14 +1,15 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryEvents,
   inventoryItemBalances,
+  inventoryReservationsSummary,
   lots,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
 } from "../../../lib/db/schema";
-import { createItem, getUnitId, testFetch } from "../../helpers/api";
+import { createItem, createUnit, getUnitId, testFetch } from "../../helpers/api";
 
 test.describe("Manufacturing write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -537,5 +538,148 @@ test.describe("Manufacturing write-path smoke", () => {
         (ingredient) => ingredient.manufacturingOrderBatchId == null
       )
     ).toBe(true);
+  });
+
+  test("creates a draft order with an approved alternate and consumes alternate stock", async ({
+    db,
+  }) => {
+    const alternateTs = Date.now();
+    const defaultUnit = await createUnit({
+      name: `Fast MO Bale 3100L ${alternateTs}`,
+      size: "3100",
+      uom: "l",
+    });
+    const alternateUnit = await createUnit({
+      name: `Fast MO Bale 225L ${alternateTs}`,
+      size: "225",
+      uom: "l",
+    });
+    expect(defaultUnit.status).toBe(201);
+    expect(alternateUnit.status).toBe(201);
+
+    const defaultMaterial = await createItem({
+      name: `Fast MO Sphagnum 3100L ${alternateTs}`,
+      itemType: "material",
+      unitDefinitionId: defaultUnit.body.id,
+      sku: `FAST-MO-SPHAG-3100-${alternateTs}`,
+      category: `Fast Alternates ${alternateTs}`,
+      description: "Default large bale",
+      defaultPurchasePrice: "232.10",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    const alternateMaterial = await createItem({
+      name: `Fast MO Sphagnum 225L ${alternateTs}`,
+      itemType: "material",
+      unitDefinitionId: alternateUnit.body.id,
+      sku: `FAST-MO-SPHAG-225-${alternateTs}`,
+      category: `Fast Alternates ${alternateTs}`,
+      description: "Approved smaller bale",
+      defaultPurchasePrice: "16.84",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(defaultMaterial.status).toBe(201);
+    expect(alternateMaterial.status).toBe(201);
+
+    const product = await createItem({
+      name: `Fast MO Expanded Sphagnum ${alternateTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-SPHAG-EXP-${alternateTs}`,
+      category: `Fast Alternates ${alternateTs}`,
+      description: "Expanded sphagnum with approved raw material alternate",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: defaultMaterial.body.id,
+          quantity: "0.145",
+          alternates: [{ itemId: alternateMaterial.body.id }],
+        },
+      ],
+    });
+    expect(product.status).toBe(201);
+
+    const createOrderResponse = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        productId: product.body.id,
+        plannedQuantity: "2",
+        plannedDate: null,
+        notes: "Fast material alternate smoke",
+        ingredients: [
+          {
+            itemId: alternateMaterial.body.id,
+            quantityPerUnit: "1.9978",
+          },
+        ],
+      }),
+    });
+    expect(createOrderResponse.status).toBe(201);
+    const createdOrder = await createOrderResponse.json();
+    const alternateOrderId = createdOrder.id as string;
+
+    const releaseResponse = await testFetch(
+      `/api/manufacturing-orders/${alternateOrderId}/release`,
+      { method: "POST", body: JSON.stringify({ confirmShortage: false }) }
+    );
+    expect(releaseResponse.status).toBe(200);
+
+    const [releasedIngredient] = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, alternateOrderId));
+    expect(releasedIngredient.itemId).toBe(alternateMaterial.body.id);
+    expect(releasedIngredient.plannedQuantity).toBe("3.9956");
+
+    const [alternateReservation] = await db
+      .select({
+        itemId: inventoryReservationsSummary.itemId,
+        quantity: inventoryReservationsSummary.quantity,
+      })
+      .from(inventoryReservationsSummary)
+      .where(eq(inventoryReservationsSummary.referenceId, releasedIngredient.id));
+    expect(alternateReservation).toEqual({
+      itemId: alternateMaterial.body.id,
+      quantity: "3.9956",
+    });
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${alternateOrderId}/ingredients/${releasedIngredient.id}/pick`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const [consumptionEvent] = await db
+      .select({
+        itemId: inventoryEvents.itemId,
+        quantity: inventoryEvents.quantity,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceId, alternateOrderId),
+          eq(inventoryEvents.eventType, "manufacturing_ingredient_consumption")
+        )
+      );
+    expect(consumptionEvent).toEqual({
+      itemId: alternateMaterial.body.id,
+      quantity: "3.9956",
+    });
+
+    const [alternateBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, alternateMaterial.body.id));
+    expect(alternateBalance?.onHandQty).toBe("16.0044");
   });
 });

@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  bomRevisionComponentAlternates,
   bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { normalizeNumeric } from "@/lib/format";
 import { createLotAgeMinDaysConstraint } from "@/lib/bom/constraints";
+import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   BomSeedRow,
@@ -26,6 +28,7 @@ export function buildBomSignature(
     componentId: string;
     quantity: string;
     minimumLotAgeDays?: number | null;
+    alternateItemIds?: string[];
   }>
 ) {
   return rows
@@ -33,7 +36,7 @@ export function buildBomSignature(
       (row) =>
         `${row.componentId}:${normalizeNumeric(Number(row.quantity))}:${
           row.minimumLotAgeDays ?? ""
-        }`
+        }:${[...(row.alternateItemIds ?? [])].sort().join(",")}`
     )
     .sort()
     .join("|");
@@ -83,6 +86,26 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
       Number(constraint.config.days),
     ])
   );
+  const alternates = await tx
+    .select({
+      bomRevisionComponentId:
+        bomRevisionComponentAlternates.bomRevisionComponentId,
+      alternateItemId: bomRevisionComponentAlternates.alternateItemId,
+    })
+    .from(bomRevisionComponentAlternates)
+    .where(
+      inArray(
+        bomRevisionComponentAlternates.bomRevisionComponentId,
+        rows.map((row) => row.bomRevisionComponentId)
+      )
+    );
+  const alternateItemIdsByComponentId = new Map<string, string[]>();
+  for (const alternate of alternates) {
+    const bucket =
+      alternateItemIdsByComponentId.get(alternate.bomRevisionComponentId) ?? [];
+    bucket.push(alternate.alternateItemId);
+    alternateItemIdsByComponentId.set(alternate.bomRevisionComponentId, bucket);
+  }
 
   return rows.map((row) => ({
     itemId: row.itemId,
@@ -90,6 +113,8 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
     quantity: row.quantity,
     minimumLotAgeDays:
       minimumLotAgeDaysByComponentId.get(row.bomRevisionComponentId) ?? null,
+    alternateItemIds:
+      alternateItemIdsByComponentId.get(row.bomRevisionComponentId) ?? [],
   }));
 }
 
@@ -141,6 +166,8 @@ export async function createLoaderBomRevisionInTx(
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
+      unitSize: unitDefinitions.size,
+      unitUom: unitDefinitions.uom,
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -169,7 +196,33 @@ export async function createLoaderBomRevisionInTx(
     }))
     .returning({
       id: bomRevisionComponents.id,
+      componentId: bomRevisionComponents.componentId,
     });
+
+  const alternateItemIds = [
+    ...new Set(
+      params.bom.flatMap((row) =>
+        (row.alternates ?? []).map((alternate) => alternate.itemId)
+      )
+    ),
+  ];
+  const alternateRows =
+    alternateItemIds.length === 0
+      ? []
+      : await tx
+          .select({
+            id: items.id,
+            name: items.name,
+            sku: items.sku,
+            itemType: items.itemType,
+            unitName: unitDefinitions.name,
+            unitSize: unitDefinitions.size,
+            unitUom: unitDefinitions.uom,
+          })
+          .from(items)
+          .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+          .where(inArray(items.id, alternateItemIds));
+  const alternateById = new Map(alternateRows.map((row) => [row.id, row]));
 
   const constraintRows = insertedComponents.flatMap((component, index) => {
     const constraint = createLotAgeMinDaysConstraint(
@@ -187,6 +240,45 @@ export async function createLoaderBomRevisionInTx(
   if (constraintRows.length > 0) {
     await tx.insert(bomRevisionComponentConstraints).values(constraintRows);
   }
+
+  const alternateValues = insertedComponents.flatMap((component, index) => {
+    const input = params.bom[index];
+    const defaultComponent = componentById.get(component.componentId);
+
+    return (input.alternates ?? []).map((alternate, alternateIndex) => {
+      const alternateItem = alternateById.get(alternate.itemId);
+
+      if (!defaultComponent || !alternateItem) {
+        throw new Error("BOM alternate component not found for revision sync.");
+      }
+
+      const quantityFactor = derivePurchaseToStockFactor(
+        { size: defaultComponent.unitSize, uom: defaultComponent.unitUom },
+        { size: alternateItem.unitSize, uom: alternateItem.unitUom }
+      );
+
+      if (quantityFactor == null) {
+        throw new Error(
+          `${alternateItem.name} is not unit-compatible with ${defaultComponent.name}.`
+        );
+      }
+
+      return {
+        bomRevisionComponentId: component.id,
+        alternateItemId: alternateItem.id,
+        alternateItemName: alternateItem.name,
+        alternateItemSku: alternateItem.sku,
+        alternateItemType: alternateItem.itemType,
+        unitName: alternateItem.unitName,
+        quantityFactor: normalizeNumeric(quantityFactor),
+        sortOrder: alternateIndex,
+      };
+    });
+  });
+
+  if (alternateValues.length > 0) {
+    await tx.insert(bomRevisionComponentAlternates).values(alternateValues);
+  }
 }
 
 export function planBomsSync(
@@ -203,8 +295,10 @@ export function planBomsSync(
       continue;
     }
 
-    const canResolveAllComponents = product.bom.every((row) =>
-      seedByKey.has(row.componentKey)
+    const canResolveAllComponents = product.bom.every(
+      (row) =>
+        seedByKey.has(row.componentKey) &&
+        (row.alternates ?? []).every((alternate) => seedByKey.has(alternate.itemKey))
     );
     if (!canResolveAllComponents) {
       report.syncedBoms.push(product.name);
@@ -219,6 +313,14 @@ export function planBomsSync(
             componentId: existingComponent.id,
             quantity: normalizeNumeric(Number(row.quantity)),
             minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+            alternateItemIds: (row.alternates ?? [])
+              .map((alternate) => {
+                const alternateSeed = seedByKey.get(alternate.itemKey);
+                return alternateSeed
+                  ? matchedItemByKey.get(alternateSeed.key)?.id
+                  : null;
+              })
+              .filter((id): id is string => id != null),
           }
         : null;
     });
@@ -233,6 +335,7 @@ export function planBomsSync(
         componentId: string;
         quantity: string;
         minimumLotAgeDays: number | null;
+        alternateItemIds: string[];
       }>
     );
     const existingSignature = buildBomSignature(
@@ -291,6 +394,24 @@ export async function applyBomsSyncInTx(
         componentId,
         quantity: normalizeNumeric(Number(row.quantity)),
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+        alternateItemIds: (row.alternates ?? []).map((alternate) => {
+          const alternateItemId = itemIdByKey.get(alternate.itemKey);
+          if (!alternateItemId) {
+            throw new Error(
+              `Missing BOM alternate "${alternate.itemKey}" for ${seed.name}.`
+            );
+          }
+          return alternateItemId;
+        }),
+        alternates: (row.alternates ?? []).map((alternate) => {
+          const alternateItemId = itemIdByKey.get(alternate.itemKey);
+          if (!alternateItemId) {
+            throw new Error(
+              `Missing BOM alternate "${alternate.itemKey}" for ${seed.name}.`
+            );
+          }
+          return { itemId: alternateItemId };
+        }),
       };
     });
 

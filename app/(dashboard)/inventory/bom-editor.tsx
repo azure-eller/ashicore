@@ -93,7 +93,12 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         variant="outline"
         size="sm"
         onClick={() =>
-          append({ componentId: "", quantity: null, minimumLotAgeDays: null })
+          append({
+            componentId: "",
+            quantity: null,
+            minimumLotAgeDays: null,
+            alternates: [],
+          })
         }
       >
         + Add Ingredient
@@ -118,6 +123,14 @@ function BomRow({
 }) {
   const componentId = useWatch({ control, name: `bom.${index}.componentId` });
   const selectedComponent = componentMap.get(componentId ?? "");
+  const {
+    fields: alternateFields,
+    append: appendAlternate,
+    remove: removeAlternate,
+  } = useFieldArray({
+    control,
+    name: `bom.${index}.alternates`,
+  });
 
   return (
     <div
@@ -219,6 +232,116 @@ function BomRow({
         </div>
       </div>
       <div className="flex items-start justify-end md:pt-0">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onRemove}
+          className="text-muted-foreground"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+        </Button>
+      </div>
+      <div className="flex flex-col gap-2 md:col-span-5">
+        {alternateFields.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
+            {alternateFields.map((alternateField, alternateIndex) => (
+              <BomAlternateRow
+                key={alternateField.id}
+                rowIndex={index}
+                alternateIndex={alternateIndex}
+                control={control}
+                componentIds={componentIds}
+                componentMap={componentMap}
+                selectedComponentId={componentId ?? ""}
+                onRemove={() => removeAlternate(alternateIndex)}
+              />
+            ))}
+          </div>
+        )}
+        <div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => appendAlternate({ itemId: "" })}
+          >
+            + Alternate
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BomAlternateRow({
+  rowIndex,
+  alternateIndex,
+  control,
+  componentIds,
+  componentMap,
+  selectedComponentId,
+  onRemove,
+}: {
+  rowIndex: number;
+  alternateIndex: number;
+  control: Control<ItemFormValues>;
+  componentIds: string[];
+  componentMap: Map<string, AvailableComponent>;
+  selectedComponentId: string;
+  onRemove: () => void;
+}) {
+  const alternateItemId = useWatch({
+    control,
+    name: `bom.${rowIndex}.alternates.${alternateIndex}.itemId`,
+  });
+  const alternateItem = componentMap.get(alternateItemId ?? "");
+  const selectableIds = useMemo(
+    () => componentIds.filter((id) => id !== selectedComponentId),
+    [componentIds, selectedComponentId]
+  );
+
+  return (
+    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_6rem_2.5rem] md:items-start">
+      <Controller
+        name={`bom.${rowIndex}.alternates.${alternateIndex}.itemId`}
+        control={control}
+        render={({ field: f, fieldState }) => (
+          <div>
+            <Combobox
+              items={selectableIds}
+              value={f.value ?? ""}
+              onValueChange={(id) => f.onChange(id ?? "")}
+              itemToStringLabel={(id) => componentMap.get(id)?.displayName ?? ""}
+            >
+              <ComboboxInput className="w-full" placeholder="Alternate item..." />
+              <ComboboxContent>
+                <ComboboxEmpty>No items found</ComboboxEmpty>
+                <ComboboxList>
+                  {(id: string) => {
+                    const comp = componentMap.get(id);
+                    return (
+                      <ComboboxItem key={id} value={id}>
+                        <span>{comp?.displayName ?? comp?.name ?? id}</span>
+                        {comp && (
+                          <Badge variant="secondary" className="ml-auto text-xs">
+                            {comp.itemType}
+                          </Badge>
+                        )}
+                      </ComboboxItem>
+                    );
+                  }}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+            {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+          </div>
+        )}
+      />
+      <div className="flex h-8 items-center text-sm text-muted-foreground">
+        {alternateItem?.unit ?? "\u2014"}
+      </div>
+      <div className="flex justify-end">
         <Button
           type="button"
           variant="ghost"

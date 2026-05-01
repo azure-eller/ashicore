@@ -100,6 +100,63 @@ export const bomRevisionComponents = inventorySchema
   )
   .enableRLS();
 
+export const bomRevisionComponentAlternates = inventorySchema
+  .table(
+    "bom_revision_component_alternates",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      bomRevisionComponentId: uuid("bom_revision_component_id")
+        .notNull()
+        .references(() => bomRevisionComponents.id, { onDelete: "cascade" }),
+      alternateItemId: uuid("alternate_item_id")
+        .notNull()
+        .references(() => items.id, { onDelete: "restrict" }),
+      alternateItemName: varchar("alternate_item_name", { length: 255 }).notNull(),
+      alternateItemSku: varchar("alternate_item_sku", { length: 50 }),
+      alternateItemType: varchar("alternate_item_type", { length: 20 }).notNull(),
+      unitName: varchar("unit_name", { length: 50 }).notNull(),
+      quantityFactor: numeric("quantity_factor", { precision: 12, scale: 4 }).notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("bom_revision_component_alternates_component_id_idx").on(
+        table.bomRevisionComponentId
+      ),
+      index("bom_revision_component_alternates_item_id_idx").on(
+        table.alternateItemId
+      ),
+      uniqueIndex("bom_revision_component_alternates_component_item_uidx").on(
+        table.bomRevisionComponentId,
+        table.alternateItemId
+      ),
+      check(
+        "bom_revision_component_alternates_quantity_factor_check",
+        sql`quantity_factor > 0`
+      ),
+      pgPolicy("bom_revision_component_alternates_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`bom_revision_component_id IN (
+          SELECT c.id
+          FROM inventory.bom_revision_components c
+          INNER JOIN inventory.bom_revisions r
+            ON r.id = c.bom_revision_id
+          WHERE r.organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`bom_revision_component_id IN (
+          SELECT c.id
+          FROM inventory.bom_revision_components c
+          INNER JOIN inventory.bom_revisions r
+            ON r.id = c.bom_revision_id
+          WHERE r.organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
 export const BOM_COMPONENT_CONSTRAINT_TYPES = ["lot_age_min_days"] as const;
 export type BomComponentConstraintType =
   (typeof BOM_COMPONENT_CONSTRAINT_TYPES)[number];
