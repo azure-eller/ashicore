@@ -56,7 +56,7 @@ export const SELLING_PRICE_TOOLTIP =
   "Default sales price per selling unit.";
 
 export const MARGIN_TOOLTIP =
-  "Default price minus estimated COGS, as a percent of default price.";
+  "Default margin; master rows average sellable variants.";
 
 export const ESTIMATED_MARGIN_TOOLTIP =
   "Selling price minus estimated COGS, as a percent of selling price.";
@@ -66,6 +66,9 @@ export const ACTUAL_MARGIN_TOOLTIP =
 
 export const LINE_COGS_TOOLTIP =
   "Inventory cost tied to the line.";
+
+export const ESTIMATED_LINE_COGS_TOOLTIP =
+  "Estimated inventory cost for the line quantity.";
 
 export const LOT_PHYSICAL_TOOLTIP =
   "Physical lot balance across all dispositions.";

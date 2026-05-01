@@ -225,19 +225,13 @@ function calculateMarginPercent(
   return normalizeNumericScale(((sellingPrice - cost) / sellingPrice) * 100, 1);
 }
 
-function formatMarginRange(values: number[]) {
+function formatAverageMargin(values: number[]) {
   if (values.length === 0) {
     return null;
   }
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const formattedMin = normalizeNumericScale(min, 1);
-  const formattedMax = normalizeNumericScale(max, 1);
-
-  return formattedMin === formattedMax
-    ? formattedMin
-    : `${formattedMin}-${formattedMax}`;
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return normalizeNumericScale(average, 1);
 }
 
 function applyMarginTiers(rows: ItemRow[]) {
@@ -999,7 +993,7 @@ export async function getItems(filters?: {
               .filter((value): value is string => value != null)
               .map((value) => Number.parseFloat(value))
               .filter((value) => Number.isFinite(value));
-            const marginRange = formatMarginRange(knownVariantMargins);
+            const averageMargin = formatAverageMargin(knownVariantMargins);
             const knownVariantCosts = visibleVariants
               .map((variant) => estimatedUnitCostByItemId.get(variant.id))
               .filter((value): value is string => value != null)
@@ -1032,7 +1026,7 @@ export async function getItems(filters?: {
               category: "Soil Blend",
               potential: row.potential,
               estimatedUnitCost: avgEstimatedUnitCost,
-              marginPercent: marginRange,
+              marginPercent: averageMargin,
               marginTier: null,
               isMaster: true,
               parentId: null,

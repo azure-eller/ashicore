@@ -15,7 +15,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  AVAILABLE_QTY_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
   ITEM_SKU_TOOLTIP,
   MARGIN_TOOLTIP,
@@ -75,10 +74,6 @@ function getInventoryAttention(row: ItemRow): InventoryAttention | null {
 }
 
 function MarginBadge({ row }: { row: ItemRow }) {
-  if (row.isMaster) {
-    return "—";
-  }
-
   if (row.marginPercent == null || row.marginTier == null) {
     return "—";
   }
@@ -94,7 +89,7 @@ function MarginBadge({ row }: { row: ItemRow }) {
 
   return (
     <Badge variant={variant} className="font-mono text-xs">
-      {row.isMaster ? "Avg " : ""}{row.marginPercent}%
+      {row.marginPercent}%
     </Badge>
   );
 }
@@ -241,17 +236,6 @@ export function getColumns(
       ),
       cell: ({ row }) => formatQuantity(row.getValue("stock")),
     },
-    {
-      accessorKey: "availableQty",
-      sortDescFirst: false,
-      sortingFn: (rowA, rowB) =>
-        parseFloat(rowA.getValue("availableQty")) -
-        parseFloat(rowB.getValue("availableQty")),
-      header: ({ column }) => (
-        <SortableHeader column={column} label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
-      ),
-      cell: ({ row }) => formatQuantity(row.getValue("availableQty")),
-    },
     ...(isProduct && !isSubAssemblies
       ? [
           {
@@ -269,7 +253,7 @@ export function getColumns(
             header: ({ column }) => (
               <SortableHeader
                 column={column}
-                label="Est. Margin"
+                label="Avg. Margin"
                 tooltip={MARGIN_TOOLTIP}
               />
             ),
