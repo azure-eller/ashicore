@@ -25,7 +25,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { resolveVariantDisplay } from "@/lib/format";
+import { normalizeNumeric, resolveVariantDisplay } from "@/lib/format";
 import {
   getBomRevisionComponentsInTx,
   getCurrentActiveBomIngredientsInTx,
@@ -173,12 +173,8 @@ type LockedBatchStateRow = {
   pickedAt: Date | null;
 };
 
-function normalizeQuantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
-
 function multiplyQuantityString(quantity: string, multiplier: number) {
-  return normalizeQuantityString(Number(quantity) * multiplier);
+  return normalizeNumeric(Number(quantity) * multiplier);
 }
 
 function buildIngredientActualsMap(
@@ -219,7 +215,7 @@ function buildIngredientActualsMap(
 }
 
 function normalizeQuantityNumber(value: number) {
-  return Number(normalizeQuantityString(value));
+  return Number(normalizeNumeric(value));
 }
 
 function sumNumericStrings(values: Array<string | null | undefined>) {
@@ -261,7 +257,7 @@ function assertCurrentExecutionBatch<T extends { id: string; batchNumber: number
 }
 
 function getRemainingQuantityString(plannedQuantity: string, pickedQuantity: string) {
-  return normalizeQuantityString(getRemainingQuantityNumber(plannedQuantity, pickedQuantity));
+  return normalizeNumeric(getRemainingQuantityNumber(plannedQuantity, pickedQuantity));
 }
 
 function isoDate(value: Date) {
@@ -559,7 +555,7 @@ async function prepareCreateIngredientsInTx(
     ingredients: bomRows.map((row, index) => {
       const submitted = submittedIngredients[index];
       const alternate = row.alternates.find(
-        (candidate) => candidate.itemId === submitted.itemId
+        ({ itemId: alternateItemId }) => alternateItemId === submitted.itemId
       );
       const selected =
         submitted.itemId === row.itemId
@@ -761,11 +757,11 @@ async function insertManufacturingOrderInTx(
       manufacturingMode: values.product.manufacturingMode,
       numberOfBatches: values.numberOfBatches,
       expectedBatchYield: values.product.expectedBatchYield,
-      requestedQuantity: normalizeQuantityString(Number(values.requestedQuantity)),
+      requestedQuantity: normalizeNumeric(Number(values.requestedQuantity)),
       salesOrderNumber: values.salesLink?.salesOrderNumber ?? null,
       salesCustomerName: values.salesLink?.customerName ?? null,
       status: "draft",
-      plannedQuantity: normalizeQuantityString(values.plannedQuantity),
+      plannedQuantity: normalizeNumeric(values.plannedQuantity),
       plannedDate: values.plannedDate,
       notes: values.notes,
     })
@@ -796,15 +792,37 @@ async function prepareUpdatedIngredientsInTx(
   }
 
   const bomRows = await getBomRevisionComponentsInTx(tx, bomRevisionId);
+  const existingRows = await tx
+    .select({
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(
+      and(
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId),
+        sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
+      )
+    )
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
 
-  if (bomRows.length !== submittedIngredients.length) {
+  if (
+    bomRows.length !== submittedIngredients.length ||
+    existingRows.length !== submittedIngredients.length
+  ) {
     throw new ManufacturingError(
       "Ingredient rows cannot be added or removed after the order is created",
       400
     );
   }
 
-  return bomRows.map((row, index) => {
+  const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
+
+  return existingRows.map((existingRow, index) => {
+    const row = bomBySortOrder.get(existingRow.sortOrder);
+    if (!row) {
+      throw new ManufacturingError("The order BOM snapshot is missing.", 400);
+    }
+
     const submitted = submittedIngredients[index];
     const selected = getApprovedBomMaterialOption(row, submitted.itemId);
 
@@ -819,7 +837,7 @@ async function prepareUpdatedIngredientsInTx(
         selected.quantityPerUnit,
         ingredientMultiplier
       ),
-      sortOrder: row.sortOrder,
+      sortOrder: existingRow.sortOrder,
       constraints: row.constraints,
     };
   });
@@ -874,7 +892,7 @@ async function prepareLegacyUpdatedIngredientsInTx(
       );
     }
 
-    const quantityPerUnit = normalizeQuantityString(Number(submitted.quantityPerUnit));
+    const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
 
     return {
       itemId: row.itemId,
@@ -1417,8 +1435,8 @@ function aggregateBatchIngredients(
     const actualQuantity = sumNumericStrings([existing.actualQuantity, row.actualQuantity]);
     const actualCostTotal = sumNumericStrings([existing.actualCostTotal, row.actualCostTotal]);
 
-    existing.plannedQuantity = normalizeQuantityString(plannedQuantity);
-    existing.pickedQuantity = normalizeQuantityString(pickedQuantity);
+    existing.plannedQuantity = normalizeNumeric(plannedQuantity);
+    existing.pickedQuantity = normalizeNumeric(pickedQuantity);
     existing.remainingQuantity = getRemainingQuantityString(
       existing.plannedQuantity,
       existing.pickedQuantity
@@ -1433,9 +1451,9 @@ function aggregateBatchIngredients(
       : pickedQuantity > 0
         ? "in_progress"
         : "not_picked";
-    existing.actualQuantity = actualQuantity > 0 ? normalizeQuantityString(actualQuantity) : null;
+    existing.actualQuantity = actualQuantity > 0 ? normalizeNumeric(actualQuantity) : null;
     existing.actualCostTotal =
-      actualCostTotal > 0 ? normalizeQuantityString(actualCostTotal) : null;
+      actualCostTotal > 0 ? normalizeNumeric(actualCostTotal) : null;
     existing.sortOrder = Math.min(existing.sortOrder, row.sortOrder);
   }
 
@@ -2339,8 +2357,8 @@ export async function updateManufacturingOrder(
         salesOrderLineId: salesLink?.salesOrderLineId ?? null,
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
         salesCustomerName: salesLink?.customerName ?? null,
-        requestedQuantity: normalizeQuantityString(Number(payload.plannedQuantity)),
-        plannedQuantity: normalizeQuantityString(plannedQuantity),
+        requestedQuantity: normalizeNumeric(Number(payload.plannedQuantity)),
+        plannedQuantity: normalizeNumeric(plannedQuantity),
         numberOfBatches,
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
@@ -2635,8 +2653,8 @@ export async function completeManufacturingOrder(
       await tx
         .update(manufacturingOrderIngredients)
         .set({
-          actualQuantity: normalizeQuantityString(effectiveQuantity),
-          actualCostTotal: normalizeQuantityString(effectiveCost),
+          actualQuantity: normalizeNumeric(effectiveQuantity),
+          actualCostTotal: normalizeNumeric(effectiveCost),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrderIngredients.id, ingredient.id));
@@ -2669,9 +2687,9 @@ export async function completeManufacturingOrder(
       .update(manufacturingOrders)
       .set({
         status: "completed",
-        actualQuantity: normalizeQuantityString(actualQuantity),
-        actualMaterialCost: normalizeQuantityString(totalMaterialCost),
-        actualCostPerUnit: normalizeQuantityString(actualCostPerUnit),
+        actualQuantity: normalizeNumeric(actualQuantity),
+        actualMaterialCost: normalizeNumeric(totalMaterialCost),
+        actualCostPerUnit: normalizeNumeric(actualCostPerUnit),
         completedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -2852,8 +2870,8 @@ export async function completeManufacturingBatch(
       await tx
         .update(manufacturingOrderIngredients)
         .set({
-          actualQuantity: normalizeQuantityString(effectiveQuantity),
-          actualCostTotal: normalizeQuantityString(effectiveCost),
+          actualQuantity: normalizeNumeric(effectiveQuantity),
+          actualCostTotal: normalizeNumeric(effectiveCost),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrderIngredients.id, ingredient.id));
@@ -2884,7 +2902,7 @@ export async function completeManufacturingBatch(
       .update(manufacturingOrderBatches)
       .set({
         status: "completed",
-        actualQuantity: normalizeQuantityString(actualQuantity),
+        actualQuantity: normalizeNumeric(actualQuantity),
         pickedAt: batch.pickedAt ?? new Date(),
         completedAt: new Date(),
         lotId: produced.lotId,
@@ -2917,12 +2935,12 @@ export async function completeManufacturingBatch(
     await tx
       .update(manufacturingOrders)
       .set({
-        actualQuantity: normalizeQuantityString(totalActualQuantity),
-        actualMaterialCost: normalizeQuantityString(totalMaterialCost),
+        actualQuantity: normalizeNumeric(totalActualQuantity),
+        actualMaterialCost: normalizeNumeric(totalMaterialCost),
         actualCostPerUnit:
           totalActualQuantity > 0
-            ? normalizeQuantityString(totalMaterialCost / totalActualQuantity)
-            : normalizeQuantityString(0),
+            ? normalizeNumeric(totalMaterialCost / totalActualQuantity)
+            : normalizeNumeric(0),
         status: allCompleted ? "completed" : "released",
         completedAt: allCompleted ? new Date() : null,
         updatedAt: new Date(),

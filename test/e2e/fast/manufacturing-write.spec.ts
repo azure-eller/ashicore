@@ -310,6 +310,46 @@ test.describe("Manufacturing write-path smoke", () => {
       await sandCard.getByRole("button", { name: "Pick", exact: true }).click();
       await compostCard.getByRole("button", { name: "Pick", exact: true }).click();
 
+      await expect
+        .poll(
+          async () => {
+            const [currentBatch] = await db
+              .select({ id: manufacturingOrderBatches.id })
+              .from(manufacturingOrderBatches)
+              .where(
+                and(
+                  eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId),
+                  eq(manufacturingOrderBatches.status, "in_progress")
+                )
+              )
+              .limit(1);
+
+            if (!currentBatch) return false;
+
+            const rows = await db
+              .select({
+                plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+                pickedQuantity: manufacturingOrderIngredients.pickedQuantity,
+              })
+              .from(manufacturingOrderIngredients)
+              .where(
+                eq(
+                  manufacturingOrderIngredients.manufacturingOrderBatchId,
+                  currentBatch.id
+                )
+              );
+
+            return (
+              rows.length > 0 &&
+              rows.every((row) => row.pickedQuantity === row.plannedQuantity)
+            );
+          },
+          { timeout: 15_000 }
+        )
+        .toBe(true);
+
+      await page.reload();
+      await expect(page.getByRole("button", { name: "Complete Batch" })).toBeEnabled();
       await page.getByRole("button", { name: "Complete Batch" }).click();
       await page.getByLabel("Actual Output").fill(output);
       await page.getByRole("button", { name: "Confirm" }).click();
