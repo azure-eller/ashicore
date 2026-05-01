@@ -156,8 +156,11 @@ export function orderSeedsForSync(itemSeeds: ItemSeed[]) {
 export function findExistingItem(
   seed: ItemSeed,
   existingItemsBySku: Map<string, ExistingItem>,
-  existingItemsByName: Map<string, ExistingItem>,
-  options?: { allowNameMatch?: boolean }
+  existingItemsByName: Map<string, ExistingItem[]>,
+  options?: {
+    allowNameMatch?: boolean;
+    nameMatchPredicate?: (existing: ExistingItem) => boolean;
+  }
 ) {
   const skuCandidates = [seed.sku, ...(seed.legacySkus ?? [])].filter(
     (sku): sku is string => sku != null
@@ -173,9 +176,26 @@ export function findExistingItem(
 
   const nameCandidates = [seed.name, ...(seed.legacyNames ?? [])];
   for (const name of nameCandidates) {
-    const existing = existingItemsByName.get(name);
-    if (existing) return existing;
+    const matches = existingItemsByName.get(name) ?? [];
+    const existing = options?.nameMatchPredicate
+      ? matches.find(options.nameMatchPredicate)
+      : matches[0];
+    if (existing) {
+      return existing;
+    }
   }
 
   return null;
+}
+
+export function buildExistingItemsByName(existingItems: ExistingItem[]) {
+  const byName = new Map<string, ExistingItem[]>();
+
+  for (const item of existingItems) {
+    const bucket = byName.get(item.name) ?? [];
+    bucket.push(item);
+    byName.set(item.name, bucket);
+  }
+
+  return byName;
 }

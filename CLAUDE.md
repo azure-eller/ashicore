@@ -20,8 +20,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:sales` — run the fast sales write-path smoke flow
 - `pnpm test:reconciliation` — run inventory reconciliation Playwright specs
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
-- `pnpm dev:seed-user` — create/update the canonical local login (`test@test.com` / `TestPassword123!`) for the running dev server
-- `pnpm seed` — seed demo inventory data through the running dev server into the canonical local/test org
+- `pnpm dev:seed-user` — create/update the canonical local login (`test@test.com` / `TestPassword123!`) for the running dev server, then idempotently load Paonia Soil Company data
 - `pnpm load:paonia` — load the Paonia pilot-customer catalog (units, items, BOMs, opening stock) into the resolved org. Supports `--org <ref>`, `--dry-run`, `--sales-2026`, `--customers-only`.
 - `pnpm load:paonia:dry-run` — plan-only run of the Paonia loader; no writes
 - `pnpm load:paonia:reset -- --confirm <org-slug>` — wipe all customer data in the resolved org. Requires the typed-back org slug; blocked in `NODE_ENV=production` unless `--i-know-what-im-doing`. Add `--dry-run` to preview row counts.
@@ -814,7 +813,8 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - After form submission, **query the database directly** via the `db` fixture to verify the row
 - The `db` fixture uses the app role with RLS — same security path as the real app
 - Dev server must be running (`pnpm dev`) before `pnpm test`
-- Canonical local/test login is `test@test.com` / `TestPassword123!`; Playwright global setup and `pnpm dev:seed-user` keep this user on `test-org`.
+- Canonical local login is `test@test.com` / `TestPassword123!`; `pnpm dev:seed-user` keeps this user on `paonia-soil-company` and loads Paonia data.
+- Playwright global setup still creates isolated generated test data in `test-org`.
 
 ### Key files
 
@@ -854,9 +854,10 @@ For code-changing work:
 - Create or enter a dedicated worktree before making changes
 - Do not reuse another active worktree unless the user explicitly points to it
 - Worktrees fall back to the repo root `.env.local` for shared settings, but DB URLs must come from the worktree `.env.local` created by `pnpm db:local:setup`
+- Local Postgres uses one shared server, but `pnpm db:local:setup` creates one database per worktree. Run `pnpm dev:seed-user` once per new worktree DB to load Paonia data.
 - Do not use `gh pr merge --delete-branch` from a feature worktree. Merge first, then delete the remote branch and run `pnpm worktree:cleanup <branch>` separately from the repo root.
 - After a PR merges, agents MUST run `pnpm worktree:cleanup <branch>` from the repo root to drop the local DB and remove the worktree. If no linked worktrees remain, shared local Postgres should be stopped too.
-- Local Postgres data persists across `pnpm db:local:stop`; no reseed is required for normal dev or tests.
+- Local Postgres data persists across `pnpm db:local:stop`; no reseed is required after a normal restart.
 
 ```bash
 git worktree add .worktrees/<branch-name> -b <branch-name>

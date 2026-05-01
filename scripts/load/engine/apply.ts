@@ -4,7 +4,12 @@ import { formatVariantDisplay } from "@/lib/format";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { getUnitSignature } from "./org";
 import { applyBomsSyncInTx } from "./sync-boms";
-import { applyItemsSyncInTx, assertNoDuplicateSkus, loadExistingItemsInTx } from "./sync-items";
+import {
+  applyItemsSyncInTx,
+  assertNoDuplicateSkus,
+  buildExistingItemsByName,
+  loadExistingItemsInTx,
+} from "./sync-items";
 import { applyStockSyncInTx } from "./sync-stock";
 import { applySuppliersSyncInTx } from "./sync-suppliers";
 import { applyUnitsSyncInTx, assertNoDuplicateUnits, loadExistingUnitsInTx } from "./sync-units";
@@ -48,7 +53,7 @@ export async function applyChanges(
         .filter((row): row is ExistingItem & { sku: string } => row.sku != null)
         .map((row) => [row.sku, row])
     );
-    const itemByName = new Map(existingItems.map((row) => [row.name, row]));
+    const itemByName = buildExistingItemsByName(existingItems);
     const itemIdByKey = new Map<string, string>();
 
     await applyItemsSyncInTx(

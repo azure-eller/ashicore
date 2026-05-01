@@ -25,7 +25,6 @@
     "verify:inventory": "pnpm verify:inventory-kernel && pnpm verify:inventory-state",
     "db:generate": "drizzle-kit generate && tsx scripts/make-migrations-idempotent.ts",
     "db:check-migrations": "tsx scripts/make-migrations-idempotent.ts --check",
-    "seed": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed.ts",
     "worktree:cleanup": "tsx scripts/cleanup-worktree.ts",
     "cleanup": "tsx scripts/cleanup-worktree.ts",
     "test": "pnpm test:e2e:fast",

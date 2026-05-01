@@ -7,7 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
-import { findExistingItem } from "./seeds";
+import { buildExistingItemsByName, findExistingItem } from "./seeds";
 import {
   assertNoDuplicateCustomerNames,
   buildCustomerPlans,
@@ -276,7 +276,7 @@ export async function evaluateSalesImportInTx(
       .filter((row): row is ExistingItem & { sku: string } => row.sku != null)
       .map((row) => [row.sku, row])
   );
-  const existingItemsByName = new Map(existingItems.map((row) => [row.name, row]));
+  const existingItemsByName = buildExistingItemsByName(existingItems);
   const unitNameById = new Map(existingUnits.map((row) => [row.id, row.name]));
 
   const customerSeedsByKey = buildCustomerSeedsFromOrders(config.orderSeeds);
@@ -309,7 +309,9 @@ export async function evaluateSalesImportInTx(
         continue;
       }
 
-      const existingItem = findExistingItem(seed, existingItemsBySku, existingItemsByName);
+      const existingItem = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
+        nameMatchPredicate: (item) => item.isMaster !== true,
+      });
       if (!existingItem || existingItem.deletedAt) {
         issues.push(`${line.raw} -> Item "${seed.name}" is missing from active catalog.`);
         continue;

@@ -8,7 +8,12 @@ import {
 } from "./sync-sales-orders";
 import { planStockSyncInTx } from "./sync-stock";
 import { assertNoDuplicateUnits, loadExistingUnitsInTx, planUnitsSync } from "./sync-units";
-import { assertNoDuplicateSkus, loadExistingItemsInTx, planItemsSync } from "./sync-items";
+import {
+  assertNoDuplicateSkus,
+  buildExistingItemsByName,
+  loadExistingItemsInTx,
+  planItemsSync,
+} from "./sync-items";
 import {
   createEmptyReport,
   createEmptySalesImportReport,
@@ -51,7 +56,7 @@ export async function planChanges(orgId: string, config: LoaderConfig): Promise<
         .filter((row): row is ExistingItem & { sku: string } => row.sku != null)
         .map((row) => [row.sku, row])
     );
-    const existingItemsByName = new Map(existingItems.map((row) => [row.name, row]));
+    const existingItemsByName = buildExistingItemsByName(existingItems);
     const matchedItemByKey = new Map<string, ExistingItem>();
 
     planUnitsSync(config.units, existingUnitsBySignature, report);

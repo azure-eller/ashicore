@@ -3,6 +3,7 @@ import { items } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric } from "@/lib/format";
 import {
+  buildExistingItemsByName,
   findExistingItem,
   orderSeedsForSync,
   resolveSeedCurrentStockUnitCost,
@@ -16,6 +17,8 @@ import type {
   Report,
   UnitSeed,
 } from "./types";
+
+export { buildExistingItemsByName };
 
 export function assertNoDuplicateSkus(
   rows: ExistingItem[],
@@ -84,7 +87,7 @@ export function planItemsSync(
   unitByKey: Map<string, UnitSeed>,
   existingUnitsBySignature: Map<string, ExistingUnit>,
   existingItemsBySku: Map<string, ExistingItem>,
-  existingItemsByName: Map<string, ExistingItem>,
+  existingItemsByName: Map<string, ExistingItem[]>,
   matchedItemByKey: Map<string, ExistingItem>,
   report: Report
 ) {
@@ -93,7 +96,10 @@ export function planItemsSync(
   for (const seed of orderedSeeds) {
     const isMaster = seed.isMaster === true;
     const existing = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
-      allowNameMatch: !isMaster,
+      allowNameMatch: true,
+      nameMatchPredicate: isMaster
+        ? (item) => item.isMaster === true
+        : (item) => item.isMaster !== true,
     });
     const desiredUnitSeed = seed.unitKey ? unitByKey.get(seed.unitKey) : null;
     if (!isMaster && !desiredUnitSeed) {
@@ -154,7 +160,7 @@ export async function applyItemsSyncInTx(
   orgId: string,
   unitIdByKey: Map<string, string>,
   itemBySku: Map<string, ExistingItem>,
-  itemByName: Map<string, ExistingItem>,
+  itemByName: Map<string, ExistingItem[]>,
   itemIdByKey: Map<string, string>,
   report: Report,
   internalOnlyProductCategories?: Set<string>
@@ -176,7 +182,10 @@ export async function applyItemsSyncInTx(
       : null;
 
     const existing = findExistingItem(seed, itemBySku, itemByName, {
-      allowNameMatch: !isMaster,
+      allowNameMatch: true,
+      nameMatchPredicate: isMaster
+        ? (item) => item.isMaster === true
+        : (item) => item.isMaster !== true,
     });
     if (!existing) {
       const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
