@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm";
-import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
+import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryItemBalances,
   purchaseOrderLines,
@@ -17,6 +17,7 @@ import {
   receivePurchaseOrder,
   submitPurchaseOrder,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
 
 test.describe("Sales write-path smoke", () => {
@@ -153,6 +154,54 @@ test.describe("Sales write-path smoke", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
+  });
+
+  test("expanded order lines show physical stock instead of projected shortage", async ({
+    page,
+    db,
+  }) => {
+    const materialName = `Fast Oversold Stock Label ${ts}`;
+    const materialSku = `FAST-OVERSOLD-STOCK-${ts}`;
+    const materialResult = await createItem({
+      name: materialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: materialSku,
+      category: `Fast Sales ${ts}`,
+      description: "Material for expanded order stock label regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "150",
+      safetyStock: "0",
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      confirmOversell: true,
+      lines: [{ itemId: materialId, quantity: "350", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const oversoldOrderId = orderResult.body.id as string;
+
+    const [order] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, oversoldOrderId));
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", order.orderNumber);
+
+    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
+    await orderRow.getByRole("button", { name: "Expand order" }).click();
+
+    const expandedLine = page.getByRole("row", {
+      name: new RegExp(`${materialName}.*${materialSku}`),
+    }).last();
+    await expect(expandedLine).toContainText("150");
+    await expect(expandedLine).not.toContainText("-200");
   });
 
   test("reports actual margin from FIFO lots with different costs", async ({ db }) => {
@@ -391,5 +440,113 @@ test.describe("Sales write-path smoke", () => {
       estimatedUnitCost: "10",
       marginPercent: "33.3",
     });
+  });
+
+  test("keeps Create MOs enabled on the orders list when another line is already in production", async ({
+    page,
+    db,
+  }) => {
+    const suffix = `${ts}-PARTIAL-MO`;
+    const materialResult = await createItem({
+      name: `Fast Partial MO Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-PARTIAL-MO-MAT-${suffix}`,
+      category: `Fast Partial MO ${suffix}`,
+      description: "Material for partially manufactured sales order",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const productOneResult = await createItem({
+      name: `Fast Partial MO Product One ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-PARTIAL-MO-P1-${suffix}`,
+      category: `Fast Partial MO ${suffix}`,
+      description: "First BOM-backed product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(productOneResult.status).toBe(201);
+    const productOneId = productOneResult.body.id as string;
+
+    const productTwoName = `Fast Partial MO Product Two ${suffix}`;
+    const productTwoResult = await createItem({
+      name: productTwoName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-PARTIAL-MO-P2-${suffix}`,
+      category: `Fast Partial MO ${suffix}`,
+      description: "Second BOM-backed product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(productTwoResult.status).toBe(201);
+    const productTwoId = productTwoResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      confirmOversell: true,
+      lines: [
+        { itemId: productOneId, quantity: "1", unitPrice: "10" },
+        { itemId: productTwoId, quantity: "1", unitPrice: "10" },
+      ],
+    });
+    expect(orderResult.status).toBe(201);
+    const partialMoOrderId = orderResult.body.id as string;
+
+    const linkedMoResult = await testFetch(
+      `/api/sales-orders/${partialMoOrderId}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({ plannedDate: null, notes: null }),
+      }
+    );
+    expect(linkedMoResult.status).toBe(201);
+    const linkedMoBody = await linkedMoResult.json();
+    expect(linkedMoBody.created).toHaveLength(1);
+
+    const addBomResult = await updateItem(productTwoId, {
+      name: productTwoName,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      sku: `FAST-PARTIAL-MO-P2-${suffix}`,
+      category: `Fast Partial MO ${suffix}`,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      sellable: true,
+      description: "Second BOM-backed product",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+      revisionNote: "Add BOM after first linked manufacturing order",
+    });
+    expect(addBomResult.status).toBe(200);
+
+    const [order] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, partialMoOrderId));
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", order.orderNumber);
+
+    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
+    await expect(orderRow.getByRole("button", { name: "In production" })).toBeVisible();
+    await expect(orderRow.getByRole("link", { name: "Create MOs" })).toBeVisible();
   });
 });

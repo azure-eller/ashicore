@@ -38,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
   Combobox,
   ComboboxContent,
@@ -933,23 +934,31 @@ export function OrderForm({
                         <div className="text-xs text-muted-foreground">{product.itemSku}</div>
                       )}
                     </TableCell>
-                    <TableCell>{product.inStock} {product.unitName}</TableCell>
-                    <TableCell>{product.availableQty} {product.unitName}</TableCell>
-                    <TableCell>{product.committedQty} {product.unitName}</TableCell>
-                    <TableCell>{product.demandQty} {product.unitName}</TableCell>
-                    <TableCell>{product.shortageQty} {product.unitName}</TableCell>
-                    <TableCell>{product.expectedQty} {product.unitName}</TableCell>
-                    <TableCell>{product.safetyStock} {product.unitName}</TableCell>
-                    <TableCell>{product.calculatedStock} {product.unitName}</TableCell>
-                    <TableCell>{product.addedQty} {product.unitName}</TableCell>
+                    <TableCell><QuantityWithUnit value={product.inStock} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.availableQty} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.committedQty} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.demandQty} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.shortageQty} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.expectedQty} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.safetyStock} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.calculatedStock} unitName={product.unitName} /></TableCell>
+                    <TableCell><QuantityWithUnit value={product.addedQty} unitName={product.unitName} /></TableCell>
                     <TableCell>
-                      {product.projectedDemandQty} {product.unitName}
+                      <QuantityWithUnit value={product.projectedDemandQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
-                      {product.projectedShortageQty} {product.unitName}
+                      <QuantityWithUnit
+                        value={product.projectedShortageQty}
+                        unitName={product.unitName}
+                        tone={product.projectedShortageQty > 0 ? "destructive" : "default"}
+                      />
                     </TableCell>
                     <TableCell className="text-destructive">
-                      {product.projectedCalculatedStock} {product.unitName}
+                      <QuantityWithUnit
+                        value={product.projectedCalculatedStock}
+                        unitName={product.unitName}
+                        tone="destructive"
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

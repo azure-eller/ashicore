@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -160,7 +161,11 @@ export default async function ProductBomHistoryPage({
                           <Badge variant="outline">{component.componentItemType}</Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          {component.quantity} {component.unitName}
+                          <QuantityWithUnit
+                            value={component.quantity}
+                            unitName={component.unitName}
+                            className="justify-end"
+                          />
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {minimumLotAgeDays

@@ -19,6 +19,7 @@ import {
   Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import {
+  type InsertPurchaseOrder,
   insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
@@ -96,10 +97,12 @@ export function PurchaseOrderForm({
   suppliers,
   materials,
   initialData,
+  defaultValues,
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
   initialData?: PurchaseOrderEditData;
+  defaultValues?: InsertPurchaseOrder;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -130,7 +133,7 @@ export function PurchaseOrderForm({
             unitCost: line.unitCost,
           })),
         }
-      : purchaseOrderDefaultValues,
+      : (defaultValues ?? purchaseOrderDefaultValues),
   });
 
   const watchedLines = useWatch({

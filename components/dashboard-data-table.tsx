@@ -1,9 +1,8 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import {
   type QueryKey,
   useMutation,
@@ -64,6 +63,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 type DeleteActionConfig = {
   endpoint: string;
@@ -80,18 +80,33 @@ type AddAction = {
   href: string;
 };
 
+type SelectedAction<TData extends { id: string }> = {
+  label: string;
+  onSelect: (rows: TData[]) => void;
+  disabled?: boolean | ((rows: TData[]) => boolean);
+  variant?: "default" | "destructive";
+};
+
+type DashboardColumnMeta = {
+  className?: string;
+};
+
 type DashboardDataTableProps<TData extends { id: string }> = {
   columns: ColumnDef<TData>[];
+  data?: TData[];
   initialData: TData[];
   queryKey: QueryKey;
-  queryFn: () => Promise<TData[]>;
+  queryFn?: () => Promise<TData[]>;
   enableRowSelection?: boolean | ((row: Row<TData>) => boolean);
   searchAriaLabel: string;
-  addHref: string;
-  addAriaLabel: string;
+  addHref?: string;
+  addAriaLabel?: string;
   emptyMessage: string;
   deleteAction?: DeleteActionConfig;
+  selectedActions?: SelectedAction<TData>[];
+  toolbarContent?: ReactNode;
   addActions?: AddAction[];
+  tableClassName?: string;
   getRowCanExpand?: (row: Row<TData>) => boolean;
   renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
   getSubRows?: (row: TData) => TData[] | undefined;
@@ -101,6 +116,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
 
 export function DashboardDataTable<TData extends { id: string }>({
   columns,
+  data: controlledData,
   initialData,
   queryKey,
   queryFn,
@@ -110,7 +126,10 @@ export function DashboardDataTable<TData extends { id: string }>({
   addAriaLabel,
   emptyMessage,
   deleteAction,
+  selectedActions,
+  toolbarContent,
   addActions,
+  tableClassName,
   getRowCanExpand: getRowCanExpandProp,
   renderExpandedRow,
   getSubRows: getSubRowsProp,
@@ -129,11 +148,13 @@ export function DashboardDataTable<TData extends { id: string }>({
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
-  const { data = initialData } = useQuery<TData[]>({
+  const { data: queriedData = initialData } = useQuery<TData[]>({
     queryKey,
-    queryFn,
+    queryFn: queryFn ?? (() => Promise.resolve(initialData)),
     initialData,
+    enabled: queryFn != null,
   });
+  const data = controlledData ?? queriedData;
 
   const deleteMutation = useMutation<void, Error, string[]>({
     mutationFn: async (ids) => {
@@ -183,7 +204,8 @@ export function DashboardDataTable<TData extends { id: string }>({
     },
   });
 
-  const rowSelectionConfig = enableRowSelection ?? (deleteAction != null);
+  const rowSelectionConfig =
+    enableRowSelection ?? (deleteAction != null || selectedActions != null);
   const enableSelection = rowSelectionConfig !== false;
   const hasExpansion = renderExpandedRow != null || getSubRowsProp != null;
   // TanStack Table returns instance methods that React Compiler treats as incompatible.
@@ -228,26 +250,45 @@ export function DashboardDataTable<TData extends { id: string }>({
   const selectedCount = enableSelection
     ? table.getFilteredSelectedRowModel().rows.length
     : 0;
+  const selectedRows = enableSelection
+    ? table.getFilteredSelectedRowModel().rows.map((row) => row.original)
+    : [];
+  const selectionActions = selectedActions ?? [];
+  const hasSelectionMenu = deleteAction != null || selectionActions.length > 0;
+  const allSelectionActionsDisabled =
+    selectionActions.length > 0 &&
+    selectionActions.every((action) =>
+      typeof action.disabled === "function"
+        ? action.disabled(selectedRows)
+        : action.disabled === true
+    );
 
   return (
     <>
       <div className="w-full">
-        <div className="flex items-center justify-between py-4">
-          <Input
-            placeholder="Search..."
-            aria-label={searchAriaLabel}
-            value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
-            className="max-w-sm"
-          />
+        <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Search..."
+              aria-label={searchAriaLabel}
+              value={globalFilter}
+              onChange={(event) => setGlobalFilter(event.target.value)}
+              className="w-72 max-w-sm"
+            />
+            {toolbarContent}
+          </div>
           <div className="flex items-center gap-2">
-            {deleteAction && (
+            {hasSelectionMenu && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
                     size="icon"
-                    disabled={selectedCount === 0 || deleteMutation.isPending}
+                    disabled={
+                      selectedCount === 0 ||
+                      deleteMutation.isPending ||
+                      (deleteAction == null && allSelectionActionsDisabled)
+                    }
                     className="relative"
                     aria-label={
                       selectedCount > 0
@@ -274,24 +315,41 @@ export function DashboardDataTable<TData extends { id: string }>({
                   align="end"
                   className="bg-popover text-popover-foreground"
                 >
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => {
-                      setPendingDeleteIds(
-                        table
-                          .getFilteredSelectedRowModel()
-                          .rows.map((row) => row.original.id)
-                      );
-                      setConfirmDeleteOpen(true);
-                    }}
-                  >
-                    Delete
-                  </DropdownMenuItem>
+                  {selectionActions.map((action) => {
+                    const disabled =
+                      typeof action.disabled === "function"
+                        ? action.disabled(selectedRows)
+                        : action.disabled === true;
+
+                    return (
+                      <DropdownMenuItem
+                        key={action.label}
+                        variant={
+                          action.variant === "destructive" ? "destructive" : undefined
+                        }
+                        disabled={disabled}
+                        onClick={() => action.onSelect(selectedRows)}
+                      >
+                        {action.label}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                  {deleteAction ? (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        setPendingDeleteIds(selectedRows.map((row) => row.id));
+                        setConfirmDeleteOpen(true);
+                      }}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
 
-            {addActions ? (
+            {addActions && addAriaLabel ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="default" aria-label={addAriaLabel}>
@@ -321,7 +379,7 @@ export function DashboardDataTable<TData extends { id: string }>({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : (
+            ) : addHref && addAriaLabel ? (
               <Button variant="default" aria-label={addAriaLabel} asChild>
                 <Link href={addHref} prefetch={false}>
                   {addAriaLabel}
@@ -333,27 +391,33 @@ export function DashboardDataTable<TData extends { id: string }>({
                   />
                 </Link>
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
 
         {formError && <p className="pb-4 text-sm text-destructive">{formError}</p>}
 
         <div className="overflow-hidden rounded-md border">
-          <Table>
+          <Table className={tableClassName}>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  ))}
+                  {headerGroup.headers.map((header) => {
+                    const meta = header.column.columnDef.meta as
+                      | DashboardColumnMeta
+                      | undefined;
+
+                    return (
+                      <TableHead key={header.id} className={meta?.className}>
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </TableHead>
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableHeader>
@@ -370,11 +434,17 @@ export function DashboardDataTable<TData extends { id: string }>({
                         ].filter(Boolean).join(" ") || undefined
                       }
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
+                      {row.getVisibleCells().map((cell) => {
+                        const meta = cell.column.columnDef.meta as
+                          | DashboardColumnMeta
+                          | undefined;
+
+                        return (
+                          <TableCell key={cell.id} className={cn(meta?.className, "align-middle")}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
                     {renderExpandedRow && row.getIsExpanded() && !getSubRowsProp && (
                       <TableRow key={`${row.id}-expanded`} className="hover:bg-transparent">

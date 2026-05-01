@@ -23,6 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -736,12 +737,16 @@ export function PurchaseOrderDetail({
                       {formatQuantity(line.quantityRemaining)}
                     </TableCell>
                     <TableCell>
-                      <div className="space-y-1">
+                      <div className="flex flex-col gap-1">
                         <div>{line.purchaseUnitName}</div>
                         {line.purchaseUnitName !== line.stockingUnitName ? (
-                          <p className="text-xs text-muted-foreground">
-                            {formatQuantity(line.stockQuantityOrdered)} {line.stockingUnitName} stocked
-                          </p>
+                          <QuantityWithUnit
+                            value={line.stockQuantityOrdered}
+                            unitName={line.stockingUnitName}
+                            suffix="stocked"
+                            className="text-xs"
+                            muted
+                          />
                         ) : null}
                       </div>
                     </TableCell>
@@ -912,12 +917,16 @@ export function PurchaseOrderDetail({
                         {formatQuantity(line.quantityRemaining)}
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
+                        <div className="flex flex-col gap-1">
                           <div>{line.purchaseUnitName}</div>
                           {line.purchaseUnitName !== line.stockingUnitName ? (
-                            <p className="text-xs text-muted-foreground">
-                              {formatQuantity(line.stockQuantityRemaining)} {line.stockingUnitName} remaining
-                            </p>
+                            <QuantityWithUnit
+                              value={line.stockQuantityRemaining}
+                              unitName={line.stockingUnitName}
+                              suffix="remaining"
+                              className="text-xs"
+                              muted
+                            />
                           ) : null}
                         </div>
                       </TableCell>

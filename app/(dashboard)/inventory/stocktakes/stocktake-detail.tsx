@@ -14,6 +14,7 @@ import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -692,13 +693,25 @@ export function StocktakeDetail({
                     <TableRow key={item.lineId}>
                       <TableCell>{item.itemName}</TableCell>
                       <TableCell className="text-right">
-                        {formatQuantity(item.expectedQty)} {item.unitName}
+                        <QuantityWithUnit
+                          value={item.expectedQty}
+                          unitName={item.unitName}
+                          className="justify-end"
+                        />
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatQuantity(item.currentQty)} {item.unitName}
+                        <QuantityWithUnit
+                          value={item.currentQty}
+                          unitName={item.unitName}
+                          className="justify-end"
+                        />
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatQuantity(item.countedQty)} {item.unitName}
+                        <QuantityWithUnit
+                          value={item.countedQty}
+                          unitName={item.unitName}
+                          className="justify-end"
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

@@ -487,6 +487,10 @@ return resolveStockUnitCostFromDefaultPurchasePrice(...)
 
 Confirmed orders reserve the full order. Draft shipments only plan slices; shipped shipments consume/release their quantities. Use shipment BOLs (`draft` = planned, `shipped` = final). `partially_shipped` orders still block customer/product deletes while remaining demand exists.
 
+### Production downstream demand
+
+Planning downstream rows are sales-order attribution paths only. Do not infer them from `sourceRefs`, BOM revisions, or MOs. Use `salesOrderProductionDemandPaths`; direct SO demand stays flat on the card.
+
 ### Shipment costs
 
 Outbound shipment costs and customer freight recovery are margin-only. Editing them must not mutate inventory, Xero invoices, AP, GL, or BOL behavior.

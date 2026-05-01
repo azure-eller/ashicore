@@ -105,7 +105,7 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                     {line.itemSku ?? "\u2014"}
                   </TableCell>
                   <TableCell className="text-sm text-right">
-                    <StockCell value={line.calcStock} threshold={lineQty} />
+                    <StockCell value={line.onHandQty} threshold={lineQty} />
                   </TableCell>
                   <TableCell className="text-sm text-right">
                     <StockCell value={line.potential} threshold={lineQty} />

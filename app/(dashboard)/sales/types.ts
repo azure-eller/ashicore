@@ -210,7 +210,7 @@ export type SalesOrderDetailLine = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
-  calcStock: string | null;
+  onHandQty: string | null;
   potential: string | null;
 };
 

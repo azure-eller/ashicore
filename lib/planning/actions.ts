@@ -20,11 +20,29 @@ import type {
   CreatePlanningPurchaseOrderDraft,
 } from "@/lib/schemas/planning";
 import { buildPlanningSnapshotInTx } from "./service";
-import type { PlanningRecommendation, PlanningSnapshot } from "./types";
+import type {
+  PlanningRecommendation,
+  PlanningSnapshot,
+  ProductionBlockerFact,
+} from "./types";
 
-export class PlanningError extends DomainError {
-  constructor(message: string, status = 400) {
-    super(message, status, { name: "PlanningError" });
+type PlanningErrorExtra = {
+  conflictType?: "stale_recommendation" | "duplicate_draft" | "blocked_make";
+  existingDraft?: {
+    id: string;
+    label: string;
+    href: string;
+  };
+  blockers?: Array<{
+    blockerType: ProductionBlockerFact["blockerType"];
+    componentItemName: string | null;
+    shortageQuantity: string | null;
+  }>;
+};
+
+export class PlanningError extends DomainError<PlanningErrorExtra> {
+  constructor(message: string, status = 400, extra?: PlanningErrorExtra) {
+    super(message, status, { name: "PlanningError", extra });
   }
 }
 
@@ -79,12 +97,17 @@ function assertCurrentRecommendation(
       snapshot.inputHash === payload.inputHash
         ? "Planning recommendation is no longer available."
         : "Planning recommendation is stale. Refresh planning and try again.",
-      409
+      409,
+      { conflictType: "stale_recommendation" }
     );
   }
 
   if (recommendation.actionPayload.actionType !== payload.actionType) {
-    throw new PlanningError("Planning recommendation action changed. Refresh planning and try again.", 409);
+    throw new PlanningError(
+      "Planning recommendation action changed. Refresh planning and try again.",
+      409,
+      { conflictType: "stale_recommendation" }
+    );
   }
 
   if (payload.actionType === "create_purchase_order") {
@@ -97,7 +120,11 @@ function assertCurrentRecommendation(
       recommendation.actionPayload.purchaseToStockFactor !==
         payload.purchaseToStockFactor
     ) {
-      throw new PlanningError("Planning purchase recommendation changed. Refresh planning and try again.", 409);
+      throw new PlanningError(
+        "Planning purchase recommendation changed. Refresh planning and try again.",
+        409,
+        { conflictType: "stale_recommendation" }
+      );
     }
   }
 
@@ -107,7 +134,11 @@ function assertCurrentRecommendation(
       recommendation.actionPayload.bomRevisionId !== payload.bomRevisionId ||
       recommendation.actionPayload.latestStartDate !== payload.latestStartDate
     ) {
-      throw new PlanningError("Planning manufacturing recommendation changed. Refresh planning and try again.", 409);
+      throw new PlanningError(
+        "Planning manufacturing recommendation changed. Refresh planning and try again.",
+        409,
+        { conflictType: "stale_recommendation" }
+      );
     }
 
     const expectedIngredients = [...recommendation.actionPayload.ingredients]
@@ -118,7 +149,11 @@ function assertCurrentRecommendation(
       .sort();
 
     if (expectedIngredients.join("|") !== submittedIngredients.join("|")) {
-      throw new PlanningError("Planning manufacturing ingredients changed. Refresh planning and try again.", 409);
+      throw new PlanningError(
+        "Planning manufacturing ingredients changed. Refresh planning and try again.",
+        409,
+        { conflictType: "stale_recommendation" }
+      );
     }
   }
 
@@ -156,7 +191,15 @@ async function assertNoDuplicatePurchaseDraftInTx(
   if (existing) {
     throw new PlanningError(
       `Planning already created ${existing.orderNumber} for this recommendation.`,
-      409
+      409,
+      {
+        conflictType: "duplicate_draft",
+        existingDraft: {
+          id: existing.id,
+          label: existing.orderNumber,
+          href: `/purchasing/orders/${existing.id}`,
+        },
+      }
     );
   }
 }
@@ -188,9 +231,45 @@ async function assertNoDuplicateManufacturingDraftInTx(
   if (existing) {
     throw new PlanningError(
       `Planning already created ${existing.orderNumber} for this recommendation.`,
-      409
+      409,
+      {
+        conflictType: "duplicate_draft",
+        existingDraft: {
+          id: existing.id,
+          label: existing.orderNumber,
+          href: `/manufacturing/orders/${existing.id}`,
+        },
+      }
     );
   }
+}
+
+function assertNoBlockedManufacturingAction(
+  snapshot: PlanningSnapshot,
+  recommendation: PlanningRecommendation
+) {
+  const blockers = snapshot.productionBlockerFacts.filter(
+    (blocker) =>
+      blocker.parentRecommendationId === recommendation.id ||
+      blocker.parentItemId === recommendation.itemId
+  );
+
+  if (blockers.length === 0) {
+    return;
+  }
+
+  throw new PlanningError(
+    "This manufacturing recommendation is blocked. Refresh planning and review blockers before creating a draft MO.",
+    409,
+    {
+      conflictType: "blocked_make",
+      blockers: blockers.map((blocker) => ({
+        blockerType: blocker.blockerType,
+        componentItemName: blocker.componentItemName,
+        shortageQuantity: blocker.shortageQuantity,
+      })),
+    }
+  );
 }
 
 async function getPurchaseQuantityForStockQuantityInTx(
@@ -333,6 +412,7 @@ export async function createManufacturingOrderDraftFromPlanning(
       payload,
       "create_manufacturing_order"
     );
+    assertNoBlockedManufacturingAction(snapshot, recommendation);
     await assertNoDuplicateManufacturingDraftInTx(tx, payload);
 
     return createManufacturingOrderInTx(tx, orgId, {

@@ -58,6 +58,85 @@ export function formatQuantity(value: string | null | undefined): string {
   return parseFloat(value).toString();
 }
 
+type UnitDisplayInput = {
+  name?: string | null;
+  size?: string | null;
+  uom?: string | null;
+};
+
+const UOM_DISPLAY_LABELS: Record<string, string> = {
+  "cu ft": "cf",
+  ft3: "cf",
+  "ft³": "cf",
+  "cu yd": "yd",
+  yd3: "yd",
+  "yd³": "yd",
+  l: "L",
+  liter: "L",
+  litre: "L",
+  lbs: "lb",
+  pound: "lb",
+  pounds: "lb",
+  tbsp: "Tbs",
+  tbs: "Tbs",
+  tablespoon: "Tbs",
+  tablespoons: "Tbs",
+  c: "cup",
+  cups: "cup",
+};
+
+function compactUomLabel(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return UOM_DISPLAY_LABELS[trimmed.toLowerCase()] ?? trimmed;
+}
+
+function normalizeCompactUnitName(value: string) {
+  return value
+    .replace(/\bcubic\s+feet\b/gi, "cf")
+    .replace(/\bcubic\s+foot\b/gi, "cf")
+    .replace(/\bcubic\s+yards\b/gi, "yd")
+    .replace(/\bcubic\s+yard\b/gi, "yd")
+    .replace(/\byards?\b/gi, "yd")
+    .replace(/\bkilograms?\b/gi, "kg")
+    .replace(/\bpounds?\b/gi, "lb")
+    .replace(/\bgallons?\b/gi, "gal")
+    .replace(/\blit(er|re)s?\b/gi, "L")
+    .replace(/\btablespoons?\b/gi, "Tbs")
+    .replace(/\bteaspoons?\b/gi, "tsp")
+    .replace(/\bcups?\b/gi, "cup")
+    .replace(/\bbags?\b/gi, "bag")
+    .replace(/\bbales?\b/gi, "bale")
+    .replace(/\btotes?\b/gi, "tote")
+    .replace(/\bpallets?\b/gi, "pallet")
+    .replace(/\brolls?\b/gi, "roll")
+    .replace(/\bpacks?\b/gi, "pack")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Compact a unit definition for dense table cells.
+ *
+ * The stored `uom` already comes from the conversion library's symbol list.
+ * This helper only shortens common freeform package names around that symbol,
+ * e.g. "4 Cubic Foot Bale" -> "4 cf bale".
+ */
+export function formatCompactUnitLabel(unit: UnitDisplayInput): string | null {
+  const name = unit.name?.trim();
+  const compactName = name ? normalizeCompactUnitName(name) : null;
+
+  if (compactName && compactName.length < name!.length) {
+    return compactName;
+  }
+
+  const uom = compactUomLabel(unit.uom);
+  const size = unit.size ? formatQuantity(unit.size) : null;
+  if (uom && size && size !== "1") return `${size} ${uom}`;
+  if (uom) return uom;
+  return compactName;
+}
+
 export function normalizeNumericScale(value: number, scale: number): string {
   return value.toFixed(scale).replace(/\.?0+$/, "");
 }

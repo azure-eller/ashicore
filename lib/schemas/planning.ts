@@ -1,37 +1,5 @@
 import { z } from "zod";
-import { normalizeNumeric } from "@/lib/format";
 import { isValidIsoDate, nullableString, positiveDecimalString } from "./shared";
-
-function nullableDecimalString(
-  label: string,
-  options: { positive?: boolean } = {}
-) {
-  return z
-    .union([z.string(), z.number()])
-    .nullable()
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined;
-      if (value == null) return null;
-      const raw = typeof value === "number" ? String(value) : value.trim();
-      return raw === "" ? null : raw;
-    })
-    .refine((value) => {
-      if (value == null) return true;
-      const parsed = Number(value);
-      return (
-        Number.isFinite(parsed) &&
-        (options.positive ? parsed > 0 : parsed >= 0)
-      );
-    }, `${label} must be ${options.positive ? "greater than 0" : "0 or greater"}`)
-    .transform((value) =>
-      value == null ? value : normalizeNumeric(Number(value))
-    );
-}
-
-function nullableDayCount(label: string) {
-  return nullableDecimalString(label, { positive: true });
-}
 
 const nonNegativeDecimalString = (label: string) =>
   z
@@ -107,32 +75,3 @@ export const createPlanningManufacturingOrderDraftSchema =
 export type CreatePlanningManufacturingOrderDraft = z.infer<
   typeof createPlanningManufacturingOrderDraftSchema
 >;
-
-const planningSupplierItemSchema = z
-  .object({
-    supplierId: z.string().uuid().nullable().optional(),
-    supplierSku: nullableString,
-    unitCost: nullableDecimalString("Unit cost"),
-    purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-    purchaseToStockFactor: nullableDecimalString("Purchase conversion factor", {
-      positive: true,
-    }),
-    leadTimeDaysOverride: nullableDayCount("Lead time"),
-    minimumOrderQuantity: nullableDecimalString("Minimum order quantity", {
-      positive: true,
-    }),
-    orderMultiple: nullableDecimalString("Order multiple", { positive: true }),
-    isPreferred: z.boolean().default(true),
-  })
-  .nullable();
-
-export const updatePlanningRulesSchema = z.object({
-  planningEnabled: z.boolean().optional(),
-  reorderPoint: nullableDecimalString("Reorder point"),
-  targetCoverDays: nullableDayCount("Target cover days"),
-  leadTimeDaysOverride: nullableDayCount("Lead time"),
-  productionLeadTimeDays: nullableDayCount("Production lead time"),
-  preferredSupplierItem: planningSupplierItemSchema.optional(),
-});
-
-export type UpdatePlanningRules = z.infer<typeof updatePlanningRulesSchema>;

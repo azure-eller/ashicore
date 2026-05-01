@@ -15,10 +15,23 @@ The planning service returns stable structured objects:
 
 - `PlanningItemRow[]` for netting results
 - `DemandFact[]`, `SupplyFact[]`, `InventoryFact[]`, and `BomRequirementFact[]` for drilldown
+- `salesOrderProductionDemandPaths[]` for Production-page downstream attribution
 - `PlanningRecommendation[]` with reason codes, source refs, warnings, and safe draft action payloads
 - `inputHash` as the staleness marker for draft actions
 
 Future agent tools should consume the snapshot and action payloads directly. They should not scrape raw sales, purchasing, manufacturing, or inventory tables.
+
+## Production Downstream Demand
+
+Production downstream rows are customer-demand attribution, not BOM/MO/source-ref drilldown.
+
+- Direct sales-order demand for the card item stays flat on the card and does not create a downstream expander.
+- A card can still expand when that item is also a sub-assembly in another uncovered sales-order-driven production path.
+- Paths are sales-order-only. Safety stock and released manufacturing component demand remain in netting/blockers but do not create downstream paths.
+- Supply allocation is per item across the combined demand queue. On-hand covers earliest demand first; open dated supply only covers demand due on or after that expected date.
+- Null required dates sort after dated demand. Undated open supply does not cover dated sales-order paths.
+- Path quantities stay exact normalized numeric strings; UI formatting handles rounded/discrete display.
+- Emitted paths must not expose BOM revision IDs, manufacturing order IDs, manufacturing ingredient IDs, or raw `sourceRefs`.
 
 ## Netting
 
@@ -44,6 +57,16 @@ availableStock = Math.max(0, onHand - reserved)
 ```
 
 `availableStock` is display context only. It excludes reserved stock so the UI does not imply reserved quantity is free, but the shortage formula does not subtract reservations again because confirmed sales and released manufacturing component needs are already demand facts.
+
+## Replenishment Status
+
+Replenishment status is intentionally safety-stock based. The service avoids lead-time, cover-day, MOQ, and order-multiple fields because those values are often guesses and can imply false precision.
+
+- `order_now`: projected stock is at or below safety stock, or there is a true shortage
+- `order_soon`: projected stock is above safety stock but within 20% of it
+- `stocked`: projected stock is more than 20% above safety stock
+
+Items with zero safety stock and no shortage are `stocked` so the page does not create noise.
 
 ## BOM Explosion
 

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Button } from "@/components/ui/button";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   AVAILABLE_QTY_TOOLTIP,
@@ -168,13 +169,26 @@ export function MoStageAction({
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {ingredient.needed} {ingredient.unitName}
+                        <QuantityWithUnit
+                          value={ingredient.needed}
+                          unitName={ingredient.unitName}
+                          className="justify-end"
+                        />
                       </TableCell>
                       <TableCell className="text-right">
-                        {ingredient.available} {ingredient.unitName}
+                        <QuantityWithUnit
+                          value={ingredient.available}
+                          unitName={ingredient.unitName}
+                          className="justify-end"
+                        />
                       </TableCell>
                       <TableCell className="text-right">
-                        {ingredient.shortage} {ingredient.unitName}
+                        <QuantityWithUnit
+                          value={ingredient.shortage}
+                          unitName={ingredient.unitName}
+                          tone="destructive"
+                          className="justify-end"
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

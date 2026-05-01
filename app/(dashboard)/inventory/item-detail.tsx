@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ItemDetailActions } from "./item-detail-actions";
 import { LotDispositionActions } from "./lot-disposition-actions";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { ItemCommitmentSummaryCard } from "./item-commitment-summary-card";
 import type { ItemCommitmentSummary } from "./commitment-summary";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -203,7 +204,13 @@ export function ItemDetail({
           aria-label="Below safety stock"
         />
       )}
-      {calculatedStock} {item.unitName}
+      <QuantityWithUnit
+        value={calculatedStock}
+        unitName={item.unitName}
+        unitSize={item.unitSize}
+        unitUom={item.unitUom}
+        tone={calculatedStock < 0 ? "destructive" : "default"}
+      />
     </span>
   );
 
@@ -520,7 +527,14 @@ export function ItemDetail({
             <dt className="text-sm font-medium text-muted-foreground">
               <TooltipHeader label="Expected Batch Yield" tooltip={BATCH_YIELD_TOOLTIP} />
             </dt>
-            <dd className="mt-1 text-sm">{item.expectedBatchYield} {item.unitName}</dd>
+            <dd className="mt-1 text-sm">
+              <QuantityWithUnit
+                value={item.expectedBatchYield}
+                unitName={item.unitName}
+                unitSize={item.unitSize}
+                unitUom={item.unitUom}
+              />
+            </dd>
           </div>
         )}
         {!isMaster && (
@@ -529,43 +543,93 @@ export function ItemDetail({
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Physical Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{formatQuantity(item.stock)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.stock}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{formatQuantity(item.availableQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.availableQty}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Reserved" tooltip={RESERVED_QTY_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{formatQuantity(item.committedQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.committedQty}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Demand" tooltip={DEMAND_QTY_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{formatQuantity(item.demandQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.demandQty}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Backorder" tooltip={BACKORDER_QTY_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{formatQuantity(item.shortageQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.shortageQty}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+              tone={parseFloat(item.shortageQty) > 0 ? "destructive" : "default"}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Expected" tooltip={EXPECTED_QTY_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{formatQuantity(item.expectedQty)} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.expectedQty}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+            />
+          </dd>
         </div>
         <div>
           <dt className="text-sm font-medium text-muted-foreground">
             <TooltipHeader label="Safety Stock" tooltip={SAFETY_STOCK_TOOLTIP} />
           </dt>
-          <dd className="mt-1 text-sm">{item.safetyStock} {item.unitName}</dd>
+          <dd className="mt-1 text-sm">
+            <QuantityWithUnit
+              value={item.safetyStock}
+              unitName={item.unitName}
+              unitSize={item.unitSize}
+              unitUom={item.unitUom}
+            />
+          </dd>
         </div>
         </>
         )}

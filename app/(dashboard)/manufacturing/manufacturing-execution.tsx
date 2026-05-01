@@ -7,6 +7,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
@@ -187,9 +188,19 @@ function CompleteDialog({
                           : ingredient.itemName}
                       </label>
                       <p className="text-xs text-muted-foreground">
-                        Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
+                        <QuantityWithUnit
+                          label="Planned"
+                          value={ingredient.plannedQuantity}
+                          unitName={ingredient.unitName}
+                          muted
+                        />
                         {" · "}
-                        Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
+                        <QuantityWithUnit
+                          label="Picked"
+                          value={ingredient.pickedQuantity}
+                          unitName={ingredient.unitName}
+                          muted
+                        />
                       </p>
                       <Input
                         id={inputId}
@@ -486,13 +497,19 @@ export function ManufacturingExecution({
               <div>
                 <dt className="text-muted-foreground">Planned</dt>
                 <dd className="mt-1 font-medium">
-                  {formatQuantity(execution.plannedQuantity)} {execution.unitName}
+                  <QuantityWithUnit
+                    value={execution.plannedQuantity}
+                    unitName={execution.unitName}
+                  />
                 </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Actual</dt>
                 <dd className="mt-1 font-medium">
-                  {formatQuantity(execution.actualQuantity)} {execution.unitName}
+                  <QuantityWithUnit
+                    value={execution.actualQuantity}
+                    unitName={execution.unitName}
+                  />
                 </dd>
               </div>
               <div>
@@ -539,8 +556,12 @@ export function ManufacturingExecution({
                           Batch {execution.currentBatch.batchNumber}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          Planned {formatQuantity(execution.currentBatch.plannedQuantity)}{" "}
-                          {execution.unitName}
+                          <QuantityWithUnit
+                            label="Planned"
+                            value={execution.currentBatch.plannedQuantity}
+                            unitName={execution.unitName}
+                            muted
+                          />
                           {execution.currentBatch.startedAt && (
                             <> • Started {formatDateTime(execution.currentBatch.startedAt)}</>
                           )}
@@ -607,11 +628,26 @@ export function ManufacturingExecution({
                           {isPicked && <Badge variant="outline">Picked</Badge>}
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          Planned {formatQuantity(ingredient.plannedQuantity)} {ingredient.unitName}
+                          <QuantityWithUnit
+                            label="Planned"
+                            value={ingredient.plannedQuantity}
+                            unitName={ingredient.unitName}
+                            muted
+                          />
                           {" • "}
-                          Picked {formatQuantity(ingredient.pickedQuantity)} {ingredient.unitName}
+                          <QuantityWithUnit
+                            label="Picked"
+                            value={ingredient.pickedQuantity}
+                            unitName={ingredient.unitName}
+                            muted
+                          />
                           {" • "}
-                          Remaining {formatQuantity(ingredient.remainingQuantity)} {ingredient.unitName}
+                          <QuantityWithUnit
+                            label="Remaining"
+                            value={ingredient.remainingQuantity}
+                            unitName={ingredient.unitName}
+                            muted
+                          />
                         </p>
                         {minimumLotAgeDays ? (
                           <p className="text-sm text-muted-foreground">

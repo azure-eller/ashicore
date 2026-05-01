@@ -82,15 +82,6 @@ export const supplierItems = purchasingSchema
         precision: 12,
         scale: 4,
       }),
-      leadTimeDaysOverride: numeric("lead_time_days_override", {
-        precision: 8,
-        scale: 2,
-      }),
-      minimumOrderQuantity: numeric("minimum_order_quantity", {
-        precision: 12,
-        scale: 4,
-      }),
-      orderMultiple: numeric("order_multiple", { precision: 12, scale: 4 }),
       isPreferred: boolean("is_preferred").notNull().default(false),
       deletedAt: timestamp("deleted_at"),
       createdAt: timestamp("created_at").notNull().defaultNow(),

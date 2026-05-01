@@ -130,7 +130,10 @@ async function ownerApiCall<T>(
   return apiCall<T>(page, path, options);
 }
 
-function expectRoleIncludes(storedRole: string, expectedRoles: string[]) {
+function expectRoleIncludes(storedRole: string | null, expectedRoles: string[]) {
+  expect(storedRole).toBeTruthy();
+  if (!storedRole) return;
+
   const assignedRoles = storedRole.split(",").map((value) => value.trim());
   expect(assignedRoles).toEqual(expect.arrayContaining(expectedRoles));
 }

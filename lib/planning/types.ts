@@ -40,9 +40,6 @@ export type PlanningReasonCode =
   | "missing_supplier"
   | "ambiguous_supplier"
   | "missing_purchase_price"
-  | "missing_lead_time"
-  | "missing_production_lead_time"
-  | "planning_disabled"
   | "missing_bom"
   | "bom_cycle_detected"
   | "bom_depth_limit"
@@ -98,7 +95,40 @@ export type PlanningItemSummary = {
   sku: string | null;
   itemType: string;
   unitName: string | null;
+  unitSize: string | null;
   unitUom: string | null;
+};
+
+export type ProductionDemandPathStep = {
+  itemId: string;
+  itemName: string;
+  displayName: string;
+  displayAttrs: string[];
+  sku: string | null;
+  unitName: string | null;
+  quantityRequired: string;
+};
+
+export type ProductionDemandPathTerminal = {
+  itemId: string;
+  itemName: string;
+  displayName: string;
+  displayAttrs: string[];
+  sku: string | null;
+  requiredDate: string | null;
+  salesOrderId: string;
+  salesOrderLineId: string;
+  salesOrderLabel: string;
+  customerName: string | null;
+};
+
+export type ProductionDemandPath = {
+  id: string;
+  itemId: string;
+  uncoveredQuantity: string;
+  requiredDate: string | null;
+  steps: ProductionDemandPathStep[];
+  terminal: ProductionDemandPathTerminal;
 };
 
 export type DemandFactType =
@@ -225,16 +255,9 @@ export type PlanningItemRow = {
   shortageQuantity: string;
   earliestRequiredDate: string | null;
   safetyStock: string;
-  reorderPoint: string | null;
-  targetCoverDays: number | null;
   daysOfCover: number | null;
   daysOfCoverStatus: DaysOfCoverStatus;
   suggestedOrderQuantity: string | null;
-  leadTimeDays: number | null;
-  leadTimeSource: PlanningRuleSource;
-  leadTimeSampleCount: number;
-  minimumOrderQuantity: string | null;
-  orderMultiple: string | null;
   preferredSupplierId: string | null;
   preferredSupplierName: string | null;
   preferredSupplierSku: string | null;
@@ -245,8 +268,6 @@ export type PlanningItemRow = {
   purchaseRuleSource: PlanningRuleSource;
   unitCost: string | null;
   unitCostSource: PlanningRuleSource;
-  productionLeadTimeDays: number | null;
-  productionLeadTimeSource: PlanningRuleSource;
   latestStartDate: string | null;
   productionBucket: ProductionBucket;
   manufacturingMode: string | null;
@@ -275,8 +296,7 @@ export type ProductionBlockerFact = {
     | "missing_bom"
     | "component_requirement"
     | "bom_cycle_detected"
-    | "bom_depth_limit"
-    | "missing_production_lead_time";
+    | "bom_depth_limit";
   earliestRequiredDate: string | null;
   sourceRefs: PlanningSourceRef[];
 };
@@ -294,6 +314,7 @@ export type PlanningSnapshot = {
   inventoryFacts: InventoryFact[];
   bomRequirementFacts: BomRequirementFact[];
   productionBlockerFacts: ProductionBlockerFact[];
+  salesOrderProductionDemandPaths: ProductionDemandPath[];
   recommendations: PlanningRecommendation[];
   warnings: PlanningWarning[];
 };

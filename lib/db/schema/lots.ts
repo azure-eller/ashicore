@@ -21,7 +21,7 @@ export const lots = inventorySchema
       itemId: uuid("item_id")
         .notNull()
         .references(() => items.id),
-      lotNumber: varchar("lot_number", { length: 20 }).notNull(),
+      lotNumber: varchar("lot_number", { length: 128 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),

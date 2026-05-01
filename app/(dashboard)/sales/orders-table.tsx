@@ -28,6 +28,7 @@ import {
   MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -682,40 +683,48 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                             )}
                           </TableCell>
                           <TableCell>
-                            {product.inStock} {product.unitName}
+                            <QuantityWithUnit value={product.inStock} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.availableQty} {product.unitName}
+                            <QuantityWithUnit value={product.availableQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.committedQty} {product.unitName}
+                            <QuantityWithUnit value={product.committedQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.demandQty} {product.unitName}
+                            <QuantityWithUnit value={product.demandQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.shortageQty} {product.unitName}
+                            <QuantityWithUnit value={product.shortageQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.expectedQty} {product.unitName}
+                            <QuantityWithUnit value={product.expectedQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.safetyStock} {product.unitName}
+                            <QuantityWithUnit value={product.safetyStock} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.calculatedStock} {product.unitName}
+                            <QuantityWithUnit value={product.calculatedStock} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.addedQty} {product.unitName}
+                            <QuantityWithUnit value={product.addedQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell>
-                            {product.projectedDemandQty} {product.unitName}
+                            <QuantityWithUnit value={product.projectedDemandQty} unitName={product.unitName} />
                           </TableCell>
                           <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
-                            {product.projectedShortageQty} {product.unitName}
+                            <QuantityWithUnit
+                              value={product.projectedShortageQty}
+                              unitName={product.unitName}
+                              tone={product.projectedShortageQty > 0 ? "destructive" : "default"}
+                            />
                           </TableCell>
                           <TableCell className="text-destructive">
-                            {product.projectedCalculatedStock} {product.unitName}
+                            <QuantityWithUnit
+                              value={product.projectedCalculatedStock}
+                              unitName={product.unitName}
+                              tone="destructive"
+                            />
                           </TableCell>
                         </TableRow>
                       ))}

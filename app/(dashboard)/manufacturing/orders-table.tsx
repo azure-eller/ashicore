@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { formatDate, formatQuantity } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import {
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
   MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP,
@@ -50,10 +51,7 @@ function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <span className="shrink-0">{formatQuantity(order.plannedQuantity)}</span>
-      <Badge variant="secondary" className="text-xs font-normal">
-        {order.unitName}
-      </Badge>
+      <QuantityWithUnit value={order.plannedQuantity} unitName={order.unitName} />
       {batchLabel != null && (
         <Badge variant="outline" className="text-xs font-normal">
           {batchLabel}
@@ -130,7 +128,12 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     ),
     cell: ({ row }) =>
       row.original.actualQuantity != null
-        ? `${formatQuantity(row.original.actualQuantity)} ${row.original.unitName}`
+        ? (
+            <QuantityWithUnit
+              value={row.original.actualQuantity}
+              unitName={row.original.unitName}
+            />
+          )
         : "\u2014",
   },
   {

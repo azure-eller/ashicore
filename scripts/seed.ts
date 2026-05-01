@@ -130,153 +130,6 @@ function isManufacturingDemoProduct(item: DemoItem) {
   );
 }
 
-function productReorderPoint(item: Pick<DemoItem, "category" | "name">) {
-  const category = item.category ?? "";
-  const name = item.name.toLowerCase();
-
-  if (category === "Packaging Assemblies") {
-    return name.includes("1 cubic foot") ? 24 : 12;
-  }
-
-  if (category === "Nutrient Packs") {
-    return 12;
-  }
-
-  if (category === "Soil Totes") {
-    return 3;
-  }
-
-  if (category === "Soil Bags") {
-    return name.includes("1 cubic foot") ? 24 : 12;
-  }
-
-  if (category === "Promotional Pallets") {
-    return 1;
-  }
-
-  return null;
-}
-
-function productPlanningValues(item: Pick<DemoItem, "category" | "name">) {
-  const category = item.category ?? "";
-  const reorderPoint = productReorderPoint(item);
-
-  if (category === "Packaging Assemblies") {
-    return {
-      safetyStock: 0,
-      reorderPoint,
-      targetCoverDays: null,
-      productionLeadTimeDays: 1,
-    };
-  }
-
-  if (category === "Nutrient Packs") {
-    return {
-      safetyStock: 0,
-      reorderPoint,
-      targetCoverDays: null,
-      productionLeadTimeDays: 1,
-    };
-  }
-
-  if (category === "Soil Totes") {
-    return {
-      safetyStock: 0,
-      reorderPoint,
-      targetCoverDays: 5,
-      productionLeadTimeDays: 2,
-    };
-  }
-
-  if (category === "Soil Bags") {
-    return {
-      safetyStock: 0,
-      reorderPoint,
-      targetCoverDays: 5,
-      productionLeadTimeDays: 2,
-    };
-  }
-
-  return {
-    safetyStock: 0,
-    reorderPoint,
-    targetCoverDays: null,
-    productionLeadTimeDays: 3,
-  };
-}
-
-function materialReorderPoint(item: Pick<DemoItem, "category" | "name">) {
-  const category = item.category ?? "";
-  const name = item.name.toLowerCase();
-
-  if (category === "Packaging") {
-    if (name.includes("blank 2 cubic foot bag")) return 500;
-    if (name.includes("blank 1.5 cubic foot bag")) return 250;
-    if (name.includes("blank 1 cubic foot bag")) return 250;
-    if (name.includes("sticker")) return 100;
-    if (name.includes("tote")) return 25;
-    if (name.includes("wrap")) return 5;
-    return 50;
-  }
-
-  if (category === "Base Media") {
-    return name.includes("top soil") ? 25 : 50;
-  }
-
-  if (category === "Compost & Biology") {
-    return name.includes("worm") ? 100 : 25;
-  }
-
-  if (category === "Meals & Nutrients") {
-    return 10;
-  }
-
-  if (category === "Minerals & Trace") {
-    return 5;
-  }
-
-  if (category === "Nutrients & Amendments") {
-    return name.includes("brick") ? 12 : 6;
-  }
-
-  if (category === "Process Inputs") {
-    return 5;
-  }
-
-  return null;
-}
-
-function materialPlanningValues(
-  item: Pick<DemoItem, "category" | "name">,
-  index: number
-) {
-  const category = item.category ?? "";
-  const isPackaging = category === "Packaging";
-
-  return {
-    safetyStock: 0,
-    reorderPoint: materialReorderPoint(item),
-    targetCoverDays: null,
-    leadTimeDaysOverride: isPackaging ? 7 : 3 + (index % 5),
-  };
-}
-
-function supplierMinimumOrderQuantity(
-  item: Pick<DemoItem, "category">,
-  index: number
-) {
-  const category = item.category ?? "";
-  if (category === "Packaging") return 25 + (index % 4) * 25;
-  if (category === "Base Media" || category === "Compost & Biology") {
-    return 2 + (index % 4) * 2;
-  }
-  return 1 + (index % 4);
-}
-
-function supplierOrderMultiple(item: Pick<DemoItem, "category">) {
-  return item.category === "Packaging" ? 25 : 1;
-}
-
 function salesQuantityForProduct(
   product: DemoItem,
   index: number,
@@ -601,22 +454,11 @@ async function applyPlanningRulesInTx(
     const purchaseUnitDefinitionId =
       item.purchaseUnitDefinitionId ?? item.unitDefinitionId;
     const purchaseToStockFactor = item.purchaseToStockFactor ?? "1";
-    const planningValues = materialPlanningValues(item, index);
 
     await tx
       .update(items)
       .set({
-        planningEnabled: true,
-        safetyStock: quantity(planningValues.safetyStock),
-        reorderPoint:
-          planningValues.reorderPoint == null
-            ? null
-            : quantity(planningValues.reorderPoint),
-        targetCoverDays:
-          planningValues.targetCoverDays == null
-            ? null
-            : quantity(planningValues.targetCoverDays),
-        leadTimeDaysOverride: quantity(planningValues.leadTimeDaysOverride),
+        safetyStock: quantity(0),
         updatedAt: new Date(),
       })
       .where(eq(items.id, item.id));
@@ -649,9 +491,6 @@ async function applyPlanningRulesInTx(
       unitCost,
       purchaseUnitDefinitionId,
       purchaseToStockFactor,
-      leadTimeDaysOverride: quantity(planningValues.leadTimeDaysOverride),
-      minimumOrderQuantity: quantity(supplierMinimumOrderQuantity(item, index)),
-      orderMultiple: quantity(supplierOrderMultiple(item)),
       isPreferred: true,
       updatedAt: new Date(),
     };
@@ -672,22 +511,10 @@ async function applyPlanningRulesInTx(
   }
 
   for (const item of products) {
-    const planningValues = productPlanningValues(item);
-
     await tx
       .update(items)
       .set({
-        planningEnabled: true,
-        safetyStock: quantity(planningValues.safetyStock),
-        reorderPoint:
-          planningValues.reorderPoint == null
-            ? null
-            : quantity(planningValues.reorderPoint),
-        targetCoverDays:
-          planningValues.targetCoverDays == null
-            ? null
-            : quantity(planningValues.targetCoverDays),
-        productionLeadTimeDays: quantity(planningValues.productionLeadTimeDays),
+        safetyStock: quantity(0),
         updatedAt: new Date(),
       })
       .where(eq(items.id, item.id));

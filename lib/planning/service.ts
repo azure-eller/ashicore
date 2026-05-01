@@ -43,6 +43,7 @@ import type {
   PlanningSnapshot,
   PlanningSourceRef,
   PlanningWarning,
+  ProductionDemandPath,
   ProductionBlockerFact,
   ProductionBucket,
   SupplyFact,
@@ -50,6 +51,7 @@ import type {
 
 const MAX_BOM_EXPLOSION_LEVEL = 8;
 const DEFAULT_COVER_HORIZON_DAYS = 90;
+const REPLENISHMENT_SOON_MULTIPLIER = 1.2;
 
 type PlanningItemRecord = {
   id: string;
@@ -59,12 +61,9 @@ type PlanningItemRecord = {
   sku: string | null;
   itemType: string;
   unitName: string | null;
+  unitSize: string | null;
   unitUom: string | null;
   safetyStock: string;
-  reorderPoint: string | null;
-  targetCoverDays: string | null;
-  planningEnabled: boolean;
-  leadTimeDaysOverride: string | null;
   onHandQuantity: string;
   reservedQuantity: string;
   expectedQuantity: string;
@@ -74,7 +73,6 @@ type PlanningItemRecord = {
   purchaseToStockFactor: string | null;
   manufacturingMode: string;
   expectedBatchYield: string | null;
-  productionLeadTimeDays: string | null;
 };
 
 type BomComponentRecord = {
@@ -106,19 +104,46 @@ type SupplierSuggestion = {
   purchaseUnitName: string | null;
   purchaseToStockFactor: string | null;
   purchaseRuleSource: PlanningRuleSource;
-  leadTimeDaysOverride: number | null;
-  minimumOrderQuantity: string | null;
-  orderMultiple: string | null;
   reasonCodes: PlanningReasonCode[];
-};
-
-type LeadTimeHistory = {
-  leadTimeDays: number;
-  sampleCount: number;
 };
 
 type InternalDemandFact = DemandFact & {
   explosionPath: string[];
+};
+
+type DemandSliceOrigin =
+  | {
+      type: "sales_order";
+      salesOrderId: string;
+      salesOrderLineId: string;
+      salesOrderLabel: string;
+      customerName: string | null;
+      terminalItemId: string;
+    }
+  | { type: "safety_stock" }
+  | { type: "released_mo"; manufacturingOrderId: string };
+
+type DemandSliceStep = {
+  itemId: string;
+  quantityRequired: number;
+};
+
+type DemandSlice = {
+  id: string;
+  itemId: string;
+  quantity: number;
+  requiredDate: string | null;
+  origin: DemandSliceOrigin;
+  chain: DemandSliceStep[];
+  explosionPath: string[];
+};
+
+type SupplySlice = {
+  id: string;
+  itemId: string;
+  supplyType: SupplyFact["supplyType"];
+  quantity: number;
+  expectedDate: string | null;
 };
 
 type QuantityBuckets = {
@@ -161,10 +186,6 @@ function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return isoDate(date);
-}
-
-function subtractDays(value: string, days: number) {
-  return addDays(value, -days);
 }
 
 function daysBetween(start: string, end: string) {
@@ -221,16 +242,6 @@ function productionBucketForDate(
   if (days <= 7) return "this-week";
   if (days <= 14) return "next-week";
   return "later";
-}
-
-function percentile(values: number[], p: number) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const index = Math.min(
-    sorted.length - 1,
-    Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)
-  );
-  return sorted[index];
 }
 
 function sourceRefKey(ref: PlanningSourceRef) {
@@ -313,6 +324,445 @@ function itemRef(item: Pick<PlanningItemRecord, "id" | "name">): PlanningSourceR
   };
 }
 
+function planningPathStep(
+  item: PlanningItemRecord,
+  quantityRequired: number
+): ProductionDemandPath["steps"][number] {
+  return {
+    itemId: item.id,
+    itemName: item.name,
+    displayName: item.displayName,
+    displayAttrs: item.displayAttrs,
+    sku: item.sku,
+    unitName: item.unitName,
+    quantityRequired: normalizeQuantity(quantityRequired),
+  };
+}
+
+function splitSalesOrderLabel(label: string) {
+  const [orderNumber, ...customerParts] = label.split(" · ");
+  const customerName = customerParts.join(" · ").trim();
+
+  return {
+    salesOrderLabel: label,
+    customerName: customerName || null,
+    orderNumber,
+  };
+}
+
+function buildInitialDemandSlices(
+  demandFacts: InternalDemandFact[],
+  itemById: Map<string, PlanningItemRecord>
+) {
+  const slices: DemandSlice[] = [];
+
+  for (const fact of demandFacts) {
+    const quantity = toQuantity(fact.quantity);
+    const item = itemById.get(fact.itemId);
+    if (!item || quantity <= 0) {
+      continue;
+    }
+
+    const chain = [{ itemId: fact.itemId, quantityRequired: quantity }];
+
+    if (fact.demandType === "sales_order") {
+      const salesOrderRef = fact.sourceRefs.find(
+        (ref) => ref.sourceType === "sales_order"
+      );
+      const salesOrderLineRef = fact.sourceRefs.find(
+        (ref) => ref.sourceType === "sales_order_line"
+      );
+
+      if (!salesOrderRef || !salesOrderLineRef) {
+        continue;
+      }
+
+      const { salesOrderLabel, customerName } = splitSalesOrderLabel(
+        salesOrderRef.label
+      );
+
+      slices.push({
+        id: `slice:sales:${salesOrderLineRef.sourceId}`,
+        itemId: fact.itemId,
+        quantity,
+        requiredDate: fact.requiredDate,
+        origin: {
+          type: "sales_order",
+          salesOrderId: salesOrderRef.sourceId,
+          salesOrderLineId: salesOrderLineRef.sourceId,
+          salesOrderLabel,
+          customerName,
+          terminalItemId: fact.itemId,
+        },
+        chain,
+        explosionPath: [fact.itemId],
+      });
+      continue;
+    }
+
+    if (fact.demandType === "manufacturing_component") {
+      const manufacturingRef = fact.sourceRefs.find(
+        (ref) => ref.sourceType === "manufacturing_order"
+      );
+
+      if (!manufacturingRef) {
+        continue;
+      }
+
+      slices.push({
+        id: `slice:released-mo:${fact.id}`,
+        itemId: fact.itemId,
+        quantity,
+        requiredDate: fact.requiredDate,
+        origin: {
+          type: "released_mo",
+          manufacturingOrderId: manufacturingRef.sourceId,
+        },
+        chain,
+        explosionPath: fact.explosionPath,
+      });
+      continue;
+    }
+
+    if (fact.demandType === "safety_stock") {
+      slices.push({
+        id: `slice:safety:${fact.itemId}`,
+        itemId: fact.itemId,
+        quantity,
+        requiredDate: fact.requiredDate,
+        origin: { type: "safety_stock" },
+        chain,
+        explosionPath: [fact.itemId],
+      });
+    }
+  }
+
+  return slices;
+}
+
+function demandDateSortValue(value: string | null) {
+  return value ?? "9999-12-31";
+}
+
+function demandOriginSortValue(origin: DemandSliceOrigin) {
+  if (origin.type === "sales_order") return 0;
+  if (origin.type === "released_mo") return 1;
+  return 2;
+}
+
+function compareDemandSlices(left: DemandSlice, right: DemandSlice) {
+  const dateSort = demandDateSortValue(left.requiredDate).localeCompare(
+    demandDateSortValue(right.requiredDate)
+  );
+  if (dateSort !== 0) return dateSort;
+
+  const originSort =
+    demandOriginSortValue(left.origin) - demandOriginSortValue(right.origin);
+  if (originSort !== 0) return originSort;
+
+  return left.id.localeCompare(right.id);
+}
+
+function compareSupplySlices(left: SupplySlice, right: SupplySlice) {
+  if (left.supplyType === "available_inventory" && right.supplyType !== "available_inventory") {
+    return -1;
+  }
+
+  if (left.supplyType !== "available_inventory" && right.supplyType === "available_inventory") {
+    return 1;
+  }
+
+  const dateSort = demandDateSortValue(left.expectedDate).localeCompare(
+    demandDateSortValue(right.expectedDate)
+  );
+  if (dateSort !== 0) return dateSort;
+
+  return left.id.localeCompare(right.id);
+}
+
+function supplyCanCoverDemand(supply: SupplySlice, demand: DemandSlice) {
+  if (supply.supplyType === "available_inventory") {
+    return true;
+  }
+
+  if (demand.requiredDate == null) {
+    return true;
+  }
+
+  if (supply.expectedDate == null) {
+    return false;
+  }
+
+  return supply.expectedDate <= demand.requiredDate;
+}
+
+function buildSupplySlices(supplyFacts: SupplyFact[]) {
+  return supplyFacts
+    .map((fact) => ({
+      id: fact.id,
+      itemId: fact.itemId,
+      supplyType: fact.supplyType,
+      quantity: toQuantity(fact.quantity),
+      expectedDate: fact.expectedDate,
+    }))
+    .filter((fact) => fact.quantity > 0);
+}
+
+function allocateUncoveredDemandSlices(
+  demandSlices: DemandSlice[],
+  supplyFacts: SupplyFact[]
+) {
+  const suppliesByItem = new Map<string, SupplySlice[]>();
+  for (const supply of buildSupplySlices(supplyFacts)) {
+    const bucket = suppliesByItem.get(supply.itemId) ?? [];
+    bucket.push(supply);
+    suppliesByItem.set(supply.itemId, bucket);
+  }
+
+  for (const supplies of suppliesByItem.values()) {
+    supplies.sort(compareSupplySlices);
+  }
+
+  const demandsByItem = new Map<string, DemandSlice[]>();
+  for (const slice of demandSlices) {
+    const bucket = demandsByItem.get(slice.itemId) ?? [];
+    bucket.push(slice);
+    demandsByItem.set(slice.itemId, bucket);
+  }
+
+  const uncovered: DemandSlice[] = [];
+  for (const [itemId, itemDemands] of demandsByItem) {
+    const supplies = (suppliesByItem.get(itemId) ?? []).map((supply) => ({
+      ...supply,
+    }));
+
+    for (const demand of [...itemDemands].sort(compareDemandSlices)) {
+      let remainingDemand = demand.quantity;
+
+      for (const supply of supplies) {
+        if (remainingDemand <= 0) {
+          break;
+        }
+
+        if (supply.quantity <= 0 || !supplyCanCoverDemand(supply, demand)) {
+          continue;
+        }
+
+        const consumed = Math.min(remainingDemand, supply.quantity);
+        remainingDemand = roundQuantity(remainingDemand - consumed);
+        supply.quantity = roundQuantity(supply.quantity - consumed);
+      }
+
+      if (remainingDemand > 0) {
+        uncovered.push({
+          ...demand,
+          quantity: remainingDemand,
+          chain: demand.chain.map((step, index) =>
+            index === 0
+              ? { ...step, quantityRequired: remainingDemand }
+              : step
+          ),
+        });
+      }
+    }
+  }
+
+  return uncovered.sort(compareDemandSlices);
+}
+
+function buildSlicePathKey(slice: DemandSlice) {
+  const terminalItemId =
+    slice.origin.type === "sales_order" ? slice.origin.terminalItemId : "";
+
+  return [
+    slice.itemId,
+    slice.origin.type === "sales_order" ? slice.origin.salesOrderLineId : "",
+    terminalItemId,
+    slice.chain.map((step) => step.itemId).join(">"),
+    slice.requiredDate ?? "",
+  ].join("|");
+}
+
+function coalesceSalesOrderProductionDemandPaths(
+  slices: DemandSlice[],
+  itemById: Map<string, PlanningItemRecord>
+) {
+  type CoalescedPath = {
+    slice: DemandSlice;
+    quantity: number;
+    chainQuantities: number[];
+  };
+
+  const coalesced = new Map<string, CoalescedPath>();
+
+  for (const slice of slices) {
+    if (slice.origin.type !== "sales_order" || slice.chain.length <= 1) {
+      continue;
+    }
+
+    const cardItem = itemById.get(slice.itemId);
+    const terminalItem = itemById.get(slice.origin.terminalItemId);
+    if (!cardItem || !terminalItem || cardItem.itemType !== "product") {
+      continue;
+    }
+
+    const key = buildSlicePathKey(slice);
+    const existing = coalesced.get(key);
+    if (!existing) {
+      coalesced.set(key, {
+        slice,
+        quantity: slice.quantity,
+        chainQuantities: slice.chain.map((step) => step.quantityRequired),
+      });
+      continue;
+    }
+
+    existing.quantity = roundQuantity(existing.quantity + slice.quantity);
+    existing.chainQuantities = existing.chainQuantities.map((quantity, index) =>
+      roundQuantity(quantity + (slice.chain[index]?.quantityRequired ?? 0))
+    );
+  }
+
+  const paths: ProductionDemandPath[] = [];
+  for (const [key, entry] of coalesced) {
+    const { slice } = entry;
+    if (slice.origin.type !== "sales_order") {
+      continue;
+    }
+
+    const terminalItem = itemById.get(slice.origin.terminalItemId);
+    if (!terminalItem) {
+      continue;
+    }
+
+    const steps = slice.chain.flatMap((step, index) => {
+      const item = itemById.get(step.itemId);
+      if (!item) return [];
+
+      return [
+        planningPathStep(item, entry.chainQuantities[index] ?? step.quantityRequired),
+      ];
+    });
+
+    paths.push({
+      id: `production_demand_path_${hashValue({ key }).slice(0, 20)}`,
+      itemId: slice.itemId,
+      uncoveredQuantity: normalizeQuantity(entry.quantity),
+      requiredDate: slice.requiredDate,
+      steps,
+      terminal: {
+        itemId: terminalItem.id,
+        itemName: terminalItem.name,
+        displayName: terminalItem.displayName,
+        displayAttrs: terminalItem.displayAttrs,
+        sku: terminalItem.sku,
+        requiredDate: slice.requiredDate,
+        salesOrderId: slice.origin.salesOrderId,
+        salesOrderLineId: slice.origin.salesOrderLineId,
+        salesOrderLabel: slice.origin.salesOrderLabel,
+        customerName: slice.origin.customerName,
+      },
+    });
+  }
+
+  return paths.sort((left, right) => {
+    const dateSort = demandDateSortValue(left.requiredDate).localeCompare(
+      demandDateSortValue(right.requiredDate)
+    );
+    if (dateSort !== 0) return dateSort;
+
+    const orderSort = left.terminal.salesOrderLabel.localeCompare(
+      right.terminal.salesOrderLabel
+    );
+    if (orderSort !== 0) return orderSort;
+
+    const itemSort = left.terminal.displayName.localeCompare(
+      right.terminal.displayName
+    );
+    if (itemSort !== 0) return itemSort;
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function buildSalesOrderProductionDemandPaths(args: {
+  itemsList: PlanningItemRecord[];
+  baseDemandFacts: InternalDemandFact[];
+  supplyFacts: SupplyFact[];
+  bomByProductId: Map<string, CurrentBomRecord>;
+}) {
+  const itemById = new Map(args.itemsList.map((item) => [item.id, item]));
+  const slices = buildInitialDemandSlices(args.baseDemandFacts, itemById);
+  const explodedSliceIds = new Set<string>();
+
+  for (let level = 1; level <= MAX_BOM_EXPLOSION_LEVEL; level += 1) {
+    const uncovered = allocateUncoveredDemandSlices(slices, args.supplyFacts);
+    let addedSlices = 0;
+
+    for (const slice of uncovered) {
+      if (explodedSliceIds.has(slice.id)) {
+        continue;
+      }
+
+      const parentItem = itemById.get(slice.itemId);
+      const bom = args.bomByProductId.get(slice.itemId);
+      if (!parentItem || parentItem.itemType !== "product" || !bom) {
+        continue;
+      }
+
+      explodedSliceIds.add(slice.id);
+      if (bom.components.length === 0) {
+        continue;
+      }
+
+      const parentMultiplier = computeBomExplosionMultiplier(
+        parentItem,
+        slice.quantity
+      );
+
+      for (const component of bom.components) {
+        if (slice.explosionPath.includes(component.componentId)) {
+          continue;
+        }
+
+        const componentQuantity = roundQuantity(
+          parentMultiplier * toQuantity(component.quantity)
+        );
+        if (componentQuantity <= 0) {
+          continue;
+        }
+
+        slices.push({
+          id: [
+            "slice",
+            "bom",
+            level,
+            slice.id,
+            component.componentId,
+          ].join(":"),
+          itemId: component.componentId,
+          quantity: componentQuantity,
+          requiredDate: slice.requiredDate,
+          origin: slice.origin,
+          chain: [
+            { itemId: component.componentId, quantityRequired: componentQuantity },
+            ...slice.chain,
+          ],
+          explosionPath: [...slice.explosionPath, component.componentId],
+        });
+        addedSlices += 1;
+      }
+    }
+
+    if (addedSlices === 0) {
+      break;
+    }
+  }
+
+  const uncovered = allocateUncoveredDemandSlices(slices, args.supplyFacts);
+  return coalesceSalesOrderProductionDemandPaths(uncovered, itemById);
+}
+
 async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
   const masterItems = alias(items, "planning_master_items");
   const rows = await tx
@@ -325,14 +775,9 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
+      unitSize: trimScale(unitDefinitions.size).as("unitSize"),
       unitUom: unitDefinitions.uom,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-      reorderPoint: trimScaleNullable(items.reorderPoint).as("reorderPoint"),
-      targetCoverDays: trimScaleNullable(items.targetCoverDays).as("targetCoverDays"),
-      planningEnabled: items.planningEnabled,
-      leadTimeDaysOverride: trimScaleNullable(items.leadTimeDaysOverride).as(
-        "leadTimeDaysOverride"
-      ),
       onHandQuantity: projectedOnHandQty(items.organizationId, items.id).as(
         "onHandQuantity"
       ),
@@ -357,9 +802,6 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       manufacturingMode: items.manufacturingMode,
       expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
         "expectedBatchYield"
-      ),
-      productionLeadTimeDays: trimScaleNullable(items.productionLeadTimeDays).as(
-        "productionLeadTimeDays"
       ),
     })
     .from(items)
@@ -855,15 +1297,6 @@ async function getSupplierSuggestionsInTx(
         purchaseToStockFactor: trimScaleNullable(
           supplierItems.purchaseToStockFactor
         ).as("purchaseToStockFactor"),
-        leadTimeDaysOverride: trimScaleNullable(
-          supplierItems.leadTimeDaysOverride
-        ).as("leadTimeDaysOverride"),
-        minimumOrderQuantity: trimScaleNullable(
-          supplierItems.minimumOrderQuantity
-        ).as("minimumOrderQuantity"),
-        orderMultiple: trimScaleNullable(supplierItems.orderMultiple).as(
-          "orderMultiple"
-        ),
         isPreferred: supplierItems.isPreferred,
         createdAt: supplierItems.createdAt,
       })
@@ -932,9 +1365,6 @@ async function getSupplierSuggestionsInTx(
                 item?.purchaseToStockFactor != null
               ? "item_default"
               : "default",
-        leadTimeDaysOverride: nullableNumber(candidate.leadTimeDaysOverride),
-        minimumOrderQuantity: candidate.minimumOrderQuantity,
-        orderMultiple: candidate.orderMultiple,
         reasonCodes: [],
       });
     }
@@ -981,9 +1411,6 @@ async function getSupplierSuggestionsInTx(
           item?.purchaseUnitDefinitionId != null || item?.purchaseToStockFactor != null
             ? "item_default"
             : "default",
-        leadTimeDaysOverride: null,
-        minimumOrderQuantity: null,
-        orderMultiple: null,
         reasonCodes: [],
       });
     }
@@ -1011,9 +1438,6 @@ async function getSupplierSuggestionsInTx(
           item?.purchaseUnitDefinitionId != null || item?.purchaseToStockFactor != null
             ? "item_default"
             : "default",
-        leadTimeDaysOverride: null,
-        minimumOrderQuantity: null,
-        orderMultiple: null,
         reasonCodes: [],
       });
       continue;
@@ -1037,64 +1461,12 @@ async function getSupplierSuggestionsInTx(
         itemById.get(itemId)?.purchaseToStockFactor != null
           ? "item_default"
           : "default",
-      leadTimeDaysOverride: null,
-      minimumOrderQuantity: null,
-      orderMultiple: null,
       reasonCodes:
         activeSuppliers.length === 0 ? ["missing_supplier"] : ["ambiguous_supplier"],
     });
   }
 
   return suggestions;
-}
-
-async function getLeadTimeHistoryInTx(
-  tx: Tx,
-  itemIds: string[]
-): Promise<Map<string, LeadTimeHistory>> {
-  const uniqueItemIds = [...new Set(itemIds)];
-  if (uniqueItemIds.length === 0) {
-    return new Map();
-  }
-
-  const rows = await tx
-    .select({
-      itemId: purchaseOrderLines.itemId,
-      orderedAt: purchaseOrders.orderedAt,
-      receivedAt: purchaseOrders.receivedAt,
-    })
-    .from(purchaseOrderLines)
-    .innerJoin(purchaseOrders, eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id))
-    .where(
-      and(
-        inArray(purchaseOrderLines.itemId, uniqueItemIds),
-        isNull(purchaseOrders.deletedAt),
-        sql`${purchaseOrders.orderedAt} IS NOT NULL`,
-        sql`${purchaseOrders.receivedAt} IS NOT NULL`,
-        sql`${purchaseOrderLines.quantityReceived} > 0`
-      )
-    );
-
-  const samplesByItem = new Map<string, number[]>();
-  for (const row of rows) {
-    if (!row.orderedAt || !row.receivedAt) continue;
-    const diffDays = Math.ceil(
-      (row.receivedAt.getTime() - row.orderedAt.getTime()) / 86_400_000
-    );
-    if (!Number.isFinite(diffDays) || diffDays < 0) continue;
-    const bucket = samplesByItem.get(row.itemId) ?? [];
-    bucket.push(Math.max(1, diffDays));
-    samplesByItem.set(row.itemId, bucket);
-  }
-
-  const history = new Map<string, LeadTimeHistory>();
-  for (const [itemId, samples] of samplesByItem) {
-    const leadTimeDays = percentile(samples, 75);
-    if (leadTimeDays == null) continue;
-    history.set(itemId, { leadTimeDays, sampleCount: samples.length });
-  }
-
-  return history;
 }
 
 function buildQuantityBuckets(
@@ -1140,99 +1512,6 @@ function buildQuantityBuckets(
   return buckets;
 }
 
-function resolveLeadTime(args: {
-  item: PlanningItemRecord;
-  supplierSuggestion: SupplierSuggestion | undefined;
-  history: LeadTimeHistory | undefined;
-}) {
-  if (args.supplierSuggestion?.leadTimeDaysOverride != null) {
-    return {
-      leadTimeDays: args.supplierSuggestion.leadTimeDaysOverride,
-      leadTimeSource: "supplier_item" as PlanningRuleSource,
-      leadTimeSampleCount: 0,
-    };
-  }
-
-  const itemLeadTime = nullableNumber(args.item.leadTimeDaysOverride);
-  if (itemLeadTime != null) {
-    return {
-      leadTimeDays: itemLeadTime,
-      leadTimeSource: "manual" as PlanningRuleSource,
-      leadTimeSampleCount: 0,
-    };
-  }
-
-  if (args.history) {
-    return {
-      leadTimeDays: args.history.leadTimeDays,
-      leadTimeSource: "history" as PlanningRuleSource,
-      leadTimeSampleCount: args.history.sampleCount,
-    };
-  }
-
-  return {
-    leadTimeDays: null,
-    leadTimeSource: "unknown" as PlanningRuleSource,
-    leadTimeSampleCount: 0,
-  };
-}
-
-function applyOrderRounding(args: {
-  stockQuantity: number;
-  minimumOrderQuantity: string | null | undefined;
-  orderMultiple: string | null | undefined;
-  purchaseToStockFactor: string | null | undefined;
-}) {
-  let quantity = positiveQuantity(args.stockQuantity);
-  const factor = Math.max(1, toQuantity(args.purchaseToStockFactor ?? "1"));
-  const minimum = nullableNumber(args.minimumOrderQuantity);
-  const multiple = nullableNumber(args.orderMultiple);
-
-  if (factor > 1) {
-    quantity = Math.ceil(quantity / factor) * factor;
-  }
-
-  if (minimum != null && minimum > 0) {
-    quantity = Math.max(quantity, minimum * factor);
-  }
-
-  if (multiple != null && multiple > 0) {
-    const stockMultiple = multiple * factor;
-    quantity = Math.ceil(quantity / stockMultiple) * stockMultiple;
-  }
-
-  return positiveQuantity(quantity);
-}
-
-function demandWithinWindow(
-  demandFacts: DemandFact[],
-  windowEnd: string | null
-) {
-  return demandFacts.reduce((sum, fact) => {
-    if (windowEnd == null || fact.requiredDate == null || fact.requiredDate <= windowEnd) {
-      return roundQuantity(sum + toQuantity(fact.quantity));
-    }
-    return sum;
-  }, 0);
-}
-
-function supplyWithinWindow(
-  supplyFacts: SupplyFact[],
-  windowEnd: string | null
-) {
-  return supplyFacts.reduce((sum, fact) => {
-    if (fact.supplyType === "available_inventory") {
-      return sum;
-    }
-
-    if (windowEnd != null && fact.expectedDate != null && fact.expectedDate <= windowEnd) {
-      return roundQuantity(sum + toQuantity(fact.quantity));
-    }
-
-    return sum;
-  }, 0);
-}
-
 function computeReplenishmentMetadata(args: {
   item: PlanningItemRecord;
   itemDemandFacts: DemandFact[];
@@ -1240,7 +1519,6 @@ function computeReplenishmentMetadata(args: {
   onHandStock: number;
   shortageQuantity: number;
   supplierSuggestion: SupplierSuggestion | undefined;
-  leadTimeHistory: LeadTimeHistory | undefined;
   horizonStart: string;
 }) {
   const safetyStockTarget = args.itemDemandFacts.reduce(
@@ -1250,96 +1528,44 @@ function computeReplenishmentMetadata(args: {
         : sum,
     0
   );
-  const safetyStockThreshold = safetyStockTarget;
-  const targetCoverDays = nullableNumber(args.item.targetCoverDays);
-  const leadTime = resolveLeadTime({
-    item: args.item,
-    supplierSuggestion: args.supplierSuggestion,
-    history: args.leadTimeHistory,
-  });
-  const events = [
-    ...args.itemDemandFacts
-      .filter((fact) => fact.requiredDate != null)
-      .map((fact) => ({
-        date: fact.requiredDate!,
-        quantity: -toQuantity(fact.quantity),
-      })),
-    ...args.itemSupplyFacts
-      .filter((fact) => fact.supplyType !== "available_inventory" && fact.expectedDate != null)
-      .map((fact) => ({
-        date: fact.expectedDate!,
-        quantity: toQuantity(fact.quantity),
-      })),
-  ].sort((left, right) => left.date.localeCompare(right.date));
-  const hasUndatedDemand = args.itemDemandFacts.some(
-    (fact) =>
-      fact.demandType !== "safety_stock" &&
-      fact.requiredDate == null &&
-      toQuantity(fact.quantity) > 0
+  const nonSafetyDemand = Math.max(
+    0,
+    args.itemDemandFacts.reduce(
+      (sum, fact) =>
+        fact.demandType === "safety_stock"
+          ? sum
+          : roundQuantity(sum + toQuantity(fact.quantity)),
+      0
+    )
   );
-  let projected = args.onHandStock;
-  let crossingDate: string | null =
-    projected <= Math.max(safetyStockThreshold, 0) ? args.horizonStart : null;
-
-  for (const event of events) {
-    if (crossingDate != null) break;
-    projected = roundQuantity(projected + event.quantity);
-    if (projected <= safetyStockThreshold || projected <= 0) {
-      crossingDate = event.date;
-    }
-  }
-
-  const latestFactDate = events.at(-1)?.date ?? null;
-  const horizonEnd = latestFactDate ?? addDays(args.horizonStart, DEFAULT_COVER_HORIZON_DAYS);
-  const daysOfCover =
-    crossingDate != null
-      ? daysBetween(args.horizonStart, crossingDate)
-      : hasUndatedDemand
-        ? null
-        : daysBetween(args.horizonStart, horizonEnd);
-  let daysOfCoverStatus: DaysOfCoverStatus = "unknown";
-
-  if (args.shortageQuantity > 0) {
-    daysOfCoverStatus = "order_now";
-  } else if (daysOfCover != null && leadTime.leadTimeDays != null) {
-    const orderSoonWindow = leadTime.leadTimeDays + (targetCoverDays ?? 0);
-    daysOfCoverStatus =
-      daysOfCover <= leadTime.leadTimeDays
-        ? "order_now"
-        : daysOfCover <= orderSoonWindow
-          ? "order_soon"
-          : "stocked";
-  } else if (daysOfCover != null && crossingDate == null) {
-    daysOfCoverStatus = "stocked";
-  }
-
-  const windowEnd =
-    leadTime.leadTimeDays != null && targetCoverDays != null
-      ? addDays(args.horizonStart, Math.ceil(leadTime.leadTimeDays + targetCoverDays))
-      : null;
-  const targetQuantity =
-    windowEnd == null
-      ? args.shortageQuantity
-      : demandWithinWindow(args.itemDemandFacts, windowEnd) +
-        safetyStockThreshold -
-        args.onHandStock -
-        supplyWithinWindow(args.itemSupplyFacts, windowEnd);
-  const roundedSuggestion = applyOrderRounding({
-    stockQuantity: Math.max(args.shortageQuantity, targetQuantity),
-    minimumOrderQuantity: args.supplierSuggestion?.minimumOrderQuantity,
-    orderMultiple: args.supplierSuggestion?.orderMultiple,
-    purchaseToStockFactor: args.supplierSuggestion?.purchaseToStockFactor,
-  });
+  const expectedSupply = args.itemSupplyFacts.reduce(
+    (sum, fact) =>
+      fact.supplyType === "available_inventory"
+        ? sum
+        : roundQuantity(sum + toQuantity(fact.quantity)),
+    0
+  );
+  const projectedStock = Math.max(
+    0,
+    roundQuantity(args.onHandStock + expectedSupply - nonSafetyDemand)
+  );
+  const safetyBand = safetyStockTarget * REPLENISHMENT_SOON_MULTIPLIER;
+  const daysOfCoverStatus: DaysOfCoverStatus =
+    args.shortageQuantity > 0
+      ? "order_now"
+      : safetyStockTarget <= 0
+        ? "stocked"
+        : projectedStock <= safetyStockTarget
+          ? "order_now"
+          : projectedStock <= safetyBand
+            ? "order_soon"
+            : "stocked";
 
   return {
-    targetCoverDays,
-    daysOfCover,
+    daysOfCover: null,
     daysOfCoverStatus,
     suggestedOrderQuantity:
-      roundedSuggestion > 0 ? normalizeQuantity(roundedSuggestion) : null,
-    ...leadTime,
-    minimumOrderQuantity: args.supplierSuggestion?.minimumOrderQuantity ?? null,
-    orderMultiple: args.supplierSuggestion?.orderMultiple ?? null,
+      args.shortageQuantity > 0 ? normalizeQuantity(args.shortageQuantity) : null,
   };
 }
 
@@ -1367,22 +1593,13 @@ function computeProductionMetadata(args: {
   earliestRequiredDate: string | null;
   horizonStart: string;
 }) {
-  const productionLeadTimeDays = nullableNumber(args.item.productionLeadTimeDays);
-  const productionLeadTimeSource: PlanningRuleSource =
-    productionLeadTimeDays != null ? "manual" : "unknown";
-  const latestStartDate =
-    args.earliestRequiredDate != null && productionLeadTimeDays != null
-      ? subtractDays(args.earliestRequiredDate, Math.ceil(productionLeadTimeDays))
-      : null;
   const productionBucket = productionBucketForDate(
-    latestStartDate ?? args.earliestRequiredDate,
+    args.earliestRequiredDate,
     args.horizonStart
   );
 
   return {
-    productionLeadTimeDays,
-    productionLeadTimeSource,
-    latestStartDate,
+    latestStartDate: null,
     productionBucket,
     manufacturingMode: args.item.manufacturingMode,
     expectedBatchYield: args.item.expectedBatchYield,
@@ -1396,7 +1613,6 @@ function buildPlanningRows(args: {
   supplyFacts: SupplyFact[];
   inventoryFacts: InventoryFact[];
   supplierSuggestions: Map<string, SupplierSuggestion>;
-  leadTimeHistory: Map<string, LeadTimeHistory>;
   horizonStart: string;
   bomByProductId?: Map<string, CurrentBomRecord>;
 }): PlanningItemRow[] {
@@ -1449,7 +1665,6 @@ function buildPlanningRows(args: {
       onHandStock: onHandQuantity,
       shortageQuantity,
       supplierSuggestion,
-      leadTimeHistory: args.leadTimeHistory.get(item.id),
       horizonStart: args.horizonStart,
     });
     const planningType =
@@ -1467,35 +1682,25 @@ function buildPlanningRows(args: {
             horizonStart: args.horizonStart,
           })
         : {
-            productionLeadTimeDays: null,
-            productionLeadTimeSource: "unknown" as PlanningRuleSource,
             latestStartDate: null,
             productionBucket: "later" as ProductionBucket,
             manufacturingMode: null,
             expectedBatchYield: null,
             plannedBatchCount: null,
           };
-    const missingProductionLeadTime =
-      planningType === "make" &&
-      shortageQuantity > 0 &&
-      production.productionLeadTimeDays == null;
     const reasonCodes = uniqueReasonCodes([
       ...itemDemandFacts.flatMap((fact) => fact.reasonCodes),
       ...itemSupplyFacts.flatMap((fact) => fact.reasonCodes),
       ...(onHandQuantity > 0 ? ["inventory_available" as const] : []),
       ...(reservedQuantity > 0 ? ["reserved_stock" as const] : []),
       shortageQuantity > 0 ? "projected_shortage" : "no_shortage",
-      ...(missingProductionLeadTime ? ["missing_production_lead_time" as const] : []),
-      ...(!item.planningEnabled ? ["planning_disabled" as const] : []),
     ]);
     const hasSuggestedBuy =
       planningType === "buy" &&
       toQuantity(replenishment.suggestedOrderQuantity) > 0 &&
       ["order_now", "order_soon"].includes(replenishment.daysOfCoverStatus);
     const suggestedAction =
-      !item.planningEnabled
-        ? "none"
-        : planningType === "buy" && (shortageQuantity > 0 || hasSuggestedBuy)
+      planningType === "buy" && (shortageQuantity > 0 || hasSuggestedBuy)
           ? "buy"
           : shortageQuantity <= 0
             ? "none"
@@ -1512,6 +1717,7 @@ function buildPlanningRows(args: {
         sku: item.sku,
         itemType: item.itemType,
         unitName: item.unitName,
+        unitSize: item.unitSize,
         unitUom: item.unitUom,
       },
       planningType,
@@ -1528,16 +1734,9 @@ function buildPlanningRows(args: {
       shortageQuantity: normalizeQuantity(shortageQuantity),
       earliestRequiredDate,
       safetyStock: item.safetyStock,
-      reorderPoint: item.reorderPoint,
-      targetCoverDays: replenishment.targetCoverDays,
       daysOfCover: replenishment.daysOfCover,
       daysOfCoverStatus: replenishment.daysOfCoverStatus,
       suggestedOrderQuantity: replenishment.suggestedOrderQuantity,
-      leadTimeDays: replenishment.leadTimeDays,
-      leadTimeSource: replenishment.leadTimeSource,
-      leadTimeSampleCount: replenishment.leadTimeSampleCount,
-      minimumOrderQuantity: replenishment.minimumOrderQuantity,
-      orderMultiple: replenishment.orderMultiple,
       preferredSupplierId: supplierSuggestion?.supplierId ?? null,
       preferredSupplierName: supplierSuggestion?.supplierName ?? null,
       preferredSupplierSku: supplierSuggestion?.supplierSku ?? null,
@@ -1557,8 +1756,6 @@ function buildPlanningRows(args: {
       unitCostSource:
         supplierSuggestion?.unitCostSource ??
         (item.defaultPurchasePrice != null ? "item_default" : "unknown"),
-      productionLeadTimeDays: production.productionLeadTimeDays,
-      productionLeadTimeSource: production.productionLeadTimeSource,
       latestStartDate: production.latestStartDate,
       productionBucket: production.productionBucket,
       manufacturingMode: production.manufacturingMode,
@@ -1625,7 +1822,7 @@ function addBomExplosionDemand(args: {
         code: "bom_cycle_detected",
         severity: "error",
         message: `BOM cycle detected while exploding ${parentItem.name}.`,
-        itemId: component.componentId,
+        itemId: parentItem.id,
         sourceRefs: uniqueSourceRefs([
           ...args.row.sourceRefs,
           {
@@ -1702,7 +1899,6 @@ function buildRowsWithBomExplosion(args: {
   inventoryFacts: InventoryFact[];
   bomByProductId: Map<string, CurrentBomRecord>;
   supplierSuggestions: Map<string, SupplierSuggestion>;
-  leadTimeHistory: Map<string, LeadTimeHistory>;
   horizonStart: string;
   warnings: PlanningWarning[];
 }) {
@@ -1716,7 +1912,6 @@ function buildRowsWithBomExplosion(args: {
     supplyFacts: args.supplyFacts,
     inventoryFacts: args.inventoryFacts,
     supplierSuggestions: args.supplierSuggestions,
-    leadTimeHistory: args.leadTimeHistory,
     horizonStart: args.horizonStart,
     bomByProductId: args.bomByProductId,
   });
@@ -1774,7 +1969,6 @@ function buildRowsWithBomExplosion(args: {
       supplyFacts: args.supplyFacts,
       inventoryFacts: args.inventoryFacts,
       supplierSuggestions: args.supplierSuggestions,
-      leadTimeHistory: args.leadTimeHistory,
       horizonStart: args.horizonStart,
       bomByProductId: args.bomByProductId,
     });
@@ -1784,12 +1978,20 @@ function buildRowsWithBomExplosion(args: {
     }
   }
 
-  args.warnings.push({
-    code: "bom_depth_limit",
-    severity: "warning",
-    message: `BOM explosion stopped at ${MAX_BOM_EXPLOSION_LEVEL} levels.`,
-    sourceRefs: [],
-  });
+  for (const row of rows.filter(
+    (entry) =>
+      entry.planningType === "make" &&
+      toQuantity(entry.shortageQuantity) > 0 &&
+      args.bomByProductId.has(entry.item.id)
+  )) {
+    args.warnings.push({
+      code: "bom_depth_limit",
+      severity: "warning",
+      message: `BOM explosion stopped at ${MAX_BOM_EXPLOSION_LEVEL} levels while planning ${row.item.name}.`,
+      itemId: row.item.id,
+      sourceRefs: row.sourceRefs,
+    });
+  }
 
   return { rows, demandFacts, bomRequirementFacts };
 }
@@ -1812,61 +2014,110 @@ function buildProductionBlockerFacts(args: {
     remainingLotsByItemId.set(lot.itemId, bucket);
   }
 
+  const requirementsByComponent = new Map<string, BomRequirementFact[]>();
   for (const fact of args.bomRequirementFacts) {
-    const parent = rowsByItemId.get(fact.parentItemId);
-    const component = rowsByItemId.get(fact.componentItemId);
-    if (!parent || !component) {
+    const bucket = requirementsByComponent.get(fact.componentItemId) ?? [];
+    bucket.push(fact);
+    requirementsByComponent.set(fact.componentItemId, bucket);
+  }
+
+  for (const [componentItemId, facts] of requirementsByComponent) {
+    const component = rowsByItemId.get(componentItemId);
+    if (!component) {
       continue;
     }
 
-    const requiredQuantity = toQuantity(fact.requiredQuantity);
-    const lotAgeRequirement = fact.requirements.find(
-      (requirement) => requirement.requirementType === "lot_age_min_days"
-    );
-    let availableQuantity = toQuantity(component.availableStock);
-
-    if (lotAgeRequirement) {
-      const needDate = fact.ingredientNeedDate ?? args.horizonStart;
-      const remainingLots = remainingLotsByItemId.get(fact.componentItemId) ?? [];
-      const eligibleLots = remainingLots.filter(
-        (lot) => addDays(lot.receivedDate, lotAgeRequirement.days) <= needDate
-      );
-      availableQuantity = eligibleLots.reduce(
-        (sum, lot) => sum + lot.quantity,
-        0
-      );
-
-      let quantityToConsume = Math.min(requiredQuantity, availableQuantity);
-      for (const lot of eligibleLots) {
+    let remainingAvailable = toQuantity(component.availableStock);
+    const remainingLots = remainingLotsByItemId.get(componentItemId) ?? [];
+    const consumeLots = (lotsToConsume: AvailableLotFact[], quantity: number) => {
+      let quantityToConsume = quantity;
+      for (const lot of lotsToConsume) {
         if (quantityToConsume <= 0) break;
         const consumed = Math.min(lot.quantity, quantityToConsume);
         lot.quantity = roundQuantity(lot.quantity - consumed);
         quantityToConsume = roundQuantity(quantityToConsume - consumed);
       }
-    }
-
-    const shortageQuantity = positiveQuantity(requiredQuantity - availableQuantity);
-    if (shortageQuantity <= 0) {
-      continue;
-    }
-
-    blockers.push({
-      id: `production:blocker:material:${fact.id}`,
-      parentItemId: parent.item.id,
-      parentItemName: parent.item.name,
-      parentRecommendationId: parent.recommendationId,
-      componentItemId: component.item.id,
-      componentItemName: component.item.name,
-      componentUnitName: component.item.unitName,
-      requiredQuantity: fact.requiredQuantity,
-      availableQuantity: normalizeQuantity(availableQuantity),
-      shortageQuantity: normalizeQuantity(shortageQuantity),
-      blockerType: lotAgeRequirement
-        ? "component_requirement"
-        : "material_shortage",
-      earliestRequiredDate: parent.earliestRequiredDate,
-      sourceRefs: fact.sourceRefs,
+    };
+    const sortedFacts = [...facts].sort((left, right) => {
+      const leftParent = rowsByItemId.get(left.parentItemId);
+      const rightParent = rowsByItemId.get(right.parentItemId);
+      const dateSort = (leftParent?.earliestRequiredDate ?? "9999-12-31").localeCompare(
+        rightParent?.earliestRequiredDate ?? "9999-12-31"
+      );
+      if (dateSort !== 0) return dateSort;
+      return left.id.localeCompare(right.id);
     });
+
+    for (const fact of sortedFacts) {
+      const parent = rowsByItemId.get(fact.parentItemId);
+      if (!parent) {
+        continue;
+      }
+
+      const requiredQuantity = toQuantity(fact.requiredQuantity);
+      const lotAgeRequirement = fact.requirements.find(
+        (requirement) => requirement.requirementType === "lot_age_min_days"
+      );
+      let availableForRequirement = Math.max(0, remainingAvailable);
+      let blockerType: ProductionBlockerFact["blockerType"] = "material_shortage";
+
+      if (lotAgeRequirement) {
+        const needDate =
+          fact.ingredientNeedDate ??
+          parent.latestStartDate ??
+          parent.earliestRequiredDate ??
+          args.horizonStart;
+        const eligibleLots = remainingLots.filter(
+          (lot) => addDays(lot.receivedDate, lotAgeRequirement.days) <= needDate
+        );
+        availableForRequirement = eligibleLots.reduce(
+          (sum, lot) => sum + lot.quantity,
+          0
+        );
+        blockerType = "component_requirement";
+      } else {
+        availableForRequirement = Math.max(0, remainingAvailable);
+      }
+
+      const shortageQuantity = positiveQuantity(
+        requiredQuantity - availableForRequirement
+      );
+      const consumedQuantity = Math.min(requiredQuantity, availableForRequirement);
+      consumeLots(
+        lotAgeRequirement
+          ? remainingLots.filter(
+              (lot) =>
+                addDays(lot.receivedDate, lotAgeRequirement.days) <=
+                (fact.ingredientNeedDate ??
+                  parent.latestStartDate ??
+                  parent.earliestRequiredDate ??
+                  args.horizonStart)
+            )
+          : remainingLots,
+        consumedQuantity
+      );
+      remainingAvailable = roundQuantity(remainingAvailable - consumedQuantity);
+
+      if (shortageQuantity <= 0) {
+        continue;
+      }
+
+      blockers.push({
+        id: `production:blocker:material:${fact.id}`,
+        parentItemId: parent.item.id,
+        parentItemName: parent.item.name,
+        parentRecommendationId: parent.recommendationId,
+        componentItemId: component.item.id,
+        componentItemName: component.item.name,
+        componentUnitName: component.item.unitName,
+        requiredQuantity: fact.requiredQuantity,
+        availableQuantity: normalizeQuantity(availableForRequirement),
+        shortageQuantity: normalizeQuantity(shortageQuantity),
+        blockerType,
+        earliestRequiredDate: parent.earliestRequiredDate,
+        sourceRefs: fact.sourceRefs,
+      });
+    }
   }
 
   for (const row of args.rows.filter((entry) => entry.planningType === "make")) {
@@ -1890,23 +2141,6 @@ function buildProductionBlockerFacts(args: {
       });
     }
 
-    if (hasShortage && row.reasonCodes.includes("missing_production_lead_time")) {
-      blockers.push({
-        id: `production:blocker:missing-production-lead-time:${row.item.id}`,
-        parentItemId: row.item.id,
-        parentItemName: row.item.name,
-        parentRecommendationId: row.recommendationId,
-        componentItemId: null,
-        componentItemName: null,
-        componentUnitName: null,
-        requiredQuantity: row.shortageQuantity,
-        availableQuantity: row.availableStock,
-        shortageQuantity: row.shortageQuantity,
-        blockerType: "missing_production_lead_time",
-        earliestRequiredDate: row.earliestRequiredDate,
-        sourceRefs: row.sourceRefs,
-      });
-    }
   }
 
   for (const warning of args.warnings) {
@@ -1973,7 +2207,6 @@ function buildRecommendations(args: {
         ? row.suggestedOrderQuantity ?? row.shortageQuantity
         : row.shortageQuantity;
     if (
-      row.reasonCodes.includes("planning_disabled") ||
       toQuantity(recommendationQuantity) <= 0 ||
       (row.planningType !== "buy" && shortageQuantity <= 0)
     ) {
@@ -1997,9 +2230,6 @@ function buildRecommendations(args: {
         purchaseUnitName: item.purchaseUnitName,
         purchaseToStockFactor: item.purchaseToStockFactor ?? "1",
         purchaseRuleSource: "item_default" as PlanningRuleSource,
-        leadTimeDaysOverride: null,
-        minimumOrderQuantity: null,
-        orderMultiple: null,
         reasonCodes: ["missing_supplier"] satisfies PlanningReasonCode[],
       };
       const unitCost = row.unitCost ?? supplierSuggestion.unitCost;
@@ -2081,16 +2311,7 @@ function buildRecommendations(args: {
     if (row.planningType === "make") {
       const bom = args.bomByProductId.get(item.id);
       const hasBom = Boolean(bom && bom.components.length > 0);
-      const missingProductionLeadTime = row.reasonCodes.includes(
-        "missing_production_lead_time"
-      );
-      const warningCodes = [
-        ...(!hasBom ? ["missing_bom" as const] : []),
-        ...(missingProductionLeadTime
-          ? ["missing_production_lead_time" as const]
-          : []),
-      ];
-      const canDraftManufacturingOrder = hasBom && !missingProductionLeadTime;
+      const canDraftManufacturingOrder = hasBom;
       const recommendationType = canDraftManufacturingOrder
         ? "create_manufacturing_order"
         : "review_item_setup";
@@ -2100,17 +2321,16 @@ function buildRecommendations(args: {
         quantity: row.shortageQuantity,
         sourceRefs: row.sourceRefs,
       });
-      const warnings = warningCodes.map((code) =>
-        warningForRow({
-          code,
-          itemId: item.id,
-          sourceRefs: row.sourceRefs,
-          message:
-            code === "missing_bom"
-              ? `${item.name} needs a current BOM before planning can draft a manufacturing order.`
-              : `${item.name} needs a production lead time before planning can draft a manufacturing order.`,
-        })
-      );
+      const warnings = !hasBom
+        ? [
+            warningForRow({
+              code: "missing_bom" as const,
+              itemId: item.id,
+              sourceRefs: row.sourceRefs,
+              message: `${item.name} needs a current BOM before planning can draft a manufacturing order.`,
+            }),
+          ]
+        : [];
 
       rowRecommendationIdByItem.set(item.id, recommendationId);
       recommendations.push({
@@ -2125,7 +2345,7 @@ function buildRecommendations(args: {
         reasonCodes: uniqueReasonCodes([
           ...row.reasonCodes,
           "make_item",
-          ...warningCodes,
+          ...(!hasBom ? ["missing_bom" as const] : []),
         ]),
         sourceRefs: row.sourceRefs,
         warnings,
@@ -2209,10 +2429,6 @@ export async function buildPlanningSnapshotInTx(
   const manufacturingSupplyFacts = await getManufacturingSupplyFactsInTx(tx);
   const bomByProductId = await getCurrentBomsInTx(tx, productIds);
   const supplierSuggestions = await getSupplierSuggestionsInTx(tx, itemsList);
-  const materialIds = itemsList
-    .filter((item) => item.itemType === "material")
-    .map((item) => item.id);
-  const leadTimeHistory = await getLeadTimeHistoryInTx(tx, materialIds);
   const inventoryFacts = getInventoryFacts(itemsList);
   const defaultLocation = await getDefaultInventoryLocationInTx(tx, orgId);
   const availableLots = await getAvailableLotFactsInTx(
@@ -2230,6 +2446,12 @@ export async function buildPlanningSnapshotInTx(
     ...getSafetyStockDemandFacts(itemsList),
     ...manufacturingComponentDemandFacts,
   ];
+  const salesOrderProductionDemandPaths = buildSalesOrderProductionDemandPaths({
+    itemsList,
+    baseDemandFacts,
+    supplyFacts,
+    bomByProductId,
+  });
   const warnings: PlanningWarning[] = [];
   const { rows: explodedRows, demandFacts, bomRequirementFacts } =
     buildRowsWithBomExplosion({
@@ -2239,15 +2461,10 @@ export async function buildPlanningSnapshotInTx(
       inventoryFacts,
       bomByProductId,
       supplierSuggestions,
-      leadTimeHistory,
       horizonStart,
       warnings,
     });
   const assumptions = [
-    {
-      code: "dated_cover_horizon",
-      description: `Days of cover uses dated demand and supply through ${DEFAULT_COVER_HORIZON_DAYS} days when no later facts exist.`,
-    },
     {
       code: "single_default_location",
       description: "Inventory quantities use the default location projection.",
@@ -2273,9 +2490,7 @@ export async function buildPlanningSnapshotInTx(
     demandFacts,
     supplyFacts,
     bomRequirementFacts,
-    leadTimeHistory: [...leadTimeHistory.entries()].sort(([left], [right]) =>
-      left.localeCompare(right)
-    ),
+    salesOrderProductionDemandPaths,
     supplierSuggestions: [...supplierSuggestions.entries()].sort(([left], [right]) =>
       left.localeCompare(right)
     ),
@@ -2322,6 +2537,7 @@ export async function buildPlanningSnapshotInTx(
     inventoryFacts,
     bomRequirementFacts,
     productionBlockerFacts,
+    salesOrderProductionDemandPaths,
     recommendations,
     warnings: [
       ...warnings,

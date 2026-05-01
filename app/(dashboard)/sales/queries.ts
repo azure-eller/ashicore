@@ -46,9 +46,7 @@ import {
   projectedAvailableQtyExpr,
   projectedCommittedQty,
   projectedDemandQty,
-  projectedDemandQtyExpr,
   projectedExpectedQty,
-  projectedExpectedQtyExpr,
   projectedOnHandQty,
   projectedOnHandQtyExpr,
   projectedReservableOnHandQtyExpr,
@@ -2515,14 +2513,9 @@ export async function getSalesOrder(
         variantAttrs: items.variantAttrs,
         masterName: masterItems.name,
         masterVariantAxes: masterItems.variantAxes,
-        calcStock: trimScaleNullable(
-          sql<string | null>`(
-            ${projectedOnHandQtyExpr(items.organizationId, items.id)}
-            - ${projectedDemandQtyExpr(items.organizationId, items.id)}
-            + ${projectedExpectedQtyExpr(items.organizationId, items.id)}
-            - ${items.safetyStock}
-          )`
-        ).as("calcStock"),
+        onHandQty: trimScaleNullable(
+          projectedOnHandQtyExpr(items.organizationId, items.id)
+        ).as("onHandQty"),
         reservableOnHandQty: trimScaleNullable(
           projectedReservableOnHandQtyExpr(items.organizationId, items.id)
         ).as("reservableOnHandQty"),

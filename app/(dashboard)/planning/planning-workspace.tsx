@@ -3,26 +3,22 @@
 import {
   useMemo,
   useState,
-  type FormEvent,
-  type DragEvent,
   type KeyboardEvent,
 } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ColumnDef, type FilterFn } from "@tanstack/react-table";
 import {
   Add01Icon,
   Alert01Icon,
   ArrowDown01Icon,
-  ArrowUp01Icon,
   ArrowRight01Icon,
-  Calendar01Icon,
   Factory01Icon,
   Layers01Icon,
   MoreHorizontalIcon,
   Package01Icon,
   Search01Icon,
-  Settings02Icon,
-  Sorting05Icon,
   ShoppingCart01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -30,8 +26,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
+import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
@@ -55,19 +58,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Switch } from "@/components/ui/switch";
-import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import {
-  PLANNING_DAYS_COVER_TOOLTIP,
-  PLANNING_MOQ_TOOLTIP,
+  formatQuantity,
+  normalizeNumeric,
+} from "@/lib/format";
+import {
   PLANNING_NEED_TOOLTIP,
   PLANNING_NEEDED_BY_TOOLTIP,
-  PLANNING_NEEDED_FOR_TOOLTIP,
-  PLANNING_ORDER_MULTIPLE_TOOLTIP,
-  PLANNING_REORDER_COMPARISON_TOOLTIP,
   PLANNING_SHORT_TOOLTIP,
-  PLANNING_SUGGESTED_QTY_TOOLTIP,
-  PURCHASE_CONVERSION_TOOLTIP,
+  SAFETY_STOCK_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import {
   ToggleGroup,
@@ -77,34 +76,43 @@ import { cn } from "@/lib/utils";
 import { PlanningHeader } from "./planning-header";
 import type {
   BomRequirementFact,
-  CreatePurchaseOrderDraftActionPayload,
   DemandFact,
+  InventoryFact,
   PlanningActionPayload,
   PlanningItemRow,
   PlanningRecommendation,
   PlanningSnapshot,
   PlanningSourceRef,
+  ProductionDemandPath,
   ProductionBlockerFact,
+  SupplyFact,
 } from "@/lib/planning/types";
 
 type ActionResult = {
   id: string;
 };
 
-type BulkPurchaseActionResult = {
-  orders: Array<{ id: string }>;
+type PlanningActionErrorState = {
+  message: string;
+  href?: string;
+  linkLabel?: string;
+  refresh?: boolean;
 };
 
 type OperationalRow = {
   row: PlanningItemRow;
   recommendation: PlanningRecommendation | null;
   demandFacts: DemandFact[];
+  supplyFacts: SupplyFact[];
+  inventoryFact: InventoryFact | null;
   bomFacts: BomRequirementFact[];
+  demandPaths: ProductionDemandPath[];
   neededFor: string;
   statusLabel: string;
   actionLabel: string;
   actionSummary: string;
   componentShortageCount: number;
+  makeDependencyCount: number;
   productionBlockers: ProductionBlockerFact[];
   isAttention: boolean;
 };
@@ -113,15 +121,6 @@ type PlanningPermissions = {
   canCreatePurchaseOrders: boolean;
   canCreateManufacturingOrders: boolean;
   canUpdatePlanningRules: boolean;
-};
-
-type BuyGroup = {
-  key: string;
-  supplierName: string;
-  rows: OperationalRow[];
-  actionPayloads: CreatePurchaseOrderDraftActionPayload[];
-  earliestRequiredDate: string | null;
-  salesOrderCount: number;
 };
 
 type AttentionGroup = {
@@ -134,14 +133,10 @@ type AttentionGroup = {
 };
 
 type DetailTarget =
-  | { kind: "buy"; key: string }
   | { kind: "row"; key: string }
   | { kind: "attention"; key: string };
 
 type PlanningTab = "production" | "replenishment";
-
-type ReplenishmentFilter = "all" | "order-now" | "order-soon" | "stocked" | "unknown";
-type ReplenishmentSort = "priority" | "days-cover-asc" | "days-cover-desc";
 
 type ProductionBucketKey = "now" | "this-week" | "next-week" | "later";
 
@@ -150,87 +145,41 @@ type ProductionWorkItem = {
   bucket: ProductionBucketKey;
   urgency: "critical" | "blocked" | "normal";
   downstreamCount: number;
+  coveredByStock?: boolean;
 };
 
 type ReplenishmentItem = {
+  id: string;
   entry: OperationalRow;
   status: "order-now" | "order-soon" | "stocked" | "unknown";
   supplierName: string;
   projectedStock: number;
   safetyStock: number;
-  suggestedQuantity: string | null;
-  daysCover: number | null;
 };
 
-type DownstreamUse = {
-  key: string;
-  quantity: string;
-  quantityUnit: string | null;
-  productName: string;
-  packageLabel: string | null;
-  label: string;
-  dueDate: string | null;
-  relationship: "final-stage" | "feeds-another-mo";
-  requiresAgingHold: boolean;
-  agingTooltip: string | null;
-};
-
-type PlanningRulesPayload = {
-  planningEnabled?: boolean;
-  targetCoverDays?: string | null;
-  leadTimeDaysOverride?: string | null;
-  productionLeadTimeDays?: string | null;
-  preferredSupplierItem?: {
-    supplierId: string;
-    supplierSku?: string | null;
-    unitCost?: string | null;
-    purchaseUnitDefinitionId?: string | null;
-    purchaseToStockFactor?: string | null;
-    leadTimeDaysOverride?: string | null;
-    minimumOrderQuantity?: string | null;
-    orderMultiple?: string | null;
-    isPreferred?: boolean;
-  };
-};
+type ReplenishmentStatusFilter = "all" | ReplenishmentItem["status"];
+type ProductionViewFilter = "needs-action" | "covered";
 
 function toQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function emptyToNull(value: string) {
-  const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
-}
-
-function sameNullableString(left: string | null | undefined, right: string | null | undefined) {
-  return (left ?? "") === (right ?? "");
-}
-
-function formatDaysCover(value: number | null) {
-  return value == null ? "—" : `${value}d`;
-}
-
-function sourceLabel(value: PlanningItemRow["leadTimeSource"]) {
-  if (value === "supplier_item") return "supplier rule";
-  if (value === "item_default") return "item default";
-  if (value === "default") return "default";
-  return value;
-}
-
-function leadTimeLabel(row: PlanningItemRow) {
-  if (row.leadTimeDays == null) return "Lead unknown";
-  const sample = row.leadTimeSampleCount > 0 ? ` · ${row.leadTimeSampleCount} samples` : "";
-  return `Lead ${row.leadTimeDays}d · ${sourceLabel(row.leadTimeSource)}${sample}`;
+function replenishmentStatusFromDaysOfCover(
+  status: PlanningItemRow["daysOfCoverStatus"]
+): ReplenishmentItem["status"] {
+  if (status === "order_now") return "order-now";
+  if (status === "order_soon") return "order-soon";
+  return status;
 }
 
 function productionBlockerLabel(entry: OperationalRow) {
-  if (entry.productionBlockers.some((blocker) => blocker.blockerType === "material_shortage")) {
-    return "Materials short";
+  if (entry.makeDependencyCount > 0) {
+    return "Sub-assemblies needed";
   }
 
-  if (entry.row.reasonCodes.includes("missing_production_lead_time")) {
-    return "Lead time missing";
+  if (entry.productionBlockers.some((blocker) => blocker.blockerType === "material_shortage")) {
+    return "Materials short";
   }
 
   return "Waits on setup";
@@ -253,10 +202,6 @@ const drawerNumericWrapClass = cn(
 
 function planningRowKey(row: OperationalRow) {
   return `item:${row.row.item.id}`;
-}
-
-function buyGroupKey(group: BuyGroup) {
-  return `buy:${group.key}`;
 }
 
 function formatRowQuantity(row: PlanningItemRow, value: string | null | undefined) {
@@ -388,15 +333,6 @@ function daysUntil(value: string | null) {
   return Math.round(diffMs / 86_400_000);
 }
 
-function urgencyLabel(value: string | null) {
-  const days = daysUntil(value);
-  if (days == null) return "No date";
-  if (days < 0) return `${Math.abs(days)}d overdue`;
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  return `in ${days}d`;
-}
-
 function requiredDateSortValue(value: string | null) {
   return value ? new Date(`${value}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER;
 }
@@ -413,19 +349,13 @@ function earliestDate(values: Array<string | null>) {
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "unknown";
-  return date.toLocaleTimeString("en-US", {
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function NeededByCell({ value }: { value: string | null }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span>{formatShortDate(value)}</span>
-      <span className="text-xs text-muted-foreground">{urgencyLabel(value)}</span>
-    </div>
-  );
 }
 
 function sourceRefKey(ref: PlanningSourceRef) {
@@ -435,6 +365,7 @@ function sourceRefKey(ref: PlanningSourceRef) {
     ref.itemId ?? "",
     ref.quantity ?? "",
     ref.date ?? "",
+    ref.parentSourceId ?? "",
   ].join(":");
 }
 
@@ -461,48 +392,59 @@ function uniqueSalesOrderLabels(facts: DemandFact[]) {
   return uniqueSourceLabels(facts, "sales_order");
 }
 
-function downstreamUses(
-  row: OperationalRow,
-  rowsByItemId: Map<string, OperationalRow>
-): DownstreamUse[] {
-  const byKey = new Map<string, DownstreamUse>();
-
-  for (const fact of row.demandFacts) {
-    const salesRefs = uniqueSourceRefs(
-      fact.sourceRefs.filter((ref) => ref.sourceType === "sales_order")
-    );
-    const refs = salesRefs.length > 0 ? salesRefs : uniqueSourceRefs(fact.sourceRefs);
-    const relationship: DownstreamUse["relationship"] =
-      fact.demandType === "sales_order" ? "final-stage" : "feeds-another-mo";
-    const leafRow =
-      relationship === "feeds-another-mo" && fact.parentItemId
-        ? rowsByItemId.get(fact.parentItemId)?.row ?? row.row
-        : row.row;
-    const leafProductName = leafRow.item.displayName || leafRow.item.name;
-    const leafPackageLabel = packageText(leafRow);
-
-    for (const ref of refs) {
-      const key = sourceRefKey(ref);
-      byKey.set(key, {
-        key,
-        quantity: ref.quantity ?? fact.quantity,
-        quantityUnit: quantityUnitLabel(leafRow),
-        productName: leafProductName,
-        packageLabel: leafPackageLabel,
-        label: normalizeSalesOrderLabel(ref.label),
-        dueDate: ref.date ?? fact.requiredDate,
-        relationship,
-        requiresAgingHold: false,
-        agingTooltip: null,
-      });
-    }
+function sourceHref(ref: PlanningSourceRef) {
+  if (ref.sourceType === "sales_order") return `/sales/orders/${ref.sourceId}`;
+  if (ref.sourceType === "purchase_order") return `/purchasing/orders/${ref.sourceId}`;
+  if (ref.sourceType === "manufacturing_order") {
+    return `/manufacturing/orders/${ref.sourceId}`;
   }
+  return null;
+}
 
-  return [...byKey.values()].sort((left, right) => {
-    const dateSort = compareRequiredDates(left.dueDate, right.dueDate);
-    if (dateSort !== 0) return dateSort;
-    return left.label.localeCompare(right.label);
-  });
+function pathPackageLabel(step: ProductionDemandPath["steps"][number]) {
+  return (
+    compactPackageLabel(step.displayAttrs[0]) ??
+    compactPackageLabel(step.unitName) ??
+    null
+  );
+}
+
+function pathQuantityUnitLabel(step: ProductionDemandPath["steps"][number]) {
+  const packageLabel = pathPackageLabel(step);
+  if (!packageLabel) return step.unitName;
+
+  if (/\bbags?\b/.test(packageLabel)) return "bags";
+  if (/\btotes?\b/.test(packageLabel)) return "totes";
+  if (/\bpacks?\b/.test(packageLabel)) return "packs";
+  if (/\brolls?\b/.test(packageLabel)) return "rolls";
+  if (/\bpal(lets?)?\b/.test(packageLabel)) return "pallets";
+  if (/\beach\b/.test(packageLabel)) return "ea";
+
+  return step.unitName;
+}
+
+function pathQuantityParts(step: ProductionDemandPath["steps"][number]) {
+  return displayQuantityParts(step.quantityRequired, pathQuantityUnitLabel(step));
+}
+
+function terminalPackageLabel(terminal: ProductionDemandPath["terminal"]) {
+  return compactPackageLabel(terminal.displayAttrs[0]);
+}
+
+function downstreamCardSummary(paths: ProductionDemandPath[]) {
+  if (paths.length === 0) return null;
+
+  const firstPath = paths[0];
+  const terminalName =
+    firstPath.terminal.displayName || firstPath.terminal.itemName;
+  const packageLabel = terminalPackageLabel(firstPath.terminal);
+  const target = [terminalName, packageLabel].filter(Boolean).join(" · ");
+  const suffix =
+    paths.length === 1
+      ? normalizeSalesOrderLabel(firstPath.terminal.salesOrderLabel)
+      : `${paths.length} downstream orders`;
+
+  return `Feeds ${target} · ${suffix}`;
 }
 
 function summarizeNeededFor(facts: DemandFact[]) {
@@ -511,8 +453,8 @@ function summarizeNeededFor(facts: DemandFact[]) {
   if (salesOrders.length > 1) return `${salesOrders.length} sales orders`;
 
   const manufacturingOrders = uniqueSourceLabels(facts, "manufacturing_order");
-  if (manufacturingOrders.length === 1) return manufacturingOrders[0];
-  if (manufacturingOrders.length > 1) return `${manufacturingOrders.length} production orders`;
+  if (manufacturingOrders.length === 1) return "Internal manufacturing demand";
+  if (manufacturingOrders.length > 1) return `${manufacturingOrders.length} internal demands`;
 
   if (facts.some((fact) => fact.demandType === "safety_stock")) {
     return "Safety stock";
@@ -528,36 +470,32 @@ function summarizeNeededFor(facts: DemandFact[]) {
 function getActionLabel(
   row: PlanningItemRow,
   recommendation: PlanningRecommendation | null,
-  componentShortageCount: number
+  componentShortageCount: number,
+  makeDependencyCount = 0
 ) {
+  const reasonCodes = combinedReasonCodes(row, recommendation);
+
   if (!recommendation || recommendation.recommendationType === "none") {
     return toQuantity(row.shortageQuantity) > 0 ? "Review" : "No action";
   }
 
   if (recommendation.recommendationType === "create_purchase_order") {
-    return recommendation.suggestedSupplierName ? "Create PO" : "Assign supplier";
+    return "Create PO";
   }
 
   if (recommendation.recommendationType === "create_manufacturing_order") {
+    if (makeDependencyCount > 0) return "Review sub-assemblies";
     return componentShortageCount > 0 ? "Review shortages" : "Create MO";
   }
 
-  if (row.reasonCodes.includes("missing_supplier") || row.reasonCodes.includes("ambiguous_supplier")) {
-    return "Assign supplier";
-  }
-
-  if (row.reasonCodes.includes("missing_purchase_price")) {
-    return "Add price";
-  }
-
-  if (row.reasonCodes.includes("missing_lead_time")) {
-    return "Set lead time";
-  }
+  if (reasonCodes.has("missing_supplier")) return "Assign supplier";
+  if (reasonCodes.has("ambiguous_supplier")) return "Choose supplier";
+  if (reasonCodes.has("missing_purchase_price")) return "Add price";
 
   if (
-    row.reasonCodes.includes("missing_bom") ||
-    row.reasonCodes.includes("bom_cycle_detected") ||
-    row.reasonCodes.includes("bom_depth_limit")
+    reasonCodes.has("missing_bom") ||
+    reasonCodes.has("bom_cycle_detected") ||
+    reasonCodes.has("bom_depth_limit")
   ) {
     return "Fix BOM";
   }
@@ -568,7 +506,8 @@ function getActionLabel(
 function getActionSummary(
   row: PlanningItemRow,
   recommendation: PlanningRecommendation | null,
-  componentShortageCount: number
+  componentShortageCount: number,
+  makeDependencyCount = 0
 ) {
   const quantity = formatRowQuantity(row, row.shortageQuantity);
 
@@ -584,6 +523,10 @@ function getActionSummary(
   }
 
   if (recommendation.recommendationType === "create_manufacturing_order") {
+    if (makeDependencyCount > 0) {
+      return `${makeDependencyCount} sub-${makeDependencyCount === 1 ? "assembly" : "assemblies"} must be made before this build.`;
+    }
+
     if (componentShortageCount > 0) {
       return `${componentShortageCount} material ${componentShortageCount === 1 ? "shortage" : "shortages"} need attention before this build.`;
     }
@@ -597,37 +540,31 @@ function getActionSummary(
 function getStatus(
   row: PlanningItemRow,
   recommendation: PlanningRecommendation | null,
-  componentShortageCount: number
+  componentShortageCount: number,
+  makeDependencyCount = 0
 ): string {
+  const reasonCodes = combinedReasonCodes(row, recommendation);
+
   if (recommendation?.recommendationType === "review_item_setup") {
-    if (row.reasonCodes.includes("missing_supplier")) {
-      return "Supplier missing";
-    }
-
-    if (row.reasonCodes.includes("ambiguous_supplier")) {
-      return "Supplier needed";
-    }
-
-    if (row.reasonCodes.includes("missing_purchase_price")) {
-      return "Price missing";
-    }
-
-    if (row.reasonCodes.includes("missing_lead_time")) {
-      return "Lead time missing";
-    }
-
-    if (row.reasonCodes.includes("planning_disabled")) {
-      return "Planning disabled";
-    }
-
-    if (row.reasonCodes.includes("missing_bom")) {
+    if (reasonCodes.has("missing_supplier")) return "Missing supplier";
+    if (reasonCodes.has("ambiguous_supplier")) return "Choose supplier";
+    if (reasonCodes.has("missing_purchase_price")) return "Missing price";
+    if (reasonCodes.has("missing_bom")) {
       return "BOM missing";
     }
 
     return "Setup issue";
   }
 
+  if (row.planningType === "buy" && recommendation) {
+    return "Ready to order";
+  }
+
   if (recommendation?.recommendationType === "create_manufacturing_order") {
+    if (makeDependencyCount > 0) {
+      return "Sub-assemblies needed";
+    }
+
     if (componentShortageCount > 0) {
       return "Materials short";
     }
@@ -653,13 +590,8 @@ function getStatus(
 function isSetupIssue(entry: OperationalRow) {
   return (
     entry.recommendation?.recommendationType === "review_item_setup" ||
-    entry.row.reasonCodes.some((code) =>
+    Array.from(entryReasonCodes(entry)).some((code) =>
       [
-        "missing_supplier",
-        "ambiguous_supplier",
-        "missing_purchase_price",
-        "missing_lead_time",
-        "planning_disabled",
         "missing_bom",
         "bom_cycle_detected",
         "bom_depth_limit",
@@ -671,17 +603,16 @@ function isSetupIssue(entry: OperationalRow) {
 }
 
 function setupProblemLabel(row: OperationalRow) {
-  if (row.row.reasonCodes.includes("missing_supplier")) return "Missing supplier";
-  if (row.row.reasonCodes.includes("ambiguous_supplier")) return "Choose supplier";
-  if (row.row.reasonCodes.includes("missing_purchase_price")) return "Missing price";
-  if (row.row.reasonCodes.includes("missing_lead_time")) return "Missing lead time";
-  if (row.row.reasonCodes.includes("missing_production_lead_time")) return "Missing lead time";
-  if (row.row.reasonCodes.includes("planning_disabled")) return "Planning disabled";
-  if (row.row.reasonCodes.includes("missing_bom")) return "Missing BOM";
-  if (row.row.reasonCodes.includes("bom_cycle_detected")) return "BOM cycle";
-  if (row.row.reasonCodes.includes("bom_depth_limit")) return "BOM too deep";
-  if (row.row.reasonCodes.includes("duplicate_draft_action")) return "Draft exists";
-  if (row.row.reasonCodes.includes("stale_recommendation")) return "Plan changed";
+  const reasonCodes = entryReasonCodes(row);
+
+  if (reasonCodes.has("missing_supplier")) return "Missing supplier";
+  if (reasonCodes.has("ambiguous_supplier")) return "Choose supplier";
+  if (reasonCodes.has("missing_purchase_price")) return "Missing price";
+  if (reasonCodes.has("missing_bom")) return "Missing BOM";
+  if (reasonCodes.has("bom_cycle_detected")) return "BOM cycle";
+  if (reasonCodes.has("bom_depth_limit")) return "BOM too deep";
+  if (reasonCodes.has("duplicate_draft_action")) return "Draft exists";
+  if (reasonCodes.has("stale_recommendation")) return "Plan changed";
   return "Review setup";
 }
 
@@ -696,11 +627,55 @@ function canExecuteAction(row: OperationalRow, permissions: PlanningPermissions)
   return permissions.canCreateManufacturingOrders && row.productionBlockers.length === 0;
 }
 
+function setupActionHref(row: OperationalRow) {
+  const reasonCodes = entryReasonCodes(row);
+
+  if (reasonCodes.has("missing_supplier")) return "/purchasing/suppliers/new";
+  if (reasonCodes.has("ambiguous_supplier")) {
+    return `/inventory/materials/${row.row.item.id}/edit`;
+  }
+  if (reasonCodes.has("missing_purchase_price")) {
+    return `/inventory/materials/${row.row.item.id}/edit`;
+  }
+  if (
+    reasonCodes.has("missing_bom") ||
+    reasonCodes.has("bom_cycle_detected") ||
+    reasonCodes.has("bom_depth_limit")
+  ) {
+    return `/inventory/products/${row.row.item.id}/edit`;
+  }
+  return row.row.item.itemType === "product"
+    ? `/inventory/products/${row.row.item.id}`
+    : `/inventory/materials/${row.row.item.id}`;
+}
+
+function combinedReasonCodes(
+  row: PlanningItemRow,
+  recommendation: PlanningRecommendation | null
+) {
+  return new Set([...(row.reasonCodes ?? []), ...(recommendation?.reasonCodes ?? [])]);
+}
+
+function entryReasonCodes(row: OperationalRow) {
+  return combinedReasonCodes(row.row, row.recommendation);
+}
+
 function isReadyPurchaseRow(row: OperationalRow) {
   return (
     row.row.planningType === "buy" &&
     !isSetupIssue(row) &&
     row.recommendation?.actionPayload?.actionType === "create_purchase_order"
+  );
+}
+
+function canOpenPurchaseOrderForm(item: ReplenishmentItem) {
+  return canOpenPurchaseOrderFormForRow(item.entry);
+}
+
+function canOpenPurchaseOrderFormForRow(row: OperationalRow) {
+  return (
+    row.row.planningType === "buy" &&
+    replenishmentStatusFromDaysOfCover(row.row.daysOfCoverStatus) !== "stocked"
   );
 }
 
@@ -767,6 +742,10 @@ function bucketTitle(bucket: ProductionBucketKey, horizonStart: string | null) {
 }
 
 function attentionProblemLabel(row: OperationalRow) {
+  if (row.row.planningType === "make" && row.makeDependencyCount > 0) {
+    return "Sub-assemblies needed";
+  }
+
   if (row.row.planningType === "make" && row.componentShortageCount > 0) {
     return "Materials short";
   }
@@ -775,6 +754,12 @@ function attentionProblemLabel(row: OperationalRow) {
 }
 
 function attentionImpact(row: OperationalRow) {
+  if (row.row.planningType === "make" && row.makeDependencyCount > 0) {
+    return `${row.makeDependencyCount} sub-${
+      row.makeDependencyCount === 1 ? "assembly" : "assemblies"
+    } needed`;
+  }
+
   if (row.row.planningType === "make" && row.componentShortageCount > 0) {
     return `${row.componentShortageCount} ${
       row.componentShortageCount === 1 ? "material" : "materials"
@@ -791,7 +776,25 @@ function hasQueueImpact(row: OperationalRow) {
   return Boolean(row.row.earliestRequiredDate) && salesOrderCount(row) > 0;
 }
 
+function hasDirectSalesOrderDemand(row: OperationalRow) {
+  return row.demandFacts.some((fact) => fact.demandType === "sales_order");
+}
+
+function isCoveredSalesOrderRow(row: OperationalRow) {
+  return (
+    row.row.planningType === "make" &&
+    hasDirectSalesOrderDemand(row) &&
+    toQuantity(row.row.shortageQuantity) <= 0 &&
+    !row.recommendation &&
+    row.productionBlockers.length === 0
+  );
+}
+
 function compareQueuePriority(left: OperationalRow, right: OperationalRow) {
+  const leftRank = productionPriorityRank(left);
+  const rightRank = productionPriorityRank(right);
+  if (leftRank !== rightRank) return leftRank - rightRank;
+
   const orderSort = salesOrderCount(right) - salesOrderCount(left);
   if (orderSort !== 0) return orderSort;
 
@@ -804,12 +807,32 @@ function compareQueuePriority(left: OperationalRow, right: OperationalRow) {
   return left.row.item.name.localeCompare(right.row.item.name);
 }
 
-function buildProductionWorkItems(rows: OperationalRow[]): ProductionWorkItem[] {
+function productionPriorityRank(row: OperationalRow) {
+  const hasDownstreamDemand = row.demandPaths.length > 0;
+  const readyToMake =
+    row.recommendation?.actionPayload?.actionType === "create_manufacturing_order" &&
+    row.componentShortageCount === 0 &&
+    row.makeDependencyCount === 0 &&
+    !isSetupIssue(row);
+
+  if (hasDownstreamDemand && readyToMake) return 0;
+  if (hasDownstreamDemand && row.makeDependencyCount === 0) return 1;
+  if (readyToMake) return 2;
+  if (hasDownstreamDemand) return 3;
+  if (row.makeDependencyCount > 0) return 4;
+  return 5;
+}
+
+function buildProductionWorkItems(
+  rows: OperationalRow[],
+  options: { coveredByStock?: boolean } = {}
+): ProductionWorkItem[] {
   return rows
     .filter((entry) => entry.row.planningType === "make")
     .map((entry) => {
-      const days = daysUntil(entry.row.latestStartDate);
+      const days = daysUntil(entry.row.latestStartDate ?? entry.row.earliestRequiredDate);
       const isBlocked =
+        entry.makeDependencyCount > 0 ||
         entry.componentShortageCount > 0 ||
         isSetupIssue(entry);
       const urgency: ProductionWorkItem["urgency"] = isBlocked
@@ -822,9 +845,9 @@ function buildProductionWorkItems(rows: OperationalRow[]): ProductionWorkItem[] 
         entry,
         bucket: entry.row.productionBucket,
         urgency,
+        coveredByStock: options.coveredByStock,
         downstreamCount: Math.max(
-          salesOrderCount(entry),
-          entry.demandFacts.length,
+          entry.demandPaths.length,
           entry.row.plannedBatchCount ?? 0
         ),
       };
@@ -847,32 +870,30 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
   return rows
     .filter((entry) => entry.row.planningType === "buy")
     .map((entry) => {
-      const shortage = toQuantity(entry.row.shortageQuantity);
-      const available = Math.max(0, toQuantity(entry.row.availableStock));
       const safetyStock = Math.max(0, toQuantity(entry.row.safetyStock));
-      const nonSafetyDemand = Math.max(
-        0,
-        toQuantity(entry.row.demandQuantity) - safetyStock
+      const onHandStock =
+        entry.inventoryFact != null
+          ? toQuantity(entry.inventoryFact.onHandQuantity)
+          : toQuantity(entry.row.availableStock) + toQuantity(entry.row.reservedQuantity);
+      const incomingSupply = entry.supplyFacts.reduce(
+        (sum, fact) =>
+          fact.supplyType === "available_inventory"
+            ? sum
+            : sum + toQuantity(fact.quantity),
+        0
       );
-      const expectedSupply =
-        toQuantity(entry.row.incomingPurchaseOrderQuantity) +
-        toQuantity(entry.row.incomingManufacturingOrderQuantity);
-      const projectedStock = Math.max(
-        0,
-        available + expectedSupply - nonSafetyDemand
+      const nonSafetyDemand = entry.demandFacts.reduce(
+        (sum, fact) =>
+          fact.demandType === "safety_stock"
+            ? sum
+            : sum + toQuantity(fact.quantity),
+        0
       );
-      const status: ReplenishmentItem["status"] =
-        shortage > 0
-          ? "order-now"
-          : entry.row.daysOfCoverStatus === "order_now"
-            ? "order-now"
-            : entry.row.daysOfCoverStatus === "order_soon"
-              ? "order-soon"
-              : entry.row.daysOfCoverStatus === "stocked"
-                ? "stocked"
-                : "unknown";
+      const projectedStock = Math.max(0, onHandStock + incomingSupply - nonSafetyDemand);
+      const status = replenishmentStatusFromDaysOfCover(entry.row.daysOfCoverStatus);
 
       return {
+        id: entry.row.item.id,
         entry,
         status,
         supplierName:
@@ -881,8 +902,6 @@ function buildReplenishmentItems(rows: OperationalRow[]): ReplenishmentItem[] {
           "Supplier needed",
         projectedStock,
         safetyStock,
-        suggestedQuantity: entry.row.suggestedOrderQuantity,
-        daysCover: entry.row.daysOfCover,
       };
     })
     .sort(compareReplenishmentPriority);
@@ -893,47 +912,12 @@ function compareReplenishmentPriority(left: ReplenishmentItem, right: Replenishm
     ["order-now", "order-soon", "unknown", "stocked"].indexOf(left.status) -
     ["order-now", "order-soon", "unknown", "stocked"].indexOf(right.status);
   if (statusSort !== 0) return statusSort;
-  const leftCover = left.daysCover ?? Number.MAX_SAFE_INTEGER;
-  const rightCover = right.daysCover ?? Number.MAX_SAFE_INTEGER;
-  if (leftCover !== rightCover) return leftCover - rightCover;
+  const leftRatio =
+    left.safetyStock > 0 ? left.projectedStock / left.safetyStock : Number.MAX_SAFE_INTEGER;
+  const rightRatio =
+    right.safetyStock > 0 ? right.projectedStock / right.safetyStock : Number.MAX_SAFE_INTEGER;
+  if (leftRatio !== rightRatio) return leftRatio - rightRatio;
   return left.entry.row.item.name.localeCompare(right.entry.row.item.name);
-}
-
-function compareReplenishmentByCover(
-  left: ReplenishmentItem,
-  right: ReplenishmentItem,
-  direction: "asc" | "desc"
-) {
-  if (left.daysCover == null && right.daysCover == null) {
-    return compareReplenishmentPriority(left, right);
-  }
-
-  if (left.daysCover == null) return 1;
-  if (right.daysCover == null) return -1;
-
-  const coverSort =
-    direction === "asc"
-      ? left.daysCover - right.daysCover
-      : right.daysCover - left.daysCover;
-  if (coverSort !== 0) return coverSort;
-  return compareReplenishmentPriority(left, right);
-}
-
-function sortReplenishmentItems(
-  items: ReplenishmentItem[],
-  sort: ReplenishmentSort
-) {
-  return [...items].sort((left, right) => {
-    if (sort === "days-cover-asc") {
-      return compareReplenishmentByCover(left, right, "asc");
-    }
-
-    if (sort === "days-cover-desc") {
-      return compareReplenishmentByCover(left, right, "desc");
-    }
-
-    return compareReplenishmentPriority(left, right);
-  });
 }
 
 function matchesPlanningSearch(entry: OperationalRow, normalizedSearch: string) {
@@ -946,56 +930,23 @@ function matchesPlanningSearch(entry: OperationalRow, normalizedSearch: string) 
     entry.actionLabel,
     entry.actionSummary,
     entry.statusLabel,
+    entry.row.daysOfCoverStatus,
     entry.recommendation?.suggestedSupplierName,
     entry.row.preferredSupplierName,
     entry.row.preferredSupplierSku,
-    entry.row.daysOfCoverStatus,
-    entry.row.leadTimeSource,
     ...entry.demandFacts.flatMap((fact) => fact.sourceRefs.map((ref) => ref.label)),
+    ...entry.demandPaths.flatMap((path) => [
+      path.terminal.salesOrderLabel,
+      path.terminal.customerName,
+      path.terminal.displayName,
+      ...path.steps.map((step) => step.displayName || step.itemName),
+    ]),
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 
   return searchText.includes(normalizedSearch);
-}
-
-function buildBuyGroups(rows: OperationalRow[]) {
-  const groups = new Map<string, BuyGroup>();
-
-  for (const entry of rows.filter(isReadyPurchaseRow)) {
-    const purchasePayload = entry.recommendation!.actionPayload as CreatePurchaseOrderDraftActionPayload;
-    const group = groups.get(purchasePayload.supplierId) ?? {
-      key: purchasePayload.supplierId,
-      supplierName: entry.recommendation?.suggestedSupplierName ?? "Preferred supplier",
-      rows: [],
-      actionPayloads: [],
-      earliestRequiredDate: null,
-      salesOrderCount: 0,
-    };
-
-    group.rows.push(entry);
-    group.actionPayloads.push(purchasePayload);
-    group.earliestRequiredDate = earliestDate(
-      group.rows.map((row) => row.row.earliestRequiredDate)
-    );
-    group.salesOrderCount = new Set(
-      group.rows.flatMap((row) => uniqueSalesOrderLabels(row.demandFacts))
-    ).size;
-    groups.set(purchasePayload.supplierId, group);
-  }
-
-  return [...groups.values()].sort((left, right) => {
-    const orderSort = right.salesOrderCount - left.salesOrderCount;
-    if (orderSort !== 0) return orderSort;
-
-    const dateSort = compareRequiredDates(
-      left.earliestRequiredDate,
-      right.earliestRequiredDate
-    );
-    if (dateSort !== 0) return dateSort;
-    return left.supplierName.localeCompare(right.supplierName);
-  });
 }
 
 function actionLabelForAttentionGroup(label: string) {
@@ -1162,34 +1113,28 @@ function StatStrip({
 function ProductionWorkCard({
   item,
   expanded,
-  draggable,
-  rowsByItemId,
   isPending,
   onOpen,
   onToggleExpanded,
-  onDragStart,
-  onDragOver,
-  onDrop,
 }: {
   item: ProductionWorkItem;
   expanded: boolean;
-  draggable: boolean;
-  rowsByItemId: Map<string, OperationalRow>;
   isPending: boolean;
   onOpen: () => void;
   onToggleExpanded: () => void;
-  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
 }) {
   const { entry } = item;
   const isCritical = item.urgency === "critical";
   const isBlocked = item.urgency === "blocked";
-  const uses = downstreamUses(entry, rowsByItemId);
-  const hasTree = uses.some((use) => use.relationship === "feeds-another-mo");
+  const paths = entry.demandPaths;
+  const hasTree = paths.length > 0;
   const productName = entry.row.item.displayName || entry.row.item.name;
   const packageLabel = packageText(entry.row);
-  const quantity = productionQuantityParts(entry.row, entry.row.shortageQuantity);
+  const quantity = productionQuantityParts(
+    entry.row,
+    item.coveredByStock ? entry.row.demandQuantity : entry.row.shortageQuantity
+  );
+  const downstreamSummary = downstreamCardSummary(paths);
   const panelProps = openablePanelProps(onOpen);
   const requiredDateIsLate = isPastDate(entry.row.earliestRequiredDate);
 
@@ -1197,10 +1142,6 @@ function ProductionWorkCard({
     <div
       role="listitem"
       aria-label={`${entry.row.item.name}, ${entry.actionSummary}`}
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
       className="group"
     >
       <div
@@ -1214,13 +1155,6 @@ function ProductionWorkCard({
         {isCritical || isBlocked ? (
           <div className="absolute inset-y-0 left-0 w-0.5 rounded-l-lg bg-destructive" />
         ) : null}
-        <div
-          className="flex size-4 shrink-0 cursor-grab items-center justify-center text-sm leading-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-          aria-label={`Reorder ${entry.row.item.name}`}
-          role="img"
-        >
-          ⠿
-        </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-baseline gap-2">
             <span className="inline-flex min-w-9 justify-center rounded-md bg-muted px-2 py-0.5 font-mono text-[14.5px] font-semibold tabular-nums text-foreground">
@@ -1243,12 +1177,22 @@ function ProductionWorkCard({
                 Sub-assembly
               </Badge>
             ) : null}
+            {entry.row.manufacturingMode === "batch" && entry.row.plannedBatchCount ? (
+              <Badge variant="outline" className="h-[18px] px-1.5 text-[11px] font-medium">
+                {formatCount(entry.row.plannedBatchCount, "batch", "batches")}
+              </Badge>
+            ) : null}
             {isBlocked ? (
               <Badge
                 variant="destructive"
                 className="h-[18px] rounded-[3px] border-transparent px-1.5 text-[11px] font-medium shadow-none"
               >
                 {productionBlockerLabel(entry)}
+              </Badge>
+            ) : null}
+            {item.coveredByStock ? (
+              <Badge variant="success" className="h-[18px] px-1.5 text-[11px] font-medium">
+                Covered
               </Badge>
             ) : null}
           </div>
@@ -1258,7 +1202,8 @@ function ProductionWorkCard({
             </div>
           ) : null}
           {hasTree ? (
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
+              {downstreamSummary ? <span>{downstreamSummary}</span> : null}
               <button
                 type="button"
                 className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground"
@@ -1268,13 +1213,13 @@ function ProductionWorkCard({
                 }}
               >
                 <HugeiconsIcon icon={expanded ? ArrowDown01Icon : ArrowRight01Icon} />
-                {`Feeds ${uses.length} downstream ${uses.length === 1 ? "use" : "uses"}`}
+                {`${paths.length} downstream ${paths.length === 1 ? "need" : "needs"}`}
               </button>
             </div>
           ) : null}
           <div className="sr-only">
             {hasTree ? (
-              <span>{`Sub-assembly for ${uses.length} downstream ${uses.length === 1 ? "use" : "uses"}`}</span>
+              <span>{`${paths.length} downstream ${paths.length === 1 ? "need" : "needs"}`}</span>
             ) : (
               <SalesOrderMetaLabel label={salesOrderQueueLabel(entry)} />
             )}
@@ -1302,7 +1247,7 @@ function ProductionWorkCard({
             onOpen();
           }}
         >
-          Review
+          {item.coveredByStock ? "View" : "Review"}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1319,12 +1264,14 @@ function ProductionWorkCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={onOpen}>Review</DropdownMenuItem>
+              <DropdownMenuItem onSelect={onOpen}>
+                {item.coveredByStock ? "View" : "Review"}
+              </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {hasTree && expanded ? <DownstreamTree uses={uses} /> : null}
+      {hasTree && expanded ? <DownstreamTree paths={paths} /> : null}
     </div>
   );
 }
@@ -1344,49 +1291,57 @@ function SalesOrderMetaLabel({ label }: { label: string }) {
   );
 }
 
-function DownstreamTree({ uses }: { uses: DownstreamUse[] }) {
+function DownstreamTree({ paths }: { paths: ProductionDemandPath[] }) {
   return (
     <div className="-mt-px ml-[60px] border-l px-4 py-2 text-sm">
-      {uses.map((use) => (
-        <DownstreamTreeItem key={use.key} use={use} />
+      {paths.map((path) => (
+        <DownstreamTreeItem key={path.id} path={path} />
       ))}
     </div>
   );
 }
 
-function DownstreamTreeItem({ use }: { use: DownstreamUse }) {
-  const quantity = displayQuantityParts(use.quantity, use.quantityUnit);
-
+function DownstreamTreeItem({ path }: { path: ProductionDemandPath }) {
   return (
     <div className="relative py-1.5 before:absolute before:-left-4 before:top-4 before:h-px before:w-3 before:bg-border">
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="inline-flex min-w-8 justify-center rounded-md bg-muted px-1.5 py-0.5 font-mono text-[13px] font-semibold tabular-nums text-foreground">
-            {quantity.quantity}
-          </span>
-          <span className="text-[13px] font-medium text-foreground">{use.productName}</span>
-          {use.packageLabel ? (
-            <>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-[13px] font-normal text-muted-foreground">
-                {use.packageLabel}
-              </span>
-            </>
-          ) : null}
-          {use.requiresAgingHold ? (
-            <Badge
-              variant="secondary"
-              title={use.agingTooltip ?? undefined}
-              className="h-[17px] rounded-[3px] border-transparent bg-secondary px-1.5 text-[11px] font-medium text-secondary-foreground shadow-none"
-            >
-              requires 10+ day hold
-            </Badge>
-          ) : null}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          {path.steps.map((step, index) => {
+            const quantity = pathQuantityParts(step);
+            const packageLabel = pathPackageLabel(step);
+
+            return (
+              <div key={`${path.id}:${step.itemId}:${index}`} className="contents">
+                {index > 0 ? (
+                  <HugeiconsIcon
+                    icon={ArrowRight01Icon}
+                    className="size-3.5 text-muted-foreground"
+                  />
+                ) : null}
+                <span className="inline-flex min-w-8 justify-center rounded-md bg-muted px-1.5 py-0.5 font-mono text-[13px] font-semibold tabular-nums text-foreground">
+                  {quantity.quantity}
+                </span>
+                <span className="text-[13px] font-medium text-foreground">
+                  {step.displayName || step.itemName}
+                </span>
+                {packageLabel ? (
+                  <>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-[13px] font-normal text-muted-foreground">
+                      {packageLabel}
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-muted-foreground">
-          <SalesOrderMetaLabel label={use.label} />
+          <Link href={`/sales/orders/${path.terminal.salesOrderId}`} className="hover:underline">
+            <SalesOrderMetaLabel label={normalizeSalesOrderLabel(path.terminal.salesOrderLabel)} />
+          </Link>
           <span className="text-muted-foreground">·</span>
-          <span>due {formatShortDate(use.dueDate)}</span>
+          <span>due {formatShortDate(path.requiredDate)}</span>
         </div>
       </div>
     </div>
@@ -1395,33 +1350,29 @@ function DownstreamTreeItem({ use }: { use: DownstreamUse }) {
 
 function ProductionPlanningView({
   items,
+  coveredItems,
   horizonStart,
   search,
-  onSearchChange,
+  viewFilter,
   isPending,
   onOpenRow,
 }: {
   items: ProductionWorkItem[];
+  coveredItems: ProductionWorkItem[];
   horizonStart: string | null;
   search: string;
-  onSearchChange: (value: string) => void;
+  viewFilter: ProductionViewFilter;
   isPending: boolean;
   onOpenRow: (row: OperationalRow) => void;
 }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [bucketOrders, setBucketOrders] = useState<Record<ProductionBucketKey, string[]>>({
-    now: [],
-    "this-week": [],
-    "next-week": [],
-    later: [],
-  });
+  const visibleItems = viewFilter === "covered" ? coveredItems : items;
   const buckets: ProductionBucketKey[] = ["now", "this-week", "next-week", "later"];
   const byBucket = new Map<ProductionBucketKey, ProductionWorkItem[]>(
     buckets.map((bucket) => [bucket, []])
   );
 
-  for (const item of items) {
+  for (const item of visibleItems) {
     const bucket = item.bucket;
 
     byBucket.get(bucket)?.push({
@@ -1435,83 +1386,33 @@ function ProductionPlanningView({
   }
 
   const criticalCount = byBucket.get("now")?.length ?? 0;
-  const blockedCount = items.filter((item) => item.urgency === "blocked").length;
-  const rowsByItemId = new Map(items.map((item) => [item.entry.row.item.id, item.entry]));
-  const subAssemblyCount = items.filter((item) =>
-    downstreamUses(item.entry, rowsByItemId).some(
-      (use) => use.relationship === "feeds-another-mo"
-    )
-  );
+  const blockedCount = visibleItems.filter((item) => item.urgency === "blocked").length;
+  const subAssemblyCount = visibleItems.filter((item) => item.entry.demandPaths.length > 0);
   const salesOrderTotal = new Set(
-    items.flatMap((item) => uniqueSalesOrderLabels(item.entry.demandFacts))
+    visibleItems.flatMap((item) => uniqueSalesOrderLabels(item.entry.demandFacts))
   ).size;
-  const orderedBucketItems = (bucket: ProductionBucketKey, bucketItems: ProductionWorkItem[]) => {
-    const order = bucketOrders[bucket];
-    if (order.length === 0) return bucketItems;
-    const itemIds = bucketItems.map((item) => item.entry.row.item.id);
-    const activeOrder = order.filter((id) => itemIds.includes(id));
-    const byId = new Map(bucketItems.map((item) => [item.entry.row.item.id, item]));
-    const ordered = activeOrder
-      .map((id) => byId.get(id))
-      .filter((item): item is ProductionWorkItem => Boolean(item));
-    const missing = bucketItems.filter((item) => !activeOrder.includes(item.entry.row.item.id));
-    return [...ordered, ...missing];
-  };
-
-  const moveWithinBucket = (
-    bucket: ProductionBucketKey,
-    draggedItemId: string,
-    targetItemId: string
-  ) => {
-    if (draggedItemId === targetItemId) return;
-    const bucketItems = byBucket.get(bucket) ?? [];
-    const currentOrder = orderedBucketItems(bucket, bucketItems).map(
-      (item) => item.entry.row.item.id
-    );
-    const fromIndex = currentOrder.indexOf(draggedItemId);
-    const toIndex = currentOrder.indexOf(targetItemId);
-    if (fromIndex < 0 || toIndex < 0) return;
-    const nextOrder = [...currentOrder];
-    const [moved] = nextOrder.splice(fromIndex, 1);
-    nextOrder.splice(toIndex, 0, moved);
-    setBucketOrders((current) => ({ ...current, [bucket]: nextOrder }));
-  };
-
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
-        <div className="relative w-full lg:w-80">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Search planning"
-            placeholder="Search production..."
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            className="h-8 w-full pl-8"
-          />
-        </div>
-      </div>
-
       <StatStrip
         items={[
           {
-            label: "Must start today",
+            label: viewFilter === "covered" ? "Due today" : "Must start today",
             value: String(criticalCount),
-            suffix: "production items",
+            suffix: viewFilter === "covered" ? "covered items" : "production items",
             icon: Alert01Icon,
             danger: criticalCount > 0,
           },
           {
             label: "Sub-assembly batches",
             value: String(subAssemblyCount.length),
-            suffix: "queued",
+            suffix: "in plan",
             icon: Layers01Icon,
           },
           {
-            label: "Open sales orders",
+            label:
+              viewFilter === "covered"
+                ? "Covered sales orders"
+                : "Sales orders needing production",
             value: String(salesOrderTotal),
             suffix: "in plan",
             icon: Package01Icon,
@@ -1526,14 +1427,18 @@ function ProductionPlanningView({
         ]}
       />
 
-      {items.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No production items match the current search.
+          {search.trim()
+            ? "No production planning items match the current search."
+            : viewFilter === "covered"
+              ? "No covered sales orders."
+              : "No current production planning needs."}
         </div>
       ) : null}
 
       {buckets.map((bucket) => {
-        const bucketItems = orderedBucketItems(bucket, byBucket.get(bucket) ?? []);
+        const bucketItems = byBucket.get(bucket) ?? [];
         if (bucketItems.length === 0) return null;
 
         return (
@@ -1546,7 +1451,7 @@ function ProductionPlanningView({
                 <h2 className="text-base font-semibold">{bucketTitle(bucket, horizonStart)}</h2>
               </div>
               <p className="text-xs text-muted-foreground">
-                {`${formatCount(bucketItems.length, "production item")} queued`}
+                {`${formatCount(bucketItems.length, "planning item")} in bucket`}
               </p>
             </div>
             <div className="space-y-2" role="list">
@@ -1555,8 +1460,6 @@ function ProductionPlanningView({
                   key={planningRowKey(item.entry)}
                   item={item}
                   expanded={expandedIds.has(item.entry.row.item.id)}
-                  draggable={bucketItems.length > 1}
-                  rowsByItemId={rowsByItemId}
                   isPending={isPending}
                   onOpen={() => onOpenRow(item.entry)}
                   onToggleExpanded={() => {
@@ -1570,22 +1473,6 @@ function ProductionPlanningView({
                       return next;
                     });
                   }}
-                  onDragStart={(event) => {
-                    setDraggedId(item.entry.row.item.id);
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", item.entry.row.item.id);
-                  }}
-                  onDragOver={(event) => {
-                    if (!draggedId || draggedId === item.entry.row.item.id) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const id = draggedId ?? event.dataTransfer.getData("text/plain");
-                    moveWithinBucket(bucket, id, item.entry.row.item.id);
-                    setDraggedId(null);
-                  }}
                 />
               ))}
             </div>
@@ -1598,598 +1485,341 @@ function ProductionPlanningView({
 
 function StatusChip({ status }: { status: ReplenishmentItem["status"] }) {
   if (status === "order-now") {
-    return (
-      <Badge variant="destructive" className="rounded-[4px]">
-        <span className="size-1.5 rounded-full bg-current" />
-        Order now
-      </Badge>
-    );
+    return <Badge variant="destructive">Order now</Badge>;
   }
 
   if (status === "order-soon") {
-    return (
-      <Badge variant="secondary" className="rounded-[4px]">
-        <span className="size-1.5 rounded-full bg-current" />
-        Order soon
-      </Badge>
-    );
+    return <Badge variant="warning">Order soon</Badge>;
   }
 
   if (status === "unknown") {
-    return (
-      <Badge variant="outline" className="rounded-[4px]">
-        <span className="size-1.5 rounded-full bg-current" />
-        Review
-      </Badge>
-    );
+    return <Badge variant="outline">Review</Badge>;
   }
 
-  return (
-    <Badge variant="outline" className="rounded-[4px]">
-      <span className="size-1.5 rounded-full bg-current" />
-      Stocked
-    </Badge>
-  );
+  return <Badge variant="success">Stocked</Badge>;
 }
 
-function StockMeter({ item }: { item: ReplenishmentItem }) {
-  const max = Math.max(item.projectedStock, item.safetyStock * 2, 1);
-  const fillPct = Math.min(100, (item.projectedStock / max) * 100);
-  const markerPct = Math.min(100, (item.safetyStock / max) * 100);
+function ProjectedSafetyBar({ item }: { item: ReplenishmentItem }) {
+  const projected = Math.max(0, item.projectedStock);
+  const safety = Math.max(0, item.safetyStock);
+  const projectedPercent =
+    safety > 0 ? Math.min(100, (projected / safety) * 50) : projected > 0 ? 100 : 0;
   const fillClass =
     item.status === "order-now"
       ? "bg-destructive"
       : item.status === "order-soon"
-        ? "bg-foreground"
-        : "bg-muted-foreground";
+        ? "bg-warning"
+        : "bg-success";
 
   return (
-    <div className="w-40 space-y-1.5">
-      <div className="relative h-1.5 rounded-full bg-muted">
+    <div className="flex min-w-0 max-w-full flex-col gap-2">
+      <div className="relative h-2 rounded-full bg-muted">
         <div
-          className={`h-full rounded-full transition-[width] ${fillClass}`}
-          style={{ width: `${fillPct}%` }}
+          className={cn("absolute inset-y-0 left-0 rounded-full", fillClass)}
+          style={{ width: `${projectedPercent}%` }}
         />
-        <div
-          className="absolute -top-1 h-3.5 w-px bg-foreground"
-          style={{ left: `${markerPct}%` }}
-        />
+        {safety > 0 ? (
+          <span
+            aria-hidden
+            className="absolute top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+            style={{ left: "50%" }}
+          />
+        ) : null}
       </div>
-      <div className="flex justify-between gap-3 text-[0.68rem] text-muted-foreground">
-        <span className="font-mono tabular-nums">
-          <b className="text-foreground">
-            {formatPurchaseQuantity(item.entry.row, String(item.projectedStock))}
-          </b>
-        </span>
-        <span>safety {formatPurchaseQuantity(item.entry.row, String(item.safetyStock))}</span>
+      <div className="grid min-w-0 grid-cols-1 gap-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <QuantityWithUnit
+          value={projected}
+          unitName={item.entry.row.item.unitName}
+          unitSize={item.entry.row.item.unitSize}
+          unitUom={item.entry.row.item.unitUom}
+          className="text-xs"
+          valueClassName="font-medium text-foreground"
+        />
+        <QuantityWithUnit
+          label="safety"
+          value={safety}
+          unitName={item.entry.row.item.unitName}
+          unitSize={item.entry.row.item.unitSize}
+          unitUom={item.entry.row.item.unitUom}
+          className="text-xs"
+          muted
+        />
       </div>
     </div>
   );
+}
+
+const replenishmentSearchFilter: FilterFn<ReplenishmentItem> = (
+  row,
+  _columnId,
+  filterValue
+) => {
+  const search = String(filterValue).trim().toLowerCase();
+  if (!search) return true;
+
+  const item = row.original.entry.row.item;
+  return [
+    item.name,
+    item.sku,
+    row.original.status,
+    row.original.supplierName,
+    row.original.entry.neededFor,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(search);
+};
+
+function planningPurchaseOrderUrl(items: ReplenishmentItem[]) {
+  const params = new URLSearchParams();
+  const supplierIds = [...new Set(items.map((item) => item.entry.row.preferredSupplierId))];
+
+  for (const item of items) {
+    params.append("itemId", item.entry.row.item.id);
+  }
+
+  if (supplierIds.length === 1 && supplierIds[0] != null) {
+    params.set("supplierId", supplierIds[0]);
+  }
+
+  const query = params.toString();
+  return query ? `/purchasing/orders/new?${query}` : "/purchasing/orders/new";
+}
+
+function getReplenishmentColumns({
+  permissions,
+  isPending,
+  onOpenItem,
+  onCreatePurchaseOrder,
+}: {
+  permissions: PlanningPermissions;
+  isPending: boolean;
+  onOpenItem: (row: OperationalRow) => void;
+  onCreatePurchaseOrder: (items: ReplenishmentItem[]) => void;
+}): ColumnDef<ReplenishmentItem>[] {
+  return [
+    {
+      id: "select",
+      meta: { className: "w-10" },
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() && "indeterminate")
+          }
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all materials"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label={`Select ${row.original.entry.row.item.name}`}
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    {
+      accessorFn: (row) => row.entry.row.item.name,
+      id: "material",
+      meta: { className: "w-[30%] min-w-0" },
+      header: ({ column }) => <SortableHeader column={column} label="Material" />,
+      cell: ({ row }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="block min-w-0 max-w-full text-left hover:underline"
+              onClick={() => onOpenItem(row.original.entry)}
+            >
+              <span className="block min-w-0 truncate font-medium">
+                {row.original.entry.row.item.name}
+              </span>
+              <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground">
+                {demandSku(row.original.entry.row)}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-sm">
+            {row.original.entry.row.item.name}
+          </TooltipContent>
+        </Tooltip>
+      ),
+    },
+    {
+      accessorKey: "status",
+      meta: { className: "w-[8.5rem]" },
+      header: ({ column }) => <SortableHeader column={column} label="Status" />,
+      cell: ({ row }) => <StatusChip status={row.original.status} />,
+    },
+    {
+      accessorKey: "projectedStock",
+      id: "projectedSafety",
+      meta: { className: "w-[32%] min-w-0" },
+      sortDescFirst: false,
+      header: ({ column }) => (
+        <SortableHeader
+          column={column}
+          label="Projected vs safety"
+          tooltip={SAFETY_STOCK_TOOLTIP}
+        />
+      ),
+      cell: ({ row }) => <ProjectedSafetyBar item={row.original} />,
+    },
+    {
+      accessorKey: "supplierName",
+      meta: { className: "w-[11rem]" },
+      header: ({ column }) => <SortableHeader column={column} label="Supplier" />,
+    },
+    {
+      id: "actions",
+      meta: { className: "w-[7.5rem]" },
+      cell: ({ row }) => (
+        <div className="text-right">
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            disabled={
+              canOpenPurchaseOrderForm(row.original) &&
+              (!permissions.canCreatePurchaseOrders || isPending)
+            }
+            onClick={() => {
+              if (canOpenPurchaseOrderForm(row.original)) {
+                onCreatePurchaseOrder([row.original]);
+                return;
+              }
+              onOpenItem(row.original.entry);
+            }}
+          >
+            {canOpenPurchaseOrderForm(row.original) ? "Create PO" : "Review"}
+          </Button>
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+  ];
 }
 
 function ReplenishmentPlanningView({
   items,
-  filter,
-  sort,
-  search,
-  onSearchChange,
-  onFilterChange,
-  onSortChange,
-  selectedIds,
-  onToggleSelected,
-  onClearSelected,
   permissions,
   isPending,
   onOpenItem,
-  onCreatePurchaseOrders,
+  onCreatePurchaseOrder,
 }: {
   items: ReplenishmentItem[];
-  filter: ReplenishmentFilter;
-  sort: ReplenishmentSort;
-  search: string;
-  onSearchChange: (value: string) => void;
-  onFilterChange: (filter: ReplenishmentFilter) => void;
-  onSortChange: (sort: ReplenishmentSort) => void;
-  selectedIds: Set<string>;
-  onToggleSelected: (id: string) => void;
-  onClearSelected: () => void;
   permissions: PlanningPermissions;
   isPending: boolean;
   onOpenItem: (row: OperationalRow) => void;
-  onCreatePurchaseOrders: (payloads: CreatePurchaseOrderDraftActionPayload[]) => void;
+  onCreatePurchaseOrder: (items: ReplenishmentItem[]) => void;
 }) {
-  const orderNow = items.filter((item) => item.status === "order-now");
-  const orderSoon = items.filter((item) => item.status === "order-soon");
-  const stocked = items.filter((item) => item.status === "stocked");
-  const suppliers = new Set(items.map((item) => item.supplierName)).size;
-  const shortest = items.reduce<ReplenishmentItem | null>(
-    (current, item) => {
-      if (item.daysCover == null) return current;
-      return !current || current.daysCover == null || item.daysCover < current.daysCover
-        ? item
-        : current;
-    },
-    null
+  const [statusFilter, setStatusFilter] =
+    useState<ReplenishmentStatusFilter>("all");
+  const columns = useMemo(
+    () =>
+      getReplenishmentColumns({
+        permissions,
+        isPending,
+        onOpenItem,
+        onCreatePurchaseOrder,
+      }),
+    [permissions, isPending, onOpenItem, onCreatePurchaseOrder]
   );
-  const filtered =
-    filter === "all"
-      ? items
-      : items.filter((item) =>
-          filter === "stocked" ? item.status === "stocked" : item.status === filter
-        );
-  const visible = sortReplenishmentItems(filtered, sort);
-  const selectedItems = items.filter((item) => selectedIds.has(item.entry.row.item.id));
-  const selectedOrderableItems = selectedItems.filter((item) => {
-    const payload = item.entry.recommendation?.actionPayload;
-    return payload?.actionType === "create_purchase_order";
-  });
-  const selectedPayloads = selectedOrderableItems.flatMap((item) => {
-    const payload = item.entry.recommendation?.actionPayload;
-    return payload?.actionType === "create_purchase_order" ? [payload] : [];
-  });
-  const selectedSuppliers = new Set(
-    selectedOrderableItems.map((item) => item.supplierName)
-  ).size;
-  const selectedBlockedCount = selectedItems.length - selectedOrderableItems.length;
-  const daysCoverSortIcon =
-    sort === "days-cover-desc" ? ArrowDown01Icon : ArrowUp01Icon;
+  const statusCounts = useMemo(
+    () =>
+      items.reduce(
+        (counts, item) => {
+          counts.all += 1;
+          counts[item.status] += 1;
+          return counts;
+        },
+        {
+          all: 0,
+          "order-now": 0,
+          "order-soon": 0,
+          stocked: 0,
+          unknown: 0,
+        } satisfies Record<ReplenishmentStatusFilter, number>
+      ),
+    [items]
+  );
+  const filteredItems = useMemo(
+    () =>
+      statusFilter === "all"
+        ? items
+        : items.filter((item) => item.status === statusFilter),
+    [items, statusFilter]
+  );
 
   return (
-    <div className="space-y-5">
-      <StatStrip
-        items={[
-          {
-            label: "Order now",
-            value: String(orderNow.length),
-            suffix: "projected at safety stock",
-            icon: Alert01Icon,
-            danger: orderNow.length > 0,
-          },
-          {
-            label: "Order soon",
-            value: String(orderSoon.length),
-            suffix: "projected near safety stock",
-            icon: Calendar01Icon,
-          },
-          {
-            label: "Materials tracked",
-            value: String(items.length),
-            suffix: `across ${suppliers} suppliers`,
-            icon: Layers01Icon,
-          },
-          {
-            label: "Shortest cover",
-            value: shortest ? formatDaysCover(shortest.daysCover) : "—",
-            suffix: shortest?.entry.row.item.name ?? "No materials",
-            icon: Package01Icon,
-          },
-        ]}
-      />
-
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative w-full lg:w-72">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Search planning"
-            placeholder="Search materials, suppliers..."
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            className="h-8 w-full pl-8"
-          />
-        </div>
+    <DashboardDataTable
+      columns={columns}
+      data={filteredItems}
+      initialData={filteredItems}
+      queryKey={["planning", "replenishment", statusFilter]}
+      enableRowSelection
+      tableClassName="table-fixed"
+      searchAriaLabel="Search planning"
+      emptyMessage="No materials match the current filters."
+      globalFilterFn={replenishmentSearchFilter}
+      toolbarContent={
         <ToggleGroup
           type="single"
-          value={filter}
-          onValueChange={(next) => {
-            if (
-              next === "all" ||
-              next === "order-now" ||
-              next === "order-soon" ||
-              next === "stocked"
-            ) {
-              onFilterChange(next);
-            }
+          value={statusFilter}
+          onValueChange={(value) => {
+            if (value) setStatusFilter(value as ReplenishmentStatusFilter);
           }}
+          aria-label="Filter replenishment status"
           className="rounded-lg bg-muted p-1"
           size="sm"
         >
-          {[
-            ["all", "All", items.length],
-            ["order-now", "Order now", orderNow.length],
-            ["order-soon", "Soon", orderSoon.length],
-            ["stocked", "Stocked", stocked.length],
-          ].map(([key, label, count]) => (
-            <ToggleGroupItem
-              key={key}
-              value={key as ReplenishmentFilter}
-              className="data-[state=on]:bg-background data-[state=on]:shadow-xs"
-            >
-              {label} <span className="text-muted-foreground">{count}</span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        <div className="flex-1" />
-        <Button
-          type="button"
-          variant={sort === "priority" ? "outline" : "secondary"}
-          size="sm"
-          onClick={() =>
-            onSortChange(
-              sort === "days-cover-asc"
-                ? "days-cover-desc"
-                : sort === "days-cover-desc"
-                  ? "priority"
-                  : "days-cover-asc"
-            )
-          }
-        >
-          <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
-          Days of cover
-          <HugeiconsIcon icon={daysCoverSortIcon} data-icon="inline-end" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={selectedItems.length !== 1}
-          onClick={() => {
-            const [selectedItem] = selectedItems;
-            if (selectedItem) onOpenItem(selectedItem.entry);
-          }}
-        >
-          <HugeiconsIcon icon={Settings02Icon} data-icon="inline-start" />
-          Planning rules
-        </Button>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border bg-background">
-        <Table className="[--table-cell-px:12px] [--table-cell-py:10px] [--table-head-height:34px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-9" />
-              <TableHead>Material</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>
-                <TooltipHeader
-                  label="Projected vs safety"
-                  tooltip={PLANNING_REORDER_COMPARISON_TOOLTIP}
-                />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader
-                  label="Days of cover"
-                  tooltip={PLANNING_DAYS_COVER_TOOLTIP}
-                />
-              </TableHead>
-              <TableHead>Supplier</TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Suggested" tooltip={PLANNING_SUGGESTED_QTY_TOOLTIP} />
-              </TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-muted-foreground">
-                  No materials match the current filter.
-                </TableCell>
-              </TableRow>
-            ) : (
-              visible.map((item) => {
-                const payload = item.entry.recommendation?.actionPayload;
-                const canOrder =
-                  permissions.canCreatePurchaseOrders &&
-                  payload?.actionType === "create_purchase_order";
-
-                return (
-                  <TableRow
-                    key={item.entry.row.item.id}
-                    data-state={selectedIds.has(item.entry.row.item.id) ? "selected" : undefined}
-                    aria-label={`${item.entry.row.item.name}, ${item.supplierName}`}
-                    {...openablePanelProps(() => onOpenItem(item.entry))}
-                  >
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedIds.has(item.entry.row.item.id)}
-                        onClick={(event) => event.stopPropagation()}
-                        onCheckedChange={() => onToggleSelected(item.entry.row.item.id)}
-                        aria-label={`Select ${item.entry.row.item.name}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{item.entry.row.item.name}</div>
-                        <div className="font-mono text-xs text-muted-foreground">
-                          {demandSku(item.entry.row)}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={item.status} />
-                    </TableCell>
-                    <TableCell>
-                      <StockMeter item={item} />
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-mono tabular-nums ${
-                        item.status === "order-now" ? "font-medium text-destructive" : ""
-                      }`}
-                    >
-                      {formatDaysCover(item.daysCover)}
-                    </TableCell>
-                    <TableCell>
-                      <div>{item.supplierName}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {leadTimeLabel(item.entry.row)}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-mono font-medium tabular-nums">
-                      {item.suggestedQuantity
-                        ? `${formatPurchaseQuantity(item.entry.row, item.suggestedQuantity)}`
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        variant={canOrder ? "outline" : "ghost"}
-                        size="xs"
-                        disabled={isPending}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (canOrder && payload?.actionType === "create_purchase_order") {
-                            onCreatePurchaseOrders([payload]);
-                            return;
-                          }
-                          onOpenItem(item.entry);
-                        }}
-                      >
-                        {canOrder ? "Order" : "Adjust"}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {selectedIds.size > 0 ? (
-        <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-sm text-background shadow-lg">
-          <span>
-            <b>{selectedIds.size}</b> materials selected
-          </span>
-          <span className="opacity-60">·</span>
-          <span>{formatCount(selectedPayloads.length, "orderable material")}</span>
-          {selectedBlockedCount > 0 ? (
-            <>
-              <span className="opacity-60">·</span>
-              <span>{selectedBlockedCount} need setup</span>
-            </>
-          ) : null}
-          <Button type="button" variant="ghost" size="sm" onClick={onClearSelected}>
-            Clear
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="bg-background text-foreground hover:bg-background/90"
-            disabled={selectedPayloads.length === 0 || isPending}
-            onClick={() => onCreatePurchaseOrders(selectedPayloads)}
+          <ToggleGroupItem
+            value="all"
+            className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
           >
-            <HugeiconsIcon icon={ShoppingCart01Icon} data-icon="inline-start" />
-            Create {selectedSuppliers} PO{selectedSuppliers === 1 ? "" : "s"}
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function PlanningRulesForm({
-  planningRow,
-  permissions,
-  isPending,
-  onSubmit,
-}: {
-  planningRow: OperationalRow;
-  permissions: PlanningPermissions;
-  isPending: boolean;
-  onSubmit: (itemId: string, payload: PlanningRulesPayload) => void;
-}) {
-  const row = planningRow.row;
-  const supplierId = row.preferredSupplierId ?? planningRow.recommendation?.suggestedSupplierId;
-  const [planningEnabled, setPlanningEnabled] = useState(
-    !row.reasonCodes.includes("planning_disabled")
-  );
-  const [targetCoverDays, setTargetCoverDays] = useState(
-    row.targetCoverDays == null ? "" : String(row.targetCoverDays)
-  );
-  const [leadTimeDays, setLeadTimeDays] = useState(
-    row.leadTimeDays == null ? "" : String(row.leadTimeDays)
-  );
-  const [productionLeadTimeDays, setProductionLeadTimeDays] = useState(
-    row.productionLeadTimeDays == null ? "" : String(row.productionLeadTimeDays)
-  );
-  const [unitCost, setUnitCost] = useState(row.unitCost ?? "");
-  const [purchaseToStockFactor, setPurchaseToStockFactor] = useState(
-    row.purchaseToStockFactor ?? ""
-  );
-  const [minimumOrderQuantity, setMinimumOrderQuantity] = useState(
-    row.minimumOrderQuantity ?? ""
-  );
-  const [orderMultiple, setOrderMultiple] = useState(row.orderMultiple ?? "");
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const payload: PlanningRulesPayload = {
-      planningEnabled,
-      targetCoverDays: emptyToNull(targetCoverDays),
-    };
-
-    if (row.planningType === "make") {
-      payload.productionLeadTimeDays = emptyToNull(productionLeadTimeDays);
-    }
-
-    if (row.planningType === "buy") {
-      const leadTimeValue = emptyToNull(leadTimeDays);
-      const supplierRuleChanged =
-        supplierId != null &&
-        (!sameNullableString(row.unitCost, emptyToNull(unitCost)) ||
-          !sameNullableString(row.purchaseToStockFactor, emptyToNull(purchaseToStockFactor)) ||
-          !sameNullableString(row.minimumOrderQuantity, emptyToNull(minimumOrderQuantity)) ||
-          !sameNullableString(row.orderMultiple, emptyToNull(orderMultiple)) ||
-          !sameNullableString(
-            row.leadTimeDays == null ? null : String(row.leadTimeDays),
-            leadTimeValue
-          ));
-
-      if (supplierRuleChanged && supplierId) {
-        payload.preferredSupplierItem = {
-          supplierId,
-          supplierSku: row.preferredSupplierSku,
-          unitCost: emptyToNull(unitCost),
-          purchaseUnitDefinitionId: row.purchaseUnitDefinitionId,
-          purchaseToStockFactor: emptyToNull(purchaseToStockFactor),
-          leadTimeDaysOverride: leadTimeValue,
-          minimumOrderQuantity: emptyToNull(minimumOrderQuantity),
-          orderMultiple: emptyToNull(orderMultiple),
-          isPreferred: true,
-        };
-      } else {
-        payload.leadTimeDaysOverride = leadTimeValue;
+            All
+            <span className="text-muted-foreground">{statusCounts.all}</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="order-now"
+            className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
+          >
+            Order now
+            <span className="text-muted-foreground">
+              {statusCounts["order-now"]}
+            </span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="order-soon"
+            className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
+          >
+            Soon
+            <span className="text-muted-foreground">
+              {statusCounts["order-soon"]}
+            </span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="stocked"
+            className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
+          >
+            Stocked
+            <span className="text-muted-foreground">{statusCounts.stocked}</span>
+          </ToggleGroupItem>
+        </ToggleGroup>
       }
-    }
-
-    onSubmit(row.item.id, payload);
-  };
-
-  return (
-    <form className="space-y-4 rounded-lg border p-3" onSubmit={handleSubmit}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="space-y-0.5">
-          <h2 className="text-sm font-medium">Planning rules</h2>
-          <p className="text-xs text-muted-foreground">
-            {row.planningType === "buy"
-              ? `${sourceLabel(row.leadTimeSource)} lead time`
-              : `${sourceLabel(row.productionLeadTimeSource)} production lead time`}
-          </p>
-        </div>
-        <Switch
-          size="sm"
-          checked={planningEnabled}
-          onCheckedChange={setPlanningEnabled}
-          disabled={!permissions.canUpdatePlanningRules || isPending}
-          aria-label="Planning enabled"
-        />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="planning-target-cover">Target cover days</Label>
-          <Input
-            id="planning-target-cover"
-            value={targetCoverDays}
-            onChange={(event) => setTargetCoverDays(event.target.value)}
-            inputMode="numeric"
-            disabled={!permissions.canUpdatePlanningRules || isPending}
-          />
-        </div>
-
-        {row.planningType === "buy" ? (
-          <>
-            <div className="space-y-1.5">
-              <Label htmlFor="planning-lead-time">Lead time</Label>
-              <Input
-                id="planning-lead-time"
-                value={leadTimeDays}
-                onChange={(event) => setLeadTimeDays(event.target.value)}
-                inputMode="numeric"
-                disabled={!permissions.canUpdatePlanningRules || isPending}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="planning-unit-cost">Unit cost</Label>
-              <Input
-                id="planning-unit-cost"
-                value={unitCost}
-                onChange={(event) => setUnitCost(event.target.value)}
-                inputMode="decimal"
-                disabled={!permissions.canUpdatePlanningRules || isPending || !supplierId}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="planning-minimum-order">
-                <TooltipHeader label="MOQ" tooltip={PLANNING_MOQ_TOOLTIP} />
-              </Label>
-              <Input
-                id="planning-minimum-order"
-                value={minimumOrderQuantity}
-                onChange={(event) => setMinimumOrderQuantity(event.target.value)}
-                inputMode="decimal"
-                disabled={!permissions.canUpdatePlanningRules || isPending || !supplierId}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="planning-order-multiple">
-                <TooltipHeader
-                  label="Order multiple"
-                  tooltip={PLANNING_ORDER_MULTIPLE_TOOLTIP}
-                />
-              </Label>
-              <Input
-                id="planning-order-multiple"
-                value={orderMultiple}
-                onChange={(event) => setOrderMultiple(event.target.value)}
-                inputMode="decimal"
-                disabled={!permissions.canUpdatePlanningRules || isPending || !supplierId}
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="planning-purchase-factor">
-                <TooltipHeader
-                  label="Purchase conversion"
-                  tooltip={PURCHASE_CONVERSION_TOOLTIP}
-                />
-              </Label>
-              <Input
-                id="planning-purchase-factor"
-                value={purchaseToStockFactor}
-                onChange={(event) => setPurchaseToStockFactor(event.target.value)}
-                inputMode="decimal"
-                disabled={!permissions.canUpdatePlanningRules || isPending || !supplierId}
-              />
-            </div>
-          </>
-        ) : null}
-
-        {row.planningType === "make" ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="planning-production-lead-time">Production lead time</Label>
-            <Input
-              id="planning-production-lead-time"
-              value={productionLeadTimeDays}
-              onChange={(event) => setProductionLeadTimeDays(event.target.value)}
-              inputMode="numeric"
-              disabled={!permissions.canUpdatePlanningRules || isPending}
-            />
-          </div>
-        ) : null}
-      </div>
-
-      <Button
-        type="submit"
-        size="sm"
-        disabled={!permissions.canUpdatePlanningRules || isPending}
-      >
-        Save rules
-      </Button>
-    </form>
+      selectedActions={[
+        {
+          label: "Create PO",
+          disabled: !permissions.canCreatePurchaseOrders || isPending,
+          onSelect: onCreatePurchaseOrder,
+        },
+      ]}
+    />
   );
 }
 
@@ -2208,17 +1838,45 @@ function DemandLinesTable({
     )
   );
 
-  if (salesOrderRefs.length === 0) {
-    return <p className="text-sm text-muted-foreground">{summarizeNeededFor(facts)}</p>;
-  }
+  const otherDemandRows = facts
+    .filter(
+      (fact) =>
+        !fact.sourceRefs.some((ref) => ref.sourceType === "sales_order")
+    )
+    .map((fact) => {
+      const sourceRef =
+        fact.sourceRefs.find((ref) =>
+          ["safety_stock", "manufacturing_order", "bom_revision"].includes(
+            ref.sourceType
+          )
+        ) ?? fact.sourceRefs[0];
+      const sourceType =
+        fact.demandType === "safety_stock"
+          ? "Safety stock"
+          : fact.demandType === "manufacturing_component"
+            ? "Internal manufacturing"
+            : fact.demandType === "bom_explosion"
+              ? "BOM dependency"
+              : "Demand";
+
+      return {
+        key: fact.id,
+        sourceType,
+        label: sourceRef?.label ?? fact.explanation,
+        href: sourceRef ? sourceHref(sourceRef) : null,
+        quantity: fact.quantity,
+        date: fact.requiredDate,
+        explanation: fact.explanation,
+      };
+    });
 
   return (
     <div className="min-w-0 flex flex-col gap-2">
-      <h2 className="text-sm font-medium">Needed for</h2>
+      <h2 className="text-sm font-medium">Demand</h2>
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[52%]">Sales order</TableHead>
+            <TableHead className="w-[52%]">Source</TableHead>
             <TableHead className="w-[28%] text-right">
               <TooltipHeader label="Qty" tooltip={PLANNING_NEED_TOOLTIP} />
             </TableHead>
@@ -2231,7 +1889,7 @@ function DemandLinesTable({
           {salesOrderRefs.slice(0, 6).map((ref) => (
             <TableRow key={sourceRefKey(ref)}>
               <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
-                {ref.label}
+                {sourceLabelWithLink(ref)}
               </TableCell>
               <TableCell className={drawerNumericWrapClass}>
                 {formatQuantityWithUnit(ref.quantity, itemUnit(row))}
@@ -2241,12 +1899,114 @@ function DemandLinesTable({
               </TableCell>
             </TableRow>
           ))}
+          {otherDemandRows.slice(0, Math.max(0, 6 - salesOrderRefs.length)).map((entry) => (
+            <TableRow key={entry.key}>
+              <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
+                {entry.href ? (
+                  <Link href={entry.href} className="hover:underline">
+                    {entry.sourceType}: {entry.label}
+                  </Link>
+                ) : (
+                  `${entry.sourceType}: ${entry.label}`
+                )}
+                <div className="text-xs font-normal text-muted-foreground">
+                  {entry.explanation}
+                </div>
+              </TableCell>
+              <TableCell className={drawerNumericWrapClass}>
+                {formatQuantityWithUnit(entry.quantity, itemUnit(row))}
+              </TableCell>
+              <TableCell className={drawerTextWrapClass}>
+                {formatShortDate(entry.date)}
+              </TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
-      {salesOrderRefs.length > 6 ? (
+      {salesOrderRefs.length + otherDemandRows.length > 6 ? (
         <p className="text-xs text-muted-foreground">
-          Showing 6 of {salesOrderRefs.length} sales orders.
+          Showing 6 of {salesOrderRefs.length + otherDemandRows.length} demand groups.
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+function sourceLabelWithLink(ref: PlanningSourceRef) {
+  const href = sourceHref(ref);
+  if (!href) return ref.label;
+
+  return (
+    <Link href={href} className="hover:underline">
+      {ref.label}
+    </Link>
+  );
+}
+
+function SupplyContextList({ planningRow }: { planningRow: OperationalRow }) {
+  const incomingSupply = planningRow.supplyFacts.filter(
+    (fact) => fact.supplyType !== "available_inventory"
+  );
+
+  return (
+    <div className="min-w-0 flex flex-col gap-2">
+      <h2 className="text-sm font-medium">Supply context</h2>
+      <Table className="table-fixed">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[34%]">Source</TableHead>
+            <TableHead className="w-[24%] text-right">Qty</TableHead>
+            <TableHead className="w-[22%]">Expected</TableHead>
+            <TableHead className="w-[20%]">Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {planningRow.inventoryFact ? (
+            <TableRow>
+              <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
+                On-hand inventory
+              </TableCell>
+              <TableCell className={drawerNumericWrapClass}>
+                {formatRowQuantity(
+                  planningRow.row,
+                  planningRow.inventoryFact.onHandQuantity
+                )}
+              </TableCell>
+              <TableCell className={drawerTextWrapClass}>Now</TableCell>
+              <TableCell className={drawerTextWrapClass}>
+                {formatRowQuantity(
+                  planningRow.row,
+                  planningRow.inventoryFact.availableQuantity
+                )}{" "}
+                available
+              </TableCell>
+            </TableRow>
+          ) : null}
+          {incomingSupply.map((fact) => {
+            const primaryRef =
+              fact.sourceRefs.find((ref) =>
+                ["purchase_order", "manufacturing_order"].includes(ref.sourceType)
+              ) ?? fact.sourceRefs[0];
+
+            return (
+              <TableRow key={fact.id}>
+                <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
+                  {primaryRef ? sourceLabelWithLink(primaryRef) : fact.explanation}
+                </TableCell>
+                <TableCell className={drawerNumericWrapClass}>
+                  {formatRowQuantity(planningRow.row, fact.quantity)}
+                </TableCell>
+                <TableCell className={drawerTextWrapClass}>
+                  {formatShortDate(fact.expectedDate)}
+                </TableCell>
+                <TableCell className={drawerTextWrapClass}>{fact.status}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+      {incomingSupply.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No incoming supply.</p>
       ) : null}
     </div>
   );
@@ -2254,31 +2014,124 @@ function DemandLinesTable({
 
 function ProductionBlockersList({
   planningRow,
+  rowsByItemId,
+  permissions,
+  onAction,
+  onOpenRow,
+  isPending,
 }: {
   planningRow: OperationalRow;
+  rowsByItemId: Map<string, OperationalRow>;
+  permissions: PlanningPermissions;
+  onAction: (payload: PlanningActionPayload) => void;
+  onOpenRow: (row: OperationalRow) => void;
+  isPending: boolean;
 }) {
   const blockers = planningRow.productionBlockers;
+  const dependencies = blockers.flatMap((blocker) => {
+    if (!blocker.componentItemId) return [];
+    const componentRow = rowsByItemId.get(blocker.componentItemId);
+    if (!componentRow || componentRow.row.planningType !== "make") return [];
+    return [{ blocker, componentRow }];
+  });
 
   if (blockers.length === 0) {
     return <p className="text-sm text-muted-foreground">No production blockers.</p>;
   }
 
   return (
-    <div className="min-w-0 flex flex-col gap-2">
+    <div className="min-w-0 flex flex-col gap-4">
+      {dependencies.length > 0 ? (
+        <div className="min-w-0 flex flex-col gap-2">
+          <h2 className="text-sm font-medium">Make first</h2>
+          <div className="divide-y rounded-lg border" role="list">
+            {dependencies.map(({ blocker, componentRow }) => {
+              const canCreateDependency = canExecuteAction(componentRow, permissions);
+
+              return (
+                <div
+                  key={`dependency:${blocker.id}`}
+                  role="listitem"
+                  className="flex min-w-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 text-left hover:underline"
+                    onClick={() => onOpenRow(componentRow)}
+                  >
+                    <span className="block font-medium">
+                      Make{" "}
+                      {formatQuantityWithUnit(
+                        blocker.shortageQuantity ?? blocker.requiredQuantity,
+                        blocker.componentUnitName
+                      )}{" "}
+                      {componentRow.row.item.displayName || componentRow.row.item.name}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Needed before {planningRow.row.item.displayName || planningRow.row.item.name}
+                      {componentRow.makeDependencyCount > 0
+                        ? ` · ${componentRow.makeDependencyCount} sub-${
+                            componentRow.makeDependencyCount === 1
+                              ? "assembly"
+                              : "assemblies"
+                          } underneath`
+                        : componentRow.componentShortageCount > 0
+                          ? ` · ${componentRow.componentShortageCount} material ${
+                              componentRow.componentShortageCount === 1
+                                ? "shortage"
+                                : "shortages"
+                            }`
+                          : ""}
+                    </span>
+                  </button>
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                    <span>{formatShortDate(blocker.earliestRequiredDate)}</span>
+                    {canCreateDependency ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 px-2 text-[12px]"
+                        disabled={isPending}
+                        onClick={() => onAction(componentRow.recommendation!.actionPayload!)}
+                      >
+                        <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+                        Create MO
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[12px]"
+                        onClick={() => onOpenRow(componentRow)}
+                      >
+                        Review
+                      </Button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="min-w-0 flex flex-col gap-2">
       <h2 className="text-sm font-medium">
         {blockers.length} {blockers.length === 1 ? "blocker" : "blockers"}
       </h2>
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[34%]">Constraint</TableHead>
-            <TableHead className="w-[24%] text-right">
+            <TableHead className="w-[30%]">Constraint</TableHead>
+            <TableHead className="w-[22%] text-right">
               <TooltipHeader label="Required" tooltip={PLANNING_NEED_TOOLTIP} />
             </TableHead>
-            <TableHead className="w-[22%] text-right">
+            <TableHead className="w-[20%] text-right">Available</TableHead>
+            <TableHead className="w-[18%] text-right">
               <TooltipHeader label="Short" tooltip={PLANNING_SHORT_TOOLTIP} />
             </TableHead>
-            <TableHead className="w-[20%]">
+            <TableHead className="w-[10%]">
               <TooltipHeader label="Needed by" tooltip={PLANNING_NEEDED_BY_TOOLTIP} />
             </TableHead>
           </TableRow>
@@ -2287,11 +2140,27 @@ function ProductionBlockersList({
           {blockers.map((blocker) => (
             <TableRow key={blocker.id}>
               <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
-                {blocker.componentItemName ?? productionBlockerLabel(planningRow)}
+                {blocker.componentItemId &&
+                rowsByItemId.get(blocker.componentItemId)?.row.planningType === "make"
+                  ? `Make ${blocker.componentItemName}`
+                  : blocker.blockerType === "material_shortage"
+                    ? blocker.componentItemName
+                    : blocker.componentItemName ?? productionBlockerLabel(planningRow)}
+                <div className="text-xs font-normal text-muted-foreground">
+                  {blocker.componentItemId &&
+                  rowsByItemId.get(blocker.componentItemId)?.row.planningType === "make"
+                    ? "sub-assembly required"
+                    : blocker.blockerType.replaceAll("_", " ")}
+                </div>
               </TableCell>
               <TableCell className={drawerNumericWrapClass}>
                 {blocker.requiredQuantity
                   ? formatQuantityWithUnit(blocker.requiredQuantity, blocker.componentUnitName)
+                  : "—"}
+              </TableCell>
+              <TableCell className={drawerNumericWrapClass}>
+                {blocker.availableQuantity
+                  ? formatQuantityWithUnit(blocker.availableQuantity, blocker.componentUnitName)
                   : "—"}
               </TableCell>
               <TableCell className={drawerNumericWrapClass}>
@@ -2306,29 +2175,32 @@ function ProductionBlockersList({
           ))}
         </TableBody>
       </Table>
+      </div>
     </div>
   );
 }
 
 function PlanningRowDrawerContent({
   planningRow,
+  rowsByItemId,
   permissions,
   onAction,
-  onUpdateRules,
+  onCreatePurchaseOrderRows,
+  onOpenRow,
   isPending,
 }: {
   planningRow: OperationalRow;
+  rowsByItemId: Map<string, OperationalRow>;
   permissions: PlanningPermissions;
   onAction: (payload: PlanningActionPayload) => void;
-  onUpdateRules: (itemId: string, payload: PlanningRulesPayload) => void;
+  onCreatePurchaseOrderRows: (rows: OperationalRow[]) => void;
+  onOpenRow: (row: OperationalRow) => void;
   isPending: boolean;
 }) {
   const canCreate = canExecuteAction(planningRow, permissions);
   const isReadyBuild = isReadyManufacturingRow(planningRow);
   const isBuyRow = planningRow.row.planningType === "buy";
-  const showProblemBadge = isBuyRow
-    ? !isReadyPurchaseRow(planningRow)
-    : !isReadyBuild;
+  const showProblemBadge = !isBuyRow && !isReadyBuild;
   const isBlockedBuild =
     planningRow.row.planningType === "make" &&
     planningRow.productionBlockers.length > 0;
@@ -2346,7 +2218,7 @@ function PlanningRowDrawerContent({
           {isReadyBuild ? (
             <p className="text-sm text-muted-foreground">
               Build {formatRowQuantity(planningRow.row, planningRow.row.shortageQuantity)} ·
-              start {formatShortDate(planningRow.row.latestStartDate)} ·{" "}
+              needed by {formatShortDate(planningRow.row.earliestRequiredDate)} ·{" "}
               {formatAffects(salesOrderCount(planningRow))}
             </p>
           ) : isBlockedBuild ? (
@@ -2368,21 +2240,29 @@ function PlanningRowDrawerContent({
                     label: "On hand",
                     value: formatRowQuantity(
                       planningRow.row,
+                      planningRow.inventoryFact?.onHandQuantity ?? "0"
+                    ),
+                  },
+                  {
+                    label: "Available",
+                    value: formatRowQuantity(
+                      planningRow.row,
                       planningRow.row.availableStock
                     ),
                   },
                   {
-                    label: "Cover",
-                    value: formatDaysCover(planningRow.row.daysOfCover),
+                    label: "Safety",
+                    value: formatRowQuantity(
+                      planningRow.row,
+                      planningRow.row.safetyStock
+                    ),
                   },
                   {
-                    label: "Suggested",
-                    value: planningRow.row.suggestedOrderQuantity
-                      ? formatRowQuantity(
-                          planningRow.row,
-                          planningRow.row.suggestedOrderQuantity
-                        )
-                      : "—",
+                    label: "Short",
+                    value: formatRowQuantity(
+                      planningRow.row,
+                      planningRow.row.shortageQuantity
+                    ),
                   },
                 ]
               : isReadyBuild
@@ -2392,8 +2272,8 @@ function PlanningRowDrawerContent({
                     value: formatRowQuantity(planningRow.row, planningRow.row.shortageQuantity),
                   },
                   {
-                    label: "Start by",
-                    value: formatShortDate(planningRow.row.latestStartDate),
+                    label: "Needed by",
+                    value: formatShortDate(planningRow.row.earliestRequiredDate),
                   },
                 ]
               : isBlockedBuild
@@ -2428,7 +2308,16 @@ function PlanningRowDrawerContent({
                   ]
           }
         />
-        {planningRow.recommendation?.actionPayload && canCreate ? (
+        {canOpenPurchaseOrderFormForRow(planningRow) && permissions.canCreatePurchaseOrders ? (
+          <Button
+            className="w-fit"
+            disabled={isPending}
+            onClick={() => onCreatePurchaseOrderRows([planningRow])}
+          >
+            <HugeiconsIcon icon={ShoppingCart01Icon} data-icon="inline-start" />
+            Create PO
+          </Button>
+        ) : planningRow.recommendation?.actionPayload && canCreate ? (
           <Button
             className="w-fit"
             disabled={isPending}
@@ -2437,120 +2326,29 @@ function PlanningRowDrawerContent({
             <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
             {planningRow.actionLabel}
           </Button>
+        ) : planningRow.recommendation?.recommendationType === "review_item_setup" ? (
+          <Button className="w-fit" variant="outline" asChild>
+            <Link href={setupActionHref(planningRow)}>{planningRow.actionLabel}</Link>
+          </Button>
         ) : null}
       </div>
 
-      <PlanningRulesForm
-        key={planningRow.row.item.id}
-        planningRow={planningRow}
-        permissions={permissions}
-        isPending={isPending}
-        onSubmit={onUpdateRules}
-      />
-
       {isBlockedBuild ? (
-        <ProductionBlockersList planningRow={planningRow} />
+        <ProductionBlockersList
+          planningRow={planningRow}
+          rowsByItemId={rowsByItemId}
+          permissions={permissions}
+          onAction={onAction}
+          onOpenRow={onOpenRow}
+          isPending={isPending}
+        />
       ) : (
         <DemandLinesTable
           row={planningRow.row}
           facts={planningRow.demandFacts}
         />
       )}
-    </div>
-  );
-}
-
-function BuyGroupDrawerContent({
-  group,
-  permissions,
-  onCreatePurchaseOrders,
-  isPending,
-}: {
-  group: BuyGroup;
-  permissions: PlanningPermissions;
-  onCreatePurchaseOrders: (payloads: CreatePurchaseOrderDraftActionPayload[]) => void;
-  isPending: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <div className="font-medium">{group.supplierName}</div>
-          <p className="text-sm text-muted-foreground">
-            {group.rows.length} {group.rows.length === 1 ? "line" : "lines"} ·
-            due {formatShortDate(group.earliestRequiredDate)} ·{" "}
-            {formatAffects(group.salesOrderCount)}
-          </p>
-        </div>
-        <DrawerSummary
-          items={[
-            {
-              label: "Lines",
-              value: formatCount(group.rows.length, "line"),
-            },
-            {
-              label: "Earliest need",
-              value: formatShortDate(group.earliestRequiredDate),
-            },
-            {
-              label: "Affected",
-              value: formatOrderCount(group.salesOrderCount),
-            },
-          ]}
-        />
-        {group.actionPayloads.length > 0 && permissions.canCreatePurchaseOrders ? (
-          <Button
-            className="w-fit"
-            disabled={isPending}
-            onClick={() => onCreatePurchaseOrders(group.actionPayloads)}
-          >
-            <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-            Create PO
-          </Button>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            You have read-only purchasing access.
-          </p>
-        )}
-      </div>
-
-      <div className="min-w-0 flex flex-col gap-2">
-        <h2 className="text-sm font-medium">Lines</h2>
-        <Table className="table-fixed">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[30%]">Item</TableHead>
-              <TableHead className="w-[24%] text-right">
-                <TooltipHeader label="Need" tooltip={PLANNING_NEED_TOOLTIP} />
-              </TableHead>
-              <TableHead className="w-[20%]">
-                <TooltipHeader label="Needed by" tooltip={PLANNING_NEEDED_BY_TOOLTIP} />
-              </TableHead>
-              <TableHead className="w-[26%]">
-                <TooltipHeader label="Needed for" tooltip={PLANNING_NEEDED_FOR_TOOLTIP} />
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {group.rows.map((entry) => (
-              <TableRow key={entry.row.item.id}>
-                <TableCell className={cn(drawerTextWrapClass, "font-medium")}>
-                  {entry.row.item.name}
-                </TableCell>
-                <TableCell className={drawerNumericWrapClass}>
-                  {formatRowQuantity(entry.row, entry.row.shortageQuantity)}
-                </TableCell>
-                <TableCell className={drawerTextWrapClass}>
-                  <NeededByCell value={entry.row.earliestRequiredDate} />
-                </TableCell>
-                <TableCell className={drawerTextWrapClass}>
-                  {entry.neededFor}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <SupplyContextList planningRow={planningRow} />
     </div>
   );
 }
@@ -2614,30 +2412,25 @@ function AttentionGroupDrawerContent({ group }: { group: AttentionGroup }) {
 function PlanningDetailDrawer({
   target,
   rows,
-  buyGroups,
   attentionGroups,
   permissions,
   onClose,
   onAction,
-  onUpdateRules,
-  onCreatePurchaseOrders,
+  onCreatePurchaseOrderRows,
+  onOpenRow,
   isPending,
 }: {
   target: DetailTarget | null;
   rows: OperationalRow[];
-  buyGroups: BuyGroup[];
   attentionGroups: AttentionGroup[];
   permissions: PlanningPermissions;
   onClose: () => void;
   onAction: (payload: PlanningActionPayload) => void;
-  onUpdateRules: (itemId: string, payload: PlanningRulesPayload) => void;
-  onCreatePurchaseOrders: (payloads: CreatePurchaseOrderDraftActionPayload[]) => void;
+  onCreatePurchaseOrderRows: (rows: OperationalRow[]) => void;
+  onOpenRow: (row: OperationalRow) => void;
   isPending: boolean;
 }) {
-  const buyGroup =
-    target?.kind === "buy"
-      ? buyGroups.find((group) => buyGroupKey(group) === target.key) ?? null
-      : null;
+  const rowsByItemId = new Map(rows.map((entry) => [entry.row.item.id, entry]));
   const row =
     target?.kind === "row"
       ? rows.find((entry) => planningRowKey(entry) === target.key) ?? null
@@ -2646,10 +2439,8 @@ function PlanningDetailDrawer({
     target?.kind === "attention"
       ? attentionGroups.find((group) => group.key === target.key) ?? null
       : null;
-  const isOpen = Boolean(buyGroup || row || attentionGroup);
-  const title = buyGroup
-    ? "Create purchase order"
-    : attentionGroup
+  const isOpen = Boolean(row || attentionGroup);
+  const title = attentionGroup
       ? attentionGroup.label
       : row?.row.planningType === "buy"
         ? "Material planning"
@@ -2658,18 +2449,14 @@ function PlanningDetailDrawer({
         : row?.row.planningType === "make" && row.productionBlockers.length > 0
           ? "Cannot build yet"
           : "Needs attention";
-  const description = buyGroup
-    ? buyGroup.supplierName
-    : attentionGroup
+  const description = attentionGroup
       ? `${formatCount(attentionGroup.rows.length, "item")} · ${formatOrderCount(
           attentionGroup.salesOrderCount
         )}`
       : row
         ? row.row.item.name
         : "";
-  const sheetWidthClass = buyGroup
-    ? "data-[side=right]:sm:max-w-2xl"
-    : "data-[side=right]:sm:max-w-lg";
+  const sheetWidthClass = "data-[side=right]:sm:max-w-lg";
 
   return (
     <Sheet
@@ -2685,21 +2472,16 @@ function PlanningDetailDrawer({
         </SheetHeader>
         <ScrollArea className="min-h-0 min-w-0 flex-1">
           <div className="min-w-0 p-4">
-            {buyGroup ? (
-              <BuyGroupDrawerContent
-                group={buyGroup}
-                permissions={permissions}
-                onCreatePurchaseOrders={onCreatePurchaseOrders}
-                isPending={isPending}
-              />
-            ) : attentionGroup ? (
+            {attentionGroup ? (
               <AttentionGroupDrawerContent group={attentionGroup} />
             ) : row ? (
               <PlanningRowDrawerContent
                 planningRow={row}
+                rowsByItemId={rowsByItemId}
                 permissions={permissions}
                 onAction={onAction}
-                onUpdateRules={onUpdateRules}
+                onCreatePurchaseOrderRows={onCreatePurchaseOrderRows}
+                onOpenRow={onOpenRow}
                 isPending={isPending}
               />
             ) : null}
@@ -2719,19 +2501,18 @@ export function PlanningWorkspace({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
+  const [productionSearch, setProductionSearch] = useState("");
+  const [productionViewFilter, setProductionViewFilter] =
+    useState<ProductionViewFilter>("needs-action");
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<PlanningActionErrorState | null>(null);
   const [activeTab, setActiveTab] = useState<PlanningTab>("production");
-  const [replenishmentFilter, setReplenishmentFilter] =
-    useState<ReplenishmentFilter>("all");
-  const [replenishmentSort, setReplenishmentSort] =
-    useState<ReplenishmentSort>("priority");
-  const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(
-    () => new Set()
-  );
 
-  const { data: snapshot = initialSnapshot } = useQuery<PlanningSnapshot>({
+  const {
+    data: snapshot = initialSnapshot,
+    error: snapshotError,
+    isFetching: isSnapshotFetching,
+  } = useQuery<PlanningSnapshot>({
     queryKey: ["planning"],
     queryFn: async () => {
       const response = await fetch("/api/planning");
@@ -2749,13 +2530,23 @@ export function PlanningWorkspace({
   );
 
   const operationalRows = useMemo<OperationalRow[]>(() => {
+    const planningRowsByItemId = new Map(
+      snapshot.rows.map((entry) => [entry.item.id, entry])
+    );
+
     return snapshot.rows.map((row) => {
       const recommendation = row.recommendationId
         ? recommendationsById.get(row.recommendationId) ?? null
         : null;
+      const inventoryFact =
+        snapshot.inventoryFacts.find((fact) => fact.itemId === row.item.id) ?? null;
       const demandFacts = snapshot.demandFacts.filter((fact) => fact.itemId === row.item.id);
+      const supplyFacts = snapshot.supplyFacts.filter((fact) => fact.itemId === row.item.id);
       const bomFacts = snapshot.bomRequirementFacts.filter(
         (fact) => fact.parentItemId === row.item.id || fact.componentItemId === row.item.id
+      );
+      const demandPaths = snapshot.salesOrderProductionDemandPaths.filter(
+        (path) => path.itemId === row.item.id
       );
       const productionBlockers = snapshot.productionBlockerFacts.filter(
         (fact) => fact.parentItemId === row.item.id
@@ -2766,18 +2557,45 @@ export function PlanningWorkspace({
           .map((fact) => fact.componentItemId)
           .filter(Boolean)
       ).size;
-      const status = getStatus(row, recommendation, componentShortageCount);
+      const makeDependencyCount = new Set(
+        productionBlockers
+          .map((fact) => fact.componentItemId)
+          .filter((itemId): itemId is string => {
+            if (!itemId) return false;
+            return planningRowsByItemId.get(itemId)?.planningType === "make";
+          })
+      ).size;
+      const status = getStatus(
+        row,
+        recommendation,
+        componentShortageCount,
+        makeDependencyCount
+      );
 
       return {
         row,
         recommendation,
         demandFacts,
+        supplyFacts,
+        inventoryFact,
         bomFacts,
+        demandPaths,
         neededFor: summarizeNeededFor(demandFacts),
         statusLabel: status,
-        actionLabel: getActionLabel(row, recommendation, componentShortageCount),
-        actionSummary: getActionSummary(row, recommendation, componentShortageCount),
+        actionLabel: getActionLabel(
+          row,
+          recommendation,
+          componentShortageCount,
+          makeDependencyCount
+        ),
+        actionSummary: getActionSummary(
+          row,
+          recommendation,
+          componentShortageCount,
+          makeDependencyCount
+        ),
         componentShortageCount,
+        makeDependencyCount,
         productionBlockers,
         isAttention: Boolean(recommendation) || toQuantity(row.shortageQuantity) > 0,
       };
@@ -2786,8 +2604,11 @@ export function PlanningWorkspace({
     recommendationsById,
     snapshot.bomRequirementFacts,
     snapshot.demandFacts,
+    snapshot.inventoryFacts,
     snapshot.productionBlockerFacts,
+    snapshot.salesOrderProductionDemandPaths,
     snapshot.rows,
+    snapshot.supplyFacts,
   ]);
 
   const queueRows = useMemo(() => {
@@ -2796,6 +2617,7 @@ export function PlanningWorkspace({
         (entry) =>
           entry.isAttention &&
           (hasQueueImpact(entry) ||
+            (entry.row.planningType === "make" && Boolean(entry.recommendation)) ||
             entry.row.planningType === "buy" ||
             entry.productionBlockers.length > 0)
       )
@@ -2803,20 +2625,20 @@ export function PlanningWorkspace({
   }, [operationalRows]);
 
   const matchingRows = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const normalizedSearch = productionSearch.trim().toLowerCase();
 
     return queueRows.filter((entry) => matchesPlanningSearch(entry, normalizedSearch));
-  }, [queueRows, search]);
+  }, [queueRows, productionSearch]);
 
-  const matchingOperationalRows = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+  const matchingProductionRows = useMemo(() => {
+    const normalizedSearch = productionSearch.trim().toLowerCase();
 
     return operationalRows.filter((entry) =>
       matchesPlanningSearch(entry, normalizedSearch)
     );
-  }, [operationalRows, search]);
+  }, [operationalRows, productionSearch]);
 
-  const buyGroups = useMemo(() => buildBuyGroups(matchingRows), [matchingRows]);
+  const matchingOperationalRows = operationalRows;
 
   const attentionGroups = useMemo(
     () => buildAttentionGroups(matchingRows),
@@ -2826,6 +2648,15 @@ export function PlanningWorkspace({
   const productionItems = useMemo(
     () => buildProductionWorkItems(matchingRows),
     [matchingRows]
+  );
+
+  const coveredProductionItems = useMemo(
+    () =>
+      buildProductionWorkItems(
+        matchingProductionRows.filter(isCoveredSalesOrderRow),
+        { coveredByStock: true }
+      ),
+    [matchingProductionRows]
   );
 
   const replenishmentItems = useMemo(
@@ -2847,7 +2678,18 @@ export function PlanningWorkspace({
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to create draft.");
+        const error = new Error(body?.error ?? "Failed to create draft.") as Error & {
+          planning?: PlanningActionErrorState;
+        };
+        error.planning = {
+          message: body?.error ?? "Failed to create draft.",
+          href: body?.existingDraft?.href,
+          linkLabel: body?.existingDraft?.label,
+          refresh:
+            body?.conflictType === "stale_recommendation" ||
+            body?.conflictType === "blocked_make",
+        };
+        throw error;
       }
 
       return body;
@@ -2866,98 +2708,19 @@ export function PlanningWorkspace({
       }
     },
     onError: (error) => {
-      setActionError(error.message);
+      const planningError = (error as Error & { planning?: PlanningActionErrorState }).planning;
+      setActionError(planningError ?? { message: error.message, refresh: true });
     },
   });
 
-  const purchaseGroupMutation = useMutation<
-    BulkPurchaseActionResult,
-    Error,
-    CreatePurchaseOrderDraftActionPayload[]
-  >({
-    mutationFn: async (actions) => {
-      const response = await fetch("/api/planning/actions/purchase-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actions }),
-      });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to create purchase drafts.");
-      }
-
-      return body;
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["planning"] });
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-      if (result.orders.length === 1) {
-        router.push(`/purchasing/orders/${result.orders[0].id}`);
-        return;
-      }
-
-      router.push("/purchasing/orders");
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
-  const rulesMutation = useMutation<
-    { id: string },
-    Error,
-    { itemId: string; payload: PlanningRulesPayload }
-  >({
-    mutationFn: async ({ itemId, payload }) => {
-      const response = await fetch(`/api/planning/items/${itemId}/rules`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to save planning rules.");
-      }
-
-      return body;
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["planning"] });
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
-  const isActionPending =
-    purchaseGroupMutation.isPending ||
-    actionMutation.isPending ||
-    rulesMutation.isPending;
-
-  const toggleSelectedMaterial = (id: string) => {
-    setSelectedMaterialIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  const isActionPending = actionMutation.isPending;
+  const openPurchaseOrderForm = (items: ReplenishmentItem[]) => {
+    setActionError(null);
+    router.push(planningPurchaseOrderUrl(items));
   };
-
-  const subtitle =
-    activeTab === "production"
-      ? "What you need to make next, ordered by what your sales orders demand."
-      : "Raw materials approaching safety stock. Bulk-order to keep production stocked.";
+  const openPurchaseOrderFormForRows = (rows: OperationalRow[]) => {
+    openPurchaseOrderForm(buildReplenishmentItems(rows));
+  };
 
   return (
     <>
@@ -2966,69 +2729,136 @@ export function PlanningWorkspace({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-2xl font-semibold">Planning</h1>
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
           <p className="text-xs text-muted-foreground">
-            Updated {formatUpdatedAt(snapshot.generatedAt)}
+            {isSnapshotFetching ? "Refreshing planning..." : `Updated ${formatUpdatedAt(snapshot.generatedAt)}`}
+            {snapshotError ? " · showing stale data" : ""}
+            {snapshot.warnings.length > 0 ? ` · ${formatCount(snapshot.warnings.length, "warning")}` : ""}
           </p>
         </div>
+        <PlanningTabs
+          value={activeTab}
+          productionCount={productionItems.length}
+          replenishmentCount={replenishmentItems.length}
+          onChange={setActiveTab}
+        />
       </div>
 
-      <PlanningTabs
-        value={activeTab}
-        productionCount={productionItems.length}
-        replenishmentCount={replenishmentItems.length}
-        onChange={setActiveTab}
-      />
+      {snapshotError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          Planning refresh failed. The data below may be stale.
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          {activeTab === "production" ? (
+            <ToggleGroup
+              type="single"
+              value={productionViewFilter}
+              onValueChange={(value) => {
+                if (value === "needs-action" || value === "covered") {
+                  setProductionViewFilter(value);
+                }
+              }}
+              aria-label="Filter production planning"
+              className="rounded-md bg-muted p-0.5"
+              size="sm"
+            >
+              <ToggleGroupItem
+                value="needs-action"
+                className="h-7 gap-1.5 px-2.5 text-xs data-[state=on]:bg-background data-[state=on]:shadow-xs"
+              >
+                Needs action
+                <span className="text-muted-foreground">{productionItems.length}</span>
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="covered"
+                className="h-7 gap-1.5 px-2.5 text-xs data-[state=on]:bg-background data-[state=on]:shadow-xs"
+              >
+                Covered orders
+                <span className="text-muted-foreground">{coveredProductionItems.length}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          ) : null}
+        </div>
+        {activeTab === "production" ? (
+          <div className="relative w-full lg:w-80">
+            <HugeiconsIcon
+              icon={Search01Icon}
+              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-label="Search planning"
+              placeholder="Search production..."
+              value={productionSearch}
+              onChange={(event) => setProductionSearch(event.target.value)}
+              className="h-8 w-full pl-8"
+            />
+          </div>
+        ) : null}
+      </div>
 
       {actionError ? (
         <div
           role="alert"
           className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
         >
-          {actionError}
+          <div>{actionError.message}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {actionError.refresh ? (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["planning"] })}
+              >
+                Refresh planning
+              </Button>
+            ) : null}
+            {actionError.href ? (
+              <Button size="xs" variant="outline" asChild>
+                <Link href={actionError.href}>
+                  Open {actionError.linkLabel ?? "draft"}
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
       {activeTab === "production" ? (
         <ProductionPlanningView
           items={productionItems}
+          coveredItems={coveredProductionItems}
           horizonStart={snapshot.horizonStart}
-          search={search}
-          onSearchChange={setSearch}
+          search={productionSearch}
+          viewFilter={productionViewFilter}
           isPending={isActionPending}
           onOpenRow={(row) => setDetailTarget({ kind: "row", key: planningRowKey(row) })}
         />
       ) : (
         <ReplenishmentPlanningView
           items={replenishmentItems}
-          filter={replenishmentFilter}
-          sort={replenishmentSort}
-          search={search}
-          onSearchChange={setSearch}
-          onFilterChange={setReplenishmentFilter}
-          onSortChange={setReplenishmentSort}
-          selectedIds={selectedMaterialIds}
-          onToggleSelected={toggleSelectedMaterial}
-          onClearSelected={() => setSelectedMaterialIds(new Set())}
           permissions={permissions}
           isPending={isActionPending}
           onOpenItem={(row) => {
             setDetailTarget({ kind: "row", key: planningRowKey(row) });
           }}
-          onCreatePurchaseOrders={(payloads) => purchaseGroupMutation.mutate(payloads)}
+          onCreatePurchaseOrder={openPurchaseOrderForm}
         />
       )}
 
       <PlanningDetailDrawer
         target={detailTarget}
-        rows={matchingOperationalRows}
-        buyGroups={buyGroups}
+        rows={operationalRows}
         attentionGroups={attentionGroups}
         permissions={permissions}
         onClose={() => setDetailTarget(null)}
         onAction={(payload) => actionMutation.mutate(payload)}
-        onUpdateRules={(itemId, payload) => rulesMutation.mutate({ itemId, payload })}
-        onCreatePurchaseOrders={(payloads) => purchaseGroupMutation.mutate(payloads)}
+        onCreatePurchaseOrderRows={openPurchaseOrderFormForRows}
+        onOpenRow={(row) => setDetailTarget({ kind: "row", key: planningRowKey(row) })}
         isPending={isActionPending}
       />
       </div>

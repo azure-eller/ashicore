@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   inventoryLotBalances,
@@ -20,14 +20,13 @@ import {
   getBaseUrl,
   getPlanningSnapshot,
   getUnitId,
-  receivePurchaseOrder,
   releaseManufacturingOrder,
   submitPurchaseOrder,
-  updatePlanningRules,
 } from "../../helpers/api";
 import type {
   DemandFact,
   PlanningSnapshot,
+  ProductionDemandPath,
 } from "../../../lib/planning/types";
 
 function extractCookies(res: Response): string {
@@ -120,6 +119,15 @@ test.describe("Planning workspace", () => {
     expect(recommendation).toBeDefined();
     if (!recommendation) throw new Error(`Missing recommendation for ${itemId}`);
     return recommendation;
+  }
+
+  function productionDemandPathsFor(
+    snapshot: PlanningSnapshot,
+    itemId: string
+  ): ProductionDemandPath[] {
+    return snapshot.salesOrderProductionDemandPaths.filter(
+      (entry) => entry.itemId === itemId
+    );
   }
 
   function deterministicRecommendationShape(
@@ -373,16 +381,6 @@ test.describe("Planning workspace", () => {
 
   test("reserved inventory is not double-counted as available", async () => {
     const itemId = await createMaterial("Amber Bottle 250ml", { stock: "10" });
-    const update = await updatePlanningRules(itemId, {
-      targetCoverDays: "20",
-      preferredSupplierItem: {
-        supplierId,
-        unitCost: "1",
-        purchaseToStockFactor: "1",
-        leadTimeDaysOverride: "3",
-      },
-    });
-    expect(update.status).toBe(200);
     await createConfirmedDemand(itemId, "8");
 
     const planning = await snapshot();
@@ -493,10 +491,6 @@ test.describe("Planning workspace", () => {
     const productId = await createProduct("Compost Tea Kit", [
       { componentId, quantity: "1" },
     ]);
-    const update = await updatePlanningRules(productId, {
-      productionLeadTimeDays: "2",
-    });
-    expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "2");
 
     const planning = await snapshot();
@@ -507,36 +501,6 @@ test.describe("Planning workspace", () => {
     expect(makeRecommendation.recommendationType).toBe("create_manufacturing_order");
     expect(rowFor(planning, materialId).suggestedAction).toBe("buy");
     expect(rowFor(planning, productId).suggestedAction).toBe("make");
-  });
-
-  test("missing production lead time blocks manufacturing draft recommendation", async () => {
-    const componentId = await createMaterial("Lead Time Blocking Component", {
-      stock: "100",
-      skuKey: "LEAD-TIME-BLOCK-COMP",
-    });
-    const productId = await createProduct("Lead Time Blocking Blend", [
-      { componentId, quantity: "1" },
-    ]);
-    const update = await updatePlanningRules(productId, {
-      productionLeadTimeDays: null,
-    });
-    expect(update.status).toBe(200);
-    await createConfirmedDemand(productId, "2");
-
-    const planning = await snapshot();
-    const row = rowFor(planning, productId);
-    const recommendation = recommendationFor(planning, productId);
-
-    expect(row.reasonCodes).toContain("missing_production_lead_time");
-    expect(recommendation.recommendationType).toBe("review_item_setup");
-    expect(recommendation.actionPayload).toBeNull();
-    expect(
-      planning.productionBlockerFacts.some(
-        (fact) =>
-          fact.parentItemId === productId &&
-          fact.blockerType === "missing_production_lead_time"
-      )
-    ).toBe(true);
   });
 
   test("missing supplier or missing BOM produces review recommendation", async () => {
@@ -610,45 +574,29 @@ test.describe("Planning workspace", () => {
     );
   });
 
-  test("planning rules drive supplier, lead time, and deterministic order quantity", async ({
+  test("supplier history drives supplier and deterministic shortage quantity", async ({
     db,
   }) => {
-    const item = await createMaterialRecord("Planning Rule Kelp", {
+    const item = await createMaterialRecord("Planning Supplier Kelp", {
       stock: "2",
-      skuKey: "RULE-KELP",
+      defaultPurchasePrice: "2.5",
+      skuKey: "SUPPLIER-KELP",
     });
-    const update = await updatePlanningRules(item.id, {
-      targetCoverDays: "10",
-      preferredSupplierItem: {
-        supplierId,
-        supplierSku: `SUP-KELP-${runToken}`,
-        unitCost: "2.5",
-        purchaseToStockFactor: "1",
-        leadTimeDaysOverride: "3",
-        minimumOrderQuantity: "4",
-        orderMultiple: "3",
-      },
-    });
-    expect(update.status).toBe(200);
+    await establishSupplierHistory(item.id);
     await createConfirmedDemand(item.id, "6");
 
     const planning = await snapshot();
     const row = rowFor(planning, item.id);
     const recommendation = recommendationFor(planning, item.id);
 
-    expect(row.targetCoverDays).toBe(10);
-    expect(row.leadTimeDays).toBe(3);
-    expect(row.leadTimeSource).toBe("supplier_item");
     expect(row.daysOfCoverStatus).toBe("order_now");
-    expect(row.suggestedOrderQuantity).toBe("6");
-    expect(row.minimumOrderQuantity).toBe("4");
-    expect(row.orderMultiple).toBe("3");
+    expect(row.suggestedOrderQuantity).toBe("4");
     expect(row.preferredSupplierId).toBe(supplierId);
-    expect(row.preferredSupplierSku).toBe(`SUP-KELP-${runToken}`);
-    expect(recommendation.quantity).toBe("6");
+    expect(row.preferredSupplierSource).toBe("history");
+    expect(recommendation.quantity).toBe("4");
     expect(recommendation.actionPayload).toMatchObject({
       actionType: "create_purchase_order",
-      quantity: "6",
+      quantity: "4",
       supplierId,
       unitCost: "2.5",
       purchaseToStockFactor: "1",
@@ -662,51 +610,24 @@ test.describe("Planning workspace", () => {
       .from(purchaseOrderLines)
       .where(eq(purchaseOrderLines.purchaseOrderId, created.body.id as string));
     expect(line.itemId).toBe(item.id);
-    expect(line.quantityOrdered).toBe("6.0000");
+    expect(line.quantityOrdered).toBe("4.0000");
     expect(line.unitCost).toBe("2.5000");
   });
 
-  test("lead time falls back to received purchase order history", async ({ db }) => {
-    const item = await createMaterialRecord("Planning History Gypsum", {
-      skuKey: "HISTORY-GYPSUM",
-    });
-    const purchaseOrder = await createPurchaseOrder({
-      supplierId,
-      expectedDate: "2026-05-01",
-      notes: "Lead time history fixture",
-      lines: [{ itemId: item.id, quantityOrdered: "2", unitCost: "1.00" }],
-    });
-    expect(purchaseOrder.status).toBe(201);
-    const submit = await submitPurchaseOrder(purchaseOrder.body.id as string);
-    expect(submit.status).toBe(200);
-    const [line] = await db
-      .select()
-      .from(purchaseOrderLines)
-      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrder.body.id as string));
-    const receive = await receivePurchaseOrder(purchaseOrder.body.id as string, {
-      lines: [{ lineId: line.id, quantityReceived: "2" }],
-    });
-    expect(receive.status).toBe(200);
-    await createConfirmedDemand(item.id, "3");
-
-    const planning = await snapshot();
-    const row = rowFor(planning, item.id);
-
-    expect(row.leadTimeSource).toBe("history");
-    expect(row.leadTimeDays).toBeGreaterThanOrEqual(1);
-    expect(row.leadTimeSampleCount).toBeGreaterThanOrEqual(1);
-  });
-
-  test("production planning exposes start bucket and batch count", async () => {
+  test("production planning exposes start bucket and batch count without direct-demand downstream noise", async ({
+    page,
+  }) => {
+    const productName = `Production Batch Blend ${runToken}`;
     const componentId = await createMaterial("Production Batch Component", {
       stock: "100",
       skuKey: "PROD-BATCH-COMP",
     });
+    const productSku = buildItemSku("PLAN-P", "PROD-BATCH-BLEND");
     const product = await createItem({
-      name: "Production Batch Blend",
+      name: productName,
       itemType: "product",
       unitDefinitionId: unitId,
-      sku: buildItemSku("PLAN-P", "PROD-BATCH-BLEND"),
+      sku: productSku,
       category,
       description: null,
       defaultPurchasePrice: null,
@@ -719,18 +640,12 @@ test.describe("Planning workspace", () => {
     });
     expect(product.status).toBe(201);
     const productId = product.body.id as string;
-    const update = await updatePlanningRules(productId, {
-      productionLeadTimeDays: "5",
-    });
-    expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "9");
 
     const planning = await snapshot();
     const row = rowFor(planning, productId);
 
-    expect(row.productionLeadTimeDays).toBe(5);
-    expect(row.productionLeadTimeSource).toBe("manual");
-    expect(row.latestStartDate).toBe("2026-05-10");
+    expect(row.latestStartDate).toBeNull();
     expect(row.productionBucket).toBe("next-week");
     expect(row.manufacturingMode).toBe("batch");
     expect(row.expectedBatchYield).toBe("4");
@@ -740,38 +655,13 @@ test.describe("Planning workspace", () => {
         (fact) => fact.parentItemId === productId
       )
     ).toBe(false);
-  });
 
-  test("stale purchase recommendation is rejected after planning rule changes", async () => {
-    const item = await createMaterialRecord("Planning Stale Supplier Rule", {
-      skuKey: "STALE-SUPPLIER-RULE",
-    });
-    const firstUpdate = await updatePlanningRules(item.id, {
-      preferredSupplierItem: {
-        supplierId,
-        unitCost: "1",
-        purchaseToStockFactor: "1",
-      },
-    });
-    expect(firstUpdate.status).toBe(200);
-    await createConfirmedDemand(item.id, "4");
-    const planning = await snapshot();
-    const recommendation = recommendationFor(planning, item.id);
-    expect(recommendation.actionPayload).toBeTruthy();
-
-    const secondUpdate = await updatePlanningRules(item.id, {
-      preferredSupplierItem: {
-        supplierId,
-        unitCost: "2",
-        purchaseToStockFactor: "1",
-      },
-    });
-    expect(secondUpdate.status).toBe(200);
-
-    const stale = await createPlanningPurchaseOrderDraft(
-      recommendation.actionPayload!
-    );
-    expect(stale.status).toBe(409);
+    await page.goto("/planning");
+    await page.getByLabel("Search planning").fill(productSku);
+    await expect(page.getByText(productName)).toBeVisible();
+    await expect(page.getByText("3 batches")).toBeVisible();
+    await expect(page.getByText(/SO-\d{4}-\d{4}/).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /downstream need/ })).toHaveCount(0);
   });
 
   test("component shortage references parent demand and BOM revision", async () => {
@@ -791,6 +681,134 @@ test.describe("Planning workspace", () => {
     expect(componentDemand?.parentItemId).toBe(productId);
     expect(componentDemand?.bomRevisionId).toBeTruthy();
     expect(componentDemand?.sourceRefs.some((ref) => ref.sourceType === "bom_revision")).toBe(true);
+  });
+
+  test("sales-order production demand paths exclude direct finished-good demand", async () => {
+    const componentId = await createMaterial("Direct Path Component", {
+      stock: "100",
+      skuKey: "DIRECT-PATH-COMP",
+    });
+    const productId = await createProduct("Direct Path Finished Good", [
+      { componentId, quantity: "1" },
+    ]);
+    await createConfirmedDemand(productId, "5");
+
+    const planning = await snapshot();
+    const productPaths = productionDemandPathsFor(planning, productId);
+
+    expect(productPaths).toHaveLength(0);
+  });
+
+  test("sales-order production demand paths preserve multi-level sub-assembly chains", async () => {
+    const rawId = await createMaterial("Path Chain Raw Input", {
+      stock: "0",
+      skuKey: "PATH-CHAIN-RAW",
+    });
+    const nutrientPackId = await createProduct("Path Chain Nutrient Pack", [
+      { componentId: rawId, quantity: "1" },
+    ]);
+    const toteId = await createProduct("Path Chain 1yd Tote", [
+      { componentId: nutrientPackId, quantity: "3" },
+    ]);
+    const bagId = await createProduct("Path Chain 2cf Bag", [
+      { componentId: toteId, quantity: "4" },
+    ]);
+    await createConfirmedDemand(bagId, "2");
+
+    const planning = await snapshot();
+    const paths = productionDemandPathsFor(planning, nutrientPackId);
+
+    expect(paths).toHaveLength(1);
+    expect(paths[0].uncoveredQuantity).toBe("24");
+    expect(paths[0].terminal.itemId).toBe(bagId);
+    expect(paths[0].terminal.salesOrderId).toBeTruthy();
+    expect(paths[0].terminal.salesOrderLineId).toBeTruthy();
+    expect(paths[0].steps.map((step) => step.itemId)).toEqual([
+      nutrientPackId,
+      toteId,
+      bagId,
+    ]);
+    expect(paths[0].steps.map((step) => step.quantityRequired)).toEqual([
+      "24",
+      "8",
+      "2",
+    ]);
+    expect(paths[0]).not.toHaveProperty("sourceRefs");
+    expect(paths[0]).not.toHaveProperty("bomRevisionId");
+    expect(paths[0]).not.toHaveProperty("manufacturingOrderId");
+  });
+
+  test("dual-role items keep direct demand flat and downstream paths separate", async () => {
+    const rawId = await createMaterial("Dual Role Raw Input", {
+      stock: "0",
+      skuKey: "DUAL-ROLE-RAW",
+    });
+    const subassemblyId = await createProduct("Dual Role Sold Subassembly", [
+      { componentId: rawId, quantity: "1" },
+    ]);
+    const parentId = await createProduct("Dual Role Parent Product", [
+      { componentId: subassemblyId, quantity: "3" },
+    ]);
+    await createConfirmedDemand(subassemblyId, "2");
+    await createConfirmedDemand(parentId, "1");
+
+    const planning = await snapshot();
+    const paths = productionDemandPathsFor(planning, subassemblyId);
+
+    expect(paths).toHaveLength(1);
+    expect(paths[0].uncoveredQuantity).toBe("3");
+    expect(paths[0].terminal.itemId).toBe(parentId);
+    expect(paths[0].steps.map((step) => step.itemId)).toEqual([
+      subassemblyId,
+      parentId,
+    ]);
+  });
+
+  test("late and undated open manufacturing supply do not hide dated downstream paths", async () => {
+    const rawId = await createMaterial("Late Supply Raw Input", {
+      stock: "100",
+      skuKey: "LATE-SUPPLY-RAW",
+    });
+    const subassemblyId = await createProduct("Late Supply Subassembly", [
+      { componentId: rawId, quantity: "1" },
+    ]);
+    const parentId = await createProduct("Late Supply Parent Product", [
+      { componentId: subassemblyId, quantity: "1" },
+    ]);
+    await createConfirmedDemand(parentId, "1");
+
+    const lateMo = await createManufacturingOrder({
+      productId: subassemblyId,
+      plannedQuantity: "1",
+      plannedDate: "2026-05-20",
+      ingredients: [{ itemId: rawId, quantityPerUnit: "1" }],
+      confirmShortage: true,
+    });
+    expect(lateMo.status).toBe(201);
+    const lateRelease = await releaseManufacturingOrder(lateMo.body.id as string, {
+      confirmShortage: true,
+    });
+    expect(lateRelease.status).toBe(200);
+
+    const undatedMo = await createManufacturingOrder({
+      productId: subassemblyId,
+      plannedQuantity: "1",
+      plannedDate: null,
+      ingredients: [{ itemId: rawId, quantityPerUnit: "1" }],
+      confirmShortage: true,
+    });
+    expect(undatedMo.status).toBe(201);
+    const undatedRelease = await releaseManufacturingOrder(undatedMo.body.id as string, {
+      confirmShortage: true,
+    });
+    expect(undatedRelease.status).toBe(200);
+
+    const planning = await snapshot();
+    const paths = productionDemandPathsFor(planning, subassemblyId);
+
+    expect(paths).toHaveLength(1);
+    expect(paths[0].uncoveredQuantity).toBe("1");
+    expect(paths[0].terminal.itemId).toBe(parentId);
   });
 
   test("lot age requirements allocate eligible lots once across BOM demand", async ({
@@ -815,8 +833,6 @@ test.describe("Planning workspace", () => {
     const secondProductId = await createProduct("Aged Soil Allocation Bag B", [
       { componentId, quantity: "1", minimumLotAgeDays: 7 },
     ]);
-    await updatePlanningRules(firstProductId, { productionLeadTimeDays: "1" });
-    await updatePlanningRules(secondProductId, { productionLeadTimeDays: "1" });
     await createConfirmedDemand(firstProductId, "10");
     await createConfirmedDemand(secondProductId, "10");
 
@@ -865,14 +881,10 @@ test.describe("Planning workspace", () => {
   test("create WO draft from recommendation validates payload and creates a draft", async ({
     db,
   }) => {
-    const componentId = await createMaterial("Rice Hulls");
+    const componentId = await createMaterial("Rice Hulls", { stock: "100" });
     const productId = await createProduct("Herb Planter Kit", [
       { componentId, quantity: "2" },
     ]);
-    const update = await updatePlanningRules(productId, {
-      productionLeadTimeDays: "2",
-    });
-    expect(update.status).toBe(200);
     await createConfirmedDemand(productId, "5");
 
     const planning = await snapshot();
@@ -953,6 +965,122 @@ test.describe("Planning workspace", () => {
     expect(planningDrafts).toHaveLength(1);
   });
 
+  test("shared component shortages allocate one component pool across make recommendations", async () => {
+    const componentId = await createMaterial("Shared Shortage Component", {
+      stock: "15",
+      skuKey: "SHARED-SHORT-COMP",
+    });
+    const firstProductId = await createProduct("Shared Shortage Parent A", [
+      { componentId, quantity: "10" },
+    ]);
+    const secondProductId = await createProduct("Shared Shortage Parent B", [
+      { componentId, quantity: "10" },
+    ]);
+    await createConfirmedDemand(firstProductId, "1");
+    await createConfirmedDemand(secondProductId, "1");
+
+    const planning = await snapshot();
+    const componentRow = rowFor(planning, componentId);
+    const blockers = planning.productionBlockerFacts.filter(
+      (fact) =>
+        fact.blockerType === "material_shortage" &&
+        fact.componentItemId === componentId
+    );
+
+    expect(componentRow.demandQuantity).toBe("20");
+    expect(componentRow.availableStock).toBe("15");
+    expect(componentRow.shortageQuantity).toBe("5");
+    expect(blockers.reduce((sum, fact) => sum + Number(fact.shortageQuantity ?? "0"), 0)).toBe(5);
+  });
+
+  test("safety-stock-only make recommendation remains visible on the planning page", async ({
+    page,
+  }) => {
+    const productName = `Safety Make Product ${runToken}`;
+    const componentId = await createMaterial("Safety Make Component", {
+      stock: "100",
+      skuKey: "SAFETY-MAKE-COMP",
+    });
+    const product = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-P", "SAFETY-MAKE-PRODUCT"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "3",
+      bom: [{ componentId, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+
+    const planning = await snapshot();
+    const recommendation = recommendationFor(planning, product.body.id as string);
+    expect(recommendation.recommendationType).toBe("create_manufacturing_order");
+
+    await page.goto("/planning");
+    await page.getByLabel("Search planning").fill(productName);
+    await expect(page.getByText(productName)).toBeVisible();
+    await expect(page.getByText("Safety stock").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /downstream need/ })).toHaveCount(0);
+  });
+
+  test("blocked planning MO payload is rejected server-side", async () => {
+    const componentId = await createMaterial("Blocked Make Component", {
+      stock: "0",
+      skuKey: "BLOCKED-MAKE-COMP",
+    });
+    const productId = await createProduct("Blocked Make Product", [
+      { componentId, quantity: "2" },
+    ]);
+    await createConfirmedDemand(productId, "3");
+
+    const planning = await snapshot();
+    const recommendation = recommendationFor(planning, productId);
+    expect(recommendation.actionPayload?.actionType).toBe("create_manufacturing_order");
+    expect(
+      planning.productionBlockerFacts.some((fact) => fact.parentItemId === productId)
+    ).toBe(true);
+
+    const created = await createPlanningManufacturingOrderDraft(
+      recommendation.actionPayload!
+    );
+    expect(created.status).toBe(409);
+    expect(created.body).toMatchObject({
+      conflictType: "blocked_make",
+    });
+  });
+
+  test("missing purchase price produces setup review instead of normal PO action", async () => {
+    const item = await createItem({
+      name: "Missing Price Material",
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-M", "MISSING-PRICE"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "1.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+    await establishSupplierHistory(itemId);
+    await createConfirmedDemand(itemId, "4");
+
+    const planning = await snapshot();
+    const recommendation = recommendationFor(planning, itemId);
+
+    expect(recommendation.recommendationType).toBe("review_item_setup");
+    expect(recommendation.reasonCodes).toContain("missing_purchase_price");
+    expect(recommendation.actionPayload).toBeNull();
+    expect(rowFor(planning, itemId).suggestedAction).toBe("buy");
+  });
+
   test("authorization keeps another org planning data and actions isolated", async () => {
     const otherOrg = await createOtherOrgPlanningRecommendation();
 
@@ -968,14 +1096,12 @@ test.describe("Planning workspace", () => {
     expect(crossOrgAction.status).toBe(409);
   });
 
-  test("planning page opens supplier detail and creates a suggested PO draft", async ({
+  test("planning page can start a purchase order when a supplier is missing", async ({
     page,
-    db,
   }) => {
     const item = await createMaterialRecord("Pump Cap 38mm", {
       skuKey: "UI-PUMP-CAP",
     });
-    await establishSupplierHistory(item.id);
     await createConfirmedDemand(item.id, "7");
 
     await page.goto("/planning");
@@ -984,44 +1110,15 @@ test.describe("Planning workspace", () => {
     await page.getByLabel("Search planning").fill(item.sku);
     const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
     await expect(materialRow).toBeVisible();
-    await expect(materialRow).toContainText(supplierName);
-    await expect(materialRow).toContainText("Order");
+    await expect(materialRow).toContainText("Supplier needed");
+    await expect(materialRow).toContainText("Order now");
 
-    const [response] = await Promise.all([
-      page.waitForResponse(
-        (res) =>
-          res.request().method() === "POST" &&
-          res.url().endsWith("/api/planning/actions/purchase-orders")
-      ),
-      materialRow.getByRole("button", { name: "Order" }).click(),
-    ]);
-    expect(response.status()).toBe(201);
-    await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-/);
-
-    const createdId = page.url().split("/").at(-1) ?? "";
-    const [order] = await db
-      .select()
-      .from(purchaseOrders)
-      .where(eq(purchaseOrders.id, createdId));
-    expect(order.status).toBe("draft");
-    expect(order.supplierId).toBe(supplierId);
-    expect(order.notes).toContain("[planning-recommendation:");
-
-    const lines = await db
-      .select()
-      .from(purchaseOrderLines)
-      .where(eq(purchaseOrderLines.purchaseOrderId, createdId))
-      .orderBy(asc(purchaseOrderLines.sortOrder));
-    expect(lines).toHaveLength(1);
-    expect(lines[0].itemId).toBe(item.id);
-    expect(lines[0].quantityOrdered).toBe("7.0000");
+    await materialRow.getByRole("button", { name: "Create PO" }).click();
+    await expect(page).toHaveURL(new RegExp(`/purchasing/orders/new\\?itemId=${item.id}`));
+    await expect(page.getByRole("heading", { name: "Add Purchase Order" })).toBeVisible();
   });
 
-  test("planning page groups purchasing actions by supplier and creates one draft", async ({
-    page,
-    db,
-  }) => {
+  test("planning page bulk action opens one purchase order form", async ({ page }) => {
     const searchToken = `BUY-GROUP-${runToken}`;
     const firstItem = await createMaterialRecord("Coconut Coir Brick", {
       skuKey: `${searchToken}-COIR`,
@@ -1042,37 +1139,22 @@ test.describe("Planning workspace", () => {
     await expect(page.getByRole("row", { name: new RegExp(secondItem.name) })).toBeVisible();
     await page.getByLabel(`Select ${firstItem.name}`).click();
     await page.getByLabel(`Select ${secondItem.name}`).click();
-    await expect(page.getByText("2 materials selected")).toBeVisible();
+    await expect(page.getByText(/2 of .* row\(s\) selected\./)).toBeVisible();
 
-    const [response] = await Promise.all([
-      page.waitForResponse(
-        (res) =>
-          res.request().method() === "POST" &&
-          res.url().endsWith("/api/planning/actions/purchase-orders")
-      ),
-      page.getByRole("button", { name: "Create 1 PO" }).click(),
-    ]);
-    expect(response.status()).toBe(201);
-    await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
-
-    const createdId = page.url().split("/").at(-1) ?? "";
-    const [order] = await db
-      .select()
-      .from(purchaseOrders)
-      .where(eq(purchaseOrders.id, createdId));
-    expect(order.status).toBe("draft");
-    expect(order.supplierId).toBe(supplierId);
-
-    const lines = await db
-      .select()
-      .from(purchaseOrderLines)
-      .where(eq(purchaseOrderLines.purchaseOrderId, createdId))
-      .orderBy(asc(purchaseOrderLines.sortOrder));
-    expect(lines).toHaveLength(2);
-    expect(lines.map((line) => line.itemId).sort()).toEqual(
+    await page.getByRole("button", { name: "Actions (2 selected)" }).click();
+    await page.getByRole("menuitem", { name: "Create PO" }).click();
+    await page.waitForURL(/\/purchasing\/orders\/new\?.*itemId=/);
+    expect(new URL(page.url()).searchParams.getAll("itemId").sort()).toEqual(
       [firstItem.id, secondItem.id].sort()
     );
-    expect(order.notes).toContain("[planning-recommendation:");
+    await expect(page.getByRole("combobox", { name: "Search suppliers..." })).toHaveValue(
+      supplierName
+    );
+    const materialComboboxes = page.getByRole("combobox", {
+      name: "Search materials...",
+    });
+    await expect(materialComboboxes.nth(0)).toHaveValue(firstItem.name);
+    await expect(materialComboboxes.nth(1)).toHaveValue(secondItem.name);
   });
 
 });

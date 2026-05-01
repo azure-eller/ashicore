@@ -10,6 +10,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { DetailPageActions } from "@/components/detail-page-actions";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -218,7 +219,10 @@ export function ManufacturingOrderDetail({
               />
             </dt>
             <dd className="mt-1 text-sm">
-              {order.plannedQuantity} {order.unitName}
+              <QuantityWithUnit
+                value={order.plannedQuantity}
+                unitName={order.unitName}
+              />
               {order.manufacturingMode === "batch" && order.numberOfBatches != null && (
                 <span className="text-muted-foreground"> ({order.numberOfBatches} batch{order.numberOfBatches === 1 ? "" : "es"})</span>
               )}
@@ -227,20 +231,28 @@ export function ManufacturingOrderDetail({
           {order.manufacturingMode === "batch" && order.expectedBatchYield != null && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">
-                <TooltipHeader label="Yield / Batch" tooltip={BATCH_YIELD_TOOLTIP} />
-              </dt>
-              <dd className="mt-1 text-sm">
-                {order.expectedBatchYield} {order.unitName}
-              </dd>
-            </div>
-          )}
+              <TooltipHeader label="Yield / Batch" tooltip={BATCH_YIELD_TOOLTIP} />
+            </dt>
+            <dd className="mt-1 text-sm">
+              <QuantityWithUnit
+                value={order.expectedBatchYield}
+                unitName={order.unitName}
+              />
+            </dd>
+          </div>
+        )}
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
               <TooltipHeader label="Actual Quantity" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
             </dt>
             <dd className="mt-1 text-sm">
               {order.actualQuantity != null
-                ? `${order.actualQuantity} ${order.unitName}`
+                ? (
+                    <QuantityWithUnit
+                      value={order.actualQuantity}
+                      unitName={order.unitName}
+                    />
+                  )
                 : "\u2014"}
             </dd>
           </div>

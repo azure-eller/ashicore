@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 
 export default function AppError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
@@ -14,6 +13,12 @@ export default function AppError({
   useEffect(() => {
     Sentry.captureException(error);
   }, [error]);
+
+  const handleRetry = () => {
+    // Root-level errors often need a fresh server render; reset alone can replay
+    // the same failed route cache and leave the user stuck on this card.
+    window.location.reload();
+  };
 
   return (
     <div className="flex min-h-svh items-center justify-center px-6 py-10">
@@ -24,7 +29,7 @@ export default function AppError({
             The error was reported. Try the action again, or reload this section.
           </p>
         </div>
-        <Button type="button" onClick={reset}>
+        <Button type="button" onClick={handleRetry}>
           Try again
         </Button>
       </div>

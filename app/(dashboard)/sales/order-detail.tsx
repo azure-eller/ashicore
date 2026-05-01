@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
 import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   AlertDialog,
@@ -77,7 +78,7 @@ import {
   UNIT_TOOLTIP,
   ORDER_TOTAL_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
+import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   SALES_SHIPMENT_COST_STATUSES,
@@ -1117,12 +1118,20 @@ export function OrderDetail({
                         </TableCell>
                         <TableCell>{formatDate(shipment.scheduledDate)}</TableCell>
                         <TableCell>
-                          {shipment.lines
-                            .map(
-                              (line) =>
-                                `${formatQuantity(line.quantity)} ${line.unitName} ${line.itemName}`
-                            )
-                            .join(", ")}
+                          <div className="flex flex-col gap-1">
+                            {shipment.lines.map((line) => (
+                              <span
+                                key={line.id}
+                                className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
+                              >
+                                <QuantityWithUnit
+                                  value={line.quantity}
+                                  unitName={line.unitName}
+                                />
+                                <span className="min-w-0 truncate">{line.itemName}</span>
+                              </span>
+                            ))}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           {formatPrice(shipment.marginSummary.productRevenue) ?? "\u2014"}
@@ -1640,7 +1649,11 @@ export function OrderDetail({
                         <TableCell className="text-right">{line.plannedQuantity}</TableCell>
                         <TableCell className="text-right">{line.shippedQuantity}</TableCell>
                         <TableCell className="text-right">
-                          {line.unplannedRemainingQuantity} {line.unitName}
+                          <QuantityWithUnit
+                            value={line.unplannedRemainingQuantity}
+                            unitName={line.unitName}
+                            className="justify-end"
+                          />
                         </TableCell>
                         <TableCell>
                           <Input
@@ -2098,40 +2111,48 @@ export function OrderDetail({
                       </Link>
                     </TableCell>
                     <TableCell>
-                      {product.inStock} {product.unitName}
+                      <QuantityWithUnit value={product.inStock} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.availableQty} {product.unitName}
+                      <QuantityWithUnit value={product.availableQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.committedQty} {product.unitName}
+                      <QuantityWithUnit value={product.committedQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.demandQty} {product.unitName}
+                      <QuantityWithUnit value={product.demandQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.shortageQty} {product.unitName}
+                      <QuantityWithUnit value={product.shortageQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.expectedQty} {product.unitName}
+                      <QuantityWithUnit value={product.expectedQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.safetyStock} {product.unitName}
+                      <QuantityWithUnit value={product.safetyStock} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.calculatedStock} {product.unitName}
+                      <QuantityWithUnit value={product.calculatedStock} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.addedQty} {product.unitName}
+                      <QuantityWithUnit value={product.addedQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell>
-                      {product.projectedDemandQty} {product.unitName}
+                      <QuantityWithUnit value={product.projectedDemandQty} unitName={product.unitName} />
                     </TableCell>
                     <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
-                      {product.projectedShortageQty} {product.unitName}
+                      <QuantityWithUnit
+                        value={product.projectedShortageQty}
+                        unitName={product.unitName}
+                        tone={product.projectedShortageQty > 0 ? "destructive" : "default"}
+                      />
                     </TableCell>
                     <TableCell className="text-destructive">
-                      {product.projectedCalculatedStock} {product.unitName}
+                      <QuantityWithUnit
+                        value={product.projectedCalculatedStock}
+                        unitName={product.unitName}
+                        tone="destructive"
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

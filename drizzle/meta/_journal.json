@@ -421,6 +421,13 @@
       "when": 1777606397204,
       "tag": "0059_flashy_wallflower",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1777658672516,
+      "tag": "0060_sloppy_speed",
+      "breakpoints": true
     }
   ]
 }
