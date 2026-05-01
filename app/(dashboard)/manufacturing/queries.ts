@@ -177,6 +177,10 @@ function normalizeQuantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
+function multiplyQuantityString(quantity: string, multiplier: number) {
+  return normalizeQuantityString(Number(quantity) * multiplier);
+}
+
 function buildIngredientActualsMap(
   submitted: CompleteManufacturingOrder["ingredientActuals"] | undefined,
   ingredientRows: Array<{ id: string; itemName: string }>
@@ -540,7 +544,10 @@ async function prepareCreateIngredientsInTx(
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
 
   if (bomRows.length === 0) {
-    throw new ManufacturingError("Products need a BOM before creating a manufacturing order", 400);
+    throw new ManufacturingError(
+      "Products need a BOM before creating a manufacturing order",
+      400
+    );
   }
 
   if (bomRows.length !== submittedIngredients.length) {
@@ -550,37 +557,55 @@ async function prepareCreateIngredientsInTx(
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
     ingredients: bomRows.map((row, index) => {
-    const submitted = submittedIngredients[index];
-    const selected =
-      submitted.itemId === row.itemId
-        ? {
-            itemId: row.itemId,
-            itemName: row.itemName,
-            itemSku: row.itemSku,
-            itemType: row.itemType,
-            unitName: row.unitName,
-          }
-        : row.alternates.find((alternate) => alternate.itemId === submitted.itemId);
-
-    if (!selected) {
-      throw new ManufacturingError(
-        "Select an approved alternate for this ingredient.",
-        400
+      const submitted = submittedIngredients[index];
+      const alternate = row.alternates.find(
+        (candidate) => candidate.itemId === submitted.itemId
       );
-    }
-    const quantityPerUnit = Number(submitted.quantityPerUnit);
+      const selected =
+        submitted.itemId === row.itemId
+          ? {
+              itemId: row.itemId,
+              itemName: row.itemName,
+              itemSku: row.itemSku,
+              itemType: row.itemType,
+              unitName: row.unitName,
+              quantityPerUnit: row.quantityPerUnit,
+            }
+          : alternate
+            ? {
+                itemId: alternate.itemId,
+                itemName: alternate.itemName,
+                itemSku: alternate.itemSku,
+                itemType: alternate.itemType,
+                unitName: alternate.unitName,
+                quantityPerUnit: multiplyQuantityString(
+                  row.quantityPerUnit,
+                  Number(alternate.quantityFactor)
+                ),
+              }
+            : null;
 
-    return {
-      itemId: selected.itemId,
-      itemName: selected.itemName,
-      itemSku: selected.itemSku,
-      itemType: selected.itemType,
-      unitName: selected.unitName,
-      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
-      sortOrder: index,
-      constraints: row.constraints,
-    };
+      if (!selected) {
+        throw new ManufacturingError(
+          "Select an approved alternate for this ingredient.",
+          400
+        );
+      }
+
+      return {
+        itemId: selected.itemId,
+        itemName: selected.itemName,
+        itemSku: selected.itemSku,
+        itemType: selected.itemType,
+        unitName: selected.unitName,
+        quantityPerUnit: selected.quantityPerUnit,
+        plannedQuantity: multiplyQuantityString(
+          selected.quantityPerUnit,
+          ingredientMultiplier
+        ),
+        sortOrder: index,
+        constraints: row.constraints,
+      };
     }),
   };
 }
@@ -596,6 +621,7 @@ function getApprovedBomMaterialOption(
       itemSku: row.componentSku,
       itemType: row.componentItemType,
       unitName: row.unitName,
+      quantityPerUnit: row.quantity,
     };
   }
 
@@ -613,6 +639,10 @@ function getApprovedBomMaterialOption(
     itemSku: alternate.alternateItemSku,
     itemType: alternate.alternateItemType,
     unitName: alternate.unitName,
+    quantityPerUnit: multiplyQuantityString(
+      row.quantity,
+      Number(alternate.quantityFactor)
+    ),
   };
 }
 
@@ -633,19 +663,20 @@ async function prepareCreateIngredientsFromBomInTx(
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
     ingredients: bomRows.map((row, index) => {
-    const quantityPerUnit = Number(row.quantityPerUnit);
-
-    return {
-      itemId: row.itemId,
-      itemName: row.itemName,
-      itemSku: row.itemSku,
-      itemType: row.itemType,
-      unitName: row.unitName,
-      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
-      sortOrder: index,
-      constraints: row.constraints,
-    };
+      return {
+        itemId: row.itemId,
+        itemName: row.itemName,
+        itemSku: row.itemSku,
+        itemType: row.itemType,
+        unitName: row.unitName,
+        quantityPerUnit: row.quantityPerUnit,
+        plannedQuantity: multiplyQuantityString(
+          row.quantityPerUnit,
+          ingredientMultiplier
+        ),
+        sortOrder: index,
+        constraints: row.constraints,
+      };
     }),
   };
 }
@@ -750,12 +781,18 @@ async function insertManufacturingOrderInTx(
 
 async function prepareUpdatedIngredientsInTx(
   tx: Tx,
+  manufacturingOrderId: string,
   bomRevisionId: string | null,
   ingredientMultiplier: number,
   submittedIngredients: UpdateManufacturingOrder["ingredients"]
 ): Promise<ValidatedIngredient[]> {
   if (!bomRevisionId) {
-    throw new ManufacturingError("The order BOM snapshot is missing.", 400);
+    return prepareLegacyUpdatedIngredientsInTx(
+      tx,
+      manufacturingOrderId,
+      ingredientMultiplier,
+      submittedIngredients
+    );
   }
 
   const bomRows = await getBomRevisionComponentsInTx(tx, bomRevisionId);
@@ -770,7 +807,6 @@ async function prepareUpdatedIngredientsInTx(
   return bomRows.map((row, index) => {
     const submitted = submittedIngredients[index];
     const selected = getApprovedBomMaterialOption(row, submitted.itemId);
-    const quantityPerUnit = Number(submitted.quantityPerUnit);
 
     return {
       itemId: selected.itemId,
@@ -778,10 +814,78 @@ async function prepareUpdatedIngredientsInTx(
       itemSku: selected.itemSku,
       itemType: selected.itemType,
       unitName: selected.unitName,
-      quantityPerUnit: normalizeQuantityString(quantityPerUnit),
-      plannedQuantity: normalizeQuantityString(quantityPerUnit * ingredientMultiplier),
+      quantityPerUnit: selected.quantityPerUnit,
+      plannedQuantity: multiplyQuantityString(
+        selected.quantityPerUnit,
+        ingredientMultiplier
+      ),
       sortOrder: row.sortOrder,
       constraints: row.constraints,
+    };
+  });
+}
+
+async function prepareLegacyUpdatedIngredientsInTx(
+  tx: Tx,
+  manufacturingOrderId: string,
+  ingredientMultiplier: number,
+  submittedIngredients: UpdateManufacturingOrder["ingredients"]
+): Promise<ValidatedIngredient[]> {
+  const existingRows = await tx
+    .select({
+      id: manufacturingOrderIngredients.id,
+      itemId: manufacturingOrderIngredients.itemId,
+      itemName: manufacturingOrderIngredients.itemName,
+      itemSku: manufacturingOrderIngredients.itemSku,
+      itemType: manufacturingOrderIngredients.itemType,
+      unitName: manufacturingOrderIngredients.unitName,
+      quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
+        "quantityPerUnit"
+      ),
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(
+      and(
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId),
+        sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
+      )
+    )
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  if (existingRows.length !== submittedIngredients.length) {
+    throw new ManufacturingError(
+      "Ingredient rows cannot be added or removed after the order is created",
+      400
+    );
+  }
+
+  const constraintsById = await getIngredientConstraintsByIdInTx(
+    tx,
+    existingRows.map((row) => row.id)
+  );
+
+  return existingRows.map((row, index) => {
+    const submitted = submittedIngredients[index];
+    if (submitted.itemId !== row.itemId) {
+      throw new ManufacturingError(
+        "This draft order is missing a BOM snapshot. Recreate it before changing ingredients.",
+        400
+      );
+    }
+
+    const quantityPerUnit = normalizeQuantityString(Number(submitted.quantityPerUnit));
+
+    return {
+      itemId: row.itemId,
+      itemName: row.itemName,
+      itemSku: row.itemSku,
+      itemType: row.itemType,
+      unitName: row.unitName,
+      quantityPerUnit,
+      plannedQuantity: multiplyQuantityString(quantityPerUnit, ingredientMultiplier),
+      sortOrder: row.sortOrder,
+      constraints: constraintsById.get(row.id) ?? [],
     };
   });
 }
@@ -1988,6 +2092,7 @@ export async function getManufacturingOrderEditData(
         quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
           "quantityPerUnit"
         ),
+        sortOrder: manufacturingOrderIngredients.sortOrder,
       })
       .from(manufacturingOrderIngredients)
       .where(
@@ -2003,12 +2108,19 @@ export async function getManufacturingOrderEditData(
         ? []
         : await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
 
+    const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
+
     return {
       ...order,
-      ingredients: ingredients.map((ingredient, index) => {
-        const bomRow = bomRows[index];
+      ingredients: ingredients.map((ingredient) => {
+        const bomRow = bomBySortOrder.get(ingredient.sortOrder);
         return {
-          ...ingredient,
+          itemId: ingredient.itemId,
+          itemName: ingredient.itemName,
+          itemSku: ingredient.itemSku,
+          itemType: ingredient.itemType,
+          unitName: ingredient.unitName,
+          quantityPerUnit: ingredient.quantityPerUnit,
           defaultItemId: bomRow?.componentId ?? ingredient.itemId,
           defaultItemName: bomRow?.componentName ?? ingredient.itemName,
           defaultItemSku: bomRow?.componentSku ?? ingredient.itemSku,
@@ -2214,6 +2326,7 @@ export async function updateManufacturingOrder(
       : null);
     const ingredients = await prepareUpdatedIngredientsInTx(
       tx,
+      id,
       existing.bomRevisionId,
       ingredientMultiplier,
       payload.ingredients
