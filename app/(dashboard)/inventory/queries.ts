@@ -493,31 +493,32 @@ async function createBomRevisionInTx(
     const componentById = new Map(componentRows.map((row) => [row.id, row]));
 
     const componentValues = params.bom.map((row, index) => {
-        const component = componentById.get(row.componentId);
+      const component = componentById.get(row.componentId);
 
-        if (!component) {
-          throw new Error("BOM component not found");
-        }
+      if (!component) {
+        throw new Error("BOM component not found");
+      }
 
-        return {
-          bomRevisionId: revision.id,
-          componentId: row.componentId,
-          componentName: component.name,
-          componentSku: component.sku,
-          componentItemType: component.itemType,
-          unitName: component.unitName,
-          quantity: row.quantity,
-          sortOrder: index,
-        };
-      });
+      return {
+        bomRevisionId: revision.id,
+        componentId: row.componentId,
+        componentName: component.name,
+        componentSku: component.sku,
+        componentItemType: component.itemType,
+        unitName: component.unitName,
+        quantity: row.quantity,
+        sortOrder: index,
+      };
+    });
 
     const insertedComponents = await tx
       .insert(bomRevisionComponents)
       .values(componentValues)
       .returning({
-      id: bomRevisionComponents.id,
-      componentId: bomRevisionComponents.componentId,
-    });
+        id: bomRevisionComponents.id,
+        componentId: bomRevisionComponents.componentId,
+        sortOrder: bomRevisionComponents.sortOrder,
+      });
 
     const alternateItemIds = [
       ...new Set(
@@ -544,8 +545,12 @@ async function createBomRevisionInTx(
             .where(and(inArray(items.id, alternateItemIds), isNull(items.deletedAt)));
     const alternateById = new Map(alternateRows.map((row) => [row.id, row]));
 
-    const constraintRows = insertedComponents.flatMap((component, index) => {
-      const input = params.bom[index];
+    const inputBySortOrder = new Map(
+      params.bom.map((input, sortOrder) => [sortOrder, input])
+    );
+
+    const constraintRows = insertedComponents.flatMap((component) => {
+      const input = inputBySortOrder.get(component.sortOrder);
       const constraint = createLotAgeMinDaysConstraint(
         input?.minimumLotAgeDays ?? null
       );
@@ -565,8 +570,8 @@ async function createBomRevisionInTx(
       await tx.insert(bomRevisionComponentConstraints).values(constraintRows);
     }
 
-    const alternateValues = insertedComponents.flatMap((component, index) => {
-      const input = params.bom[index];
+    const alternateValues = insertedComponents.flatMap((component) => {
+      const input = inputBySortOrder.get(component.sortOrder);
       const defaultComponent = componentById.get(component.componentId);
 
       return (input?.alternates ?? []).map((alternate, alternateIndex) => {
