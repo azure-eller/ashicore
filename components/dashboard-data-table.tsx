@@ -112,7 +112,17 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   getSubRows?: (row: TData) => TData[] | undefined;
   subRowClassName?: string;
   globalFilterFn?: FilterFn<TData> | BuiltInFilterFn;
+  onRowClick?: (row: TData) => void;
 };
+
+function isInteractiveRowTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    target.closest(
+      "a,button,input,select,textarea,label,[role='button'],[role='checkbox'],[role='menuitem'],[data-row-click-ignore='true']"
+    ) != null
+  );
+}
 
 export function DashboardDataTable<TData extends { id: string }>({
   columns,
@@ -135,6 +145,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   getSubRows: getSubRowsProp,
   subRowClassName,
   globalFilterFn,
+  onRowClick,
 }: DashboardDataTableProps<TData>) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -427,12 +438,28 @@ export function DashboardDataTable<TData extends { id: string }>({
                   <Fragment key={row.id}>
                     <TableRow
                       data-state={row.getIsSelected() && "selected"}
-                      className={
-                        [
-                          deletingIds.has(row.original.id) ? "opacity-50" : "",
-                          row.depth > 0 && subRowClassName ? subRowClassName : "",
-                        ].filter(Boolean).join(" ") || undefined
-                      }
+                      tabIndex={onRowClick ? 0 : undefined}
+                      onClick={(event) => {
+                        if (!onRowClick || isInteractiveRowTarget(event.target)) return;
+                        onRowClick(row.original);
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          !onRowClick ||
+                          isInteractiveRowTarget(event.target) ||
+                          (event.key !== "Enter" && event.key !== " ")
+                        ) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        onRowClick(row.original);
+                      }}
+                      className={cn(
+                        deletingIds.has(row.original.id) && "opacity-50",
+                        row.depth > 0 && subRowClassName,
+                        onRowClick && "cursor-pointer"
+                      )}
                     >
                       {row.getVisibleCells().map((cell) => {
                         const meta = cell.column.columnDef.meta as

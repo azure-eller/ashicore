@@ -17,11 +17,13 @@ import {
   createPurchaseOrder,
   createSalesOrder,
   createSupplier,
+  fulfillSalesOrder,
   getBaseUrl,
   getPlanningSnapshot,
   getUnitId,
   releaseManufacturingOrder,
   submitPurchaseOrder,
+  testFetch,
 } from "../../helpers/api";
 import type {
   DemandFact,
@@ -99,6 +101,17 @@ test.describe("Planning workspace", () => {
     return `${prefix}-${index}-${skuSegment(key)}-${runToken}`.slice(0, 50);
   }
 
+  function isoDateDaysFromToday(days: number) {
+    const date = new Date();
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function utcDateDaysFromToday(days: number) {
+    return new Date(`${isoDateDaysFromToday(days)}T00:00:00.000Z`);
+  }
+
   async function snapshot(): Promise<PlanningSnapshot> {
     const result = await getPlanningSnapshot();
     expect(result.status).toBe(200);
@@ -128,6 +141,18 @@ test.describe("Planning workspace", () => {
     return snapshot.salesOrderProductionDemandPaths.filter(
       (entry) => entry.itemId === itemId
     );
+  }
+
+  async function ensureCustomerId() {
+    if (customerId) return customerId;
+
+    const customer = await createCustomer({
+      name: `${customerName} ${runToken}`,
+      email: `planning-fallback-${runToken}@example.com`,
+    });
+    expect(customer.status).toBe(201);
+    customerId = customer.body.id as string;
+    return customerId;
   }
 
   function deterministicRecommendationShape(
@@ -209,10 +234,11 @@ test.describe("Planning workspace", () => {
   }
 
   async function createConfirmedDemand(itemId: string, quantity: string) {
+    const demandCustomerId = await ensureCustomerId();
     const result = await createSalesOrder({
-      customerId,
+      customerId: demandCustomerId,
       status: "confirmed",
-      requestedDate: "2026-05-15",
+      requestedDate: isoDateDaysFromToday(13),
       notes: null,
       lines: [{ itemId, quantity, unitPrice: "1.00" }],
       confirmOversell: true,
@@ -614,9 +640,7 @@ test.describe("Planning workspace", () => {
     expect(line.unitCost).toBe("2.5000");
   });
 
-  test("production planning exposes start bucket and batch count without direct-demand downstream noise", async ({
-    page,
-  }) => {
+  test("production planning backend exposes start bucket and batch count without direct-demand downstream noise", async () => {
     const productName = `Production Batch Blend ${runToken}`;
     const componentId = await createMaterial("Production Batch Component", {
       stock: "100",
@@ -655,13 +679,6 @@ test.describe("Planning workspace", () => {
         (fact) => fact.parentItemId === productId
       )
     ).toBe(false);
-
-    await page.goto("/planning");
-    await page.getByLabel("Search planning").fill(productSku);
-    await expect(page.getByText(productName)).toBeVisible();
-    await expect(page.getByText("3 batches")).toBeVisible();
-    await expect(page.getByText(/SO-\d{4}-\d{4}/).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /downstream need/ })).toHaveCount(0);
   });
 
   test("component shortage references parent demand and BOM revision", async () => {
@@ -736,6 +753,45 @@ test.describe("Planning workspace", () => {
     expect(paths[0]).not.toHaveProperty("sourceRefs");
     expect(paths[0]).not.toHaveProperty("bomRevisionId");
     expect(paths[0]).not.toHaveProperty("manufacturingOrderId");
+  });
+
+  test("planning page hides production queue while backend keeps production paths", async ({
+    page,
+  }) => {
+    const prefix = `First Build ${runToken}`;
+    const rawId = await createMaterial(`${prefix} Raw Input`, {
+      stock: "100",
+      skuKey: "FIRST-BUILD-RAW",
+    });
+    const nutrientPackId = await createProduct(`${prefix} Nutrient Pack`, [
+      { componentId: rawId, quantity: "1" },
+    ]);
+    const toteId = await createProduct(`${prefix} 1yd Tote`, [
+      { componentId: nutrientPackId, quantity: "3" },
+    ]);
+    const bagId = await createProduct(`${prefix} 2cf Bag`, [
+      { componentId: toteId, quantity: "4" },
+    ]);
+    await createConfirmedDemand(bagId, "2");
+
+    const planning = await snapshot();
+    const paths = productionDemandPathsFor(planning, nutrientPackId);
+    const recommendation = recommendationFor(planning, nutrientPackId);
+
+    expect(paths).toHaveLength(1);
+    expect(paths[0].steps.map((step) => step.itemId)).toEqual([
+      nutrientPackId,
+      toteId,
+      bagId,
+    ]);
+    expect(recommendation.actionPayload?.actionType).toBe(
+      "create_manufacturing_order"
+    );
+
+    await page.goto("/planning");
+    await expect(page.getByRole("radio", { name: /Production/ })).toHaveCount(0);
+    await expect(page.getByText("Replenishment", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /downstream need/ })).toHaveCount(0);
   });
 
   test("dual-role items keep direct demand flat and downstream paths separate", async () => {
@@ -820,11 +876,11 @@ test.describe("Planning workspace", () => {
     });
     await db
       .update(lots)
-      .set({ receivedAt: new Date("2026-05-01T00:00:00.000Z") })
+      .set({ receivedAt: utcDateDaysFromToday(-1) })
       .where(eq(lots.itemId, componentId));
     await db
       .update(inventoryLotBalances)
-      .set({ receivedAt: new Date("2026-05-01T00:00:00.000Z") })
+      .set({ receivedAt: utcDateDaysFromToday(-1) })
       .where(eq(inventoryLotBalances.itemId, componentId));
 
     const firstProductId = await createProduct("Aged Soil Allocation Bag A", [
@@ -846,6 +902,181 @@ test.describe("Planning workspace", () => {
     expect(blockers).toHaveLength(1);
     expect(blockers[0].availableQuantity).toBe("5");
     expect(blockers[0].shortageQuantity).toBe("5");
+  });
+
+  test("lot-level and aggregate inventory do not double-count mixed age demand", async ({
+    db,
+  }) => {
+    const rawId = await createMaterial("Mixed Age Allocation Raw", {
+      stock: "100",
+      skuKey: "MIXED-AGE-RAW",
+    });
+    const componentResult = await createItem({
+      name: "Mixed Age Allocation Tote",
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-P", "MIXED-AGE-ALLOC"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "10",
+      safetyStock: "0",
+      bom: [{ componentId: rawId, quantity: "1" }],
+    });
+    expect(componentResult.status).toBe(201);
+    const componentId = componentResult.body.id as string;
+    await db
+      .update(lots)
+      .set({ receivedAt: utcDateDaysFromToday(-30) })
+      .where(eq(lots.itemId, componentId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: utcDateDaysFromToday(-30) })
+      .where(eq(inventoryLotBalances.itemId, componentId));
+
+    const standardProductId = await createProduct("Mixed Age Standard Bag", [
+      { componentId, quantity: "1" },
+    ]);
+    const agedProductId = await createProduct("Mixed Age Aged Bag", [
+      { componentId, quantity: "1", minimumLotAgeDays: 7 },
+    ]);
+    await createConfirmedDemand(standardProductId, "10");
+    await createConfirmedDemand(agedProductId, "10");
+
+    const planning = await snapshot();
+    const paths = productionDemandPathsFor(planning, componentId);
+    const uncovered = paths.reduce(
+      (total, path) => total + Number.parseFloat(path.uncoveredQuantity),
+      0
+    );
+
+    expect(uncovered).toBe(10);
+  });
+
+  test("lot-age blocked make components become first-build recommendations", async ({
+    db,
+  }) => {
+    const rawId = await createMaterial("Aged Make Raw Input", {
+      stock: "100",
+      skuKey: "AGED-MAKE-RAW",
+    });
+    const componentResult = await createItem({
+      name: "Aged Make 1yd Tote",
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-P", "AGED-MAKE-TOTE"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "10",
+      safetyStock: "0",
+      bom: [{ componentId: rawId, quantity: "1" }],
+    });
+    expect(componentResult.status).toBe(201);
+    const componentId = componentResult.body.id as string;
+    await db
+      .update(lots)
+      .set({ receivedAt: utcDateDaysFromToday(12) })
+      .where(eq(lots.itemId, componentId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: utcDateDaysFromToday(12) })
+      .where(eq(inventoryLotBalances.itemId, componentId));
+
+    const parentId = await createProduct("Aged Make 2cf Bag", [
+      { componentId, quantity: "1", minimumLotAgeDays: 7 },
+    ]);
+    await createConfirmedDemand(parentId, "5");
+
+    const planning = await snapshot();
+    const componentRow = rowFor(planning, componentId);
+    const recommendation = recommendationFor(planning, componentId);
+    const paths = productionDemandPathsFor(planning, componentId);
+
+    expect(componentRow.shortageQuantity).toBe("0");
+    expect(recommendation.recommendationType).toBe("create_manufacturing_order");
+    expect(recommendation.quantity).toBe("5");
+    expect(recommendation.actionPayload?.actionType).toBe(
+      "create_manufacturing_order"
+    );
+    expect(paths).toHaveLength(1);
+    expect(paths[0].uncoveredQuantity).toBe("5");
+    expect(paths[0].steps.map((step) => step.itemId)).toEqual([
+      componentId,
+      parentId,
+    ]);
+  });
+
+  test("lot-age blocked parents queue deeper make prerequisites first", async ({
+    db,
+  }) => {
+    const rawId = await createMaterial("Aged Nested Raw Input", {
+      stock: "100",
+      skuKey: "AGED-NESTED-RAW",
+    });
+    const subassemblyId = await createProduct("Aged Nested Nutrient Pack", [
+      { componentId: rawId, quantity: "1" },
+    ]);
+    const toteResult = await createItem({
+      name: "Aged Nested 1yd Tote",
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-P", "AGED-NESTED-TOTE"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "10",
+      safetyStock: "0",
+      bom: [{ componentId: subassemblyId, quantity: "1" }],
+    });
+    expect(toteResult.status).toBe(201);
+    const toteId = toteResult.body.id as string;
+    await db
+      .update(lots)
+      .set({ receivedAt: utcDateDaysFromToday(12) })
+      .where(eq(lots.itemId, toteId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: utcDateDaysFromToday(12) })
+      .where(eq(inventoryLotBalances.itemId, toteId));
+
+    const parentId = await createProduct("Aged Nested 2cf Bag", [
+      { componentId: toteId, quantity: "1", minimumLotAgeDays: 7 },
+    ]);
+    await createConfirmedDemand(parentId, "5");
+
+    const planning = await snapshot();
+    const subassemblyRecommendation = recommendationFor(planning, subassemblyId);
+    const toteRecommendation = planning.recommendations.find(
+      (entry) => entry.itemId === toteId
+    );
+    const blockers = planning.productionBlockerFacts.filter(
+      (fact) =>
+        fact.parentItemId === parentId &&
+        fact.componentItemId === toteId &&
+        fact.blockerType === "component_requirement"
+    );
+    const paths = productionDemandPathsFor(planning, subassemblyId);
+
+    expect(subassemblyRecommendation.recommendationType).toBe(
+      "create_manufacturing_order"
+    );
+    expect(subassemblyRecommendation.quantity).toBe("5");
+    expect(subassemblyRecommendation.actionPayload?.actionType).toBe(
+      "create_manufacturing_order"
+    );
+    expect(toteRecommendation).toBeUndefined();
+    expect(blockers).toHaveLength(1);
+    expect(paths).toHaveLength(1);
+    expect(paths[0].uncoveredQuantity).toBe("5");
+    expect(paths[0].steps.map((step) => step.itemId)).toEqual([
+      subassemblyId,
+      toteId,
+      parentId,
+    ]);
   });
 
   test("create PO draft from recommendation validates payload and creates a draft", async ({
@@ -993,9 +1224,7 @@ test.describe("Planning workspace", () => {
     expect(blockers.reduce((sum, fact) => sum + Number(fact.shortageQuantity ?? "0"), 0)).toBe(5);
   });
 
-  test("safety-stock-only make recommendation remains visible on the planning page", async ({
-    page,
-  }) => {
+  test("safety-stock-only make recommendation remains in the planning backend", async () => {
     const productName = `Safety Make Product ${runToken}`;
     const componentId = await createMaterial("Safety Make Component", {
       stock: "100",
@@ -1019,12 +1248,6 @@ test.describe("Planning workspace", () => {
     const planning = await snapshot();
     const recommendation = recommendationFor(planning, product.body.id as string);
     expect(recommendation.recommendationType).toBe("create_manufacturing_order");
-
-    await page.goto("/planning");
-    await page.getByLabel("Search planning").fill(productName);
-    await expect(page.getByText(productName)).toBeVisible();
-    await expect(page.getByText("Safety stock").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /downstream need/ })).toHaveCount(0);
   });
 
   test("blocked planning MO payload is rejected server-side", async () => {
@@ -1106,16 +1329,80 @@ test.describe("Planning workspace", () => {
 
     await page.goto("/planning");
     await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
-    await page.getByRole("radio", { name: /Replenishment/ }).click();
+    await expect(page.getByRole("radio", { name: /Production/ })).toHaveCount(0);
     await page.getByLabel("Search planning").fill(item.sku);
     const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
     await expect(materialRow).toBeVisible();
     await expect(materialRow).toContainText("Supplier needed");
     await expect(materialRow).toContainText("Order now");
 
-    await materialRow.getByRole("button", { name: "Create PO" }).click();
+    await materialRow.getByRole("link", { name: new RegExp(item.name) }).click();
+    await expect(page).toHaveURL(new RegExp(`/inventory/materials/${item.id}$`));
+
+    await page.goto("/planning");
+    await page.getByLabel("Search planning").fill(item.sku);
+    const reviewRow = page.getByRole("row", { name: new RegExp(item.name) });
+    await reviewRow.getByText(item.sku).click();
+    await expect(page.getByRole("heading", { name: "Material planning" })).toBeVisible();
+    await expect(page.getByText(item.name).last()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { name: "Material planning" })).toHaveCount(0);
+
+    await reviewRow.getByRole("button", { name: "Create PO" }).click();
     await expect(page).toHaveURL(new RegExp(`/purchasing/orders/new\\?itemId=${item.id}`));
     await expect(page.getByRole("heading", { name: "Add Purchase Order" })).toBeVisible();
+  });
+
+  test("planning sheet shows material usage history from ledger events", async ({
+    page,
+  }) => {
+    const item = await createMaterialRecord("Usage History Gypsum", {
+      stock: "50",
+      safetyStock: "60",
+      skuKey: "UI-USAGE-HISTORY",
+    });
+    let usageCustomerId = customerId;
+    if (!usageCustomerId) {
+      const customer = await createCustomer({
+        name: `Usage History Customer ${runToken}`,
+        email: `usage-history-${runToken}@example.com`,
+      });
+      expect(customer.status).toBe(201);
+      usageCustomerId = customer.body.id as string;
+    }
+    const order = await createSalesOrder({
+      customerId: usageCustomerId,
+      status: "confirmed",
+      requestedDate: isoDateDaysFromToday(13),
+      notes: null,
+      lines: [{ itemId: item.id, quantity: "12", unitPrice: "1.00" }],
+      confirmOversell: true,
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    const shipped = await fulfillSalesOrder(order.body.id as string);
+    expect(shipped.status).toBe(200);
+
+    const usageResponse = await testFetch(`/api/items/${item.id}/usage-history`);
+    expect(usageResponse.status).toBe(200);
+    const usage = await usageResponse.json();
+    expect(usage.totals.last30Days).toBe("12");
+    expect(usage.totals.last90Days).toBe("12");
+    expect(
+      usage.buckets.some((bucket: { quantity: string }) => bucket.quantity === "12")
+    ).toBe(true);
+
+    await page.goto("/planning");
+    await page.getByLabel("Search planning").fill(item.sku);
+    const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
+    await expect(materialRow).toBeVisible();
+    await materialRow.getByText(item.sku).click();
+
+    await expect(page.getByRole("heading", { name: "Material planning" })).toBeVisible();
+    await expect(page.getByText("Historical usage")).toBeVisible();
+    await expect(page.getByText("Last 30")).toBeVisible();
+    await expect(page.getByText("Last 90")).toBeVisible();
+    await expect(page.getByText("Weekly avg")).toBeVisible();
   });
 
   test("planning page bulk action opens one purchase order form", async ({ page }) => {
@@ -1132,7 +1419,7 @@ test.describe("Planning workspace", () => {
     await createConfirmedDemand(secondItem.id, "5");
 
     await page.goto("/planning");
-    await page.getByRole("radio", { name: /Replenishment/ }).click();
+    await expect(page.getByRole("radio", { name: /Production/ })).toHaveCount(0);
     await page.getByLabel("Search planning").fill(searchToken);
 
     await expect(page.getByRole("row", { name: new RegExp(firstItem.name) })).toBeVisible();

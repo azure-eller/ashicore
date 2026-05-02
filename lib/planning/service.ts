@@ -136,6 +136,7 @@ type DemandSlice = {
   origin: DemandSliceOrigin;
   chain: DemandSliceStep[];
   explosionPath: string[];
+  requirements: BomComponentRequirement[];
 };
 
 type SupplySlice = {
@@ -144,6 +145,8 @@ type SupplySlice = {
   supplyType: SupplyFact["supplyType"];
   quantity: number;
   expectedDate: string | null;
+  receivedDate: string | null;
+  isLotSupply: boolean;
 };
 
 type QuantityBuckets = {
@@ -396,6 +399,7 @@ function buildInitialDemandSlices(
         },
         chain,
         explosionPath: [fact.itemId],
+        requirements: [],
       });
       continue;
     }
@@ -420,6 +424,7 @@ function buildInitialDemandSlices(
         },
         chain,
         explosionPath: fact.explosionPath,
+        requirements: [],
       });
       continue;
     }
@@ -433,6 +438,7 @@ function buildInitialDemandSlices(
         origin: { type: "safety_stock" },
         chain,
         explosionPath: [fact.itemId],
+        requirements: [],
       });
     }
   }
@@ -481,6 +487,24 @@ function compareSupplySlices(left: SupplySlice, right: SupplySlice) {
 }
 
 function supplyCanCoverDemand(supply: SupplySlice, demand: DemandSlice) {
+  const lotAgeRequirement = demand.requirements.find(
+    (requirement) => requirement.requirementType === "lot_age_min_days"
+  );
+
+  if (lotAgeRequirement) {
+    if (!demand.requiredDate) {
+      return false;
+    }
+
+    if (supply.supplyType === "available_inventory") {
+      if (!supply.isLotSupply || !supply.receivedDate) return false;
+      return addDays(supply.receivedDate, lotAgeRequirement.days) <= demand.requiredDate;
+    }
+
+    if (!supply.expectedDate) return false;
+    return addDays(supply.expectedDate, lotAgeRequirement.days) <= demand.requiredDate;
+  }
+
   if (supply.supplyType === "available_inventory") {
     return true;
   }
@@ -496,24 +520,52 @@ function supplyCanCoverDemand(supply: SupplySlice, demand: DemandSlice) {
   return supply.expectedDate <= demand.requiredDate;
 }
 
-function buildSupplySlices(supplyFacts: SupplyFact[]) {
-  return supplyFacts
-    .map((fact) => ({
-      id: fact.id,
-      itemId: fact.itemId,
-      supplyType: fact.supplyType,
-      quantity: toQuantity(fact.quantity),
-      expectedDate: fact.expectedDate,
-    }))
-    .filter((fact) => fact.quantity > 0);
+function buildSupplySlices(
+  supplyFacts: SupplyFact[],
+  availableLots: AvailableLotFact[] = []
+) {
+  const itemIdsWithLotSupply = new Set(
+    availableLots.filter((lot) => lot.quantity > 0).map((lot) => lot.itemId)
+  );
+
+  return [
+    ...supplyFacts
+      .filter(
+        (fact) =>
+          fact.supplyType !== "available_inventory" ||
+          !itemIdsWithLotSupply.has(fact.itemId)
+      )
+      .map((fact) => ({
+        id: fact.id,
+        itemId: fact.itemId,
+        supplyType: fact.supplyType,
+        quantity: toQuantity(fact.quantity),
+        expectedDate: fact.expectedDate,
+        receivedDate: null,
+        isLotSupply: false,
+      }))
+      .filter((fact) => fact.quantity > 0),
+    ...availableLots
+      .map((lot) => ({
+        id: `supply:available-lot:${lot.lotId}`,
+        itemId: lot.itemId,
+        supplyType: "available_inventory" as const,
+        quantity: lot.quantity,
+        expectedDate: null,
+        receivedDate: lot.receivedDate,
+        isLotSupply: true,
+      }))
+      .filter((fact) => fact.quantity > 0),
+  ];
 }
 
 function allocateUncoveredDemandSlices(
   demandSlices: DemandSlice[],
-  supplyFacts: SupplyFact[]
+  supplyFacts: SupplyFact[],
+  availableLots: AvailableLotFact[] = []
 ) {
   const suppliesByItem = new Map<string, SupplySlice[]>();
-  for (const supply of buildSupplySlices(supplyFacts)) {
+  for (const supply of buildSupplySlices(supplyFacts, availableLots)) {
     const bucket = suppliesByItem.get(supply.itemId) ?? [];
     bucket.push(supply);
     suppliesByItem.set(supply.itemId, bucket);
@@ -690,13 +742,18 @@ function buildSalesOrderProductionDemandPaths(args: {
   baseDemandFacts: InternalDemandFact[];
   supplyFacts: SupplyFact[];
   bomByProductId: Map<string, CurrentBomRecord>;
+  availableLots: AvailableLotFact[];
 }) {
   const itemById = new Map(args.itemsList.map((item) => [item.id, item]));
   const slices = buildInitialDemandSlices(args.baseDemandFacts, itemById);
   const explodedSliceIds = new Set<string>();
 
   for (let level = 1; level <= MAX_BOM_EXPLOSION_LEVEL; level += 1) {
-    const uncovered = allocateUncoveredDemandSlices(slices, args.supplyFacts);
+    const uncovered = allocateUncoveredDemandSlices(
+      slices,
+      args.supplyFacts,
+      args.availableLots
+    );
     let addedSlices = 0;
 
     for (const slice of uncovered) {
@@ -749,6 +806,7 @@ function buildSalesOrderProductionDemandPaths(args: {
             ...slice.chain,
           ],
           explosionPath: [...slice.explosionPath, component.componentId],
+          requirements: component.requirements,
         });
         addedSlices += 1;
       }
@@ -759,8 +817,172 @@ function buildSalesOrderProductionDemandPaths(args: {
     }
   }
 
-  const uncovered = allocateUncoveredDemandSlices(slices, args.supplyFacts);
+  const uncovered = allocateUncoveredDemandSlices(
+    slices,
+    args.supplyFacts,
+    args.availableLots
+  );
   return coalesceSalesOrderProductionDemandPaths(uncovered, itemById);
+}
+
+function salesOrderLineSourceId(fact: DemandFact) {
+  return fact.sourceRefs.find((ref) => ref.sourceType === "sales_order_line")
+    ?.sourceId;
+}
+
+function buildSupplementalProductionPathDemandFacts(args: {
+  paths: ProductionDemandPath[];
+  existingDemandFacts: InternalDemandFact[];
+  productionBlockerFacts: ProductionBlockerFact[];
+  itemById: Map<string, PlanningItemRecord>;
+}): InternalDemandFact[] {
+  type PendingPathDemand = {
+    path: ProductionDemandPath;
+    quantity: number;
+    sourceRefs: PlanningSourceRef[];
+  };
+
+  const representedDemand = new Set(
+    args.existingDemandFacts.flatMap((fact) => {
+      const salesOrderLineId = salesOrderLineSourceId(fact);
+      return salesOrderLineId ? [`${fact.itemId}:${salesOrderLineId}`] : [];
+    })
+  );
+  const pendingByKey = new Map<string, PendingPathDemand>();
+  const constrainedComponentBlockers = args.productionBlockerFacts.filter(
+    (blocker) =>
+      blocker.blockerType === "component_requirement" && blocker.componentItemId
+  );
+  const pathSalesOrderLineMatchesBlocker = (
+    path: ProductionDemandPath,
+    blocker: ProductionBlockerFact
+  ) => {
+    const salesOrderLineIds = blocker.sourceRefs
+      .filter((ref) => ref.sourceType === "sales_order_line")
+      .map((ref) => ref.sourceId);
+
+    return (
+      salesOrderLineIds.length === 0 ||
+      salesOrderLineIds.includes(path.terminal.salesOrderLineId)
+    );
+  };
+  const isBehindConstrainedComponent = (path: ProductionDemandPath) =>
+    constrainedComponentBlockers.some((blocker) => {
+      if (!pathSalesOrderLineMatchesBlocker(path, blocker)) {
+        return false;
+      }
+
+      return path.steps.some(
+        (step, index) =>
+          index > 0 && step.itemId === blocker.componentItemId
+      );
+    });
+  const hasDeeperPathForSameItem = (path: ProductionDemandPath) =>
+    args.paths.some((candidate) => {
+      if (
+        candidate.id === path.id ||
+        candidate.terminal.salesOrderLineId !== path.terminal.salesOrderLineId
+      ) {
+        return false;
+      }
+
+      const firstStep = candidate.steps[0];
+      const containsPathItemDownstream = candidate.steps.some(
+        (step, index) => index > 0 && step.itemId === path.itemId
+      );
+
+      return (
+        containsPathItemDownstream &&
+        Boolean(firstStep) &&
+        args.itemById.get(firstStep.itemId)?.itemType === "product"
+      );
+    });
+
+  for (const path of args.paths) {
+    const item = args.itemById.get(path.itemId);
+    if (!item || item.itemType !== "product") {
+      continue;
+    }
+    if (
+      constrainedComponentBlockers.length === 0 ||
+      !isBehindConstrainedComponent(path) ||
+      hasDeeperPathForSameItem(path)
+    ) {
+      continue;
+    }
+
+    const representedKey = `${path.itemId}:${path.terminal.salesOrderLineId}`;
+    if (representedDemand.has(representedKey)) {
+      continue;
+    }
+
+    const quantity = toQuantity(path.uncoveredQuantity);
+    if (quantity <= 0) {
+      continue;
+    }
+
+    const terminalStep = path.steps[path.steps.length - 1];
+    const sourceRefs = uniqueSourceRefs([
+      {
+        sourceType: "sales_order",
+        sourceId: path.terminal.salesOrderId,
+        label: path.terminal.salesOrderLabel,
+        date: path.terminal.requiredDate,
+      },
+      {
+        sourceType: "sales_order_line",
+        sourceId: path.terminal.salesOrderLineId,
+        label: `${splitSalesOrderLabel(path.terminal.salesOrderLabel).orderNumber} / ${
+          path.terminal.displayName || path.terminal.itemName
+        }`,
+        itemId: path.terminal.itemId,
+        quantity: terminalStep?.quantityRequired ?? path.uncoveredQuantity,
+        date: path.terminal.requiredDate,
+        parentSourceId: path.terminal.salesOrderId,
+      },
+    ]);
+    const key = [
+      path.itemId,
+      path.terminal.salesOrderLineId,
+      path.requiredDate ?? "",
+      path.steps.map((step) => step.itemId).join(">"),
+    ].join(":");
+    const existing = pendingByKey.get(key);
+
+    if (!existing) {
+      pendingByKey.set(key, { path, quantity, sourceRefs });
+      continue;
+    }
+
+    existing.quantity = roundQuantity(existing.quantity + quantity);
+    existing.sourceRefs = uniqueSourceRefs([...existing.sourceRefs, ...sourceRefs]);
+  }
+
+  return [...pendingByKey.entries()].map(([key, entry]) => {
+    const parentStep = entry.path.steps[1];
+    const itemName =
+      entry.path.steps[0]?.displayName ||
+      entry.path.steps[0]?.itemName ||
+      "component";
+    const terminalName =
+      entry.path.terminal.displayName || entry.path.terminal.itemName;
+
+    return {
+      id: `demand:path:${hashValue({ key }).slice(0, 20)}`,
+      itemId: entry.path.itemId,
+      demandType: "bom_explosion" as const,
+      quantity: normalizeQuantity(entry.quantity),
+      requiredDate: entry.path.requiredDate,
+      reasonCodes: ["bom_component_demand"],
+      sourceRefs: entry.sourceRefs,
+      parentItemId: parentStep?.itemId,
+      parentDemandFactId: `demand:path:parent:${entry.path.id}`,
+      explanation: `${terminalName} demand creates ${normalizeQuantity(
+        entry.quantity
+      )} ${itemName} demand through downstream production constraints.`,
+      explosionPath: entry.path.steps.map((step) => step.itemId).reverse(),
+    };
+  });
 }
 
 async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
@@ -2411,6 +2633,192 @@ function buildRecommendations(args: {
   return { rows, recommendations };
 }
 
+function addConstrainedComponentRecommendations(args: {
+  rows: PlanningItemRow[];
+  recommendations: PlanningRecommendation[];
+  itemsList: PlanningItemRecord[];
+  productionBlockerFacts: ProductionBlockerFact[];
+  salesOrderProductionDemandPaths: ProductionDemandPath[];
+  bomByProductId: Map<string, CurrentBomRecord>;
+  inputHash: string;
+}) {
+  const itemById = new Map(args.itemsList.map((item) => [item.id, item]));
+  const rowByItemId = new Map(args.rows.map((row) => [row.item.id, row]));
+  const recommendationByItemId = new Map(
+    args.recommendations.map((recommendation) => [
+      recommendation.itemId,
+      recommendation,
+    ])
+  );
+  const blockersByComponentId = new Map<string, ProductionBlockerFact[]>();
+  const hasDeeperMakePath = (blocker: ProductionBlockerFact) => {
+    if (!blocker.componentItemId) return false;
+    const salesOrderLineIds = new Set(
+      blocker.sourceRefs
+        .filter((ref) => ref.sourceType === "sales_order_line")
+        .map((ref) => ref.sourceId)
+    );
+
+    return args.salesOrderProductionDemandPaths.some((path) => {
+      if (
+        salesOrderLineIds.size > 0 &&
+        !salesOrderLineIds.has(path.terminal.salesOrderLineId)
+      ) {
+        return false;
+      }
+
+      const componentIndex = path.steps.findIndex(
+        (step) => step.itemId === blocker.componentItemId
+      );
+      if (componentIndex <= 0) {
+        return false;
+      }
+
+      const firstStep = path.steps[0];
+      return itemById.get(firstStep.itemId)?.itemType === "product";
+    });
+  };
+
+  for (const blocker of args.productionBlockerFacts) {
+    if (
+      blocker.blockerType !== "component_requirement" ||
+      !blocker.componentItemId ||
+      recommendationByItemId.has(blocker.componentItemId) ||
+      hasDeeperMakePath(blocker)
+    ) {
+      continue;
+    }
+
+    const componentRow = rowByItemId.get(blocker.componentItemId);
+    if (componentRow?.planningType !== "make") {
+      continue;
+    }
+
+    const bucket = blockersByComponentId.get(blocker.componentItemId) ?? [];
+    bucket.push(blocker);
+    blockersByComponentId.set(blocker.componentItemId, bucket);
+  }
+
+  if (blockersByComponentId.size === 0) {
+    return { rows: args.rows, recommendations: args.recommendations };
+  }
+
+  const addedRecommendations: PlanningRecommendation[] = [];
+  const recommendationIdByItemId = new Map<string, string>();
+
+  for (const [componentItemId, blockers] of blockersByComponentId) {
+    const row = rowByItemId.get(componentItemId);
+    const item = itemById.get(componentItemId);
+    if (!row || !item) {
+      continue;
+    }
+
+    const quantity = normalizeQuantity(
+      blockers.reduce(
+        (sum, blocker) => sum + toQuantity(blocker.shortageQuantity),
+        0
+      )
+    );
+    if (toQuantity(quantity) <= 0) {
+      continue;
+    }
+
+    const bom = args.bomByProductId.get(componentItemId);
+    const hasBom = Boolean(bom && bom.components.length > 0);
+    const recommendationType = hasBom
+      ? "create_manufacturing_order"
+      : "review_item_setup";
+    const sourceRefs = uniqueSourceRefs([
+      itemRef(item),
+      ...blockers.flatMap((blocker) => blocker.sourceRefs),
+    ]);
+    const recommendationId = buildRecommendationId({
+      recommendationType,
+      itemId: componentItemId,
+      quantity,
+      sourceRefs,
+    });
+    const requiredDate = earliestDate(
+      blockers.map((blocker) => blocker.earliestRequiredDate)
+    );
+    const warnings = !hasBom
+      ? [
+          warningForRow({
+            code: "missing_bom" as const,
+            itemId: componentItemId,
+            sourceRefs,
+            message: `${item.name} needs a current BOM before planning can draft a manufacturing order.`,
+          }),
+        ]
+      : [];
+
+    recommendationIdByItemId.set(componentItemId, recommendationId);
+    addedRecommendations.push({
+      id: recommendationId,
+      recommendationType,
+      itemId: componentItemId,
+      quantity,
+      requiredDate,
+      suggestedSupplierId: null,
+      suggestedSupplierName: null,
+      suggestedBomRevisionId: bom?.revisionId ?? null,
+      reasonCodes: uniqueReasonCodes([
+        ...row.reasonCodes,
+        "bom_component_demand",
+        "make_item",
+        "projected_shortage",
+        ...(!hasBom ? ["missing_bom" as const] : []),
+      ]),
+      sourceRefs,
+      warnings,
+      actionPayload:
+        hasBom && bom
+          ? {
+              actionType: "create_manufacturing_order",
+              inputHash: args.inputHash,
+              recommendationId,
+              itemId: componentItemId,
+              quantity,
+              requiredDate,
+              latestStartDate: requiredDate,
+              bomRevisionId: bom.revisionId,
+              ingredients: bom.components.map((component) => ({
+                itemId: component.componentId,
+                quantityPerUnit: component.quantity,
+              })),
+              sourceRefs,
+            }
+          : null,
+      explanation:
+        recommendationType === "create_manufacturing_order"
+          ? `Draft a manufacturing order for ${quantity} ${item.name}.`
+          : `Review manufacturing setup for ${item.name}.`,
+    });
+  }
+
+  if (addedRecommendations.length === 0) {
+    return { rows: args.rows, recommendations: args.recommendations };
+  }
+
+  const rows = args.rows.map((row) => {
+    const recommendationId = recommendationIdByItemId.get(row.item.id);
+    if (!recommendationId) {
+      return row;
+    }
+
+    return {
+      ...row,
+      recommendationId,
+      suggestedAction: "make" as const,
+    };
+  });
+
+  return {
+    rows,
+    recommendations: [...args.recommendations, ...addedRecommendations],
+  };
+}
+
 export async function buildPlanningSnapshotInTx(
   tx: Tx,
   orgId: string,
@@ -2446,17 +2854,48 @@ export async function buildPlanningSnapshotInTx(
     ...getSafetyStockDemandFacts(itemsList),
     ...manufacturingComponentDemandFacts,
   ];
+  const itemById = new Map(itemsList.map((item) => [item.id, item]));
   const salesOrderProductionDemandPaths = buildSalesOrderProductionDemandPaths({
     itemsList,
     baseDemandFacts,
     supplyFacts,
     bomByProductId,
+    availableLots,
   });
+  const initialWarnings: PlanningWarning[] = [];
+  const initialExplosion = buildRowsWithBomExplosion({
+    itemsList,
+    baseDemandFacts,
+    supplyFacts,
+    inventoryFacts,
+    bomByProductId,
+    supplierSuggestions,
+    horizonStart,
+    warnings: initialWarnings,
+  });
+  const initialProductionBlockerFacts = buildProductionBlockerFacts({
+    rows: initialExplosion.rows,
+    bomRequirementFacts: initialExplosion.bomRequirementFacts,
+    bomByProductId,
+    availableLots,
+    horizonStart,
+    warnings: initialWarnings,
+  });
+  const supplementalDemandFacts = buildSupplementalProductionPathDemandFacts({
+    paths: salesOrderProductionDemandPaths,
+    existingDemandFacts: initialExplosion.demandFacts,
+    productionBlockerFacts: initialProductionBlockerFacts,
+    itemById,
+  });
+  const planningDemandFacts = [
+    ...baseDemandFacts,
+    ...supplementalDemandFacts,
+  ];
   const warnings: PlanningWarning[] = [];
   const { rows: explodedRows, demandFacts, bomRequirementFacts } =
     buildRowsWithBomExplosion({
       itemsList,
-      baseDemandFacts,
+      baseDemandFacts: planningDemandFacts,
       supplyFacts,
       inventoryFacts,
       bomByProductId,
@@ -2496,7 +2935,7 @@ export async function buildPlanningSnapshotInTx(
     ),
     warnings,
   });
-  const { rows, recommendations } = buildRecommendations({
+  let { rows, recommendations } = buildRecommendations({
     rows: explodedRows,
     itemsList,
     bomByProductId,
@@ -2511,6 +2950,15 @@ export async function buildPlanningSnapshotInTx(
     horizonStart,
     warnings,
   });
+  ({ rows, recommendations } = addConstrainedComponentRecommendations({
+    rows,
+    recommendations,
+    itemsList,
+    productionBlockerFacts,
+    salesOrderProductionDemandPaths,
+    bomByProductId,
+    inputHash,
+  }));
 
   return {
     orgId,
