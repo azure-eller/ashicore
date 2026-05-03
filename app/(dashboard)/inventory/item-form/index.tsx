@@ -25,34 +25,13 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Combobox,
   ComboboxContent,
@@ -76,6 +55,10 @@ import { TooltipHeader } from "@/components/tooltip-header";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
+import { BomLockConfirmDialog } from "./dialogs/bom-lock-confirm-dialog";
+import { CreateUnitDialog } from "./dialogs/create-unit-dialog";
+import { CurrentStockCostDialog } from "./dialogs/current-stock-cost-dialog";
+import { AxesInput } from "./fields/axes-input";
 import {
   CURRENT_STOCK_UNIT_COST_TOOLTIP,
   ITEM_CATEGORY_TOOLTIP,
@@ -1174,7 +1157,7 @@ export function ItemForm({
           )}
         </FieldGroup>
       </form>
-      <AlertDialog
+      <BomLockConfirmDialog
         open={bomLockConfirmOpen}
         onOpenChange={(open) => {
           setBomLockConfirmOpen(open);
@@ -1182,33 +1165,20 @@ export function ItemForm({
             setPendingBomLocked(null);
           }
         }}
-      >
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{lockDialogTitle}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {lockDialogDescription}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingBomLocked == null) return;
+        title={lockDialogTitle}
+        description={lockDialogDescription}
+        confirmLabel={lockTarget ? "Lock BOM" : "Unlock BOM"}
+        onConfirm={() => {
+          if (pendingBomLocked == null) return;
 
-                form.setValue("bomLocked", pendingBomLocked, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                setPendingBomLocked(null);
-              }}
-            >
-              {lockTarget ? "Lock BOM" : "Unlock BOM"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <Dialog
+          form.setValue("bomLocked", pendingBomLocked, {
+            shouldDirty: true,
+            shouldTouch: true,
+          });
+          setPendingBomLocked(null);
+        }}
+      />
+      <CurrentStockCostDialog
         open={currentStockUnitCostDialogOpen}
         onOpenChange={(open) => {
           setCurrentStockUnitCostDialogOpen(open);
@@ -1220,49 +1190,13 @@ export function ItemForm({
             );
           }
         }}
-      >
-        <DialogContent size="sm" className="bg-background text-foreground">
-          <DialogHeader>
-            <DialogTitle>Override Current Stock Unit Cost</DialogTitle>
-            <DialogDescription>
-              This writes a new stock-unit cost directly to the material. Purchase
-              price and unit conversion stay unchanged.
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="override-current-stock-unit-cost">
-                Current Stock Unit Cost
-              </FieldLabel>
-              <Input
-                id="override-current-stock-unit-cost"
-                value={currentStockUnitCostDraft}
-                onChange={(event) => setCurrentStockUnitCostDraft(event.target.value)}
-                placeholder="0.00"
-                inputMode="decimal"
-                autoComplete="off"
-              />
-              <FieldDescription>
-                Updated automatically from opening stock and purchase receipts.
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
-          {currentStockUnitCostError && <FieldError>{currentStockUnitCostError}</FieldError>}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button
-              type="button"
-              onClick={() => currentStockUnitCostMutation.mutate()}
-              disabled={currentStockUnitCostMutation.isPending || !currentStockUnitCostDraft.trim()}
-            >
-              {currentStockUnitCostMutation.isPending ? "Updating..." : "Confirm Override"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
+        value={currentStockUnitCostDraft}
+        onValueChange={setCurrentStockUnitCostDraft}
+        error={currentStockUnitCostError}
+        isPending={currentStockUnitCostMutation.isPending}
+        onConfirm={() => currentStockUnitCostMutation.mutate()}
+      />
+      <CreateUnitDialog
         open={isUnitDialogOpen}
         onOpenChange={(open) => {
           setIsUnitDialogOpen(open);
@@ -1271,136 +1205,24 @@ export function ItemForm({
             setUnitError(null);
           }
         }}
-      >
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>Create Unit</DialogTitle>
-            <DialogDescription>
-              Define a new unit of measure for your inventory.
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="unit-name">Name</FieldLabel>
-              <Input
-                id="unit-name"
-                value={unitName}
-                onChange={(e) => setUnitName(e.target.value)}
-                placeholder="e.g. bag"
-                autoComplete="off"
-              />
-            </Field>
-            <Field data-invalid={unitSizeInvalid}>
-              <FieldLabel htmlFor="unit-size">Size</FieldLabel>
-              <Input
-                id="unit-size"
-                value={unitSize}
-                onChange={(e) => setUnitSize(e.target.value)}
-                placeholder="e.g. 1"
-                inputMode="decimal"
-                autoComplete="off"
-                aria-invalid={unitSizeInvalid}
-              />
-              {unitSizeInvalid && (
-                <FieldError>Must be a positive number</FieldError>
-              )}
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="unit-uom">Unit of Measure</FieldLabel>
-              <Select value={unitUom} onValueChange={setUnitUom}>
-                <SelectTrigger id="unit-uom" className="w-full">
-                  <SelectValue placeholder="Select a unit of measure" />
-                </SelectTrigger>
-                <SelectContent>
-                  {uomGroups.map((group) => (
-                    <SelectGroup key={group.category}>
-                      <SelectLabel>{group.category}</SelectLabel>
-                      {group.options.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </FieldGroup>
-          {unitError && <FieldError>{unitError}</FieldError>}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button
-              type="button"
-              onClick={() => unitMutation.mutate()}
-              disabled={
-                unitMutation.isPending ||
-                !unitName.trim() ||
-                !POSITIVE_NUMBER_RE.test(unitSize.trim()) ||
-                !unitUom
-              }
-            >
-              {unitMutation.isPending ? "Creating..." : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function AxesInput({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (axes: string[]) => void;
-}) {
-  const [draft, setDraft] = useState("");
-
-  function add() {
-    const trimmed = draft.trim();
-    if (!trimmed || value.includes(trimmed)) return;
-    onChange([...value, trimmed]);
-    setDraft("");
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              add();
-            }
-          }}
-          placeholder="e.g. Package"
-          autoComplete="off"
-        />
-        <Button type="button" variant="outline" onClick={add}>
-          Add
-        </Button>
-      </div>
-      {value.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {value.map((axis) => (
-            <div key={axis} className="flex items-center gap-1 rounded border px-2 py-1 text-sm">
-              {axis}
-              <button
-                type="button"
-                className="ml-1 text-muted-foreground hover:text-foreground"
-                onClick={() => onChange(value.filter((a) => a !== axis))}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+        name={unitName}
+        onNameChange={setUnitName}
+        size={unitSize}
+        onSizeChange={setUnitSize}
+        uom={unitUom}
+        onUomChange={setUnitUom}
+        uomGroups={uomGroups}
+        sizeInvalid={unitSizeInvalid}
+        error={unitError}
+        isPending={unitMutation.isPending}
+        canSubmit={
+          !unitMutation.isPending &&
+          Boolean(unitName.trim()) &&
+          POSITIVE_NUMBER_RE.test(unitSize.trim()) &&
+          Boolean(unitUom)
+        }
+        onSubmit={() => unitMutation.mutate()}
+      />
     </div>
   );
 }
