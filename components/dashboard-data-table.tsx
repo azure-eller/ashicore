@@ -63,6 +63,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { apiJson } from "@/lib/client/api";
 import { cn } from "@/lib/utils";
 
 type DeleteActionConfig = {
@@ -73,6 +74,7 @@ type DeleteActionConfig = {
   confirmDescription: (count: number) => string;
   pendingLabel?: string;
   trackDeletingRows?: boolean;
+  idempotencyKey?: string;
 };
 
 type AddAction = {
@@ -80,10 +82,15 @@ type AddAction = {
   href: string;
 };
 
+type SelectedActionHelpers = {
+  clearSelection: () => void;
+};
+
 type SelectedAction<TData extends { id: string }> = {
   label: string;
-  onSelect: (rows: TData[]) => void;
+  onSelect: (rows: TData[], helpers: SelectedActionHelpers) => void;
   disabled?: boolean | ((rows: TData[]) => boolean);
+  isPending?: boolean;
   variant?: "default" | "destructive";
 };
 
@@ -113,6 +120,8 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   subRowClassName?: string;
   globalFilterFn?: FilterFn<TData> | BuiltInFilterFn;
   onRowClick?: (row: TData) => void;
+  initialSorting?: SortingState;
+  errorMessage?: string | null;
 };
 
 function isInteractiveRowTarget(target: EventTarget | null) {
@@ -146,10 +155,12 @@ export function DashboardDataTable<TData extends { id: string }>({
   subRowClassName,
   globalFilterFn,
   onRowClick,
+  initialSorting,
+  errorMessage,
 }: DashboardDataTableProps<TData>) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -173,17 +184,12 @@ export function DashboardDataTable<TData extends { id: string }>({
         throw new Error("Delete action is not configured.");
       }
 
-      const response = await fetch(deleteAction.endpoint, {
+      await apiJson<void>(deleteAction.endpoint, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
+        idempotencyKey: deleteAction.idempotencyKey,
+        body: { ids },
+        fallbackError: deleteAction.defaultErrorMessage,
       });
-
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? deleteAction.defaultErrorMessage);
-      }
     },
     onMutate: (ids) => {
       setFormError(null);
@@ -273,6 +279,9 @@ export function DashboardDataTable<TData extends { id: string }>({
         ? action.disabled(selectedRows)
         : action.disabled === true
     );
+  const anySelectionActionPending = selectionActions.some(
+    (action) => action.isPending === true
+  );
 
   return (
     <>
@@ -298,6 +307,7 @@ export function DashboardDataTable<TData extends { id: string }>({
                     disabled={
                       selectedCount === 0 ||
                       deleteMutation.isPending ||
+                      anySelectionActionPending ||
                       (deleteAction == null && allSelectionActionsDisabled)
                     }
                     className="relative"
@@ -339,7 +349,11 @@ export function DashboardDataTable<TData extends { id: string }>({
                           action.variant === "destructive" ? "destructive" : undefined
                         }
                         disabled={disabled}
-                        onClick={() => action.onSelect(selectedRows)}
+                        onClick={() =>
+                          action.onSelect(selectedRows, {
+                            clearSelection: () => setRowSelection({}),
+                          })
+                        }
                       >
                         {action.label}
                       </DropdownMenuItem>
@@ -406,7 +420,11 @@ export function DashboardDataTable<TData extends { id: string }>({
           </div>
         </div>
 
-        {formError && <p className="pb-4 text-sm text-destructive">{formError}</p>}
+        {(formError || errorMessage) && (
+          <p className="pb-4 text-sm text-destructive">
+            {formError ?? errorMessage}
+          </p>
+        )}
 
         <div className="overflow-hidden rounded-md border">
           <Table className={tableClassName}>
