@@ -53,7 +53,6 @@ import {
   projectedShortageQty,
   reserveForSalesInTx,
 } from "@/lib/inventory/kernel";
-import { isErpAgentEnabled } from "@/lib/feature-flags";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -274,14 +273,7 @@ async function getActualShipmentCogsByShipmentIdInTx(
 }
 
 async function invalidateAgentOrgPromptCache(orgId: string) {
-  if (!isErpAgentEnabled()) {
-    return;
-  }
-
-  const { invalidateOrgPromptSectionCache } = await import(
-    "@/lib/agent/core/promptSections"
-  );
-  invalidateOrgPromptSectionCache(orgId);
+  void orgId;
 }
 
 type PreparedOrderLineBase = {
