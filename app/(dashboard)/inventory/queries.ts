@@ -104,6 +104,11 @@ const MATERIAL_USAGE_EVENT_TYPES = [
   ...MATERIAL_USAGE_CONSUMPTION_EVENT_TYPES,
   ...MATERIAL_USAGE_REVERSAL_EVENT_TYPES,
 ] as const satisfies readonly InventoryEventType[];
+const PRODUCT_PRODUCTION_EVENT_TYPES = [
+  "manufacturing_output",
+] as const satisfies readonly InventoryEventType[];
+
+export type ItemHistoryMode = "usage" | "production";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -118,6 +123,7 @@ export type ItemUsageHistory = {
   itemId: string;
   itemName: string;
   itemType: ItemType;
+  mode: ItemHistoryMode;
   unitName: string | null;
   days: number;
   bucket: "week";
@@ -154,6 +160,16 @@ function usageEventSign(eventType: InventoryEventType) {
   )
     ? -1
     : 1;
+}
+
+function historyEventTypes(mode: ItemHistoryMode) {
+  return mode === "production"
+    ? PRODUCT_PRODUCTION_EVENT_TYPES
+    : MATERIAL_USAGE_EVENT_TYPES;
+}
+
+function historyEventSign(mode: ItemHistoryMode, eventType: InventoryEventType) {
+  return mode === "usage" ? usageEventSign(eventType) : 1;
 }
 
 function normalizeUsageQuantity(value: number) {
@@ -1961,10 +1977,12 @@ export async function getStockMovements(itemId: string) {
 
 export async function getItemUsageHistory(
   itemId: string,
-  options: { days?: number; bucket?: "week" } = {}
+  options: { days?: number; bucket?: "week"; mode?: ItemHistoryMode } = {}
 ): Promise<ItemUsageHistory | null> {
   const days = options.days ?? 180;
   const bucket = options.bucket ?? "week";
+  const mode = options.mode ?? "usage";
+  const eventTypes = historyEventTypes(mode);
 
   return withAuthedOrgContext(async (tx) => {
     const [item] = await tx
@@ -2004,7 +2022,7 @@ export async function getItemUsageHistory(
       .where(
         and(
           eq(inventoryEvents.itemId, itemId),
-          inArray(inventoryEvents.eventType, MATERIAL_USAGE_EVENT_TYPES),
+          inArray(inventoryEvents.eventType, eventTypes),
           gte(inventoryEvents.occurredAt, queryStart)
         )
       )
@@ -2020,7 +2038,7 @@ export async function getItemUsageHistory(
       const quantity = Number.parseFloat(event.quantity);
       if (!Number.isFinite(quantity)) continue;
 
-      const signedQuantity = usageEventSign(eventType) * quantity;
+      const signedQuantity = historyEventSign(mode, eventType) * quantity;
       const occurredAt = event.occurredAt;
 
       if (occurredAt >= last30Start) last30Days += signedQuantity;
@@ -2042,6 +2060,7 @@ export async function getItemUsageHistory(
       itemId: item.id,
       itemName: item.name,
       itemType: item.itemType as ItemType,
+      mode,
       unitName: item.unitName,
       days,
       bucket,

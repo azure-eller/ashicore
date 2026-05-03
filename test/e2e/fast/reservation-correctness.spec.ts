@@ -479,12 +479,8 @@ test.describe("Reservation correctness", () => {
       .locator('[data-slot="card"]')
       .filter({ hasText: "Stock Commitments" });
     await expect(commitmentCard).toBeVisible();
-    await expect(commitmentCard.getByText("On-hand stock breakdown")).toBeVisible();
-    await expect(commitmentCard.getByText("On hand")).toBeVisible();
     await expect(commitmentCard.getByText("Available").first()).toBeVisible();
-    await expect(commitmentCard.getByText("Committed")).toBeVisible();
-    await expect(commitmentCard.getByText("Demand")).toBeVisible();
-    await expect(commitmentCard.getByText("Shortfall")).toBeVisible();
     await expect(commitmentCard.getByText(customerName)).toBeVisible();
+    await expect(commitmentCard.getByText("8").first()).toBeVisible();
   });
 });

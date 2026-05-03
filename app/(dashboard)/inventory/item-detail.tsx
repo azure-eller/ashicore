@@ -1,11 +1,19 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { ItemDetailActions } from "./item-detail-actions";
+import { ItemDetailTabs } from "./item-detail-tabs";
+import { ItemHistorySparklineCard } from "./item-history-sparkline-card";
 import { LotDispositionActions } from "./lot-disposition-actions";
-import { QuantityWithUnit } from "@/components/quantity-with-unit";
-import { ItemCommitmentSummaryCard } from "./item-commitment-summary-card";
+import { InventoryCommitmentDonut } from "./inventory-commitment-donut";
 import type { ItemCommitmentSummary } from "./commitment-summary";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -26,15 +34,16 @@ import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, itemDetailHref, type ItemType } from "@/app/(dashboard)/inventory/types";
 import {
   formatCost,
+  formatDate,
   formatInventoryDisposition,
   formatMovementType,
   formatPrice,
   formatQuantity,
 } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import {
   AVAILABLE_QTY_TOOLTIP,
   ACTUAL_MARGIN_TOOLTIP,
-  BACKORDER_QTY_TOOLTIP,
   BATCH_YIELD_TOOLTIP,
   BOM_QTY_PER_BATCH_TOOLTIP,
   BOM_QTY_PER_UNIT_TOOLTIP,
@@ -56,7 +65,6 @@ import {
   PURCHASE_CONVERSION_TOOLTIP,
   PURCHASE_PRICE_TOOLTIP,
   PURCHASE_UNIT_TOOLTIP,
-  RESERVED_QTY_TOOLTIP,
   SAFETY_STOCK_TOOLTIP,
   SELLING_PRICE_TOOLTIP,
   STOCKING_UNIT_TOOLTIP,
@@ -65,6 +73,18 @@ import {
 
 function formatMarginPercent(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
+}
+
+export type ItemDetailTab = "overview" | "lots" | "recipe" | "movements";
+
+export function normalizeItemDetailTab(
+  value: string | string[] | undefined,
+  itemType: ItemType
+): ItemDetailTab {
+  const tab = Array.isArray(value) ? value[0] : value;
+  if (tab === "lots" || tab === "movements") return tab;
+  if (tab === "recipe" && itemType === "product") return tab;
+  return "overview";
 }
 
 interface ItemDetailProps {
@@ -168,6 +188,811 @@ interface ItemDetailProps {
   canViewBom?: boolean;
   canViewLedger?: boolean;
   commitmentSummary?: ItemCommitmentSummary;
+  activeTab?: ItemDetailTab;
+}
+
+type DetailItem = ItemDetailProps["item"];
+type DetailLot = ItemDetailProps["lots"][number];
+type DetailMovement = ItemDetailProps["movements"][number];
+type DetailBomLine = NonNullable<ItemDetailProps["bom"]>[number];
+
+function formatUnit(item: Pick<DetailItem, "unitName" | "unitSize" | "unitUom">) {
+  if (!item.unitName) return "\u2014";
+  if (!item.unitSize || !item.unitUom) return item.unitName;
+  return `${item.unitName} (${item.unitSize} ${item.unitUom})`;
+}
+
+function formatPurchaseUnit(
+  item: Pick<DetailItem, "purchaseUnitName" | "purchaseUnitSize" | "purchaseUnitUom">
+) {
+  if (!item.purchaseUnitName || !item.purchaseUnitSize || !item.purchaseUnitUom) {
+    return "\u2014";
+  }
+  return `${item.purchaseUnitName} (${item.purchaseUnitSize} ${item.purchaseUnitUom})`;
+}
+
+function formatPurchaseConversion(
+  item: Pick<DetailItem, "purchaseUnitName" | "purchaseToStockFactor" | "unitName">
+) {
+  if (!item.purchaseUnitName || !item.purchaseToStockFactor) return "\u2014";
+  return `1 ${item.purchaseUnitName} = ${formatQuantity(item.purchaseToStockFactor)} ${
+    item.unitName ?? "stock unit"
+  }`;
+}
+
+function formatMode(value: string | null | undefined) {
+  return value ? value.replace(/_/g, " ") : "discrete";
+}
+
+function formatQuantityValue(value: string | number | null | undefined) {
+  return formatQuantity(value == null ? null : String(value));
+}
+
+function EqTerm({
+  label,
+  value,
+  tooltip,
+  operator,
+  dim,
+}: {
+  label: string;
+  value: string | number;
+  tooltip: string;
+  operator?: string;
+  dim?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      {operator ? (
+        <span className="text-2xl font-light leading-none text-muted-foreground/60">
+          {operator}
+        </span>
+      ) : null}
+      <div>
+        <div className="text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">
+          <TooltipHeader label={label} tooltip={tooltip} />
+        </div>
+        <div
+          className={cn(
+            "mt-1 font-mono text-2xl font-semibold leading-none tracking-tight md:text-3xl",
+            dim ? "text-muted-foreground/70" : "text-foreground"
+          )}
+        >
+          {formatQuantityValue(value)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StockEquation({
+  item,
+  calculatedStock,
+}: {
+  item: DetailItem;
+  calculatedStock: number;
+}) {
+  const safetyStock = parseFloat(item.safetyStock);
+  return (
+    <div className="flex flex-wrap items-center gap-4 border-t py-5">
+      <EqTerm label="Physical" value={item.stock} tooltip={ON_HAND_STOCK_TOOLTIP} />
+      <EqTerm
+        label="Demand"
+        value={item.demandQty}
+        tooltip={DEMAND_QTY_TOOLTIP}
+        operator="-"
+        dim={parseFloat(item.demandQty) === 0}
+      />
+      <EqTerm
+        label="Expected"
+        value={item.expectedQty}
+        tooltip={EXPECTED_QTY_TOOLTIP}
+        operator="+"
+        dim={parseFloat(item.expectedQty) === 0}
+      />
+      <EqTerm
+        label="Safety"
+        value={item.safetyStock}
+        tooltip={SAFETY_STOCK_TOOLTIP}
+        operator="-"
+        dim={!Number.isFinite(safetyStock) || safetyStock === 0}
+      />
+      <span className="text-2xl font-light leading-none text-muted-foreground/60">=</span>
+      <div className="rounded-lg bg-foreground px-4 py-3 text-background">
+        <div className="text-[0.68rem] font-medium uppercase tracking-wide text-background/60">
+          <TooltipHeader label="Calculated" tooltip={CALCULATED_STOCK_TOOLTIP} />
+        </div>
+        <div className="mt-1 font-mono text-2xl font-semibold leading-none tracking-tight md:text-3xl">
+          {formatQuantityValue(calculatedStock)}
+        </div>
+      </div>
+      <div className="min-w-32 flex-1 text-right">
+        <div className="text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">
+          <TooltipHeader label="Available now" tooltip={AVAILABLE_QTY_TOOLTIP} />
+        </div>
+        <div className="mt-1 font-mono text-2xl font-semibold leading-none tracking-tight text-success md:text-3xl">
+          {formatQuantity(item.availableQty)}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {item.unitName ?? "units"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SectionCard({
+  title,
+  action,
+  children,
+  className,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={cn("gap-0 py-0", className)}>
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          {action}
+        </div>
+      </CardHeader>
+      <CardContent className="px-0">{children}</CardContent>
+    </Card>
+  );
+}
+
+function InfoRows({
+  rows,
+}: {
+  rows: Array<{
+    label: string;
+    value: ReactNode;
+    mono?: boolean;
+    dim?: boolean;
+    tooltip?: string;
+  }>;
+}) {
+  return (
+    <div>
+      {rows.map((row, index) => (
+        <div
+          key={row.label}
+          className={cn(
+            "flex items-center justify-between gap-4 px-4 py-3 text-sm",
+            index < rows.length - 1 && "border-b"
+          )}
+        >
+          <dt className="text-xs text-muted-foreground">
+            {row.tooltip ? (
+              <TooltipHeader label={row.label} tooltip={row.tooltip} />
+            ) : (
+              row.label
+            )}
+          </dt>
+          <dd
+            className={cn(
+              "min-w-0 text-right font-medium",
+              row.mono && "font-mono",
+              row.dim && "text-muted-foreground"
+            )}
+          >
+            {row.value}
+          </dd>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function weightedLotCost(lots: DetailLot[]) {
+  let totalQuantity = 0;
+  let totalCost = 0;
+
+  for (const lot of lots) {
+    const quantity = parseFloat(lot.quantity);
+    const cost = lot.costPerUnit == null ? NaN : parseFloat(lot.costPerUnit);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(cost)) {
+      continue;
+    }
+    totalQuantity += quantity;
+    totalCost += quantity * cost;
+  }
+
+  if (totalQuantity <= 0) return null;
+  return String(totalCost / totalQuantity);
+}
+
+function ItemInfoCards({
+  item,
+  itemType,
+  lots,
+}: {
+  item: DetailItem;
+  itemType: ItemType;
+  lots: DetailLot[];
+}) {
+  const costPerUnit = item.currentStockUnitCost ?? weightedLotCost(lots);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-3">
+      <SectionCard title="Identity">
+        <dl>
+          <InfoRows
+            rows={[
+              {
+                label: "SKU",
+                value: item.sku ?? "\u2014",
+                mono: true,
+                dim: item.sku == null,
+                tooltip: ITEM_SKU_TOOLTIP,
+              },
+              {
+                label: "Category",
+                value: item.category ?? "\u2014",
+                dim: item.category == null,
+                tooltip: ITEM_CATEGORY_TOOLTIP,
+              },
+              ...(item.parentName
+                ? [
+                    {
+                      label: "Variant of",
+                      value: (
+                        <Link
+                          href={`/inventory/products/${item.parentId}`}
+                          className="hover:underline"
+                        >
+                          {item.parentName}
+                        </Link>
+                      ),
+                    },
+                  ]
+                : []),
+              ...(itemType === "product"
+                ? [
+                    {
+                      label: "Mfg mode",
+                      value: formatMode(item.manufacturingMode),
+                    },
+                    ...(item.currentBomRevision
+                      ? [
+                          {
+                            label: "Recipe",
+                            value: `Rev ${item.currentBomRevision.revisionNumber}`,
+                          },
+                        ]
+                      : []),
+                  ]
+                : [
+                    {
+                      label: "Item type",
+                      value: "Material",
+                      tooltip: ITEM_TYPE_TOOLTIP,
+                    },
+                  ]),
+            ]}
+          />
+        </dl>
+      </SectionCard>
+
+      <SectionCard title="Units">
+        <dl>
+          <InfoRows
+            rows={[
+              {
+                label: "Stocking unit",
+                value: formatUnit(item),
+                tooltip: STOCKING_UNIT_TOOLTIP,
+              },
+              {
+                label: "Purchase unit",
+                value: formatPurchaseUnit(item),
+                dim: !item.purchaseUnitName,
+                tooltip: PURCHASE_UNIT_TOOLTIP,
+              },
+              {
+                label: "Purchase conv.",
+                value: formatPurchaseConversion(item),
+                dim: !item.purchaseToStockFactor,
+                tooltip: PURCHASE_CONVERSION_TOOLTIP,
+              },
+              ...(itemType === "product" && item.manufacturingMode === "batch"
+                ? [
+                    {
+                      label: "Batch yield",
+                      value:
+                        item.expectedBatchYield != null
+                          ? `${formatQuantity(item.expectedBatchYield)} ${item.unitName ?? "units"}`
+                          : "\u2014",
+                      mono: true,
+                      dim: item.expectedBatchYield == null,
+                      tooltip: BATCH_YIELD_TOOLTIP,
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </dl>
+      </SectionCard>
+
+      <SectionCard title="Economics">
+        <dl>
+          <InfoRows
+            rows={[
+              ...(itemType === "material"
+                ? [
+                    {
+                      label: "Purchase price",
+                      value: formatPrice(item.defaultPurchasePrice) ?? "\u2014",
+                      mono: true,
+                      dim: item.defaultPurchasePrice == null,
+                      tooltip: PURCHASE_PRICE_TOOLTIP,
+                    },
+                  ]
+                : []),
+              {
+                label: "Selling price",
+                value: formatPrice(item.defaultSellingPrice) ?? "\u2014",
+                mono: true,
+                dim: item.defaultSellingPrice == null,
+                tooltip: SELLING_PRICE_TOOLTIP,
+              },
+              {
+                label: "Cost / unit",
+                value: formatCost(costPerUnit) ?? "\u2014",
+                mono: true,
+                dim: costPerUnit == null,
+                tooltip: CURRENT_STOCK_UNIT_COST_TOOLTIP,
+              },
+              {
+                label: "Safety stock",
+                value: formatQuantity(item.safetyStock),
+                mono: true,
+                tooltip: SAFETY_STOCK_TOOLTIP,
+              },
+            ]}
+          />
+        </dl>
+      </SectionCard>
+    </div>
+  );
+}
+
+function UsedInLine({
+  usedInParents,
+}: {
+  usedInParents: ItemDetailProps["usedInParents"];
+}) {
+  return (
+    <div className="border-t py-3 text-sm">
+      <span className="font-medium">Used in</span>
+      {usedInParents && usedInParents.length > 0 ? (
+        <span className="ml-3 inline-flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+          {usedInParents.map((parent) => (
+            <Link
+              key={parent.id}
+              href={`/inventory/products/${parent.id}`}
+              className="font-medium text-foreground hover:underline"
+            >
+              {parent.displayName}
+            </Link>
+          ))}
+        </span>
+      ) : (
+        <span className="ml-3 text-muted-foreground">
+          Not used in any current product recipes.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LotDispositionOverview({
+  item,
+  lots,
+}: {
+  item: DetailItem;
+  lots: DetailLot[];
+}) {
+  const actionableBalances = lots.flatMap((lot) =>
+    lot.dispositionBalances
+      .filter((balance) => balance.disposition !== "available")
+      .map((balance) => ({ lot, balance }))
+  );
+
+  if (actionableBalances.length === 0) return null;
+
+  return (
+    <SectionCard title="Lot Disposition">
+      <div className="divide-y">
+        {actionableBalances.map(({ lot, balance }) => (
+          <div
+            key={`${lot.id}-${balance.disposition}-overview`}
+            className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between"
+          >
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <span className="font-mono text-sm">{lot.lotNumber}</span>
+              <Badge
+                variant={
+                  balance.disposition === "rejected" ? "destructive" : "secondary"
+                }
+              >
+                {formatInventoryDisposition(balance.disposition)}
+              </Badge>
+              <span className="font-mono text-sm text-muted-foreground">
+                {formatQuantity(balance.quantity)} {item.unitName ?? "units"}
+              </span>
+            </div>
+            <LotDispositionActions
+              itemId={item.id}
+              lotId={lot.id}
+              fromDisposition={balance.disposition}
+              maxQuantity={balance.quantity}
+            />
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function OverviewPanel({
+  item,
+  itemType,
+  lots,
+  usedInParents,
+  commitmentSummary,
+}: {
+  item: DetailItem;
+  itemType: ItemType;
+  lots: DetailLot[];
+  usedInParents: ItemDetailProps["usedInParents"];
+  commitmentSummary: ItemCommitmentSummary | undefined;
+}) {
+  return (
+    <div className="space-y-4">
+      <ItemInfoCards item={item} itemType={itemType} lots={lots} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <ItemHistorySparklineCard itemId={item.id} itemType={itemType} />
+        <SectionCard title="Stock Commitments">
+          <div className="p-4">
+            {commitmentSummary && commitmentSummary.slices.length > 0 ? (
+              <InventoryCommitmentDonut
+                slices={commitmentSummary.slices}
+                onHandQty={commitmentSummary.onHandQty}
+                unitName={commitmentSummary.unitName}
+              />
+            ) : (
+              <div className="flex min-h-40 items-center justify-center text-sm text-muted-foreground">
+                No on-hand stock to chart.
+              </div>
+            )}
+          </div>
+        </SectionCard>
+      </div>
+      <LotDispositionOverview item={item} lots={lots} />
+      <UsedInLine usedInParents={usedInParents} />
+    </div>
+  );
+}
+
+function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
+  return (
+    <SectionCard
+      title="Lots"
+      action={
+        <Badge variant="secondary">
+          {lots.length} {lots.length === 1 ? "active lot" : "active lots"}
+        </Badge>
+      }
+    >
+      {lots.length === 0 ? (
+        <div className="p-4 text-sm text-muted-foreground">No lots recorded.</div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <TooltipHeader label="Lot Number" tooltip={LOT_NUMBER_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Physical" tooltip={LOT_PHYSICAL_TOOLTIP} />
+              </TableHead>
+              <TableHead>
+                <TooltipHeader label="Disposition" tooltip={LOT_DISPOSITION_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Cost / Unit" tooltip={LOT_UNIT_COST_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">Sold</TableHead>
+              <TableHead className="text-right">Revenue</TableHead>
+              <TableHead className="text-right">COGS</TableHead>
+              <TableHead className="text-right">Profit</TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Actual Margin" tooltip={ACTUAL_MARGIN_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">Received</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {lots.map((lot) => (
+              <TableRow key={lot.id}>
+                <TableCell className="font-mono">{lot.lotNumber}</TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatQuantity(lot.quantity)}
+                </TableCell>
+                <TableCell>
+                  {lot.dispositionBalances.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      {lot.dispositionBalances.map((balance) => (
+                        <div
+                          key={`${lot.id}-${balance.disposition}`}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <Badge
+                            variant={
+                              balance.disposition === "available"
+                                ? "success"
+                                : balance.disposition === "rejected"
+                                  ? "destructive"
+                                  : "secondary"
+                            }
+                          >
+                            {formatInventoryDisposition(balance.disposition)}
+                          </Badge>
+                          <span className="font-mono text-muted-foreground">
+                            {formatQuantity(balance.quantity)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    "\u2014"
+                  )}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatCost(lot.costPerUnit) ?? "\u2014"}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatQuantity(lot.soldQuantity)}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatPrice(lot.realizedRevenue) ?? "\u2014"}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatPrice(lot.realizedCogs) ?? "\u2014"}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatPrice(lot.realizedGrossProfit) ?? "\u2014"}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatMarginPercent(lot.realizedMarginPercent)}
+                </TableCell>
+                <TableCell className="text-right font-mono text-muted-foreground">
+                  {formatDate(lot.receivedAt)}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col gap-2">
+                    {lot.dispositionBalances.map((balance) => (
+                      <LotDispositionActions
+                        key={`${lot.id}-${balance.disposition}-actions`}
+                        itemId={item.id}
+                        lotId={lot.id}
+                        fromDisposition={balance.disposition}
+                        maxQuantity={balance.quantity}
+                      />
+                    ))}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </SectionCard>
+  );
+}
+
+function RecipePanel({
+  item,
+  bom,
+  canViewBom,
+  basePath,
+}: {
+  item: DetailItem;
+  bom: DetailBomLine[] | undefined;
+  canViewBom: boolean;
+  basePath: string;
+}) {
+  const revision = item.currentBomRevision;
+
+  if (item.bomLocked && !canViewBom) {
+    return (
+      <SectionCard title="Recipe / Bill of Materials">
+        <div className="p-4 text-sm text-muted-foreground">
+          This recipe is locked. Inventory or manufacturing admin access is required to view
+          its ingredients.
+        </div>
+      </SectionCard>
+    );
+  }
+
+  return (
+    <SectionCard
+      title="Recipe / Bill of Materials"
+      action={
+        revision ? (
+          <Button type="button" variant="outline" size="xs" asChild>
+            <Link href={`${basePath}/${item.id}/bom-history`}>History</Link>
+          </Button>
+        ) : null
+      }
+    >
+      <div className="border-b px-4 py-3 text-xs text-muted-foreground">
+        {revision ? (
+          <span>
+            Rev {revision.revisionNumber} · {formatDate(revision.createdAt)}
+            {revision.createdByName ? ` · ${revision.createdByName}` : ""}
+            {revision.note ? ` · ${revision.note}` : ""}
+          </span>
+        ) : (
+          "No active BOM revision."
+        )}
+      </div>
+      {bom && bom.length > 0 ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Component</TableHead>
+              <TableHead>
+                <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader
+                  label={item.manufacturingMode === "batch" ? "Qty / Batch" : "Qty"}
+                  tooltip={
+                    item.manufacturingMode === "batch"
+                      ? BOM_QTY_PER_BATCH_TOOLTIP
+                      : BOM_QTY_PER_UNIT_TOOLTIP
+                  }
+                />
+              </TableHead>
+              {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
+                <TableHead className="text-right">
+                  <TooltipHeader label="Qty / Unit" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
+                </TableHead>
+              )}
+              <TableHead>Requirements</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {bom.map((line) => {
+              const batchQty = line.quantity ? parseFloat(line.quantity) : null;
+              const yieldValue = item.expectedBatchYield
+                ? parseFloat(item.expectedBatchYield)
+                : null;
+              const perUnit =
+                batchQty != null && yieldValue != null && yieldValue > 0
+                  ? parseFloat((batchQty / yieldValue).toFixed(4).replace(/\.?0+$/, ""))
+                  : null;
+
+              return (
+                <TableRow key={line.id}>
+                  <TableCell>
+                    <Link
+                      href={itemDetailHref(line.componentItemType, line.componentId)}
+                      className="font-medium hover:underline"
+                    >
+                      {line.componentName}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{line.componentItemType}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {batchQty != null
+                      ? `${formatQuantity(line.quantity)} ${line.componentUnit}`
+                      : "\u2014"}
+                  </TableCell>
+                  {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
+                    <TableCell className="text-right font-mono text-muted-foreground">
+                      {perUnit != null ? `${perUnit} ${line.componentUnit}` : "\u2014"}
+                    </TableCell>
+                  )}
+                  <TableCell className="text-sm text-muted-foreground">
+                    {line.minimumLotAgeDays
+                      ? `Lot must be at least ${line.minimumLotAgeDays} ${
+                          line.minimumLotAgeDays === 1 ? "day" : "days"
+                        } old.`
+                      : "\u2014"}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      ) : (
+        <div className="p-4 text-sm text-muted-foreground">
+          No active BOM ingredients on the current revision.
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function MovementsPanel({
+  item,
+  movements,
+  canViewLedger,
+}: {
+  item: DetailItem;
+  movements: DetailMovement[];
+  canViewLedger: boolean;
+}) {
+  return (
+    <SectionCard
+      title="Stock Movements"
+      action={
+        canViewLedger ? (
+          <Button variant="outline" size="xs" asChild>
+            <Link href={`/inventory/ledger?itemId=${item.id}`}>View Ledger</Link>
+          </Button>
+        ) : null
+      }
+    >
+      {movements.length === 0 ? (
+        <div className="p-4 text-sm text-muted-foreground">
+          No stock movements recorded.
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Quantity" tooltip={LEDGER_CHANGE_TOOLTIP} />
+              </TableHead>
+              <TableHead>
+                <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {movements.map((movement) => {
+              const quantity = parseFloat(movement.quantity);
+              return (
+                <TableRow key={movement.id}>
+                  <TableCell className="font-mono text-muted-foreground">
+                    {formatDate(movement.createdAt)}
+                  </TableCell>
+                  <TableCell>{formatMovementType(movement.movementType)}</TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-mono font-semibold",
+                      quantity > 0
+                        ? "text-success"
+                        : quantity < 0
+                          ? "text-destructive"
+                          : "text-foreground"
+                    )}
+                  >
+                    {quantity > 0 ? "+" : ""}
+                    {formatQuantity(movement.quantity)}
+                  </TableCell>
+                  <TableCell className="font-mono">{movement.lotNumber ?? "\u2014"}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </SectionCard>
+  );
 }
 
 export function ItemDetail({
@@ -182,6 +1007,7 @@ export function ItemDetail({
   canViewBom = true,
   canViewLedger = false,
   commitmentSummary,
+  activeTab = "overview",
 }: ItemDetailProps) {
   const isMaster = item.isMaster === true;
   const isVariant = item.parentId != null;
@@ -189,30 +1015,6 @@ export function ItemDetail({
   const calculatedStock = calcStock(item);
   const basePath = `/inventory/${ITEM_TYPE_SEGMENTS[itemType]}`;
   const typeLabel = itemType === "product" ? "Products" : "Materials";
-  const calculatedStockValue = (
-    <span
-      className={
-        calculatedStock < 0
-          ? "inline-flex w-fit items-center gap-1.5 text-destructive outline-none"
-          : undefined
-      }
-      tabIndex={calculatedStock < 0 ? 0 : undefined}
-    >
-      {calculatedStock < 0 && (
-        <span
-          className="h-2 w-2 shrink-0 rounded-full bg-destructive"
-          aria-label="Below safety stock"
-        />
-      )}
-      <QuantityWithUnit
-        value={calculatedStock}
-        unitName={item.unitName}
-        unitSize={item.unitSize}
-        unitUom={item.unitUom}
-        tone={calculatedStock < 0 ? "destructive" : "default"}
-      />
-    </span>
-  );
 
   if (isMaster) {
     const axes = item.variantAxes ?? [];
@@ -371,589 +1173,129 @@ export function ItemDetail({
     );
   }
 
+  const tabs = [
+    { value: "overview" as const, label: "Overview" },
+    ...(itemType === "product"
+      ? [{ value: "recipe" as const, label: "Recipe", count: bom?.length ?? 0 }]
+      : []),
+    { value: "lots" as const, label: "Lots", count: lots.length },
+    { value: "movements" as const, label: "Movements", count: movements.length },
+  ];
+
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <Link
-            href={basePath}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to {typeLabel}
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">{headingTitle}</h1>
-          {isVariant && item.parentName && (
-            <p className="text-sm text-muted-foreground">
-              Variant of{" "}
-              <Link
-                href={`/inventory/products/${item.parentId}`}
-                className="font-medium hover:underline"
-              >
-                {item.parentName}
+    <div className="min-h-full bg-muted/20">
+        <div className="bg-card">
+          <div className="mx-6 space-y-5 border-b pt-6">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
+              <Link href={basePath} className="hover:text-foreground">
+                {typeLabel}
               </Link>
-            </p>
-          )}
-          {itemType === "product" && item.sellable === false ? (
-            <Badge variant="outline" className="mt-2">
-              Not sellable
-            </Badge>
-          ) : null}
-          {itemType === "product" && item.bomLocked ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="mt-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground"
-                  aria-label="Locked recipe"
-                >
-                  <HugeiconsIcon icon={CircleLock01Icon} size={14} strokeWidth={2} />
-                  Locked recipe
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                Only inventory admins can edit locked recipes.
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
-        <ItemDetailActions
-          itemId={item.id}
-          itemType={itemType}
-          canEdit={canEdit}
-          canDelete={canEdit}
-          canViewLedger={canViewLedger}
-        />
-      </div>
-      <Separator />
-
-      {item.description && (
-        <p className="max-w-2xl text-sm text-muted-foreground">{item.description}</p>
-      )}
-
-      {/* Metadata grid */}
-      <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">{item.sku ?? "\u2014"}</dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Category" tooltip={ITEM_CATEGORY_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">{item.category ?? "\u2014"}</dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            {item.unitName} ({item.unitSize} {item.unitUom})
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            {item.purchaseUnitName && item.purchaseUnitSize && item.purchaseUnitUom
-              ? `${item.purchaseUnitName} (${item.purchaseUnitSize} ${item.purchaseUnitUom})`
-              : "\u2014"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Purchase Conversion" tooltip={PURCHASE_CONVERSION_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            {item.purchaseUnitName && item.purchaseToStockFactor
-              ? `1 ${item.purchaseUnitName} = ${item.purchaseToStockFactor} ${item.unitName}`
-              : "\u2014"}
-          </dd>
-        </div>
-        {!isMaster && itemType === "material" && (
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Purchase Price" tooltip={PURCHASE_PRICE_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">
-              <span>{formatPrice(item.defaultPurchasePrice) ?? "\u2014"}</span>
-              <span className="block text-xs text-muted-foreground">
-                {item.purchaseUnitName
-                  ? `Per ${item.purchaseUnitName}`
-                  : `Per ${item.unitName ?? "stock"} unit`}
-              </span>
-            </dd>
-          </div>
-        )}
-        {!isMaster && itemType === "material" && (
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader
-                label="Current Stock Unit Cost"
-                tooltip={CURRENT_STOCK_UNIT_COST_TOOLTIP}
-              />
-            </dt>
-            <dd className="mt-1 text-sm">
-              <span>{formatCost(item.currentStockUnitCost) ?? "\u2014"}</span>
-              <span className="block text-xs text-muted-foreground">
-                Per {item.unitName ?? "stock"} unit. Updated automatically from opening stock and
-                purchase receipts.
-              </span>
-            </dd>
-          </div>
-        )}
-        {!isMaster && (
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Selling Price" tooltip={SELLING_PRICE_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">{formatPrice(item.defaultSellingPrice) ?? "\u2014"}</dd>
-        </div>
-        )}
-        {itemType === "product" && (
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader
-                label="Manufacturing Mode"
-                tooltip="Production execution style for this product."
-              />
-            </dt>
-            <dd className="mt-1 text-sm capitalize">{item.manufacturingMode ?? "discrete"}</dd>
-          </div>
-        )}
-        {itemType === "product" && item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Expected Batch Yield" tooltip={BATCH_YIELD_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">
-              <QuantityWithUnit
-                value={item.expectedBatchYield}
-                unitName={item.unitName}
-                unitSize={item.unitSize}
-                unitUom={item.unitUom}
-              />
-            </dd>
-          </div>
-        )}
-        {!isMaster && (
-        <>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Physical Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.stock}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-            />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.availableQty}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-            />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Reserved" tooltip={RESERVED_QTY_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.committedQty}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-            />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Demand" tooltip={DEMAND_QTY_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.demandQty}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-            />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Backorder" tooltip={BACKORDER_QTY_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.shortageQty}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-              tone={parseFloat(item.shortageQty) > 0 ? "destructive" : "default"}
-            />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Expected" tooltip={EXPECTED_QTY_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.expectedQty}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-            />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Safety Stock" tooltip={SAFETY_STOCK_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            <QuantityWithUnit
-              value={item.safetyStock}
-              unitName={item.unitName}
-              unitSize={item.unitSize}
-              unitUom={item.unitUom}
-            />
-          </dd>
-        </div>
-        </>
-        )}
-        {!isMaster && (
-        <div>
-          <dt className="text-sm font-medium text-muted-foreground">
-            <TooltipHeader label="Calculated Stock" tooltip={CALCULATED_STOCK_TOOLTIP} />
-          </dt>
-          <dd className="mt-1 text-sm">
-            {calculatedStock < 0 ? (
-              <Tooltip>
-                <TooltipTrigger asChild>{calculatedStockValue}</TooltipTrigger>
-                <TooltipContent side="top">
-                  {CALCULATED_STOCK_ALERT_TOOLTIP}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              calculatedStockValue
-            )}
-          </dd>
-        </div>
-        )}
-      </dl>
-
-      {commitmentSummary ? <ItemCommitmentSummaryCard summary={commitmentSummary} /> : null}
-
-      {/* BOM Section — renders only when bom prop is provided and non-empty */}
-      {itemType === "product" && item.bomLocked && !canViewBom ? (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
-            <p className="text-sm text-muted-foreground">
-              This recipe is locked. Inventory or manufacturing admin access is required to
-              view its ingredients.
-            </p>
-          </div>
-        </>
-      ) : null}
-
-      {itemType === "product" && canViewBom ? (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold tracking-tight">Recipe / Bill of Materials</h2>
-                {item.currentBomRevision ? (
-                  <p className="text-sm text-muted-foreground">
-                    Rev {item.currentBomRevision.revisionNumber}
-                    {" • "}
-                    {item.currentBomRevision.createdAt.toLocaleDateString("en-US")}
-                    {item.currentBomRevision.createdByName
-                      ? ` • ${item.currentBomRevision.createdByName}`
-                      : ""}
-                  </p>
-                ) : null}
-                {item.currentBomRevision?.note ? (
-                  <p className="text-sm text-muted-foreground">
-                    {item.currentBomRevision.note}
-                  </p>
-                ) : null}
-              </div>
-              {item.currentBomRevision ? (
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link href={`${basePath}/${item.id}/bom-history`}>View History</Link>
-                </Button>
+              {isVariant && item.parentName ? (
+                <>
+                  <span>/</span>
+                  <Link
+                    href={`/inventory/products/${item.parentId}`}
+                    className="underline underline-offset-4 hover:text-foreground"
+                  >
+                    {item.parentName}
+                  </Link>
+                </>
               ) : null}
             </div>
-            {bom && bom.length > 0 ? (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Component</TableHead>
-                      <TableHead>
-                        <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />
-                      </TableHead>
-                      <TableHead className="text-right">
-                        <TooltipHeader
-                          label={item.manufacturingMode === "batch" ? "Qty / Batch" : "Qty"}
-                          tooltip={
-                            item.manufacturingMode === "batch"
-                              ? BOM_QTY_PER_BATCH_TOOLTIP
-                              : BOM_QTY_PER_UNIT_TOOLTIP
-                          }
-                        />
-                      </TableHead>
-                      {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-                        <TableHead className="text-right">
-                          <TooltipHeader label="Qty / Unit" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
-                        </TableHead>
-                      )}
-                      <TableHead>Requirements</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {bom.map((b) => {
-                      const batchQty = b.quantity ? parseFloat(b.quantity) : null;
-                      const yieldVal = item.expectedBatchYield ? parseFloat(item.expectedBatchYield) : null;
-                      const perUnit = batchQty != null && yieldVal != null && yieldVal > 0
-                        ? parseFloat((batchQty / yieldVal).toFixed(4).replace(/\.?0+$/, ""))
-                        : null;
 
-                      return (
-                        <TableRow key={b.id}>
-                          <TableCell>
-                            <Link
-                              href={itemDetailHref(b.componentItemType, b.componentId)}
-                              className="hover:underline"
-                            >
-                              {b.componentName}
-                            </Link>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{b.componentItemType}</Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {batchQty != null ? `${batchQty} ${b.componentUnit}` : "\u2014"}
-                          </TableCell>
-                          {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-                            <TableCell className="text-right text-muted-foreground">
-                              {perUnit != null ? `${perUnit} ${b.componentUnit}` : "\u2014"}
-                            </TableCell>
-                          )}
-                          <TableCell className="text-sm text-muted-foreground">
-                            {b.minimumLotAgeDays
-                              ? `Lot must be at least ${b.minimumLotAgeDays} ${
-                                  b.minimumLotAgeDays === 1 ? "day" : "days"
-                                } old.`
-                              : "\u2014"}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-semibold tracking-tight">
+                    {headingTitle}
+                  </h1>
+                  {item.sku ? (
+                    <Badge variant="secondary" className="font-mono">
+                      {item.sku}
+                    </Badge>
+                  ) : null}
+                  {item.category ? (
+                    <Badge variant="secondary">{item.category}</Badge>
+                  ) : null}
+                  {itemType === "product" ? (
+                    <Badge variant="secondary">{formatMode(item.manufacturingMode)}</Badge>
+                  ) : (
+                    <Badge variant="secondary">Material</Badge>
+                  )}
+                  {itemType === "product" && item.sellable === false ? (
+                    <Badge variant="outline">Not sellable</Badge>
+                  ) : null}
+                  {itemType === "product" && item.bomLocked ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground"
+                          aria-label="Locked recipe"
+                        >
+                          <HugeiconsIcon icon={CircleLock01Icon} size={14} strokeWidth={2} />
+                          Locked recipe
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        Only inventory admins can edit locked recipes.
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
+                {item.description ? (
+                  <p className="max-w-2xl text-sm text-muted-foreground">
+                    {item.description}
+                  </p>
+                ) : null}
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No active BOM ingredients on the current revision.
-              </p>
-            )}
-          </div>
-        </>
-      ) : null}
+              <div className="flex shrink-0 items-center gap-2">
+                <ItemDetailActions
+                  itemId={item.id}
+                  itemType={itemType}
+                  canEdit={canEdit}
+                  canDelete={canEdit}
+                  canViewLedger={canViewLedger}
+                />
+              </div>
+            </div>
 
-      <Separator />
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">Used In</h2>
-        {usedInParents && usedInParents.length > 0 ? (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {usedInParents.map((parent) => (
-                  <TableRow key={parent.id}>
-                    <TableCell>
-                      <Link
-                        href={`/inventory/products/${parent.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {parent.displayName}
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <StockEquation item={item} calculatedStock={calculatedStock} />
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Not used in any current product recipes.
-          </p>
-        )}
-      </div>
-
-      {/* Lots */}
-      <Separator />
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">Lots</h2>
-        {lots.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No lots recorded.</p>
-        ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <TooltipHeader label="Lot Number" tooltip={LOT_NUMBER_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Physical" tooltip={LOT_PHYSICAL_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Disposition" tooltip={LOT_DISPOSITION_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Cost / Unit" tooltip={LOT_UNIT_COST_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">Sold</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                  <TableHead className="text-right">COGS</TableHead>
-                  <TableHead className="text-right">Profit</TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Actual Margin" tooltip={ACTUAL_MARGIN_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lots.map((lot) => (
-                  <TableRow key={lot.id}>
-                    <TableCell className="font-mono">{lot.lotNumber}</TableCell>
-                    <TableCell className="text-right">{formatQuantity(lot.quantity)}</TableCell>
-                    <TableCell>
-                      {lot.dispositionBalances.length > 0 ? (
-                        <div className="flex flex-col gap-1">
-                          {lot.dispositionBalances.map((balance) => (
-                            <div
-                              key={`${lot.id}-${balance.disposition}`}
-                              className="flex items-center justify-between gap-3"
-                            >
-                              <span>{formatInventoryDisposition(balance.disposition)}</span>
-                              <span className="font-mono text-muted-foreground">
-                                {formatQuantity(balance.quantity)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        "\u2014"
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{formatCost(lot.costPerUnit) ?? "\u2014"}</TableCell>
-                    <TableCell className="text-right">{formatQuantity(lot.soldQuantity)}</TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(lot.realizedRevenue) ?? "\u2014"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(lot.realizedCogs) ?? "\u2014"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(lot.realizedGrossProfit) ?? "\u2014"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatMarginPercent(lot.realizedMarginPercent)}
-                    </TableCell>
-                    <TableCell className="text-right">{lot.receivedAt.toLocaleDateString("en-US")}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-2">
-                        {lot.dispositionBalances.map((balance) => (
-                          <LotDispositionActions
-                            key={`${lot.id}-${balance.disposition}-actions`}
-                            itemId={item.id}
-                            lotId={lot.id}
-                            fromDisposition={balance.disposition}
-                            maxQuantity={balance.quantity}
-                          />
-                        ))}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
-
-      {/* Stock Movements */}
-      <Separator />
-      <div className="space-y-3">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Stock Movements</h2>
-          {canViewLedger ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/inventory/ledger?itemId=${item.id}`}>View Full Ledger</Link>
-            </Button>
-          ) : null}
         </div>
-        {movements.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No stock movements recorded.</p>
-        ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Quantity" tooltip={LEDGER_CHANGE_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {movements.map((m) => {
-                  const qty = parseFloat(m.quantity);
-                  return (
-                    <TableRow key={m.id}>
-                      <TableCell>{m.createdAt.toLocaleDateString("en-US")}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatMovementType(m.movementType)}</TableCell>
-                      <TableCell className={`text-right font-mono ${qty > 0 ? "text-foreground" : "text-destructive"}`}>
-                        {qty > 0 ? "+" : ""}
-                        {formatQuantity(m.quantity)}
-                      </TableCell>
-                      <TableCell className="font-mono">{m.lotNumber ?? "\u2014"}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
 
+        <ItemDetailTabs
+          tabs={tabs}
+          initialActiveTab={activeTab}
+          panels={{
+            overview: (
+              <OverviewPanel
+                item={item}
+                itemType={itemType}
+                lots={lots}
+                usedInParents={usedInParents}
+                commitmentSummary={commitmentSummary}
+              />
+            ),
+            lots: <LotsPanel item={item} lots={lots} />,
+            recipe:
+              itemType === "product" ? (
+                <RecipePanel
+                  item={item}
+                  bom={bom}
+                  canViewBom={canViewBom}
+                  basePath={basePath}
+                />
+              ) : null,
+            movements: (
+              <MovementsPanel
+                item={item}
+                movements={movements}
+                canViewLedger={canViewLedger}
+              />
+            ),
+          }}
+        />
     </div>
   );
 }

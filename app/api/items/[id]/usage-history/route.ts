@@ -7,6 +7,7 @@ import { getItemUsageHistory } from "@/app/(dashboard)/inventory/queries";
 const usageHistorySearchSchema = z.object({
   days: z.coerce.number().int().min(30).max(365).optional(),
   bucket: z.enum(["week"]).optional(),
+  mode: z.enum(["usage", "production"]).optional(),
 });
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
@@ -19,6 +20,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const usage = await getItemUsageHistory(id, {
     days: filters.days,
     bucket: filters.bucket,
+    mode: filters.mode,
   });
 
   if (!usage) {

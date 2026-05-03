@@ -200,7 +200,8 @@ test.describe("Inventory write-path smoke", () => {
     expect((await updateResponsePromise).status()).toBe(200);
 
     await page.waitForURL(`**/inventory/products/${productId}`);
-    await expect(page.getByText("Rev 2")).toBeVisible();
+    await expect(page.getByText("Rev 2", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^Recipe/ }).click();
     await expect(page.getByText("Increase sand ratio")).toBeVisible();
 
     const revisions = await db

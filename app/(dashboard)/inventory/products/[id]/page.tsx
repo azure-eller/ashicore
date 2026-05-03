@@ -8,17 +8,23 @@ import {
   getUsedInParents,
   getVariants,
 } from "@/app/(dashboard)/inventory/queries";
-import { ItemDetail } from "@/app/(dashboard)/inventory/item-detail";
+import {
+  ItemDetail,
+  normalizeItemDetailTab,
+} from "@/app/(dashboard)/inventory/item-detail";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { canManageLockedBom, canViewLockedBom, canViewUnlockedBom, hasModuleAccess } from "@/lib/authz";
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const context = await getAuthedMemberContext();
   const { id } = await params;
+  const { tab } = await searchParams;
   const item = await getItem(id);
   if (!item) redirect("/inventory/products");
 
@@ -43,6 +49,7 @@ export default async function ProductDetailPage({
         canEdit={canEdit}
         canViewBom={false}
         canViewLedger={canViewLedger}
+        activeTab={normalizeItemDetailTab(tab, "product")}
       />
     );
   }
@@ -67,6 +74,7 @@ export default async function ProductDetailPage({
       canEdit={canEdit}
       canViewBom={canViewBom}
       canViewLedger={canViewLedger}
+      activeTab={normalizeItemDetailTab(tab, "product")}
     />
   );
 }

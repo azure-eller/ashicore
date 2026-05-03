@@ -1068,9 +1068,12 @@ test.describe("Inventory ledger explorer", () => {
 
   test("shows full item activity when deep-linking from item detail", async ({ page }) => {
     await page.goto(`/inventory/materials/${purchaseMaterialId}`);
-    const viewFullLedgerLink = page.getByRole("link", { name: "View Full Ledger" });
-    await expect(viewFullLedgerLink).toBeVisible();
-    await viewFullLedgerLink.click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    const viewLedgerItem = page.getByRole("menuitem", {
+      name: "View inventory activity",
+    });
+    await expect(viewLedgerItem).toBeVisible();
+    await viewLedgerItem.click();
     await expect(page).toHaveURL(new RegExp(`/inventory/ledger\\?itemId=${purchaseMaterialId}`));
 
     const itemTableBody = page.locator("tbody");
