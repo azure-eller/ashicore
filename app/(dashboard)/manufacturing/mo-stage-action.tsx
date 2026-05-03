@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -34,7 +34,7 @@ import {
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingReleaseWarningPayload } from "./types";
 
-type ApiError = {
+type ApiError = Error & {
   status: number;
   error: string;
   shortage?: ManufacturingReleaseWarningPayload;
@@ -58,21 +58,26 @@ export function MoStageAction({
 
   const releaseMutation = useMutation({
     mutationFn: async (confirmShortage: boolean) => {
-      const response = await fetch(`/api/manufacturing-orders/${orderId}/release`, {
+      await apiJson<void>(`/api/manufacturing-orders/${orderId}/release`, {
         method: "POST",
-        headers: createIdempotencyHeaders(`manufacturing-order-release-${orderId}`, {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ confirmShortage }),
+        idempotencyKey: `manufacturing-order-release-${orderId}`,
+        body: { confirmShortage },
+        fallbackError: "Failed to release order.",
+        mapError: (status, body) => {
+          const payload = body as
+            | { error?: unknown; shortage?: ManufacturingReleaseWarningPayload }
+            | null;
+          const message =
+            typeof payload?.error === "string"
+              ? payload.error
+              : "Failed to release order.";
+          return Object.assign(new Error(message), {
+            status,
+            error: message,
+            shortage: payload?.shortage,
+          } satisfies Omit<ApiError, keyof Error>);
+        },
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: body?.error ?? "Failed to release order.",
-          shortage: body?.shortage,
-        } satisfies ApiError;
-      }
     },
     onMutate: () => setActionError(null),
     onSuccess: async () => {

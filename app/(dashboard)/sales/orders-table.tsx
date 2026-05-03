@@ -19,7 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -83,7 +83,7 @@ import type {
   SalesOrderListRow,
 } from "./types";
 
-type ConfirmError = {
+type ConfirmError = Error & {
   status?: number;
   error?: string;
   oversell?: BulkOversellWarningPayload;
@@ -249,18 +249,12 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
 
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const response = await fetch("/api/sales-orders", {
+      await apiJson<void>("/api/sales-orders", {
         method: "DELETE",
-        headers: createIdempotencyHeaders("sales-orders-delete", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ ids }),
+        idempotencyKey: "sales-orders-delete",
+        body: { ids },
+        fallbackError: "Failed to delete orders.",
       });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to delete orders.");
-      }
     },
     onMutate: () => {
       setFormError(null);
@@ -287,22 +281,26 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       ids: string[];
       confirmOversell: boolean;
     }) => {
-      const response = await fetch("/api/sales-orders/bulk-confirm", {
+      await apiJson<void>("/api/sales-orders/bulk-confirm", {
         method: "POST",
-        headers: createIdempotencyHeaders("sales-orders-bulk-confirm", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ ids, confirmOversell }),
+        idempotencyKey: "sales-orders-bulk-confirm",
+        body: { ids, confirmOversell },
+        fallbackError: "Failed to confirm orders.",
+        mapError: (status, body) => {
+          const payload = body as
+            | { error?: unknown; oversell?: BulkOversellWarningPayload }
+            | null;
+          const message =
+            typeof payload?.error === "string"
+              ? payload.error
+              : "Failed to confirm orders.";
+          return Object.assign(new Error(message), {
+            status,
+            error: message,
+            oversell: payload?.oversell,
+          } satisfies Omit<ConfirmError, keyof Error>);
+        },
       });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: body?.error ?? "Failed to confirm orders.",
-          oversell: body?.oversell,
-        } satisfies ConfirmError;
-      }
     },
     onMutate: () => {
       setFormError(null);

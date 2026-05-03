@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
@@ -38,7 +38,7 @@ import type {
   SalesOrderListRow,
 } from "./types";
 
-type ActionError = {
+type ActionError = Error & {
   status: number;
   error: string;
   oversell?: OversellWarningPayload;
@@ -71,21 +71,24 @@ export function SoStageAction({ order }: Props) {
 
   const confirmMutation = useMutation({
     mutationFn: async (confirmOversell: boolean) => {
-      const response = await fetch(`/api/sales-orders/${order.id}/confirm`, {
+      await apiJson<void>(`/api/sales-orders/${order.id}/confirm`, {
         method: "POST",
-        headers: createIdempotencyHeaders(`sales-order-confirm-${order.id}`, {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ confirmOversell }),
+        idempotencyKey: `sales-order-confirm-${order.id}`,
+        body: { confirmOversell },
+        fallbackError: "Failed to confirm order.",
+        mapError: (status, body) => {
+          const payload = body as { error?: unknown; oversell?: OversellWarningPayload } | null;
+          const message =
+            typeof payload?.error === "string"
+              ? payload.error
+              : "Failed to confirm order.";
+          return Object.assign(new Error(message), {
+            status,
+            error: message,
+            oversell: payload?.oversell,
+          } satisfies Omit<ActionError, keyof Error>);
+        },
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: body?.error ?? "Failed to confirm order.",
-          oversell: body?.oversell,
-        } satisfies ActionError;
-      }
     },
     onMutate: () => {
       setActionError(null);

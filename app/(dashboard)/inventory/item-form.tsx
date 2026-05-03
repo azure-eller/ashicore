@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -119,6 +119,9 @@ interface ItemFormProps {
 }
 
 type ItemFormValues = InsertItemFormValues | UpdateItemFormValues | InsertMasterItemFormValues;
+type ItemMutationResult = { id: string };
+type CurrentStockUnitCostResult = { id: string; currentStockUnitCost: string | null };
+type UnitDefinitionResult = { id: string; name: string; size: string; uom: string };
 
 export function ItemForm({
   itemType,
@@ -309,27 +312,15 @@ export function ItemForm({
               return nextPayload;
             })()
           : basePayload;
-      const res = await fetch(url, {
+      const fallback = initialData
+        ? `Failed to update ${typeLabel.toLowerCase()}.`
+        : `Failed to create ${typeLabel.toLowerCase()}.`;
+      return apiJson<ItemMutationResult>(url, {
         method,
-        headers: createIdempotencyHeaders("item-form-save", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify(payload),
+        idempotencyKey: "item-form-save",
+        body: payload,
+        fallbackError: fallback,
       });
-      if (!res.ok) {
-        const fallback = initialData
-          ? `Failed to update ${typeLabel.toLowerCase()}.`
-          : `Failed to create ${typeLabel.toLowerCase()}.`;
-        const err = await res.json().catch(() => null);
-        if (err?.errors) {
-          const messages = Object.entries(err.errors)
-            .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
-            .join("; ");
-          throw new Error(messages);
-        }
-        throw new Error(err?.error ?? fallback);
-      }
-      return res.json();
     },
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -352,25 +343,32 @@ export function ItemForm({
         throw new Error("Current stock unit cost can only be overridden after the item exists.");
       }
 
-      const res = await fetch(`/api/items/${initialData.id}/current-stock-unit-cost`, {
-        method: "PUT",
-        headers: createIdempotencyHeaders("item-current-stock-unit-cost", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({
-          currentStockUnitCost: currentStockUnitCostDraft,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        const fieldMessage = err?.errors?.currentStockUnitCost?.[0];
-        throw new Error(
-          fieldMessage ?? err?.error ?? "Failed to update current stock unit cost."
-        );
-      }
-
-      return res.json() as Promise<{ id: string; currentStockUnitCost: string | null }>;
+      return apiJson<CurrentStockUnitCostResult>(
+        `/api/items/${initialData.id}/current-stock-unit-cost`,
+        {
+          method: "PUT",
+          idempotencyKey: "item-current-stock-unit-cost",
+          body: {
+            currentStockUnitCost: currentStockUnitCostDraft,
+          },
+          fallbackError: "Failed to update current stock unit cost.",
+          mapError: (_status, body) => {
+            const payload = body as
+              | {
+                  error?: unknown;
+                  errors?: { currentStockUnitCost?: string[] };
+                }
+              | null;
+            const fieldMessage = payload?.errors?.currentStockUnitCost?.[0];
+            const message =
+              fieldMessage ??
+              (typeof payload?.error === "string"
+                ? payload.error
+                : "Failed to update current stock unit cost.");
+            return new Error(message);
+          },
+        }
+      );
     },
     onSuccess: async (result) => {
       setCurrentStockUnitCostDraft(result.currentStockUnitCost ?? "");
@@ -397,16 +395,11 @@ export function ItemForm({
 
   const unitMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/units", {
+      return apiJson<UnitDefinitionResult>("/api/units", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: unitName, size: unitSize, uom: unitUom }),
+        body: { name: unitName, size: unitSize, uom: unitUom },
+        fallbackError: "Failed to create unit.",
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error ?? "Failed to create unit.");
-      }
-      return res.json();
     },
     onSuccess: (newUnit) => {
       setLocalUnits((prev) => [...prev, newUnit]);
