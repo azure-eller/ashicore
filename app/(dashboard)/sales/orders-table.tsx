@@ -303,7 +303,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
           }
         }}
       >
-        <AlertDialogContent className="max-w-5xl bg-background text-foreground">
+        <AlertDialogContent size="content" className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
