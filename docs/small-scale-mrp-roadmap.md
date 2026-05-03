@@ -195,7 +195,8 @@ These should stay out of scope for now:
 - reservation logic
 - work centers, labor, or overhead costing
 - finite-capacity scheduling
-- accounting, invoicing, AP, or AR
+- accounting ledger, AP/AR, GL, or payments
+- full invoicing workflows beyond active Xero document sync
 - returns workflows
 - partial manufacturing completion
 - partial sales fulfillment
