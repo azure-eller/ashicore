@@ -25,8 +25,11 @@ export const EXPECTED_QTY_TOOLTIP =
 export const SAFETY_STOCK_TOOLTIP =
   "Stock held back as a buffer.";
 
+export const PROJECTED_VS_SAFETY_TOOLTIP =
+  "Stock after demand and expected supply, compared to safety stock.";
+
 export const POTENTIAL_TOOLTIP =
-  "Units producible from available ingredient stock.";
+  "Units producible now from available eligible ingredient stock.";
 
 export const STOCKING_UNIT_TOOLTIP =
   "Unit used for inventory balances and stock movements.";

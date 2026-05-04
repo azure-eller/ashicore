@@ -50,14 +50,18 @@ async function signInAsExistingUser(
   browser: Browser,
   email: string,
   password: string,
-  expectedPath = "/settings"
+  expectedPath: string | string[] = "/settings"
 ) {
   const { context, page } = await createFreshPage(browser);
   await page.goto("/sign-in");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Login" }).click();
-  await page.waitForURL(`**${expectedPath}`, { timeout: 15_000 });
+  const expectedPaths = Array.isArray(expectedPath) ? expectedPath : [expectedPath];
+  await page.waitForURL(
+    (url) => expectedPaths.includes(url.pathname),
+    { timeout: 15_000 }
+  );
   return { context, page };
 }
 
@@ -159,6 +163,7 @@ test.describe("Team management and invite flow", () => {
   let adminInvitationId = "";
   let memberMemberId = "";
   let memberUserId = "";
+  let unlockedProductId = "";
 
   async function updateMemberAccess(
     page: Page,
@@ -198,7 +203,7 @@ test.describe("Team management and invite flow", () => {
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
     await page.getByRole("button", { name: "Create Organization" }).click();
-    await page.waitForURL("**/planning");
+    await page.waitForURL("**/inventory/materials");
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));
     expect(ownerUser).toBeTruthy();
@@ -286,7 +291,7 @@ test.describe("Team management and invite flow", () => {
         browser,
         TEST_OWNER_EMAIL,
         TEST_OWNER_PASSWORD,
-        "/planning"
+        "/inventory/materials"
       );
 
       await page.goto("/settings");
@@ -312,7 +317,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       TEST_OWNER_EMAIL,
       TEST_OWNER_PASSWORD,
-      "/planning"
+      ["/inventory/materials", "/org-setup"]
     );
 
     await page.goto(`/accept-invitation?id=${inviteId}`);
@@ -421,7 +426,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       adminEmail,
       adminPassword,
-      "/planning"
+      "/inventory/materials"
     );
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
@@ -510,7 +515,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       memberEmail,
       memberPassword,
-      "/inventory/products"
+      "/inventory/materials"
     );
 
     await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(1);
@@ -578,6 +583,7 @@ test.describe("Team management and invite flow", () => {
     );
     expect(unlockedProductMutation.status).toBe(201);
     expect(unlockedProductMutation.body?.id).toBeTruthy();
+    unlockedProductId = unlockedProductMutation.body!.id!;
 
     await context.close();
   });
@@ -587,13 +593,16 @@ test.describe("Team management and invite flow", () => {
     db,
     page,
   }) => {
-    const [product] = await db
-      .select({ id: items.id })
-      .from(items)
-      .where(and(eq(items.organizationId, TEST_ORG_ID), eq(items.itemType, "product")))
-      .limit(1);
-
-    expect(product).toBeTruthy();
+    let productId = unlockedProductId;
+    if (!productId) {
+      const [product] = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(and(eq(items.organizationId, TEST_ORG_ID), eq(items.itemType, "product")))
+        .limit(1);
+      productId = product?.id ?? "";
+    }
+    expect(productId).toBeTruthy();
 
     await updateMemberAccess(page, {
       inventory: "read",
@@ -607,18 +616,16 @@ test.describe("Team management and invite flow", () => {
       browser,
       memberEmail,
       memberPassword,
-      "/inventory/products"
+      "/inventory/materials"
     );
 
-    await memberPage.goto(`/inventory/products/${product.id}`);
-    await expect(memberPage).toHaveURL(new RegExp(`/inventory/products/${product.id}$`));
-    await expect(
-      memberPage.getByRole("heading", { name: "Recipe / Bill of Materials" })
-    ).toBeVisible();
+    await memberPage.goto(`/inventory/products/${productId}?tab=recipe`);
+    await expect(memberPage).toHaveURL(new RegExp(`/inventory/products/${productId}\\?tab=recipe$`));
+    await expect(memberPage.getByText("Recipe / Bill of Materials")).toBeVisible();
     await expect(memberPage.getByRole("link", { name: "Edit" })).toHaveCount(0);
 
-    await memberPage.goto(`/inventory/products/${product.id}/edit`);
-    await memberPage.waitForURL("**/inventory/products");
+    await memberPage.goto(`/inventory/products/${productId}/edit`);
+    await memberPage.waitForURL("**/inventory/materials");
 
     await context.close();
   });
@@ -707,7 +714,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       memberEmail,
       memberPassword,
-      "/inventory/products"
+      "/inventory/materials"
     );
 
     await readPage.goto(`/inventory/materials/${lockMaterialId}`);
@@ -735,10 +742,10 @@ test.describe("Team management and invite flow", () => {
       browser,
       memberEmail,
       memberPassword,
-      "/inventory/products"
+      "/inventory/materials"
     );
 
-    await memberPage.goto(`/inventory/products/${lockedProductId}`);
+    await memberPage.goto(`/inventory/products/${lockedProductId}?tab=recipe`);
     await expect(memberPage.getByLabel("Locked recipe")).toBeVisible();
     await expect(
       memberPage.getByText("This recipe is locked. Inventory or manufacturing admin access is required")
@@ -789,10 +796,10 @@ test.describe("Team management and invite flow", () => {
       browser,
       memberEmail,
       memberPassword,
-      "/inventory/products"
+      "/inventory/materials"
     );
 
-    await adminPage.goto(`/inventory/products/${lockedProductId}`);
+    await adminPage.goto(`/inventory/products/${lockedProductId}?tab=recipe`);
     await expect(adminPage.getByText(`Locked Material ${run}`)).toBeVisible();
     await expect(adminPage.getByRole("link", { name: "Edit" })).toBeVisible();
     await adminPage.getByRole("link", { name: "Edit" }).click();

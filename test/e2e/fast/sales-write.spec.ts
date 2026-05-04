@@ -2,6 +2,8 @@ import { asc, eq } from "drizzle-orm";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryItemBalances,
+  inventoryLotBalances,
+  lots,
   purchaseOrderLines,
   salesOrderLines,
   salesOrders,
@@ -19,6 +21,13 @@ import {
   testFetch,
   updateItem,
 } from "../../helpers/api";
+
+function utcDateDaysFromToday(days: number) {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date;
+}
 
 test.describe("Sales write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -202,6 +211,105 @@ test.describe("Sales write-path smoke", () => {
     }).last();
     await expect(expandedLine).toContainText("150");
     await expect(expandedLine).not.toContainText("-200");
+  });
+
+  test("potential honors BOM lot age constraints in inventory and sales detail", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-AGED-POTENTIAL`;
+    const materialResult = await createItem({
+      name: `Fast Aged Potential Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-AGED-POT-MAT-${suffix}`,
+      category: `Fast Aged Potential ${suffix}`,
+      description: "Material for lot-age potential regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    await db
+      .update(lots)
+      .set({ receivedAt: utcDateDaysFromToday(-1) })
+      .where(eq(lots.itemId, materialId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: utcDateDaysFromToday(-1) })
+      .where(eq(inventoryLotBalances.itemId, materialId));
+
+    const productResult = await createItem({
+      name: `Fast Aged Potential Product ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-AGED-POT-PROD-${suffix}`,
+      category: `Fast Aged Potential ${suffix}`,
+      description: "Product with lot-age constrained BOM",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1", minimumLotAgeDays: 7 }],
+    });
+    expect(productResult.status).toBe(201);
+    const constrainedProductId = productResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId,
+      status: "draft",
+      lines: [{ itemId: constrainedProductId, quantity: "1", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const constrainedOrderId = orderResult.body.id as string;
+
+    const productsResponse = await testFetch("/api/items?itemType=product&view=products");
+    expect(productsResponse.status).toBe(200);
+    const products = (await productsResponse.json()) as Array<{
+      id: string;
+      potential: string | null;
+    }>;
+    expect(products.find((product) => product.id === constrainedProductId)).toMatchObject({
+      potential: "0",
+    });
+
+    const detailResponse = await testFetch(`/api/sales-orders/${constrainedOrderId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    expect(detail.lines[0].potential).toBe("0");
+
+    await db
+      .update(lots)
+      .set({ receivedAt: utcDateDaysFromToday(-8) })
+      .where(eq(lots.itemId, materialId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: utcDateDaysFromToday(-8) })
+      .where(eq(inventoryLotBalances.itemId, materialId));
+
+    const agedProductsResponse = await testFetch(
+      "/api/items?itemType=product&view=products"
+    );
+    expect(agedProductsResponse.status).toBe(200);
+    const agedProducts = (await agedProductsResponse.json()) as Array<{
+      id: string;
+      potential: string | null;
+    }>;
+    expect(
+      agedProducts.find((product) => product.id === constrainedProductId)
+    ).toMatchObject({
+      potential: "10",
+    });
+
+    const agedDetailResponse = await testFetch(
+      `/api/sales-orders/${constrainedOrderId}`
+    );
+    expect(agedDetailResponse.status).toBe(200);
+    const agedDetail = await agedDetailResponse.json();
+    expect(agedDetail.lines[0].potential).toBe("10");
   });
 
   test("reports actual margin from FIFO lots with different costs", async ({ db }) => {

@@ -43,12 +43,12 @@ import {
   releaseReservationForSalesLineInTx,
   releaseReservationForSalesQuantitiesInTx,
   projectedAvailableQty,
-  projectedAvailableQtyExpr,
   projectedCommittedQty,
   projectedDemandQty,
   projectedExpectedQty,
   projectedOnHandQty,
   projectedOnHandQtyExpr,
+  projectedPotentialQty,
   projectedReservableOnHandQtyExpr,
   projectedShortageQty,
   reserveForSalesInTx,
@@ -2519,38 +2519,12 @@ export async function getSalesOrder(
         reservableOnHandQty: trimScaleNullable(
           projectedReservableOnHandQtyExpr(items.organizationId, items.id)
         ).as("reservableOnHandQty"),
-        potential: trimScaleNullable(
-          sql<string | null>`(
-            CASE WHEN ${items.itemType} = 'product' AND EXISTS (
-              SELECT 1
-              FROM inventory.bom_revisions br
-              INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
-              WHERE br.product_id = ${items.id}
-                AND br.is_current = true
-            ) THEN
-              GREATEST(
-                0,
-                FLOOR(
-                (
-                  SELECT MIN(
-                    (
-                      ${projectedAvailableQtyExpr(items.organizationId, sql`brc.component_id`)}
-                    )
-                    / NULLIF(brc.quantity, 0)
-                  )
-                  FROM inventory.bom_revisions br
-                  INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
-                  WHERE br.product_id = ${items.id}
-                    AND br.is_current = true
-                )
-                * CASE WHEN ${items.manufacturingMode} = 'batch' AND ${items.expectedBatchYield} IS NOT NULL
-                    THEN ${items.expectedBatchYield}::numeric
-                    ELSE 1
-                  END
-                )
-              )
-            ELSE NULL END
-          )`
+        potential: projectedPotentialQty(
+          items.organizationId,
+          items.id,
+          items.itemType,
+          items.manufacturingMode,
+          items.expectedBatchYield
         ).as("potential"),
       })
       .from(salesOrderLines)

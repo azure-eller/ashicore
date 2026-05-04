@@ -5,6 +5,7 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  lots,
   manufacturingOrderIngredients,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -17,6 +18,7 @@ import {
   getUnitId,
   releaseManufacturingOrder,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
 import type { TestDb } from "../fixtures";
 
@@ -24,12 +26,23 @@ function uniqueName(prefix: string) {
   return `${prefix} ${Date.now()} ${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function itemSku(name: string) {
+  return name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 48);
+}
+
+function utcDateDaysFromToday(days: number) {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date;
+}
+
 async function createMaterial(name: string, stock: string) {
   const result = await createItem({
     name,
     itemType: "material",
     unitDefinitionId: getUnitId(),
-    sku: name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 48),
+    sku: itemSku(name),
     category: "Reservation correctness",
     description: null,
     defaultPurchasePrice: "1.00",
@@ -43,19 +56,24 @@ async function createMaterial(name: string, stock: string) {
   return result.body.id as string;
 }
 
-async function createBomProduct(name: string, componentId: string, quantityPerUnit: string) {
+async function createBomProduct(
+  name: string,
+  componentId: string,
+  quantityPerUnit: string,
+  minimumLotAgeDays?: number
+) {
   const result = await createItem({
     name,
     itemType: "product",
     unitDefinitionId: getUnitId(),
-    sku: name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 48),
+    sku: itemSku(name),
     category: "Reservation correctness",
     description: null,
     defaultPurchasePrice: null,
     defaultSellingPrice: "20.00",
     stock: "0",
     safetyStock: "0",
-    bom: [{ componentId, quantity: quantityPerUnit }],
+    bom: [{ componentId, quantity: quantityPerUnit, minimumLotAgeDays }],
   });
 
   expect(result.status).toBe(201);
@@ -363,6 +381,73 @@ test.describe("Reservation correctness", () => {
         )
       );
     expect(ingredient.id).toBeTruthy();
+  });
+
+  test("manufacturing lot-age warnings account for existing reservations", async ({
+    db,
+  }) => {
+    const materialName = uniqueName("Age reserved material");
+    const materialId = await createMaterial(materialName, "5");
+
+    await db
+      .update(lots)
+      .set({ receivedAt: utcDateDaysFromToday(-8) })
+      .where(eq(lots.itemId, materialId));
+    await db
+      .update(inventoryLotBalances)
+      .set({ receivedAt: utcDateDaysFromToday(-8) })
+      .where(eq(inventoryLotBalances.itemId, materialId));
+
+    const updateResult = await updateItem(materialId, {
+      name: materialName,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      sku: itemSku(materialName),
+      category: "Reservation correctness",
+      description: null,
+      defaultPurchasePrice: "1.00",
+      currentStockUnitCost: "1.00",
+      defaultSellingPrice: "9.00",
+      sellable: true,
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      stock: "13",
+      safetyStock: "0",
+      bom: [],
+      revisionNote: null,
+    });
+    expect(updateResult.status).toBe(200);
+
+    const customerId = await createCustomerFixture(uniqueName("Age reserved customer"));
+    const reservationOrder = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      lines: [{ itemId: materialId, quantity: "4", unitPrice: "9" }],
+    });
+    expect(reservationOrder.status).toBe(201);
+
+    const productId = await createBomProduct(
+      uniqueName("Age reserved product"),
+      materialId,
+      "1",
+      7
+    );
+    const order = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "5",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+    });
+    expect(order.status).toBe(201);
+
+    const warning = await releaseManufacturingOrder(order.body.id as string);
+    expect(warning.status).toBe(409);
+    expect(warning.body.shortage.ingredients[0]).toMatchObject({
+      itemId: materialId,
+      needed: 5,
+      available: 1,
+      shortage: 4,
+      warningType: "requirement_violation",
+    });
   });
 
   test("concurrent sales confirmations cannot reserve the same stock twice", async ({

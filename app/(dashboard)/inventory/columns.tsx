@@ -7,6 +7,7 @@ import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { FilterableHeader } from "@/components/filterable-header";
+import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -21,11 +22,17 @@ import {
   NOT_SELLABLE_TOOLTIP,
   ON_HAND_STOCK_TOOLTIP,
   POTENTIAL_TOOLTIP,
+  PROJECTED_VS_SAFETY_TOOLTIP,
   STOCKING_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatQuantity } from "@/lib/format";
-import { calcStock } from "./types";
-import type { InventoryProductView, ItemRow, ItemType } from "./types";
+import { cn } from "@/lib/utils";
+import { calcProjectedStock, calcStock, getReplenishmentStatus } from "./types";
+import type {
+  InventoryProductView,
+  ItemRow,
+  ItemType,
+} from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
 type InventoryAttention = {
@@ -91,6 +98,58 @@ function MarginBadge({ row }: { row: ItemRow }) {
     <Badge variant={variant} className="font-mono text-xs">
       {row.marginPercent}%
     </Badge>
+  );
+}
+
+function ProjectedSafetyCell({ row }: { row: ItemRow }) {
+  const projected = Math.max(0, calcProjectedStock(row));
+  const parsedSafety = parseFloat(row.safetyStock);
+  const safety = Number.isFinite(parsedSafety) ? Math.max(0, parsedSafety) : 0;
+  const status = getReplenishmentStatus(row);
+  const projectedPercent =
+    safety > 0 ? Math.min(100, (projected / safety) * 50) : projected > 0 ? 100 : 0;
+  const fillClass =
+    status === "order-now"
+      ? "bg-destructive"
+      : status === "order-soon"
+        ? "bg-warning"
+        : "bg-success";
+
+  return (
+    <div className="flex min-w-0 max-w-full flex-col gap-2">
+      <div className="relative h-2 rounded-full bg-muted">
+        <div
+          className={cn("absolute inset-y-0 left-0 rounded-full", fillClass)}
+          style={{ width: `${projectedPercent}%` }}
+        />
+        {safety > 0 ? (
+          <span
+            aria-hidden
+            className="absolute top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+            style={{ left: "50%" }}
+          />
+        ) : null}
+      </div>
+      <div className="grid min-w-0 grid-cols-1 gap-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <QuantityWithUnit
+          value={projected}
+          unitName={row.unit}
+          unitSize={row.unitSize}
+          unitUom={row.unitUom}
+          className="text-xs"
+          valueClassName="font-medium text-foreground"
+        />
+        <QuantityWithUnit
+          label="safety"
+          value={safety}
+          unitName={row.unit}
+          unitSize={row.unitSize}
+          unitUom={row.unitUom}
+          className="text-xs"
+          muted
+        />
+      </div>
+    </div>
   );
 }
 
@@ -236,6 +295,24 @@ export function getColumns(
       ),
       cell: ({ row }) => formatQuantity(row.getValue("stock")),
     },
+    ...(!isProduct
+      ? [
+          {
+            accessorFn: (row) => calcProjectedStock(row),
+            id: "projectedSafety",
+            meta: { className: "w-[28%] min-w-0" },
+            sortDescFirst: false,
+            header: ({ column }) => (
+              <SortableHeader
+                column={column}
+                label="Projected vs safety"
+                tooltip={PROJECTED_VS_SAFETY_TOOLTIP}
+              />
+            ),
+            cell: ({ row }) => <ProjectedSafetyCell row={row.original} />,
+          } satisfies ColumnDef<ItemRow>,
+        ]
+      : []),
     ...(isProduct && !isSubAssemblies
       ? [
           {

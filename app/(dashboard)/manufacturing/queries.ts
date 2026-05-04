@@ -12,7 +12,9 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryEvents,
+  inventoryItemBalances,
   inventoryLotBalances,
+  inventoryReservationsSummary,
   items,
   lots,
   manufacturingOrderBatches,
@@ -1062,12 +1064,25 @@ async function getLotAgeAvailabilityInTx(
     itemId: string;
     minimumLotAgeDays: number;
     requiredDate: string;
+    reservationCredit?: number;
   }
 ) {
   const cutoffReceivedDate = subtractDays(
     params.requiredDate,
     params.minimumLotAgeDays
   );
+  const [balance] = await tx
+    .select({
+      committedQty: trimScale(inventoryItemBalances.committedQty).as("committedQty"),
+    })
+    .from(inventoryItemBalances)
+    .where(
+      and(
+        eq(inventoryItemBalances.organizationId, params.organizationId),
+        eq(inventoryItemBalances.locationId, params.locationId),
+        eq(inventoryItemBalances.itemId, params.itemId)
+      )
+    );
   const rows = await tx
     .select({
       quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
@@ -1104,8 +1119,13 @@ async function getLotAgeAvailabilityInTx(
     }
   }
 
+  const committedQty = Math.max(
+    0,
+    parseFloat(balance?.committedQty ?? "0") - (params.reservationCredit ?? 0)
+  );
+
   return {
-    eligible: normalizeQuantityNumber(eligible),
+    eligible: normalizeQuantityNumber(Math.max(0, eligible - committedQty)),
     ineligible: normalizeQuantityNumber(ineligible),
     nextEligibleDate,
   };
@@ -3049,12 +3069,30 @@ export async function pickManufacturingIngredient(
 
     if (minimumLotAgeDays != null) {
       const location = await getDefaultInventoryLocationInTx(tx, orgId);
+      const [ownReservation] = await tx
+        .select({
+          quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
+        })
+        .from(inventoryReservationsSummary)
+        .where(
+          and(
+            eq(inventoryReservationsSummary.organizationId, orgId),
+            eq(inventoryReservationsSummary.locationId, location.id),
+            eq(inventoryReservationsSummary.itemId, ingredient.itemId),
+            eq(
+              inventoryReservationsSummary.referenceType,
+              "manufacturing_order_ingredient"
+            ),
+            eq(inventoryReservationsSummary.referenceId, ingredient.id)
+          )
+        );
       const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
         organizationId: orgId,
         locationId: location.id,
         itemId: ingredient.itemId,
         minimumLotAgeDays,
         requiredDate: pickDate,
+        reservationCredit: parseFloat(ownReservation?.quantity ?? "0"),
       });
 
       if (

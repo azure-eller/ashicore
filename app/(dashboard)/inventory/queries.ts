@@ -53,12 +53,12 @@ import {
   manualIncreaseStockInTx,
   defaultLocationIdSubquery,
   projectedAvailableQty,
-  projectedAvailableQtyExpr,
   projectedCommittedQty,
   projectedDemandQty,
   projectedExpectedQty,
   projectedLotUnitCost,
   projectedOnHandQty,
+  projectedPotentialQty,
   projectedReservableOnHandQty,
   projectedShortageQty,
   recordCostBasisChangeInTx,
@@ -201,41 +201,13 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
-// Potential: how many finished units could be produced from current available ingredient stock.
-// For discrete products: floor(min(component_available / bom_qty))
-// For batch products: floor(min(component_available / bom_qty)) * expected_batch_yield
-// Available = reservable lot stock - hard reservations.
-const potentialSubquery = sql<string | null>`(
-  CASE WHEN ${items.itemType} = 'product' AND EXISTS (
-    SELECT 1
-    FROM inventory.bom_revisions br
-    INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
-    WHERE br.product_id = ${items.id}
-      AND br.is_current = true
-  ) THEN
-    GREATEST(
-      0,
-      FLOOR(
-      (
-        SELECT MIN(
-          (
-            ${projectedAvailableQtyExpr(items.organizationId, sql`brc.component_id`)}
-          )
-          / NULLIF(brc.quantity, 0)
-        )
-        FROM inventory.bom_revisions br
-        INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
-        WHERE br.product_id = ${items.id}
-          AND br.is_current = true
-      )
-      * CASE WHEN ${items.manufacturingMode} = 'batch' AND ${items.expectedBatchYield} IS NOT NULL
-          THEN ${items.expectedBatchYield}
-          ELSE 1
-        END
-      )
-    )
-  ELSE NULL END
-)`.as("potential");
+const potentialSubquery = projectedPotentialQty(
+  items.organizationId,
+  items.id,
+  items.itemType,
+  items.manufacturingMode,
+  items.expectedBatchYield
+).as("potential");
 
 type BomInputRow = {
   componentId: string;

@@ -160,6 +160,22 @@ export function projectedAvailableQty(organizationId: SqlExpression, itemId: Sql
   ));
 }
 
+export function projectedPotentialQty(
+  organizationId: SqlExpression,
+  productId: SqlExpression,
+  itemType: SqlExpression,
+  manufacturingMode: SqlExpression,
+  expectedBatchYield: SqlExpression
+) {
+  return trimScaleNullable(projectedPotentialQtyExpr(
+    organizationId,
+    productId,
+    itemType,
+    manufacturingMode,
+    expectedBatchYield
+  ));
+}
+
 export function projectedReservableOnHandQty(
   organizationId: SqlExpression,
   itemId: SqlExpression
@@ -310,6 +326,86 @@ export function projectedAvailableQtyExpr(
     0,
     ${projectedReservableOnHandQtyExpr(organizationId, itemId)}
     - ${projectedCommittedQtyExpr(organizationId, itemId)}
+  )`;
+}
+
+export function projectedAgeEligibleAvailableQtyExpr(
+  organizationId: SqlExpression,
+  itemId: SqlExpression,
+  minimumLotAgeDays: SqlExpression
+) {
+  return sql`GREATEST(
+    0,
+    COALESCE((
+      SELECT SUM(${inventoryLotBalances.quantity})
+      FROM ${inventoryLotBalances}
+      WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+        AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+          organizationId
+        )}
+        AND ${inventoryLotBalances.itemId} = ${itemId}
+        AND ${inventoryLotBalances.disposition} = 'available'
+        AND ${inventoryLotBalances.quantity} > 0
+        AND ${inventoryLotBalances.receivedAt}::date <= (
+          CURRENT_DATE - (${minimumLotAgeDays}::int * INTERVAL '1 day')
+        )
+    ), 0)
+    - ${projectedCommittedQtyExpr(organizationId, itemId)}
+  )`;
+}
+
+export function projectedPotentialQtyExpr(
+  organizationId: SqlExpression,
+  productId: SqlExpression,
+  itemType: SqlExpression,
+  manufacturingMode: SqlExpression,
+  expectedBatchYield: SqlExpression
+) {
+  return sql<string | null>`(
+    CASE WHEN ${itemType} = 'product' AND EXISTS (
+      SELECT 1
+      FROM inventory.bom_revisions br
+      INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
+      WHERE br.product_id = ${productId}
+        AND br.is_current = true
+    ) THEN
+      GREATEST(
+        0,
+        FLOOR(
+        (
+          SELECT MIN(
+            (
+              CASE WHEN constraint_values.minimum_lot_age_days IS NULL THEN
+                ${projectedAvailableQtyExpr(organizationId, sql`brc.component_id`)}
+              ELSE
+                ${projectedAgeEligibleAvailableQtyExpr(
+                  organizationId,
+                  sql`brc.component_id`,
+                  sql`constraint_values.minimum_lot_age_days`
+                )}
+              END
+            )
+            / NULLIF(brc.quantity, 0)
+          )
+          FROM inventory.bom_revisions br
+          INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
+          LEFT JOIN LATERAL (
+            SELECT (brcc.config->>'days')::int AS minimum_lot_age_days
+            FROM inventory.bom_revision_component_constraints brcc
+            WHERE brcc.bom_revision_component_id = brc.id
+              AND brcc.constraint_type = 'lot_age_min_days'
+            LIMIT 1
+          ) constraint_values ON true
+          WHERE br.product_id = ${productId}
+            AND br.is_current = true
+        )
+        * CASE WHEN ${manufacturingMode} = 'batch' AND ${expectedBatchYield} IS NOT NULL
+            THEN ${expectedBatchYield}::numeric
+            ELSE 1
+          END
+        )
+      )
+    ELSE NULL END
   )`;
 }
 

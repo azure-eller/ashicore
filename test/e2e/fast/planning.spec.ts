@@ -755,9 +755,7 @@ test.describe("Planning workspace", () => {
     expect(paths[0]).not.toHaveProperty("manufacturingOrderId");
   });
 
-  test("planning page hides production queue while backend keeps production paths", async ({
-    page,
-  }) => {
+  test("backend keeps production paths while planning page is removed", async () => {
     const prefix = `First Build ${runToken}`;
     const rawId = await createMaterial(`${prefix} Raw Input`, {
       stock: "100",
@@ -787,11 +785,6 @@ test.describe("Planning workspace", () => {
     expect(recommendation.actionPayload?.actionType).toBe(
       "create_manufacturing_order"
     );
-
-    await page.goto("/planning");
-    await expect(page.getByRole("radio", { name: /Production/ })).toHaveCount(0);
-    await expect(page.getByText("Replenishment", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /downstream need/ })).toHaveCount(0);
   });
 
   test("dual-role items keep direct demand flat and downstream paths separate", async () => {
@@ -1319,7 +1312,7 @@ test.describe("Planning workspace", () => {
     expect(crossOrgAction.status).toBe(409);
   });
 
-  test("planning page can start a purchase order when a supplier is missing", async ({
+  test("materials page shows projected vs safety for a short material", async ({
     page,
   }) => {
     const item = await createMaterialRecord("Pump Cap 38mm", {
@@ -1327,35 +1320,21 @@ test.describe("Planning workspace", () => {
     });
     await createConfirmedDemand(item.id, "7");
 
-    await page.goto("/planning");
-    await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
-    await expect(page.getByRole("radio", { name: /Production/ })).toHaveCount(0);
-    await page.getByLabel("Search planning").fill(item.sku);
+    await page.goto("/inventory/materials");
+    await page.getByLabel("Search items").fill(item.sku);
+    await expect(
+      page.getByRole("columnheader", { name: "Projected vs safety" })
+    ).toBeVisible();
     const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
     await expect(materialRow).toBeVisible();
-    await expect(materialRow).toContainText("Supplier needed");
-    await expect(materialRow).toContainText("Order now");
+    await expect(materialRow).toContainText("safety");
+    await expect(materialRow).not.toContainText("Order now");
 
     await materialRow.getByRole("link", { name: new RegExp(item.name) }).click();
     await expect(page).toHaveURL(new RegExp(`/inventory/materials/${item.id}$`));
-
-    await page.goto("/planning");
-    await page.getByLabel("Search planning").fill(item.sku);
-    const reviewRow = page.getByRole("row", { name: new RegExp(item.name) });
-    await reviewRow.getByText(item.sku).click();
-    await expect(page.getByRole("heading", { name: "Material planning" })).toBeVisible();
-    await expect(page.getByText(item.name).last()).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("heading", { name: "Material planning" })).toHaveCount(0);
-
-    await reviewRow.getByRole("button", { name: "Create PO" }).click();
-    await expect(page).toHaveURL(new RegExp(`/purchasing/orders/new\\?itemId=${item.id}`));
-    await expect(page.getByRole("heading", { name: "Add Purchase Order" })).toBeVisible();
   });
 
-  test("planning sheet shows material usage history from ledger events", async ({
-    page,
-  }) => {
+  test("material usage history is available from ledger events", async () => {
     const item = await createMaterialRecord("Usage History Gypsum", {
       stock: "50",
       safetyStock: "60",
@@ -1392,56 +1371,6 @@ test.describe("Planning workspace", () => {
       usage.buckets.some((bucket: { quantity: string }) => bucket.quantity === "12")
     ).toBe(true);
 
-    await page.goto("/planning");
-    await page.getByLabel("Search planning").fill(item.sku);
-    const materialRow = page.getByRole("row", { name: new RegExp(item.name) });
-    await expect(materialRow).toBeVisible();
-    await materialRow.getByText(item.sku).click();
-
-    await expect(page.getByRole("heading", { name: "Material planning" })).toBeVisible();
-    await expect(page.getByText("Historical usage")).toBeVisible();
-    await expect(page.getByText("Last 30")).toBeVisible();
-    await expect(page.getByText("Last 90")).toBeVisible();
-    await expect(page.getByText("Weekly avg")).toBeVisible();
-  });
-
-  test("planning page bulk action opens one purchase order form", async ({ page }) => {
-    const searchToken = `BUY-GROUP-${runToken}`;
-    const firstItem = await createMaterialRecord("Coconut Coir Brick", {
-      skuKey: `${searchToken}-COIR`,
-    });
-    const secondItem = await createMaterialRecord("Mycorrhizae Blend", {
-      skuKey: `${searchToken}-MYCO`,
-    });
-    await establishSupplierHistory(firstItem.id);
-    await establishSupplierHistory(secondItem.id);
-    await createConfirmedDemand(firstItem.id, "2");
-    await createConfirmedDemand(secondItem.id, "5");
-
-    await page.goto("/planning");
-    await expect(page.getByRole("radio", { name: /Production/ })).toHaveCount(0);
-    await page.getByLabel("Search planning").fill(searchToken);
-
-    await expect(page.getByRole("row", { name: new RegExp(firstItem.name) })).toBeVisible();
-    await expect(page.getByRole("row", { name: new RegExp(secondItem.name) })).toBeVisible();
-    await page.getByLabel(`Select ${firstItem.name}`).click();
-    await page.getByLabel(`Select ${secondItem.name}`).click();
-    await expect(page.getByText(/2 of .* row\(s\) selected\./)).toBeVisible();
-
-    await page.getByRole("button", { name: "Actions (2 selected)" }).click();
-    await page.getByRole("menuitem", { name: "Create PO" }).click();
-    await page.waitForURL(/\/purchasing\/orders\/new\?.*itemId=/);
-    expect(new URL(page.url()).searchParams.getAll("itemId").sort()).toEqual(
-      [firstItem.id, secondItem.id].sort()
-    );
-    await expect(page.getByRole("combobox", { name: "Search suppliers..." })).toHaveValue(
-      supplierName
-    );
-    const materialComboboxes = page.getByRole("combobox", {
-      name: "Search materials...",
-    });
-    await expect(materialComboboxes.nth(0)).toHaveValue(firstItem.name);
-    await expect(materialComboboxes.nth(1)).toHaveValue(secondItem.name);
   });
 
 });

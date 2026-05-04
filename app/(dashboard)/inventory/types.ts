@@ -73,13 +73,54 @@ export type InventoryTabCounts = {
   subAssemblies: number;
 };
 
+export const REPLENISHMENT_STATUS_VALUES = [
+  "order-now",
+  "order-soon",
+  "stocked",
+] as const;
+
+export type ReplenishmentStatus = (typeof REPLENISHMENT_STATUS_VALUES)[number];
+
+function parseQuantity(value: string | null | undefined) {
+  const parsed = parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function calcStock(
   row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty" | "safetyStock">,
 ): number {
   const result =
-    parseFloat(row.stock) -
-    parseFloat(row.demandQty) +
-    parseFloat(row.expectedQty) -
-    parseFloat(row.safetyStock);
+    parseQuantity(row.stock) -
+    parseQuantity(row.demandQty) +
+    parseQuantity(row.expectedQty) -
+    parseQuantity(row.safetyStock);
   return Math.round(result * 10000) / 10000;
+}
+
+export function calcProjectedStock(
+  row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty">,
+): number {
+  const result =
+    parseQuantity(row.stock) -
+    parseQuantity(row.demandQty) +
+    parseQuantity(row.expectedQty);
+  return Math.round(result * 10000) / 10000;
+}
+
+export function getReplenishmentStatus(
+  row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty" | "safetyStock" | "shortageQty">,
+): ReplenishmentStatus {
+  const projectedStock = calcProjectedStock(row);
+  const safetyStock = Math.max(0, parseQuantity(row.safetyStock));
+  const shortage = parseQuantity(row.shortageQty);
+
+  if (shortage > 0 || (safetyStock > 0 && projectedStock <= safetyStock)) {
+    return "order-now";
+  }
+
+  if (safetyStock > 0 && projectedStock <= safetyStock * 1.2) {
+    return "order-soon";
+  }
+
+  return "stocked";
 }

@@ -4,7 +4,11 @@ import { useMemo } from "react";
 import { type FilterFn } from "@tanstack/react-table";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { getColumns } from "./columns";
-import type { InventoryProductView, ItemRow, ItemType } from "./types";
+import type {
+  InventoryProductView,
+  ItemRow,
+  ItemType,
+} from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
 const productSearchFilter: FilterFn<ItemRow> = (row, columnId, filterValue) => {
@@ -54,25 +58,13 @@ export function DataTable({ initialData, itemType, view }: DataTableProps) {
   return (
     <DashboardDataTable
       columns={columns}
+      data={initialData}
       initialData={initialData}
       queryKey={queryKey}
-      queryFn={async () => {
-        const params = new URLSearchParams({ itemType });
-        if (view) {
-          params.set("view", view);
-        }
-
-        const response = await fetch(`/api/items?${params.toString()}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch items");
-        }
-
-        return response.json();
-      }}
       searchAriaLabel="Search items"
       addHref={`/inventory/${ITEM_TYPE_SEGMENTS[itemType]}/new`}
       addAriaLabel={itemType === "product" ? "New Product" : "New Material"}
-      emptyMessage="No items yet."
+      emptyMessage={isProduct ? "No items yet." : "No materials yet."}
       getRowCanExpand={isProduct && !isSubAssemblies
         ? (row) => row.original.isMaster && (row.original.subRows?.length ?? 0) > 0
         : undefined}
