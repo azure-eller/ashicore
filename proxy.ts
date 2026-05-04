@@ -8,6 +8,38 @@ import {
   REQUEST_ID_HEADER,
 } from "@/lib/observability/request-headers";
 
+function normalizeUrl(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://")
+    ? trimmed
+    : `https://${trimmed}`;
+}
+
+function getCanonicalProductionOrigin() {
+  if (process.env.VERCEL_ENV !== "production") {
+    return null;
+  }
+
+  const canonicalUrl =
+    normalizeUrl(process.env.BETTER_AUTH_URL) ??
+    normalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
+
+  if (!canonicalUrl) {
+    return null;
+  }
+
+  try {
+    return new URL(canonicalUrl).origin;
+  } catch {
+    return null;
+  }
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const requestId = request.headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID();
@@ -18,6 +50,30 @@ export function proxy(request: NextRequest) {
   forwardedHeaders.set(ERP_REQUEST_PATH_HEADER, pathname);
   forwardedHeaders.set(ERP_REQUEST_METHOD_HEADER, request.method);
   forwardedHeaders.set(ERP_PROXY_STARTED_AT_HEADER, String(Date.now()));
+
+  const canonicalOrigin = getCanonicalProductionOrigin();
+
+  if (
+    canonicalOrigin &&
+    request.nextUrl.origin !== canonicalOrigin &&
+    (request.method === "GET" || request.method === "HEAD") &&
+    !pathname.startsWith("/_next") &&
+    !pathname.startsWith("/monitoring")
+  ) {
+    const redirectUrl = new URL(
+      `${request.nextUrl.pathname}${request.nextUrl.search}`,
+      canonicalOrigin
+    );
+    const response = NextResponse.redirect(redirectUrl);
+
+    response.headers.set(REQUEST_ID_HEADER, requestId);
+    response.headers.set(ERP_REQUEST_ID_HEADER, requestId);
+    response.headers.set(
+      ERP_PROXY_STARTED_AT_HEADER,
+      forwardedHeaders.get(ERP_PROXY_STARTED_AT_HEADER) ?? String(Date.now())
+    );
+    return response;
+  }
 
   let response: NextResponse;
 
