@@ -1233,6 +1233,7 @@ async function prepareOrderPayload(
 ): Promise<{
   customerId: string;
   customerName: string;
+  orderDate: string;
   requestedDate: string | null;
   notes: string | null;
   shipLine1: string | null;
@@ -1302,6 +1303,7 @@ async function prepareOrderPayload(
   return {
     customerId: customer.id,
     customerName: customer.name,
+    orderDate: payload.orderDate,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
     shipLine1: payload.shipLine1 ?? null,
@@ -2305,6 +2307,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             customerName: salesOrders.customerName,
             customerEmail: customers.email,
             status: salesOrders.status,
+            orderDate: salesOrders.orderDate,
             requestedDate: salesOrders.requestedDate,
             shippedAt: salesOrders.shippedAt,
             totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
@@ -2453,6 +2456,7 @@ export async function getSalesOrder(
         customerEmail: customers.email,
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
+        orderDate: salesOrders.orderDate,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
         shippedAt: salesOrders.shippedAt,
@@ -2913,6 +2917,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         id: salesOrders.id,
         customerId: salesOrders.customerId,
         status: salesOrders.status,
+        orderDate: salesOrders.orderDate,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
         shipLine1: salesOrders.shipLine1,
@@ -3001,6 +3006,7 @@ export async function createSalesOrder(
         customerId: prepared.customerId,
         customerName: prepared.customerName,
         status: data.status,
+        orderDate: prepared.orderDate,
         requestedDate: prepared.requestedDate,
         notes: prepared.notes,
         shipLine1: prepared.shipLine1,
@@ -3170,6 +3176,7 @@ export async function updateSalesOrder(
         customerId: prepared.customerId,
         customerName: prepared.customerName,
         status: data.status,
+        orderDate: prepared.orderDate,
         requestedDate: prepared.requestedDate,
         notes: prepared.notes,
         shipLine1: prepared.shipLine1,

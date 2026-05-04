@@ -1075,6 +1075,7 @@ async function getSalesDemandFactsInTx(tx: Tx): Promise<InternalDemandFact[]> {
       )
     )
     .orderBy(
+      asc(salesOrders.orderDate),
       asc(salesOrders.requestedDate),
       asc(salesOrders.orderNumber),
       asc(salesOrderLines.sortOrder),

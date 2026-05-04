@@ -519,9 +519,9 @@ test.describe("Reservation correctness", () => {
     await page.getByRole("button", { name: "Confirm" }).click();
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible();
-    await expect(oversellDialog.getByText("Available", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Reserved", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Backorder", { exact: true })).toBeVisible();
+    await expect(oversellDialog.getByText("Current Stock", { exact: true })).toBeVisible();
+    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
+    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
     const [confirmResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>

@@ -86,6 +86,7 @@ function buildLineSignature(line: {
 
 function buildOrderSignature(input: {
   customerName: string;
+  orderDate: string;
   requestedDate: string | null;
   lines: Array<{
     itemSku: string | null;
@@ -100,6 +101,7 @@ function buildOrderSignature(input: {
 
   return [
     normalizeCustomerKey(input.customerName),
+    input.orderDate,
     input.requestedDate ?? "",
     lineSignature,
   ].join("||");
@@ -183,6 +185,7 @@ export async function evaluateSalesImportInTx(
       orderNumber: salesOrders.orderNumber,
       status: salesOrders.status,
       customerName: salesOrders.customerName,
+      orderDate: salesOrders.orderDate,
       requestedDate: salesOrders.requestedDate,
       notes: salesOrders.notes,
       lineId: salesOrderLines.id,
@@ -214,6 +217,7 @@ export async function evaluateSalesImportInTx(
         orderNumber: row.orderNumber,
         status: row.status,
         customerName: row.customerName,
+        orderDate: row.orderDate,
         requestedDate: row.requestedDate,
         notes: row.notes,
         lineSignature: "",
@@ -236,10 +240,12 @@ export async function evaluateSalesImportInTx(
     orderNumber: order.orderNumber,
     status: order.status,
     customerName: order.customerName,
+    orderDate: order.orderDate,
     requestedDate: order.requestedDate,
     notes: order.notes,
     lineSignature: buildOrderSignature({
       customerName: order.customerName,
+      orderDate: order.orderDate,
       requestedDate: order.requestedDate,
       lines: order.lines,
     }),
@@ -292,6 +298,7 @@ export async function evaluateSalesImportInTx(
     const marker = buildOrderMarker(config.orderMarkerPrefix, order.sourceRows);
     const label = buildOrderLabel(order);
     const requestedDate = config.requestedDateBySourceRow[order.sourceRows[0]] ?? null;
+    const orderDate = order.orderDate ?? requestedDate ?? new Date().toISOString().slice(0, 10);
 
     const issues: string[] = [];
     const preparedLines: PreparedSalesImportLine[] = [];
@@ -384,6 +391,7 @@ export async function evaluateSalesImportInTx(
     const readyLabel = hasUnmappedLines ? `${label} [UNFINISHED]` : label;
     const signature = buildOrderSignature({
       customerName: order.customerName,
+      orderDate,
       requestedDate,
       lines: preparedLines,
     });
@@ -413,6 +421,7 @@ export async function evaluateSalesImportInTx(
       notes: buildOrderNotes(config.orderMarkerPrefix, order.sourceRows, order),
       totalAmount,
       lines: preparedLines,
+      orderDate,
       requestedDate,
     });
   }
@@ -492,6 +501,7 @@ export async function applySalesImportOrdersInTx(
           .set({
             customerId: customerId!,
             customerName: order.customerName,
+            orderDate: order.orderDate,
             requestedDate: order.requestedDate,
             notes: order.notes,
             totalAmount: order.totalAmount,
@@ -523,6 +533,7 @@ export async function applySalesImportOrdersInTx(
             customerId: customerId!,
             customerName: order.customerName,
             status: "draft",
+            orderDate: order.orderDate,
             requestedDate: order.requestedDate,
             notes: order.notes,
             totalAmount: order.totalAmount,

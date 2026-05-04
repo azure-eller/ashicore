@@ -3,7 +3,11 @@ import { inArray, sql } from "drizzle-orm";
 import { lots } from "@/lib/db/schema";
 import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel";
 import type { Tx } from "@/lib/db/with-org-context";
-import { resolveSeedOpeningQuantity, resolveSeedOpeningUnitCost } from "./seeds";
+import {
+  resolveSeedOpeningQuantity,
+  resolveSeedOpeningReceivedAt,
+  resolveSeedOpeningUnitCost,
+} from "./seeds";
 import type { InitialStockEntry, ItemSeed, Report } from "./types";
 
 function buildLotNumber(prefix: string, sku: string) {
@@ -57,6 +61,7 @@ export async function planStockSyncInTx(
     );
     const openingUnitCost = resolveSeedOpeningUnitCost(seed, seedByKey);
     const { sourceLabel } = resolveSeedOpeningQuantity(seed, entry);
+    resolveSeedOpeningReceivedAt(entry);
     if (hasExistingLot) {
       report.stockLotsExisting.push(`${seed.name} (${lotNumber})`);
     } else if (openingUnitCost == null) {
@@ -107,6 +112,7 @@ export async function applyStockSyncInTx(
     }
 
     const { stockQuantity, sourceLabel } = resolveSeedOpeningQuantity(seed, entry);
+    const receivedAt = resolveSeedOpeningReceivedAt(entry);
 
     await seedOpeningBalanceInTx(tx, {
       organizationId: orgId,
@@ -116,7 +122,7 @@ export async function applyStockSyncInTx(
       actorUserId,
       idempotencyKey: `${idempotencyKeyPrefix}:${seed.sku ?? lotNumber}`,
       lotNumber,
-      receivedAt: new Date(),
+      receivedAt,
     });
 
     report.stockLotsCreated.push(`${seed.name}: ${sourceLabel}`);

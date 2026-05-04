@@ -3,6 +3,7 @@ import {
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
 import { normalizeNumericScale } from "@/lib/format";
+import { isValidIsoDate } from "@/lib/schemas/shared";
 import type { ExistingItem, InitialStockEntry, ItemSeed } from "./types";
 
 export function resolveSeedSellable(
@@ -49,8 +50,8 @@ export function resolveSeedOpeningQuantity(
 
   const inputQty = Number(entry.quantity);
 
-  if (entry.unitKey === seed.unitKey) {
-    return { stockQuantity: inputQty, sourceLabel: `${entry.quantity} ${entry.unitKey}` };
+  if (entry.unitKey == null || entry.unitKey === seed.unitKey) {
+    return { stockQuantity: inputQty, sourceLabel: entry.quantity };
   }
 
   if (entry.unitKey === seed.purchaseUnitKey) {
@@ -69,6 +70,36 @@ export function resolveSeedOpeningQuantity(
   throw new Error(
     `Opening stock for ${seed.name} (${seed.sku}) was entered in unit "${entry.unitKey}" but the seed only defines stockUnit="${seed.unitKey}" and purchaseUnit="${seed.purchaseUnitKey ?? "(none)"}".`
   );
+}
+
+export function resolveSeedOpeningReceivedAt(entry: InitialStockEntry): Date {
+  if (typeof entry === "string") {
+    return new Date();
+  }
+
+  if (entry.ageDays != null && entry.receivedAt != null) {
+    throw new Error("Opening stock can define ageDays or receivedAt, not both.");
+  }
+
+  if (entry.ageDays != null) {
+    if (!Number.isInteger(entry.ageDays) || entry.ageDays < 0) {
+      throw new Error("Opening stock ageDays must be a non-negative whole number.");
+    }
+
+    const receivedAt = new Date();
+    receivedAt.setDate(receivedAt.getDate() - entry.ageDays);
+    receivedAt.setHours(12, 0, 0, 0);
+    return receivedAt;
+  }
+
+  if (entry.receivedAt != null) {
+    if (!isValidIsoDate(entry.receivedAt)) {
+      throw new Error(`Opening stock receivedAt is invalid: ${entry.receivedAt}`);
+    }
+    return new Date(`${entry.receivedAt}T12:00:00`);
+  }
+
+  return new Date();
 }
 
 function resolveSeedDirectOpeningUnitCost(seed: ItemSeed) {

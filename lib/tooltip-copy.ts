@@ -275,7 +275,10 @@ export const MANUFACTURABLE_LINES_TOOLTIP =
   "Lines eligible for manufacturing orders.";
 
 export const REQUESTED_DATE_TOOLTIP =
-  "Customer-requested fulfillment date.";
+  "Date the customer wants the order delivered.";
+
+export const SALES_ORDER_DATE_TOOLTIP =
+  "Date the customer placed the order.";
 
 export const SALES_ADDED_QTY_TOOLTIP =
   "Quantity added by confirming this order.";
