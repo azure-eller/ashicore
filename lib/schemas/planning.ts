@@ -1,15 +1,10 @@
 import { z } from "zod";
-import { isValidIsoDate, nullableString, positiveDecimalString } from "./shared";
-
-const nonNegativeDecimalString = (label: string) =>
-  z
-    .string()
-    .trim()
-    .min(1, `${label} is required`)
-    .refine((value) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed >= 0;
-    }, `${label} must be 0 or greater`);
+import {
+  isValidIsoDate,
+  nonNegativeDecimalString,
+  nullableString,
+  positiveDecimalString,
+} from "./shared";
 
 const planningSourceRefSchema = z.object({
   sourceType: z.string().min(1),

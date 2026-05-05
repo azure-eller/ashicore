@@ -1,8 +1,12 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { salesOrders } from "@/lib/db/schema";
-import { normalizeMoney } from "@/lib/format";
-import { isValidIsoDate, nullableString } from "./shared";
+import {
+  isValidIsoDate,
+  nullableString,
+  optionalMoneyString,
+  positiveMoneyString,
+} from "./shared";
 
 export const SALES_ORDER_STATUSES = [
   "draft",
@@ -33,24 +37,6 @@ export type SalesShipmentCostType = (typeof SALES_SHIPMENT_COST_TYPES)[number];
 export const SALES_SHIPMENT_COST_STATUSES = ["estimated", "actual"] as const;
 export type SalesShipmentCostStatus =
   (typeof SALES_SHIPMENT_COST_STATUSES)[number];
-
-const optionalMoneyString = nullableString
-  .refine((value) => {
-    if (value == null) return true;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0;
-  }, "Amount must be a non-negative number")
-  .transform((value) => (value == null ? null : normalizeMoney(Number(value))));
-
-const positiveMoneyString = z
-  .string()
-  .trim()
-  .min(1, "Amount is required")
-  .refine((value) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed > 0;
-  }, "Amount must be greater than 0")
-  .transform((value) => normalizeMoney(Number(value)));
 
 const rawOrderLineSchema = z.object({
   itemId: z.string().default(""),
@@ -268,12 +254,12 @@ export const shipSalesShipmentSchema = z.object({
 export type ShipSalesShipment = z.infer<typeof shipSalesShipmentSchema>;
 
 export const salesShipmentCostsInputSchema = z.object({
-  customerFreightChargeAmount: optionalMoneyString,
+  customerFreightChargeAmount: optionalMoneyString(),
   costs: z.array(
     z.object({
       costType: z.enum(SALES_SHIPMENT_COST_TYPES),
       costStatus: z.enum(SALES_SHIPMENT_COST_STATUSES),
-      amount: positiveMoneyString,
+      amount: positiveMoneyString(),
       vendorName: nullableString,
       referenceNumber: nullableString,
       incurredDate: nullableString.refine((value) => {

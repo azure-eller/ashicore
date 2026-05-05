@@ -3,7 +3,9 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import {
+  isNonNegativeNumberString,
   nullableString as nullableStringOptional,
+  nullableStringPreserveUndefined,
   nullableStringStrict as nullableString,
 } from "./shared";
 
@@ -38,25 +40,8 @@ const bomRowSchema = z.object({
     .default([]),
 });
 
-const nullableStringPreserveUndefined = z
-  .string()
-  .nullable()
-  .optional()
-  .transform((value) => {
-    if (value === undefined) {
-      return undefined;
-    }
-
-    return value != null ? value.trim() || null : null;
-  });
-
 const currentStockUnitCostMessage =
   "Current stock unit cost must be a non-negative number";
-
-function isNonNegativeNumberString(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0;
-}
 
 const currentStockUnitCostSchema = nullableStringOptional.refine(
   (value) => value == null || isNonNegativeNumberString(value),

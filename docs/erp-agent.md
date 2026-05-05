@@ -8,20 +8,19 @@ read_when:
 
 # ERP Agent
 
-The ERP agent is intentionally disabled for now. The code, database schema, and
-migration history are kept so the feature can be restored later, but disabled
-dashboard routes should not load agent UI, agent services, Anthropic code, or
+The ERP agent is intentionally disabled and archived for now. Database schema
+and migration history are kept so the feature can be restored later, but normal
+dashboard routes must not load agent UI, agent services, Anthropic code, or
 agent Drizzle tables.
 
 ## Current Parked State
 
 - `lib/feature-flags.ts` exports `ERP_AGENT_ENABLED = false`.
-- `app/(dashboard)/layout.tsx` only enables the sidebar agent when the feature
-  flag is true and the member has agent access.
-- `components/app-sidebar.tsx` dynamically imports `AgentChatPanel`, so normal
-  dashboard bundles do not include the chat panel while the flag is false.
-- `app/api/agent/**` returns `404` before importing session, tool, upload, or
-  provider code.
+- Parked implementation code lives under `archived/erp-agent/`, which is
+  excluded from TypeScript and ESLint.
+- `components/app-sidebar.tsx` does not import or render the agent panel.
+- `app/api/agent/**` is a JSON `404` catch-all and imports no archived code.
+- `@anthropic-ai/sdk` is not installed while the feature is archived.
 - `lib/db/schema/index.ts` is the runtime schema barrel and must not export
   `./agent` while the feature is parked.
 - `lib/db/schema/migrations.ts` is the Drizzle migration schema barrel and does
@@ -29,14 +28,15 @@ agent Drizzle tables.
 
 ## Reactivation Checklist
 
-1. Flip `ERP_AGENT_ENABLED` to `true` in `lib/feature-flags.ts`.
-2. Keep `AgentChatPanel` dynamically imported from `components/app-sidebar.tsx`.
-3. Confirm `drizzle.config.ts` still points at `lib/db/schema/migrations.ts`.
-4. Keep agent service code importing agent tables from `@/lib/db/schema/agent`.
-5. Re-enable or remove the disabled-state Playwright skip logic as appropriate.
-6. Run `pnpm build`, `pnpm lint`, and `pnpm test`.
-7. For live provider coverage, run `pnpm test:e2e:agent:live` with
-   `LIVE_AGENT_SMOKE=1` and `ANTHROPIC_API_KEY`.
+1. Move needed code from `archived/erp-agent/` back into active app paths.
+2. Reinstall the provider dependency: `pnpm add @anthropic-ai/sdk`.
+3. Restore a dynamically imported `AgentChatPanel` in `components/app-sidebar.tsx`.
+4. Restore agent API routes and keep them gated by `ERP_AGENT_ENABLED`.
+5. Flip `ERP_AGENT_ENABLED` to `true` in `lib/feature-flags.ts`.
+6. Confirm `drizzle.config.ts` still points at `lib/db/schema/migrations.ts`.
+7. Keep agent service code importing agent tables from `@/lib/db/schema/agent`.
+8. Restore agent Playwright specs/scripts as needed.
+9. Run `pnpm build`, `pnpm lint`, and `pnpm test`.
 
 ## Cold-Start Guardrails
 

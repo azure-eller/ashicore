@@ -31,8 +31,7 @@ read_when:
 ## Local defaults
 
 - Default local command after normal feature work: `pnpm test`
-- Live Anthropic coverage is opt-in: `pnpm test:e2e:agent:live`
-  This runs one paid provider-backed smoke turn and defaults to `claude-haiku-4-5`. Override with `LIVE_AGENT_MODEL`.
+- ERP agent tests are archived with the parked agent. See `docs/erp-agent.md` before restoring live provider coverage.
 - If the change is isolated to one domain, add that domain's slow spec locally instead of the whole slow lane
 - Use `pnpm test:e2e:auth` when touching auth, invites, sessions, team access, or permission gates
   This lane includes both `auth-security.spec.ts` and `team-management.spec.ts`.

@@ -6,7 +6,6 @@ import {
   getRequestLogContext,
   logObservedEvent,
 } from "@/lib/observability/request-log";
-import { isErpAgentEnabled } from "@/lib/feature-flags";
 import {
   SidebarInset,
   SidebarProvider,
@@ -30,7 +29,6 @@ export default async function DashboardLayout({
     email: context.email,
     avatar: context.avatar,
   };
-  const agentEnabled = await getAgentEnabled(context.assignedRoles);
 
   return (
     <Providers>
@@ -39,19 +37,9 @@ export default async function DashboardLayout({
           user={user}
           assignedRoles={context.assignedRoles}
           organizationName={context.organizationName}
-          agentEnabled={agentEnabled}
         />
         <SidebarInset>{children}</SidebarInset>
       </SidebarProvider>
     </Providers>
   );
-}
-
-async function getAgentEnabled(assignedRoles: string[]) {
-  if (!isErpAgentEnabled()) {
-    return false;
-  }
-
-  const { hasErpAgentAccess } = await import("@/lib/agent/erp/access-rules");
-  return hasErpAgentAccess(assignedRoles);
 }
