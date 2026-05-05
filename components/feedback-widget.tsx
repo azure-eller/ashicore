@@ -17,7 +17,8 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 
 const MAX_SCREENSHOTS = 3;
-const MAX_BYTES_PER_SCREENSHOT = 5 * 1024 * 1024;
+const MAX_BYTES_PER_SCREENSHOT = 1_000_000;
+const MAX_TOTAL_ENCODED_BYTES = 3_500_000;
 const MAX_MESSAGE_LENGTH = 5000;
 
 type Screenshot = {
@@ -108,6 +109,10 @@ export function FeedbackWidget() {
     }
 
     const accepted: Screenshot[] = [];
+    let runningEncodedTotal = screenshots.reduce(
+      (sum, shot) => sum + shot.contentBase64.length,
+      0
+    );
 
     for (const file of files.slice(0, remaining)) {
       if (!file.type.startsWith("image/")) {
@@ -115,12 +120,19 @@ export function FeedbackWidget() {
         continue;
       }
       if (file.size > MAX_BYTES_PER_SCREENSHOT) {
-        setAttachmentError("Each screenshot must be 5 MB or smaller.");
+        setAttachmentError("Each screenshot must be 1 MB or smaller.");
         continue;
       }
 
       try {
         const contentBase64 = await readFileAsBase64(file);
+        if (runningEncodedTotal + contentBase64.length > MAX_TOTAL_ENCODED_BYTES) {
+          setAttachmentError(
+            "Combined screenshots are too large — remove one or use smaller images."
+          );
+          continue;
+        }
+        runningEncodedTotal += contentBase64.length;
         accepted.push({
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           filename: file.name || `screenshot-${Date.now()}.png`,

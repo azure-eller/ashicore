@@ -5,7 +5,8 @@ import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import { sendFeedbackEmail } from "@/lib/email/feedback";
 
 const MAX_SCREENSHOTS = 3;
-const MAX_BASE64_BYTES = 7_500_000;
+const MAX_BASE64_BYTES_PER_SCREENSHOT = 1_400_000;
+const MAX_BASE64_BYTES_TOTAL = 3_500_000;
 
 const feedbackSchema = z.object({
   message: z.string().trim().min(1, "Message is required").max(5000, "Message is too long"),
@@ -18,10 +19,16 @@ const feedbackSchema = z.object({
         contentBase64: z
           .string()
           .min(1)
-          .max(MAX_BASE64_BYTES, "Screenshot is too large"),
+          .max(MAX_BASE64_BYTES_PER_SCREENSHOT, "Screenshot is too large"),
       })
     )
     .max(MAX_SCREENSHOTS, `At most ${MAX_SCREENSHOTS} screenshots`)
+    .refine(
+      (shots) =>
+        shots.reduce((sum, shot) => sum + shot.contentBase64.length, 0) <=
+        MAX_BASE64_BYTES_TOTAL,
+      "Combined screenshots are too large"
+    )
     .optional(),
 });
 
