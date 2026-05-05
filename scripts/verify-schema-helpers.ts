@@ -25,12 +25,14 @@ assertParse(optionalDecimal.parse(undefined), null);
 assertParse(optionalDecimal.parse(""), null);
 assertParse(optionalDecimal.parse(" 0 "), "0");
 assertParse(optionalDecimal.parse(" 1.25 "), "1.25");
+assertParse(optionalDecimal.parse(" 1.2500 "), "1.25");
 assert.equal(optionalDecimal.safeParse("-1").success, false);
 assert.equal(optionalDecimal.safeParse(1).success, false);
 
 const nonNegativeDecimal = nonNegativeDecimalString("Quantity");
 assertParse(nonNegativeDecimal.parse(" 0 "), "0");
 assertParse(nonNegativeDecimal.parse(" 1.25 "), "1.25");
+assertParse(nonNegativeDecimal.parse(" 1.2500 "), "1.25");
 assert.equal(nonNegativeDecimal.safeParse("").success, false);
 assert.equal(nonNegativeDecimal.safeParse("-1").success, false);
 assert.equal(nonNegativeDecimal.safeParse(1).success, false);

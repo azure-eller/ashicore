@@ -58,6 +58,12 @@ type ConfirmError = Error & {
   oversell?: BulkOversellWarningPayload;
 };
 
+type ConfirmMutationInput = {
+  ids: string[];
+  confirmOversell: boolean;
+  idempotencyKey: string;
+};
+
 function SalesOrderItemsCell({
   lines,
   fallback,
@@ -195,18 +201,17 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   const [bulkOversellWarning, setBulkOversellWarning] =
     useState<BulkOversellWarningPayload | null>(null);
   const clearSelectionRef = useRef<(() => void) | null>(null);
+  const pendingConfirmIdempotencyKeyRef = useRef<string | null>(null);
 
   const confirmMutation = useMutation({
     mutationFn: async ({
       ids,
       confirmOversell,
-    }: {
-      ids: string[];
-      confirmOversell: boolean;
-    }) => {
+      idempotencyKey,
+    }: ConfirmMutationInput) => {
       await apiJson<void>("/api/sales-orders/bulk-confirm", {
         method: "POST",
-        idempotencyKey: "sales-orders-bulk-confirm",
+        idempotencyKey,
         body: { ids, confirmOversell },
         fallbackError: "Failed to confirm orders.",
         mapError: (status, body) => {
@@ -234,6 +239,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
       setPendingConfirmIds([]);
+      pendingConfirmIdempotencyKeyRef.current = null;
       setBulkOversellWarning(null);
       clearSelectionRef.current?.();
       clearSelectionRef.current = null;
@@ -277,9 +283,11 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             isPending: confirmMutation.isPending,
             onSelect: (orders, { clearSelection }) => {
               const ids = orders.map((order) => order.id);
+              const idempotencyKey = `sales-orders-bulk-confirm:${crypto.randomUUID()}`;
               clearSelectionRef.current = clearSelection;
+              pendingConfirmIdempotencyKeyRef.current = idempotencyKey;
               setPendingConfirmIds(ids);
-              confirmMutation.mutate({ ids, confirmOversell: false });
+              confirmMutation.mutate({ ids, confirmOversell: false, idempotencyKey });
             },
           },
         ]}
@@ -300,6 +308,8 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         onOpenChange={(open) => {
           if (!open) {
             setBulkOversellWarning(null);
+            setPendingConfirmIds([]);
+            pendingConfirmIdempotencyKeyRef.current = null;
           }
         }}
       >
@@ -459,10 +469,12 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             <AlertDialogAction
               disabled={confirmMutation.isPending}
               onClick={() => {
-                if (pendingConfirmIds.length === 0) return;
+                const idempotencyKey = pendingConfirmIdempotencyKeyRef.current;
+                if (pendingConfirmIds.length === 0 || !idempotencyKey) return;
                 confirmMutation.mutate({
                   ids: pendingConfirmIds,
                   confirmOversell: true,
+                  idempotencyKey,
                 });
               }}
             >

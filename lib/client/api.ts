@@ -90,7 +90,7 @@ function applyIdempotencyHeader(headers: Headers, idempotencyKey: string) {
   );
 }
 
-async function parseJsonResponse(response: Response) {
+async function parseJsonResponse(response: Response, fallbackError: string) {
   if (response.status === 204) {
     return undefined;
   }
@@ -100,7 +100,15 @@ async function parseJsonResponse(response: Response) {
     return undefined;
   }
 
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiJsonError(
+      response.ok ? "Invalid JSON response." : fallbackError,
+      response.status,
+      undefined
+    );
+  }
 }
 
 export async function apiJson<T>(
@@ -133,7 +141,7 @@ export async function apiJson<T>(
   }
 
   const response = await fetch(url, init);
-  const responseBody = await parseJsonResponse(response);
+  const responseBody = await parseJsonResponse(response, fallbackError);
 
   if (!response.ok) {
     const mapped = mapError?.(response.status, responseBody);

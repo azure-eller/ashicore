@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeMoney } from "@/lib/format";
+import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 
 export const nullableStringPreserveUndefined = z
   .string()
@@ -33,7 +33,8 @@ export const nonNegativeDecimalString = (label: string) =>
     .string()
     .trim()
     .min(1, `${label} is required`)
-    .refine((value) => isNonNegativeNumberString(value), `${label} must be 0 or greater`);
+    .refine((value) => isNonNegativeNumberString(value), `${label} must be 0 or greater`)
+    .transform((value) => normalizeNumeric(Number(value)));
 
 export const optionalNonNegativeDecimalString = (label: string) =>
   z
@@ -44,7 +45,8 @@ export const optionalNonNegativeDecimalString = (label: string) =>
     .refine(
       (value) => value == null || isNonNegativeNumberString(value),
       `${label} must be 0 or greater`
-    );
+    )
+    .transform((value) => (value == null ? null : normalizeNumeric(Number(value))));
 
 export const optionalMoneyString = (label = "Amount") =>
   z
