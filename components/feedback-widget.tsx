@@ -187,7 +187,7 @@ export function FeedbackWidget() {
     mutationFn: async () => {
       const trimmed = message.trim();
       if (!trimmed) {
-        setMessageError("Please describe the issue or feedback.");
+        setMessageError("Please describe the issue.");
         throw new Error("Message is required");
       }
       if (trimmed.length > MAX_MESSAGE_LENGTH) {
@@ -241,7 +241,7 @@ export function FeedbackWidget() {
       </DialogTrigger>
       <DialogContent size="md" onPaste={handlePaste}>
         <DialogHeader>
-          <DialogTitle>Send feedback</DialogTitle>
+          <DialogTitle>Send anonymous feedback</DialogTitle>
         </DialogHeader>
 
         <form
@@ -254,13 +254,13 @@ export function FeedbackWidget() {
           }}
         >
           <Field data-invalid={messageError != null}>
-            <FieldLabel htmlFor="feedback-message">What&apos;s up?</FieldLabel>
+            <FieldLabel htmlFor="feedback-message">Feedback</FieldLabel>
             <Textarea
               id="feedback-message"
               autoFocus
               rows={6}
               maxLength={MAX_MESSAGE_LENGTH}
-              placeholder="Describe the bug, idea, or anything that's confusing. Paste screenshots directly into this dialog."
+              placeholder="What happened?"
               value={message}
               aria-invalid={messageError != null}
               onChange={(event) => {
