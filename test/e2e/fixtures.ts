@@ -247,8 +247,12 @@ export async function selectDate(
     const target = page.locator(`[data-day="${targetLabel}"]`).first();
 
     if (await target.isVisible().catch(() => false)) {
-      await target.click();
-      return;
+      try {
+        await target.click({ timeout: 5_000 });
+        return;
+      } catch {
+        continue;
+      }
     }
 
     const visibleRange = await page.locator("[data-day]").evaluateAll((elements) => {
@@ -272,7 +276,7 @@ export async function selectDate(
       break;
     }
 
-    await monthButton.click();
+    await monthButton.click({ timeout: 5_000 });
   }
 
   throw new Error(`Could not find calendar day ${value} in the date picker.`);

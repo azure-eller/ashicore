@@ -3,7 +3,12 @@
 // (the engine converts via purchaseToStockFactor at write time).
 export type InitialStockEntry =
   | string
-  | { quantity: string; unitKey: string };
+  | {
+      quantity: string;
+      unitKey?: string;
+      ageDays?: number;
+      receivedAt?: string;
+    };
 
 export type UnitSeed = {
   key: string;
@@ -105,6 +110,7 @@ export type ExistingSalesOrder = {
   orderNumber: string;
   status: string;
   customerName: string;
+  orderDate: string;
   requestedDate: string | null;
   notes: string | null;
   lineSignature: string;
@@ -164,6 +170,7 @@ export type ReadySalesImportOrder = {
   notes: string | null;
   totalAmount: string;
   lines: PreparedSalesImportLine[];
+  orderDate: string;
   requestedDate: string | null;
 };
 
@@ -274,6 +281,7 @@ export type OrderSeed = {
   sourceRows: number[];
   customerName: string;
   reference: string | null;
+  orderDate?: string | null;
   requestedWindow?: string | null;
   address: string | null;
   contact: string | null;

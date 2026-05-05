@@ -65,10 +65,8 @@ import {
   MANUFACTURABLE_LINES_TOOLTIP,
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   ITEM_SKU_TOOLTIP,
-  ON_HAND_STOCK_TOOLTIP,
-  OVERSELL_TOOLTIP_COPY,
   REQUESTED_DATE_TOOLTIP,
-  SALES_ADDED_QTY_TOOLTIP,
+  SALES_ORDER_DATE_TOOLTIP,
   ACTUAL_MARGIN_TOOLTIP,
   ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
@@ -88,6 +86,10 @@ import {
 } from "@/lib/schemas/sales-orders";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
 import { SalesOrderStatusBadge } from "./status-badge";
+import {
+  OVERSELL_WARNING_DESCRIPTION,
+  OversellWarningTable,
+} from "./oversell-warning-table";
 import type {
   OversellWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
@@ -1324,7 +1326,16 @@ export function OrderDetail({
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Requested Date" tooltip={REQUESTED_DATE_TOOLTIP} />
+              <TooltipHeader label="Order Date" tooltip={SALES_ORDER_DATE_TOOLTIP} />
+            </dt>
+            <dd className="mt-1 text-sm">{formatDate(order.orderDate)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Requested Delivery Date"
+                tooltip={REQUESTED_DATE_TOOLTIP}
+              />
             </dt>
             <dd className="mt-1 text-sm">{formatDate(order.requestedDate)}</dd>
           </div>
@@ -2015,150 +2026,15 @@ export function OrderDetail({
           setOversellWarning(null);
         }
       }}>
-        <AlertDialogContent className="max-w-5xl bg-background text-foreground">
+        <AlertDialogContent size="2xl" className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirming this order would oversell one or more items.
+              {OVERSELL_WARNING_DESCRIPTION}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Current Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Available"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentAvailable}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Reserved"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentReserved}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Demand"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentDemand}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Backorder"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentShortage}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Expected"
-                      tooltip={OVERSELL_TOOLTIP_COPY.expected}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Safety"
-                      tooltip={OVERSELL_TOOLTIP_COPY.safety}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Current Calculated"
-                      tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Added Qty" tooltip={SALES_ADDED_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Projected Demand"
-                      tooltip={OVERSELL_TOOLTIP_COPY.projectedDemand}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Projected Backorder"
-                      tooltip={OVERSELL_TOOLTIP_COPY.projectedShortage}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader
-                      label="Projected Calculated"
-                      tooltip={OVERSELL_TOOLTIP_COPY.projectedCalculated}
-                    />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {oversellWarning?.products.map((product) => (
-                  <TableRow key={product.itemId}>
-                    <TableCell>
-                      <Link
-                        href={itemDetailHref("product", product.itemId)}
-                        className="hover:underline"
-                      >
-                        <div className="font-medium">{product.itemName}</div>
-                        {product.itemSku && (
-                          <div className="text-xs text-muted-foreground">{product.itemSku}</div>
-                        )}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.inStock} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.availableQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.committedQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.demandQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.shortageQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.expectedQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.safetyStock} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.calculatedStock} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.addedQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell>
-                      <QuantityWithUnit value={product.projectedDemandQty} unitName={product.unitName} />
-                    </TableCell>
-                    <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
-                      <QuantityWithUnit
-                        value={product.projectedShortageQty}
-                        unitName={product.unitName}
-                        tone={product.projectedShortageQty > 0 ? "destructive" : "default"}
-                      />
-                    </TableCell>
-                    <TableCell className="text-destructive">
-                      <QuantityWithUnit
-                        value={product.projectedCalculatedStock}
-                        unitName={product.unitName}
-                        tone="destructive"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <OversellWarningTable products={oversellWarning?.products ?? []} linkItems />
 
           <AlertDialogFooter>
             <AlertDialogCancel>Back</AlertDialogCancel>

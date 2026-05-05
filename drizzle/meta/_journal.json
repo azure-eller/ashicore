@@ -428,6 +428,13 @@
       "when": 1777658672516,
       "tag": "0060_sloppy_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1777864087706,
+      "tag": "0061_yellow_shadow_king",
+      "breakpoints": true
     }
   ]
 }

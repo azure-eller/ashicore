@@ -119,7 +119,8 @@ test.describe("Sales write-path smoke", () => {
     await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    await selectDate(page, page.getByLabel("Requested Date"), "2026-04-15");
+    await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
+    await selectDate(page, page.getByLabel("Requested Delivery Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
@@ -140,12 +141,15 @@ test.describe("Sales write-path smoke", () => {
     expect(createOrderResponse.status()).toBe(201);
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
     orderId = getIdFromUrl(page.url());
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(/SO-\d{4}-\d{4}/);
+    await expect(
+      page.getByRole("heading", { level: 1, name: /SO-\d{4}-\d{4}/ })
+    ).toBeVisible({ timeout: 15_000 });
 
     const [order] = await db.select().from(salesOrders).where(eq(salesOrders.id, orderId));
     expect(order.customerId).toBe(customerId);
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("draft");
+    expect(order.orderDate).toBe("2026-04-01");
     expect(order.requestedDate).toBe("2026-04-15");
     expect(order.notes).toBe("Fast order smoke test");
 

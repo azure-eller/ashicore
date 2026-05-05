@@ -199,6 +199,9 @@ export const salesOrders = salesSchema
         .references(() => customers.id),
       customerName: varchar("customer_name", { length: 255 }).notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
+      orderDate: date("order_date", { mode: "string" })
+        .notNull()
+        .default(sql`CURRENT_DATE`),
       requestedDate: date("requested_date", { mode: "string" }),
       notes: text("notes"),
       shippedAt: timestamp("shipped_at"),
@@ -232,6 +235,7 @@ export const salesOrders = salesSchema
         .on(table.organizationId)
         .where(sql`deleted_at IS NULL`),
       index("sales_orders_status_idx").on(table.status),
+      index("sales_orders_order_date_idx").on(table.orderDate),
       index("sales_orders_created_at_idx").on(table.createdAt),
       uniqueIndex("sales_orders_org_order_number_uidx").on(
         table.organizationId,

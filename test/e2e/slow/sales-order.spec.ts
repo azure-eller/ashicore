@@ -73,6 +73,13 @@ test.describe("Sales order flow", () => {
   const unitId = getUnitId();
   const currentMonthFifteenth = new Date();
   currentMonthFifteenth.setDate(15);
+  const currentMonthFirst = new Date(currentMonthFifteenth);
+  currentMonthFirst.setDate(1);
+  const expectedOrderDate = format(currentMonthFirst, "yyyy-MM-dd");
+  const expectedOrderDatePickerLabel = format(currentMonthFirst, "MMMM d, yyyy");
+  const expectedOrderDateLabel = new Date(
+    `${expectedOrderDate}T00:00:00`
+  ).toLocaleDateString("en-US");
   const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
   const expectedRequestedDatePickerLabel = format(currentMonthFifteenth, "MMMM d, yyyy");
   const expectedRequestedDateLabel = new Date(
@@ -382,7 +389,12 @@ test.describe("Sales order flow", () => {
     await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    await selectDate(page, page.getByLabel("Requested Date"), expectedRequestedDate);
+    await selectDate(page, page.getByLabel("Order Date"), expectedOrderDate);
+    await selectDate(
+      page,
+      page.getByLabel("Requested Delivery Date"),
+      expectedRequestedDate
+    );
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
@@ -434,6 +446,7 @@ test.describe("Sales order flow", () => {
 
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("draft");
+    expect(order.orderDate).toBe(expectedOrderDate);
     expect(order.requestedDate).toBe(expectedRequestedDate);
     expect(order.notes).toBe("Full lifecycle test order");
     expect(order.deletedAt).toBeNull();
@@ -483,6 +496,7 @@ test.describe("Sales order flow", () => {
     await expect(draftRow).toContainText(customerName);
     await expect(draftRow).toContainText("$158.97");
     await expect(draftRow).toContainText("Draft");
+    await expect(draftRow).toContainText(expectedOrderDateLabel);
     await expect(draftRow).toContainText(expectedRequestedDateLabel);
   });
 
@@ -491,7 +505,10 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Edit Sales Order")).toBeVisible({ timeout: 30000 });
 
     // Verify pre-populated fields
-    await expect(page.getByLabel("Requested Date")).toContainText(
+    await expect(page.getByLabel("Order Date")).toContainText(
+      expectedOrderDatePickerLabel
+    );
+    await expect(page.getByLabel("Requested Delivery Date")).toContainText(
       expectedRequestedDatePickerLabel
     );
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
@@ -601,8 +618,8 @@ test.describe("Sales order flow", () => {
 
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await oversellDialog.getByText("Reserved", { exact: true }).hover();
-    await expect(page.getByText("Stock already reserved.")).toBeVisible();
+    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
+    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 
     await expect
@@ -662,8 +679,8 @@ test.describe("Sales order flow", () => {
     // The edited order quantity exceeds the fixture's opening stock, so the oversell dialog should appear.
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await oversellDialog.getByText("Reserved", { exact: true }).hover();
-    await expect(page.getByText("Stock already reserved.")).toBeVisible();
+    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
+    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).scrollIntoViewIfNeeded();
     await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 

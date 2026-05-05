@@ -163,6 +163,7 @@ export type SalesOrderListRow = {
   customerName: string;
   customerEmail: string | null;
   status: SalesOrderStatus;
+  orderDate: string;
   requestedDate: string | null;
   shippedAt: Date | null;
   totalAmount: string;
@@ -274,6 +275,7 @@ export type SalesOrderDetail = {
   customerEmail: string | null;
   orderNumber: string;
   status: SalesOrderStatus;
+  orderDate: string;
   requestedDate: string | null;
   notes: string | null;
   shippedAt: Date | null;
@@ -320,6 +322,7 @@ export type SalesOrderEditData = {
   id: string;
   customerId: string;
   status: Extract<SalesOrderStatus, "draft">;
+  orderDate: string;
   requestedDate: string | null;
   notes: string | null;
   shipLine1: string | null;

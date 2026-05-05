@@ -415,6 +415,7 @@ export async function createSupplier(data: {
 export async function createSalesOrder(data: {
   customerId: string;
   status?: string;
+  orderDate?: string;
   requestedDate?: string | null;
   notes?: string | null;
   lines: Array<{
@@ -429,6 +430,7 @@ export async function createSalesOrder(data: {
     body: JSON.stringify({
       customerId: data.customerId,
       status: data.status ?? "draft",
+      ...(data.orderDate ? { orderDate: data.orderDate } : {}),
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
@@ -447,6 +449,7 @@ export async function updateSalesOrder(
   data: {
     customerId: string;
     status?: string;
+    orderDate?: string;
     requestedDate?: string | null;
     notes?: string | null;
     lines: Array<{
@@ -462,6 +465,7 @@ export async function updateSalesOrder(
     body: JSON.stringify({
       customerId: data.customerId,
       status: data.status ?? "draft",
+      ...(data.orderDate ? { orderDate: data.orderDate } : {}),
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,

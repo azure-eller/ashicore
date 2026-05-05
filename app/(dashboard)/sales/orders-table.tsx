@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
@@ -12,10 +12,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
-import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { Checkbox } from "@/components/ui/checkbox";
-import { TooltipHeader } from "@/components/tooltip-header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,30 +25,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  ON_HAND_STOCK_TOOLTIP,
-  OVERSELL_TOOLTIP_COPY,
   REQUESTED_DATE_TOOLTIP,
-  SALES_ADDED_QTY_TOOLTIP,
+  SALES_ORDER_DATE_TOOLTIP,
   SALES_ORDER_STATUS_COLUMN_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
+import { formatDate, formatPrice } from "@/lib/format";
 import { SalesOrderStatusBadge } from "./status-badge";
 import { SoStageAction } from "./so-stage-action";
 import { OrderExpandedDetail } from "./order-expanded-detail";
-import { OrderLineAttributeBadges } from "./order-line-attribute-badges";
 import type {
   BulkOversellWarningPayload,
-  SalesOrderListLine,
   SalesOrderListRow,
 } from "./types";
+import {
+  OVERSELL_WARNING_DESCRIPTION,
+  OversellWarningTable,
+} from "./oversell-warning-table";
 
 type ConfirmError = Error & {
   status?: number;
@@ -63,41 +53,6 @@ type ConfirmMutationInput = {
   confirmOversell: boolean;
   idempotencyKey: string;
 };
-
-function SalesOrderItemsCell({
-  lines,
-  fallback,
-}: {
-  lines: SalesOrderListLine[];
-  fallback: string;
-}) {
-  if (lines.length === 0) {
-    return <span className="text-muted-foreground">{fallback}</span>;
-  }
-
-  const visibleLines = lines.slice(0, 2);
-  const hiddenCount = lines.length - visibleLines.length;
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      {visibleLines.map((line, index) => (
-        <Fragment key={`${line.masterName}-${line.quantity}-${index}`}>
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            <span className="shrink-0">{formatQuantity(line.quantity)}</span>
-            <span className="truncate">{line.masterName}</span>
-            <OrderLineAttributeBadges attrs={line.attrs} />
-          </span>
-          {index < visibleLines.length - 1 && (
-            <span className="text-muted-foreground">,</span>
-          )}
-        </Fragment>
-      ))}
-      {hiddenCount > 0 && (
-        <span className="shrink-0 text-muted-foreground">+ {hiddenCount} more</span>
-      )}
-    </div>
-  );
-}
 
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
@@ -151,16 +106,6 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     header: ({ column }) => <SortableHeader column={column} label="Customer" />,
   },
   {
-    accessorKey: "itemSummary",
-    header: "Items",
-    cell: ({ row }) => (
-      <SalesOrderItemsCell
-        lines={row.original.lines}
-        fallback={row.original.itemSummary}
-      />
-    ),
-  },
-  {
     accessorKey: "totalAmount",
     header: ({ column }) => <SortableHeader column={column} label="Total" />,
     sortingFn: (a, b) =>
@@ -180,9 +125,20 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     cell: ({ row }) => <SalesOrderStatusBadge status={row.original.status} />,
   },
   {
+    accessorKey: "orderDate",
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Order" tooltip={SALES_ORDER_DATE_TOOLTIP} />
+    ),
+    cell: ({ row }) => formatDate(row.original.orderDate),
+  },
+  {
     accessorKey: "requestedDate",
     header: ({ column }) => (
-      <SortableHeader column={column} label="Requested" tooltip={REQUESTED_DATE_TOOLTIP} />
+      <SortableHeader
+        column={column}
+        label="Requested Delivery"
+        tooltip={REQUESTED_DATE_TOOLTIP}
+      />
     ),
     cell: ({ row }) => formatDate(row.original.requestedDate),
   },
@@ -313,11 +269,11 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
           }
         }}
       >
-        <AlertDialogContent size="content" className="bg-background text-foreground">
+        <AlertDialogContent size="2xl" className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirming the selected orders would oversell one or more items.
+              {OVERSELL_WARNING_DESCRIPTION}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -327,139 +283,10 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                 <div>
                   <h3 className="text-sm font-semibold">{warningOrder.salesOrderNumber}</h3>
                 </div>
-                <div className="overflow-x-auto rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>
-                          <TooltipHeader label="Current Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Available"
-                            tooltip={OVERSELL_TOOLTIP_COPY.currentAvailable}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Reserved"
-                            tooltip={OVERSELL_TOOLTIP_COPY.currentReserved}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Demand"
-                            tooltip={OVERSELL_TOOLTIP_COPY.currentDemand}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Backorder"
-                            tooltip={OVERSELL_TOOLTIP_COPY.currentShortage}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Expected"
-                            tooltip={OVERSELL_TOOLTIP_COPY.expected}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Safety"
-                            tooltip={OVERSELL_TOOLTIP_COPY.safety}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Current Calculated"
-                            tooltip={OVERSELL_TOOLTIP_COPY.currentCalculated}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader label="Added Qty" tooltip={SALES_ADDED_QTY_TOOLTIP} />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Projected Demand"
-                            tooltip={OVERSELL_TOOLTIP_COPY.projectedDemand}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Projected Backorder"
-                            tooltip={OVERSELL_TOOLTIP_COPY.projectedShortage}
-                          />
-                        </TableHead>
-                        <TableHead>
-                          <TooltipHeader
-                            label="Projected Calculated"
-                            tooltip={OVERSELL_TOOLTIP_COPY.projectedCalculated}
-                          />
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {warningOrder.products.map((product) => (
-                        <TableRow key={`${warningOrder.salesOrderId}-${product.itemId}`}>
-                          <TableCell>
-                            <div className="font-medium">{product.itemName}</div>
-                            {product.itemSku && (
-                              <div className="text-xs text-muted-foreground">
-                                {product.itemSku}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.inStock} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.availableQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.committedQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.demandQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.shortageQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.expectedQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.safetyStock} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.calculatedStock} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.addedQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell>
-                            <QuantityWithUnit value={product.projectedDemandQty} unitName={product.unitName} />
-                          </TableCell>
-                          <TableCell className={product.projectedShortageQty > 0 ? "text-destructive" : undefined}>
-                            <QuantityWithUnit
-                              value={product.projectedShortageQty}
-                              unitName={product.unitName}
-                              tone={product.projectedShortageQty > 0 ? "destructive" : "default"}
-                            />
-                          </TableCell>
-                          <TableCell className="text-destructive">
-                            <QuantityWithUnit
-                              value={product.projectedCalculatedStock}
-                              unitName={product.unitName}
-                              tone="destructive"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                <OversellWarningTable
+                  products={warningOrder.products}
+                  rowKeyPrefix={warningOrder.salesOrderId}
+                />
               </div>
             ))}
           </div>

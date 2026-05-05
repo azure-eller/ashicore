@@ -36,6 +36,7 @@ function toSalesOrderListItem(row: SalesOrderListRow): ErpListItem {
     updatedAt: row.updatedAt.toISOString(),
     fields: {
       customerName: row.customerName,
+      orderDate: row.orderDate,
       requestedDate: row.requestedDate,
       shippedAt: toIso(row.shippedAt),
       totalAmount: row.totalAmount,
@@ -60,6 +61,7 @@ function toSalesOrderRecord(row: SalesOrderDetail): ErpRecord {
     fields: {
       customerId: row.customerId,
       customerName: row.customerName,
+      orderDate: row.orderDate,
       requestedDate: row.requestedDate,
       notes: row.notes,
       shippedAt: toIso(row.shippedAt),

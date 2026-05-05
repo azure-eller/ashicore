@@ -131,10 +131,17 @@ const cleanedLinesSchema = z
 const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   customerId: z.string().min(1, "Customer is required"),
   status: z.enum(["draft", "confirmed"]),
+  orderDate: z
+    .string()
+    .optional()
+    .transform((value) => value ?? new Date().toISOString().slice(0, 10))
+    .refine((value) => {
+      return isValidIsoDate(value);
+    }, "Order date must be a real date in YYYY-MM-DD format"),
   requestedDate: nullableString.refine((value) => {
     if (value == null) return true;
     return isValidIsoDate(value);
-  }, "Requested date must be a real date in YYYY-MM-DD format"),
+  }, "Requested delivery date must be a real date in YYYY-MM-DD format"),
   notes: nullableString,
   shipLine1: nullableString,
   shipLine2: nullableString,
@@ -277,6 +284,7 @@ export type SalesShipmentCostsInput = z.infer<
 export const salesOrderDefaultValues: InsertSalesOrder = {
   customerId: "",
   status: "draft",
+  orderDate: new Date().toISOString().slice(0, 10),
   requestedDate: null,
   notes: null,
   shipLine1: null,

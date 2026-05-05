@@ -135,19 +135,6 @@ export const MANUFACTURING_EXECUTION_TOOLTIP =
 export const MANUFACTURING_COMPONENT_COST_TOOLTIP =
   "Actual cost consumed for this ingredient.";
 
-export const OVERSELL_TOOLTIP_COPY = {
-  currentAvailable: "Available-disposition stock minus existing reservations.",
-  currentReserved: "Stock already reserved.",
-  currentDemand: "Demand before this order.",
-  currentShortage: "Unreserved demand before this order.",
-  expected: EXPECTED_QTY_TOOLTIP,
-  safety: SAFETY_STOCK_TOOLTIP,
-  currentCalculated: "Stock - demand + expected - safety stock.",
-  projectedDemand: "Demand after confirming this order.",
-  projectedShortage: "Unreserved demand after confirming this order.",
-  projectedCalculated: "Calculated stock after confirming this order.",
-} as const;
-
 export const MANUFACTURING_SHORTAGE_TOOLTIP =
   "Needed minus available.";
 
@@ -275,10 +262,10 @@ export const MANUFACTURABLE_LINES_TOOLTIP =
   "Lines eligible for manufacturing orders.";
 
 export const REQUESTED_DATE_TOOLTIP =
-  "Customer-requested fulfillment date.";
+  "Date the customer wants the order delivered.";
 
-export const SALES_ADDED_QTY_TOOLTIP =
-  "Quantity added by confirming this order.";
+export const SALES_ORDER_DATE_TOOLTIP =
+  "Date the customer placed the order.";
 
 export const SALES_LINE_QTY_TOOLTIP =
   "Quantity requested by the sales line.";
