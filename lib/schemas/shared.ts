@@ -61,26 +61,12 @@ export function isValidTimeZone(value: string) {
 }
 
 /**
- * Zod string that must be a positive decimal number.
- * Use for quantity / price fields that arrive as strings from forms.
- */
-/**
  * Shared schema for bulk delete endpoints.
  * All DELETE routes accept { ids: string[] }.
  */
 export const bulkDeleteSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
 });
-
-export const positiveDecimalString = (label: string) =>
-  z
-    .string()
-    .trim()
-    .min(1, `${label} is required`)
-    .refine((value) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed > 0;
-    }, `${label} must be greater than 0`);
 
 /**
  * Default values for the six structured address columns. Reuse in form
@@ -103,3 +89,13 @@ export type StructuredAddress = {
   postcode: string | null;
   country: string | null;
 };
+
+export {
+  isNonNegativeNumberString,
+  nonNegativeDecimalString,
+  nullableStringPreserveUndefined,
+  optionalMoneyString,
+  optionalNonNegativeDecimalString,
+  positiveDecimalString,
+  positiveMoneyString,
+} from "./numeric";

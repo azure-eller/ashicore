@@ -286,6 +286,7 @@ const handleCancel = () => {
 ### Better Auth hosts
 
 Keep `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` as the canonical fallback URL. `lib/auth.ts` already allows `localhost`, `127.0.0.1`, and `[::1]` on any port. For LAN IPs or tunnel hosts, add patterns to `BETTER_AUTH_ALLOWED_HOSTS` instead of rewriting the canonical URL for a worktree port.
+Production Vercel aliases that can serve the UI must also be listed in `BETTER_AUTH_ALLOWED_HOSTS`; `proxy.ts` redirects page loads back to the canonical host.
 
 Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` / `VERCEL_URL` for the canonical app URL and auto-allow `*.vercel.app` in preview.
 

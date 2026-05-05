@@ -58,6 +58,8 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 - `localhost`, `127.0.0.1`, and `[::1]` are allowed on any port for local worktrees.
 - Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` or `VERCEL_URL` when the canonical URL env vars are missing.
 - Vercel preview deploys auto-allow `*.vercel.app`; add explicit patterns only for non-Vercel preview hosts.
+- Production Vercel aliases that can serve app pages must be included in `BETTER_AUTH_ALLOWED_HOSTS`.
+- Production page loads on non-canonical hosts redirect to the canonical app URL before auth checks.
 - Add LAN IPs or tunnel hosts through `BETTER_AUTH_ALLOWED_HOSTS` as comma-separated host patterns.
 - Do not rewrite `BETTER_AUTH_URL` just because a worktree is running on `:3001` or another local port.
 

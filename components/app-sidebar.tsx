@@ -1,7 +1,6 @@
 "use client"
 
-import dynamic from "next/dynamic"
-import * as React from "react"
+import type * as React from "react"
 
 import { canReadModule } from "@/lib/authz"
 import { NavMain } from "@/components/nav-main"
@@ -14,7 +13,6 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { cn } from "@/lib/utils"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Layers01Icon,
@@ -22,14 +20,6 @@ import {
   Store04Icon,
   ShoppingBag02Icon,
 } from "@hugeicons/core-free-icons"
-
-const AgentChatPanel = dynamic(
-  () =>
-    import("@/components/agent/agent-chat-panel").then(
-      (module) => module.AgentChatPanel
-    ),
-  { ssr: false }
-)
 
 type NavMainItem = {
   title: string
@@ -50,14 +40,12 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   }
   organizationName: string
   assignedRoles: string[]
-  agentEnabled?: boolean
 }
 
 export function AppSidebar({
   user,
   organizationName,
   assignedRoles,
-  agentEnabled = false,
   ...props
 }: AppSidebarProps) {
   const navMain = ([
@@ -143,8 +131,6 @@ export function AppSidebar({
     } : null,
   ] as Array<NavMainItem | null>).filter((item): item is NavMainItem => item !== null)
 
-  const [chatExpanded, setChatExpanded] = React.useState(false)
-
   return (
     <Sidebar collapsible="icon" variant="floating" {...props}>
       <SidebarHeader>
@@ -158,25 +144,10 @@ export function AppSidebar({
       <SidebarContent className="gap-0 overflow-hidden">
         <ScrollArea
           type="auto"
-          aria-hidden={chatExpanded}
-          className={cn(
-            "min-h-0 overflow-hidden transition-[max-height,opacity] duration-300 ease-out group-data-[collapsible=icon]:hidden",
-            chatExpanded
-              ? "pointer-events-none max-h-0 opacity-0"
-              : "flex-1 opacity-100"
-          )}
+          className="min-h-0 flex-1 overflow-hidden group-data-[collapsible=icon]:hidden"
         >
           <NavMain items={navMain} />
         </ScrollArea>
-
-        {agentEnabled ? (
-          <AgentChatPanel
-            className="flex-1 basis-0 min-h-0 group-data-[collapsible=icon]:hidden"
-            expanded={chatExpanded}
-            onComposerFocus={() => setChatExpanded(true)}
-            onComposerBlur={() => setChatExpanded(false)}
-          />
-        ) : null}
       </SidebarContent>
       <SidebarRail />
     </Sidebar>

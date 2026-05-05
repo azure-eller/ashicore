@@ -22,6 +22,7 @@
     "verify:opening-stock-conversion": "tsx scripts/verify-opening-stock-conversion.ts",
     "verify:paonia-loader-data": "tsx scripts/verify-paonia-loader-data.ts",
     "verify:paonia-katana-skus": "tsx scripts/verify-paonia-katana-skus.ts",
+    "verify:schema-helpers": "tsx scripts/verify-schema-helpers.ts",
     "verify:inventory": "pnpm verify:inventory-kernel && pnpm verify:inventory-state",
     "db:generate": "drizzle-kit generate && tsx scripts/make-migrations-idempotent.ts",
     "db:check-migrations": "tsx scripts/make-migrations-idempotent.ts --check",
@@ -29,7 +30,6 @@
     "cleanup": "tsx scripts/cleanup-worktree.ts",
     "test": "pnpm test:e2e:fast",
     "test:e2e:fast": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast --workers=${PLAYWRIGHT_FAST_WORKERS:-8}",
-    "test:e2e:agent:live": "EMAIL_OUTBOX_ONLY=1 LIVE_AGENT_SMOKE=1 playwright test test/e2e/fast/agent-live.spec.ts",
     "test:e2e:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow",
     "test:reconciliation": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/reconciliation",
     "test:e2e:sections": "pnpm test:e2e:fast",
@@ -49,7 +49,6 @@
     "test:sales": "pnpm test:e2e:sales"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.88.0",
     "@base-ui/react": "^1.2.0",
     "@better-auth/drizzle-adapter": "^1.5.3",
     "@hookform/resolvers": "^5.2.2",
