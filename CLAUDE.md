@@ -1,7 +1,6 @@
 ## Project
 
-ERP system — clean rebuild. Inventory module first.
-Old repo for reference: `/home/aeller/Projects/soil-erp`
+Multi-module ERP: inventory, manufacturing, sales, purchasing.
 
 ## Stack
 
@@ -61,6 +60,7 @@ When you discover a new pattern or gotcha:
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
+| Sales orders, customers, shipping | `docs/sales.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |
 | Test scenario generation | `docs/testing-scenario-generation.md` |
@@ -93,7 +93,6 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - Use Linear team `Erp` for ERP work. Read `docs/linear-workflow.md` before planning/importing work.
 - Non-trivial code work should have one Linear issue before coding. Branches and PRs should include the issue ID.
 - Existing open PR without an issue: create one Linear issue, label `GitHub PR`, attach the PR link, and avoid duplicates by searching the PR URL/number first.
-- Parked draft PRs use `Backburner` + Low priority. Active branches move to `In Progress`; ready PRs move to `In Review`; merged work moves to `Done`.
 
 ## Coding Patterns
 
@@ -218,55 +217,7 @@ const title = formatVariantDisplay(masterName, variantAttrs, variantAxes)
 ```
 ### Standalone form pages
 
-Single-page create/edit forms should use a centered page shell with top actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one centered card for the entire form.
-
-```tsx
-// ✓ Correct — page-width shell, header actions, stacked FieldSet sections
-<div className="mx-auto w-full max-w-4xl py-8">
-  <ItemForm />
-</div>
-
-// Inside the form component:
-<div className="space-y-8">
-  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-    <div className="space-y-1.5">
-      <h1 className="text-3xl font-semibold tracking-tight">Add Product</h1>
-      <p className="text-sm text-muted-foreground">Create a new product in your inventory.</p>
-    </div>
-    <div className="flex gap-3">
-      <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-      <Button type="submit" form="item-form">Create Product</Button>
-    </div>
-  </div>
-
-  <Separator />
-
-  <form className="space-y-0">
-    <FieldGroup className="gap-8">
-      <FieldSet className="max-w-4xl gap-5">
-        <FieldLegend>Basics</FieldLegend>
-        <FieldDescription>Name, category, and unit details.</FieldDescription>
-        <FieldGroup>{/* fields */}</FieldGroup>
-      </FieldSet>
-
-      <FieldSeparator />
-
-      <FieldSet className="max-w-4xl gap-5">
-        <FieldLegend>Pricing & Stock</FieldLegend>
-        <FieldDescription>Set pricing and stock defaults.</FieldDescription>
-        <FieldGroup>{/* fields */}</FieldGroup>
-      </FieldSet>
-    </FieldGroup>
-  </form>
-</div>
-
-// ✗ Wrong — narrow centered form that reads like a modal
-<div className="flex flex-1 items-center justify-center">
-  <div className="w-full max-w-3xl">
-    <Card>{/* whole form */}</Card>
-  </div>
-</div>
-```
+Single-page create/edit forms use a centered page shell (`max-w-4xl py-8`) with header-row actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one Card wrapping the whole form. Full markup in `docs/ui-patterns.md`.
 
 ### Cancel button navigation
 
@@ -361,40 +312,15 @@ Triggers: reuse the existing label, link, badge, or status marker as the trigger
 </Tooltip>
 ```
 
-### Route loading reuse
+### Route loading
 
-New/edit loading states for the same form should share one route-level loader per item type. Detail routes should also have a local `[id]/loading.tsx` per item type so they never fall back to a parent list skeleton.
-
-```tsx
-// ✓ Correct — one shared loader for material new/edit
-export { default } from "../../material-item-form-loading"
-
-// ✓ Correct — one shared loader for product new/edit
-export { default } from "../../product-item-form-loading"
-
-// ✓ Correct — detail routes point to a shared item-type detail loader
-export { default } from "../../material-item-detail-loading"
-export { default } from "../../product-item-detail-loading"
-```
-
-Dashboard list pages should render a sync shell and suspend only the data region so table skeletons appear immediately on navigation.
+All `loading.tsx` files re-export the shared skeleton. Don't write per-route loaders.
 
 ```tsx
-export default function OrdersPage() {
-  return (
-    <Suspense fallback={<OrdersTableSkeleton />}>
-      <OrdersData />
-    </Suspense>
-  )
-}
-
-async function OrdersData() {
-  const orders = await getSalesOrders()
-  return <OrdersTable initialData={orders} />
-}
+export { default } from "@/components/dashboard-route-loading";
 ```
 
-Parent layouts must stay light enough for child route loaders to stream. Do not put non-essential auth, DB, or preference reads in `app/layout.tsx` or dashboard layouts; those parent awaits block `loading.tsx` and make navigation look frozen.
+Parent layouts must stay light enough for child route loaders to stream. Don't put non-essential auth, DB, or preference reads in `app/layout.tsx` or dashboard layouts; those awaits block `loading.tsx` and make navigation look frozen.
 
 ### Postgres numeric fields
 
@@ -430,33 +356,14 @@ return value.toFixed(4);
 
 If a DAL uses `nextval()` for order/lot numbers, the migration must `CREATE SEQUENCE` and `GRANT USAGE, SELECT ON SEQUENCE ... TO app_user`.
 
-### Stocktake completion
+### Stocktakes
 
-Saving stocktake counts updates snapshot rows only. Completion applies counted truth from current live stock; if live stock changed since snapshot, return `409` with a stale payload and require confirmation.
+See `docs/stocktakes.md`. Critical:
 
-### Stocktake draft saves
-
-Draft stocktake saves should submit dirty lines only. Completing a dirty stocktake should save dirty counts first, then complete.
-
-```ts
-if (form.formState.isDirty) {
-  await saveMutation.mutateAsync({ lines: dirtyLines })
-}
-await completeMutation.mutateAsync(false)
-```
-
-### Stocktake snapshot locking
-
-Draft stocktake creation and item soft deletes must both lock affected `items` rows before checking draft references, so snapshot creation cannot race with delete.
-
-### Stocktake scope picker
-
-Stocktake scope stays in one dropdown: quick scopes first (`all`, `material`, `product`), then category scopes grouped under materials/products. Category scopes must encode both item type and category name.
-
-```ts
-buildStocktakeCategoryScope("material", "Soil")
-// "material:category:Soil"
-```
+- Saving counts updates snapshot rows only. Completion applies counted truth from current live stock; if live stock changed since snapshot, return `409` with a stale payload and require confirmation.
+- Draft saves submit dirty lines only. Completing a dirty stocktake saves dirty counts first, then completes.
+- Draft creation and item soft deletes must both lock affected `items` rows before checking draft references — snapshot creation must not race with delete.
+- Scope picker is one dropdown: quick scopes (`all`, `material`, `product`) then category scopes. Category scopes encode item type + name: `buildStocktakeCategoryScope("material", "Soil")` → `"material:category:Soil"`.
 
 ### Positive stock additions need cost
 
@@ -483,17 +390,14 @@ if (item.currentStockUnitCost != null) return item.currentStockUnitCost
 return resolveStockUnitCostFromDefaultPurchasePrice(...)
 ```
 
-### Sales shipments and BOLs
+### Sales
 
-Confirmed orders reserve the full order. Draft shipments only plan slices; shipped shipments consume/release their quantities. Use shipment BOLs (`draft` = planned, `shipped` = final). `partially_shipped` orders still block customer/product deletes while remaining demand exists.
+See `docs/sales.md` and `docs/planning.md`. Critical:
 
-### Production downstream demand
-
-Planning downstream rows are sales-order attribution paths only. Do not infer them from `sourceRefs`, BOM revisions, or MOs. Use `salesOrderProductionDemandPaths`; direct SO demand stays flat on the card.
-
-### Shipment costs
-
-Outbound shipment costs and customer freight recovery are margin-only. Editing them must not mutate inventory, Xero invoices, AP, GL, or BOL behavior.
+- Confirmed orders reserve the full order. Draft shipments plan only; shipped shipments consume/release. BOL state: `draft` = planned, `shipped` = final.
+- `partially_shipped` orders still block customer/product deletes while remaining demand exists.
+- Planning downstream rows are sales-order attribution paths only — use `salesOrderProductionDemandPaths`, never infer from `sourceRefs`, BOM revisions, or MOs. Direct SO demand stays flat on the card.
+- Outbound shipment costs and customer freight recovery are margin-only. Editing them must not mutate inventory, Xero invoices, AP, GL, or BOL behavior.
 
 ### API error shape
 
@@ -613,34 +517,7 @@ Cold-start debugging uses proxy-stamped request IDs. Grab `x-erp-request-id` fro
 
 ### Product deletes with active sales orders
 
-Products referenced by active draft, confirmed, or partially shipped sales orders cannot be soft-deleted. Block the delete in inventory instead of teaching the sales form how to recover missing draft products.
-
-```ts
-const [activeOrderRef] = await tx
-  .select({ id: salesOrderLines.id })
-  .from(salesOrderLines)
-  .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-  .where(
-    and(
-      eq(salesOrderLines.itemId, id),
-      isNull(salesOrders.deletedAt),
-      inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
-    )
-  )
-  .limit(1)
-
-if (activeOrderRef) {
-  return { deleted: false, usedInActiveOrders: true }
-}
-```
-
-### Manufacturing expected quantity
-
-`items.expectedQty` is inbound supply, not a manual counter. Recompute it from active released manufacturing orders plus active ordered/partial purchase orders after every status-changing write. Batch-mode MOs contribute only unfinished planned output.
-
-```ts
-await recomputeExpectedQty(tx, affectedItemIds)
-```
+Products referenced by active `draft`, `confirmed`, or `partially_shipped` sales orders cannot be soft-deleted. Block the delete in inventory instead of teaching the sales form how to recover missing draft products.
 
 ### Purchase receipts
 
@@ -681,92 +558,20 @@ const lotsForUpdate = await tx
   .for("update", { of: lots })
 ```
 
-### Manufacturing shortages
+### Manufacturing
 
-Release may warn with `409` + shortage payload and continue after confirmation. Completion must hard-block on shortages before any stock mutation.
+See `docs/manufacturing.md`. Critical:
 
-```ts
-if (shortages.length > 0 && !confirmShortage) {
-  throw new ManufacturingError("Short on ingredients", 409, {
-    shortage: { ingredients: shortages },
-  })
-}
-```
-
-### Manufacturing quantity math
-
-Round derived manufacturing quantities to 4 decimals before shortage checks or stock deltas. Never compare or deduct raw JS float multiplication.
-
-```ts
-const actualNeeded = multiplyQuantity(ingredient.quantityPerUnit, actualQuantity)
-```
-
-### Manufacturing requested vs planned quantity
-
-Manufacturing orders store the user-requested quantity separately from the batch-rounded planned quantity. Use `requestedQuantity` for form/edit inputs and keep `plannedQuantity` for execution math.
-
-### Manufacturing execution surfaces
-
-Keep manufacturing detail/history separate from field execution. Detail pages link into `/execute`, while the actual work happens through execution queue/detail routes.
-
-### Manufacturing picking and completion
-
-Picking is the ingredient stock event. Discrete orders must pick every ingredient before `/complete`, and completion must reuse persisted pick allocations instead of deducting stock again.
-
-```ts
-if (unpickedIngredients.length > 0) {
-  throw new ManufacturingError("Pick all ingredients before completing the order.", 400)
-}
-```
-
-### Manufacturing material alternates
-
-BOM line alternates are approved draft-planning choices, not separate finished products. Choose the material before release; released execution only picks the chosen ingredient.
-
-```ts
-// Release reserves whichever approved material is already on the draft ingredient row.
-await releaseManufacturingOrder(orderId)
-await pickManufacturingIngredient(orderId, ingredientId)
-```
-
-### Manufacturing batch execution
-
-Batch-mode orders create execution batches on release, pick/complete one batch at a time, and stay `released` until the final batch completes. Batch completion creates one produced lot per batch; direct parent completion is invalid for batch-mode orders.
-
-### Manufacturing sales-line snapshots
-
-`manufacturingOrders.salesOrderLineId` is a snapshot. Draft MO edits must survive sales-order line rewrites by re-linking via `salesOrderId + productId` when possible, or preserving the stored snapshot if the user did not change it.
-
-```ts
-if (isUnchangedSnapshot && replacementLine) return replacementLine
-if (isUnchangedSnapshot) return existingSnapshot
-```
-
-### Manufacturing sales-line claims
-
-`manufacturingOrders.salesOrderLineId` is also a one-time claim for sales-driven MO creation. Linked `draft`, `released`, and `completed` MOs block another linked MO for that sales line; only `cancelled` reopens it.
-
-```ts
-inArray(manufacturingOrders.status, ["draft", "released", "completed"])
-```
-
-### Manufacturing product templates
-
-New manufacturing-order product pickers should only list products whose active BOM still has at least one non-deleted ingredient.
-
-```ts
-.filter((product) => (bomByProduct.get(product.id) ?? []).length > 0)
-```
-
-### Item deletes with active manufacturing orders
-
-Items used by draft or released manufacturing orders cannot be soft-deleted, whether they are the finished product or an ingredient snapshot row.
-
-```ts
-if (activeManufacturingRef) {
-  return { deleted: false, usedInActiveManufacturing: true }
-}
-```
+- `items.expectedQty` is inbound supply, not a manual counter. Recompute from active released MOs + active ordered/partial POs after every status-changing write via `recomputeExpectedQty(tx, affectedItemIds)`. Batch-mode MOs contribute only unfinished planned output.
+- Round derived quantities to 4 decimals before shortage checks or stock deltas. Use `multiplyQuantity(...)` — never raw JS float multiplication.
+- MOs store `requestedQuantity` (user input) separately from `plannedQuantity` (batch-rounded). Forms edit `requestedQuantity`; execution math uses `plannedQuantity`.
+- Release may warn `409` + shortage payload and continue after `confirmShortage: true`. Completion hard-blocks on shortages before any stock mutation.
+- Discrete orders pick every ingredient before `/complete`. Completion reuses persisted pick allocations — never deduct stock again. Detail/history pages link into `/execute`; the actual work lives in execution queue/detail routes.
+- Batch-mode orders create execution batches on release, pick/complete one batch at a time, stay `released` until the final batch completes, and produce one lot per batch. Direct parent completion is invalid for batch-mode.
+- BOM line alternates are draft-planning choices: choose the material before release; released execution only picks the chosen ingredient.
+- `salesOrderLineId` is both a snapshot and a one-time claim. Linked `draft|released|completed` MOs block another linked MO for that sales line; only `cancelled` reopens it. On sales-line rewrites, re-link via `salesOrderId + productId` when possible, or preserve unchanged snapshots.
+- New-MO product pickers list only products whose active BOM has at least one non-deleted ingredient.
+- Items used by `draft` or `released` MOs cannot be soft-deleted (finished product OR ingredient snapshot row).
 
 ### Soft deletes
 
@@ -894,7 +699,7 @@ Never merge main into your branch — always rebase so history stays linear.
 - Order form (line items + oversell): `app/(dashboard)/sales/order-form.tsx`
 - BOM editor: `app/(dashboard)/inventory/bom-editor.tsx`
 - Data table: `app/(dashboard)/inventory/data-table.tsx`
-- Shared components: `components/sortable-header.tsx`, `components/field-skeleton.tsx`
+- Shared components: `components/sortable-header.tsx`
 - Format helpers: `lib/format.ts`
 - API handler wrapper: `lib/api/handler.ts`
 - Zod schemas: `lib/schemas/items.ts`, `lib/schemas/sales-orders.ts`, `lib/schemas/customers.ts`
