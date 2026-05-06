@@ -226,7 +226,7 @@ export function FeedbackWidget() {
         <Button
           type="button"
           size="lg"
-          className="fixed bottom-6 right-6 z-50 h-11 px-4 text-sm shadow-lg"
+          className="fixed bottom-20 right-6 z-50 h-11 px-4 text-sm shadow-lg"
         >
           Feedback
         </Button>
