@@ -176,7 +176,10 @@ export function ManufacturingOrderForm({
       : {
           ...manufacturingOrderDefaultValues,
           salesOrderId: initialSalesOrderId ?? null,
-          plannedDate: initialSalesOrderPreview?.requestedDate ?? null,
+          plannedDate:
+            initialSalesOrderPreview?.shipDate ??
+            initialSalesOrderPreview?.requestedDate ??
+            null,
         },
   });
 
@@ -292,6 +295,10 @@ export function ManufacturingOrderForm({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               plannedDate: values.plannedDate,
+              salesOrderLineIds:
+                salesOrderPreview?.lines
+                  .filter((line) => line.status === "will_create")
+                  .map((line) => line.salesOrderLineId) ?? [],
               notes: values.notes,
             }),
           }
@@ -415,7 +422,7 @@ export function ManufacturingOrderForm({
     form.setValue("productId", "");
     form.setValue("plannedQuantity", "");
     form.setValue("ingredients", []);
-    form.setValue("plannedDate", selected.requestedDate ?? null, {
+    form.setValue("plannedDate", selected.shipDate ?? selected.requestedDate ?? null, {
       shouldValidate: true,
       shouldDirty: true,
     });
@@ -515,11 +522,6 @@ export function ManufacturingOrderForm({
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Order Basics</FieldLegend>
-            <FieldDescription>
-              {isEditing
-                ? "Adjust details for this draft order."
-                : "Select a confirmed or partially shipped sales order to auto-fill batch creation, or choose a product directly for a standalone order."}
-            </FieldDescription>
             <FieldGroup>
               {!isEditing && (
                 <Controller
@@ -570,9 +572,6 @@ export function ManufacturingOrderForm({
                           </ComboboxList>
                         </ComboboxContent>
                       </Combobox>
-                      <FieldDescription>
-                        Optional. Selecting an order switches this form to whole-order MO creation.
-                      </FieldDescription>
                       {selectedSalesOrder?.disabledReason && (
                         <p className="text-xs text-muted-foreground">
                           {selectedSalesOrder.disabledReason}
@@ -649,10 +648,6 @@ export function ManufacturingOrderForm({
                               </ComboboxList>
                             </ComboboxContent>
                           </Combobox>
-                          <FieldDescription>
-                            Optional. Update or clear the sales link for this draft
-                            order.
-                          </FieldDescription>
                           {fieldState.invalid && (
                             <FieldError errors={[fieldState.error]} />
                           )}
@@ -761,11 +756,11 @@ export function ManufacturingOrderForm({
                         onBlur={field.onBlur}
                         aria-invalid={fieldState.invalid}
                       />
-                      <FieldDescription>
-                        {isSalesOrderMode
-                          ? "Applies to every manufacturing order created from this sales order."
-                          : "Optional target date for this order."}
-                      </FieldDescription>
+                      {isSalesOrderMode && (
+                        <FieldDescription>
+                          Shared by every created order.
+                        </FieldDescription>
+                      )}
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}
@@ -779,10 +774,6 @@ export function ManufacturingOrderForm({
           {isSalesOrderMode ? (
             <FieldSet className="gap-5">
               <FieldLegend>Sales Order Preview</FieldLegend>
-              <FieldDescription>
-                The system will create one draft manufacturing order for every
-                line marked as will create.
-              </FieldDescription>
               <FieldGroup>
                 {previewQuery.isLoading ? (
                   <div className="rounded-lg border border-dashed px-4 py-6">
@@ -884,7 +875,7 @@ export function ManufacturingOrderForm({
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
-                      Select a confirmed or partially shipped sales order to preview the batch.
+                      Select an open sales order.
                     </p>
                   </div>
                 )}
@@ -894,8 +885,7 @@ export function ManufacturingOrderForm({
             <FieldSet className="gap-5">
               <FieldLegend>Ingredients</FieldLegend>
               <FieldDescription>
-                These rows are copied from the product BOM. Draft orders can adjust
-                quantity per unit, but rows cannot be added or removed.
+                Draft orders can adjust quantities only.
               </FieldDescription>
               <FieldGroup>
                 {fields.length > 0 ? (
@@ -1085,8 +1075,8 @@ export function ManufacturingOrderForm({
                   <div className="rounded-lg border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
                       {watchedProductId
-                        ? "This product does not currently have any eligible BOM ingredients."
-                        : "Choose a product to load its BOM ingredients."}
+                        ? "No eligible BOM ingredients."
+                        : "Select a product."}
                     </p>
                   </div>
                 )}
@@ -1100,12 +1090,6 @@ export function ManufacturingOrderForm({
 
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Notes</FieldLegend>
-            <FieldDescription>
-              Add any internal context you want to keep with this order.
-              {isSalesOrderMode
-                ? " The same note will be copied to every created manufacturing order."
-                : ""}
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 control={form.control}

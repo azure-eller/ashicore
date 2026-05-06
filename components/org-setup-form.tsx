@@ -139,7 +139,7 @@ export function OrgSetupForm({
           <CardHeader>
             <CardTitle>Opening your organization</CardTitle>
             <CardDescription>
-              Redirecting you into {organizations[0].name}.
+              {organizations[0].name}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -159,9 +159,6 @@ export function OrgSetupForm({
         <Card>
           <CardHeader>
             <CardTitle>Choose your organization</CardTitle>
-            <CardDescription>
-              Pick which workspace you want to open.
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -192,9 +189,6 @@ export function OrgSetupForm({
       <Card>
         <CardHeader>
           <CardTitle>Create your organization</CardTitle>
-          <CardDescription>
-            Set up your workspace to get started
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit}>

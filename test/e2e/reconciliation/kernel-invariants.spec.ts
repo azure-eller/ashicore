@@ -89,6 +89,7 @@ async function createConfirmedSalesOrderFixture(params: {
     body: JSON.stringify({
       customerId: params.customerId,
       status: "draft",
+      shipDate: "2026-04-15",
       requestedDate: null,
       notes: null,
       lines: [
@@ -405,6 +406,7 @@ test.describe("inventory kernel invariants", () => {
     const payload = {
       customerId,
       status: "draft",
+      shipDate: "2026-04-15",
       requestedDate: null,
       notes: "request replay fixture",
       lines: [

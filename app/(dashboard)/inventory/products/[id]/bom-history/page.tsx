@@ -20,7 +20,10 @@ import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import { cn } from "@/lib/utils";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { BOM_QTY_PER_UNIT_TOOLTIP } from "@/lib/tooltip-copy";
-import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
+import {
+  formatMinimumLotAgeRequirement,
+  getMinimumLotAgeDays,
+} from "@/lib/bom/constraints";
 
 export default async function ProductBomHistoryPage({
   params,
@@ -169,9 +172,7 @@ export default async function ProductBomHistoryPage({
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {minimumLotAgeDays
-                            ? `Lot must be at least ${minimumLotAgeDays} ${
-                                minimumLotAgeDays === 1 ? "day" : "days"
-                              } old.`
+                            ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
                             : "\u2014"}
                         </TableCell>
                       </TableRow>

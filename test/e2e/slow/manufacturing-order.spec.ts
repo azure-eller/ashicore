@@ -54,6 +54,7 @@ async function createSalesOrder(payload: {
     body: JSON.stringify({
       customerId: payload.customerId,
       status: "draft",
+      shipDate: payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
@@ -172,14 +173,31 @@ async function createLinkedManufacturingOrderExpectingFailure(payload: {
 async function createManufacturingOrdersFromSalesOrder(payload: {
   salesOrderId: string;
   plannedDate?: string | null;
+  salesOrderLineIds?: string[];
   notes?: string | null;
 }) {
+  let salesOrderLineIds = payload.salesOrderLineIds;
+
+  if (!salesOrderLineIds) {
+    const previewResponse = await testFetch(
+      `/api/sales-orders/${payload.salesOrderId}/manufacturing-orders`
+    );
+    const preview = (await previewResponse.json()) as {
+      lines?: Array<{ salesOrderLineId: string; status: string }>;
+    };
+    salesOrderLineIds =
+      preview.lines
+        ?.filter((line) => line.status === "will_create")
+        .map((line) => line.salesOrderLineId) ?? [];
+  }
+
   const response = await testFetch(
     `/api/sales-orders/${payload.salesOrderId}/manufacturing-orders`,
     {
       method: "POST",
       body: JSON.stringify({
         plannedDate: payload.plannedDate ?? null,
+        salesOrderLineIds,
         notes: payload.notes ?? null,
       }),
     }
@@ -575,22 +593,29 @@ test.describe("Manufacturing order flow", () => {
     expect(batchOrder).toBeTruthy();
     await confirmSalesOrder(batchSalesOrderId, true);
 
-    await page.goto(`/manufacturing/orders/new?salesOrderId=${batchSalesOrderId}`);
-    await expect(page.getByText("Sales Order Preview")).toBeVisible();
+    await page.goto(`/sales/orders/${batchSalesOrderId}`);
+    await page.getByRole("button", { name: "Create MOs", exact: true }).first().click();
+    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
     await expect(page.getByText(batchOrder.orderNumber)).toBeVisible();
-    await expect(page.locator("table")).toContainText(productName);
-    await expect(page.locator("table")).toContainText(nonManufacturableProductName);
-    await expect(page.locator("table")).toContainText("Will create");
-    await expect(page.locator("table")).toContainText("Skipped");
-    await expect(page.locator("table")).toContainText(
+    const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
+    await expect(dialog.locator("table")).toContainText(productName);
+    await expect(dialog.locator("table")).toContainText(nonManufacturableProductName);
+    await expect(dialog.locator("table")).toContainText("Will create");
+    await expect(dialog.locator("table")).toContainText("Skipped");
+    await expect(dialog.locator("table")).toContainText(
       "Product has no active BOM ingredients."
     );
 
-    await selectDate(page, page.getByLabel("Batch Planned Date"), expectedBatchPlannedDate);
-    await page.getByLabel("Notes").fill("Batch manufacturing coverage");
-    await page.getByRole("button", { name: "Create 1 Order" }).click();
+    await selectDate(page, dialog.getByLabel("Planned Date"), expectedBatchPlannedDate);
+    const createResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(
+          `/api/sales-orders/${batchSalesOrderId}/manufacturing-orders`
+        ) && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Create 1 order" }).click();
+    expect((await createResponse).status()).toBe(201);
 
-    await page.waitForURL(`**/sales/orders/${batchSalesOrderId}`);
     await expect(page.getByText("Linked Manufacturing Orders")).toBeVisible();
 
     const lineRows = await db
@@ -614,7 +639,7 @@ test.describe("Manufacturing order flow", () => {
     expect(batchManufacturingOrder.salesOrderLineId).toBe(lineByItemId.get(productId));
     expect(batchManufacturingOrder.plannedQuantity).toBe("2.0000");
     expect(batchManufacturingOrder.plannedDate).toBe(expectedBatchPlannedDate);
-    expect(batchManufacturingOrder.notes).toBe("Batch manufacturing coverage");
+    expect(batchManufacturingOrder.notes).toBeNull();
 
     const batchIngredients = await db
       .select()
@@ -719,15 +744,18 @@ test.describe("Manufacturing order flow", () => {
     expect(completeResult.body?.id).toBe(repeatOrderId);
 
     await page.goto(`/sales/orders/${repeatSalesOrderId}`);
-    const detailCreateButton = page.getByRole("button", {
-      name: "Create MOs",
-      exact: true,
-    });
-    await expect(detailCreateButton).toBeDisabled();
-    await expect(detailCreateButton).toHaveAttribute(
-      "data-disabled-reason",
-      "All manufacturable lines already have linked manufacturing orders."
-    );
+    await expect(
+      page.getByRole("button", { name: "Plan Fulfillment", exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create MOs", exact: true })
+    ).toHaveCount(0);
+
+    const [repeatLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, repeatSalesOrderId))
+      .limit(1);
 
     const retryResponse = await testFetch(
       `/api/sales-orders/${repeatSalesOrderId}/manufacturing-orders`,
@@ -735,6 +763,7 @@ test.describe("Manufacturing order flow", () => {
         method: "POST",
         body: JSON.stringify({
           plannedDate: "2026-05-04",
+          salesOrderLineIds: [repeatLine.id],
           notes: "Second linked order should be blocked",
         }),
       }

@@ -858,8 +858,7 @@ export function PurchaseOrderDetail({
           <DialogHeader>
             <DialogTitle>Receive Purchase Order</DialogTitle>
             <DialogDescription>
-              Enter the quantities received for each line. Blank values are ignored
-              and each receipt creates a new internal lot.
+              Blank values are ignored; receipts create lots.
             </DialogDescription>
           </DialogHeader>
 

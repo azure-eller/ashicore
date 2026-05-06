@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/select";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -156,9 +155,6 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Variant Identity</FieldLegend>
-            <FieldDescription>
-              Values for each variant dimension of <span className="font-medium">{masterName}</span>.
-            </FieldDescription>
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field>
@@ -179,9 +175,6 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                     readOnly
                     className="bg-muted/40 font-medium"
                   />
-                  <FieldDescription>
-                    Derived from the master name and variant dimensions.
-                  </FieldDescription>
                 </Field>
               </div>
 
@@ -255,9 +248,6 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                     />
                     <div className="flex flex-col gap-1">
                       <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
-                      <FieldDescription>
-                        Show this variant in the main Products catalog.
-                      </FieldDescription>
                     </div>
                   </Field>
                 )}
@@ -310,9 +300,6 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
 
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Pricing & Stock</FieldLegend>
-            <FieldDescription>
-              Set variant-specific pricing and safety stock.
-            </FieldDescription>
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Controller
@@ -331,10 +318,6 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                         placeholder="0.00"
                         inputMode="decimal"
                       />
-                      <FieldDescription>
-                        Purchase-unit price. Inventory cost converts this to stock-unit cost
-                        automatically.
-                      </FieldDescription>
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}

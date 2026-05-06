@@ -86,9 +86,6 @@ export function ResetPasswordForm({
     <Card>
       <CardHeader>
         <CardTitle>Choose a new password</CardTitle>
-        <CardDescription>
-          Set a new password for future ERP sign-ins.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit}>

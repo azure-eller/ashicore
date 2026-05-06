@@ -476,13 +476,6 @@ export function ItemForm({
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Basics</FieldLegend>
-            <FieldDescription>
-              {isVariant
-                ? "Master name is inherited, and the variant title is derived from its dimensions."
-                : isMaster
-                  ? "Name and category for this variant master."
-                  : `Name, category, and unit details for this ${typeLabel.toLowerCase()}.`}
-            </FieldDescription>
             <FieldGroup>
               {isVariant ? (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -510,9 +503,6 @@ export function ItemForm({
                       readOnly
                       className="bg-muted/40 font-medium"
                     />
-                    <FieldDescription>
-                      Derived from the master name and variant dimensions.
-                    </FieldDescription>
                   </Field>
                 </div>
               ) : (
@@ -717,11 +707,6 @@ export function ItemForm({
                           ))}
                         </SelectContent>
                       </Select>
-                      {!fieldState.invalid && (
-                        <FieldDescription>
-                          Leave blank to purchase this {typeLabel.toLowerCase()} in stocking units.
-                        </FieldDescription>
-                      )}
                       {fieldState.invalid && (
                         <FieldError errors={[fieldState.error]} />
                       )}
@@ -743,9 +728,6 @@ export function ItemForm({
                       />
                       <div className="flex flex-col gap-1">
                         <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
-                        <FieldDescription>
-                          Show this product in the main Products catalog.
-                        </FieldDescription>
                       </div>
                     </Field>
                   )}
@@ -788,11 +770,6 @@ export function ItemForm({
                         inputMode="decimal"
                         autoComplete="off"
                       />
-                      {!fieldState.invalid && (
-                        <FieldDescription>
-                          Enter the stocking-unit equivalent for one purchase unit.
-                        </FieldDescription>
-                      )}
                       {fieldState.invalid && (
                         <FieldError errors={[fieldState.error]} />
                       )}
@@ -808,9 +785,6 @@ export function ItemForm({
               <FieldSeparator />
               <FieldSet className="max-w-4xl gap-5">
                 <FieldLegend>Variant Axes</FieldLegend>
-                <FieldDescription>
-                  Define the dimensions that vary under this variant master.
-                </FieldDescription>
                 <FieldGroup>
                   <Controller
                     name="variantAxes"
@@ -839,11 +813,6 @@ export function ItemForm({
 
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Pricing & Stock</FieldLegend>
-            <FieldDescription>
-              {isEditing
-                ? "Update pricing, stock level, and safety stock threshold."
-                : "Set the default pricing and starting inventory."}
-            </FieldDescription>
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 {itemType === "material" && (
@@ -866,8 +835,8 @@ export function ItemForm({
                         />
                         <FieldDescription>
                           {purchaseUnit
-                            ? `Price per ${purchaseUnit.name}. Inventory cost converts this to ${stockingUnit?.name ?? "stock"} cost automatically.`
-                            : `Price per ${stockingUnit?.name ?? "stock"} unit.`}
+                            ? `Per ${purchaseUnit.name}; converts to ${stockingUnit?.name ?? "stock"} cost.`
+                            : `Per ${stockingUnit?.name ?? "stock"} unit.`}
                         </FieldDescription>
                         {fieldState.invalid && (
                           <FieldError errors={[fieldState.error]} />
@@ -902,8 +871,7 @@ export function ItemForm({
                           className={isEditing ? "bg-muted/40 text-muted-foreground" : undefined}
                         />
                         <FieldDescription>
-                          Per {stockingUnit?.name ?? "stock"} unit. Updated automatically from
-                          opening stock and purchase receipts.
+                          Auto-updated from stock and receipts.
                         </FieldDescription>
                         {isEditing && (
                           <div className="pt-2">
@@ -1018,8 +986,8 @@ export function ItemForm({
                     <FieldLegend>Recipe / Bill of Materials</FieldLegend>
                     <FieldDescription>
                       {watchedManufacturingMode === "batch"
-                        ? "Ingredients needed to produce one batch of this product."
-                        : "Ingredients needed to produce one unit of this product."}
+                        ? "Ingredients per batch."
+                        : "Ingredients per unit."}
                     </FieldDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1103,11 +1071,7 @@ export function ItemForm({
                         />
                         {fieldState.invalid ? (
                           <FieldError errors={[fieldState.error]} />
-                        ) : (
-                          <FieldDescription>
-                            Number of finished units produced per batch.
-                          </FieldDescription>
-                        )}
+                        ) : null}
                       </Field>
                     )}
                   />
@@ -1121,7 +1085,7 @@ export function ItemForm({
                   <FieldGroup>
                     <Field>
                       <FieldDescription>
-                        Saving recipe changes will create a new BOM revision.
+                        Creates a new BOM revision on save.
                       </FieldDescription>
                     </Field>
                     <Controller
@@ -1142,11 +1106,7 @@ export function ItemForm({
                           />
                           {fieldState.invalid ? (
                             <FieldError errors={[fieldState.error]} />
-                          ) : (
-                            <FieldDescription>
-                              Optional context shown in BOM revision history.
-                            </FieldDescription>
-                          )}
+                          ) : null}
                         </Field>
                       )}
                     />

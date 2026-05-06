@@ -27,7 +27,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -229,9 +228,6 @@ export function PricingScheduleForm({
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Schedule</FieldLegend>
-            <FieldDescription>
-              Choose who this schedule applies to and which unit/package type it controls.
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -345,9 +341,6 @@ export function PricingScheduleForm({
                       aria-invalid={fieldState.invalid}
                       rows={4}
                     />
-                    <FieldDescription>
-                      Optional internal notes about when this discount curve should be used.
-                    </FieldDescription>
                     {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                   </Field>
                 )}
@@ -360,7 +353,7 @@ export function PricingScheduleForm({
           <FieldSet className="gap-5">
             <FieldLegend>Quantity Breaks</FieldLegend>
             <FieldDescription>
-              Breaks apply one discount percent to the item’s base selling price.
+              Discounts apply to base selling price.
             </FieldDescription>
             <FieldGroup className="gap-4">
               {fields.map((field, index) => (
@@ -503,9 +496,6 @@ export function PricingScheduleForm({
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Create Category</DialogTitle>
-            <DialogDescription>
-              Define a new pricing category to group customers.
-            </DialogDescription>
           </DialogHeader>
           <FieldGroup>
             <Field>

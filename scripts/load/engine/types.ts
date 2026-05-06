@@ -111,6 +111,7 @@ export type ExistingSalesOrder = {
   status: string;
   customerName: string;
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
   notes: string | null;
   lineSignature: string;
@@ -171,6 +172,7 @@ export type ReadySalesImportOrder = {
   totalAmount: string;
   lines: PreparedSalesImportLine[];
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
 };
 

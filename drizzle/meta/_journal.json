@@ -435,6 +435,13 @@
       "when": 1777864087706,
       "tag": "0061_yellow_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1778033607297,
+      "tag": "0062_strong_clint_barton",
+      "breakpoints": true
     }
   ]
 }

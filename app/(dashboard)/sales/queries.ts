@@ -74,6 +74,7 @@ import type {
 } from "@/lib/schemas/pricing-schedules";
 import type {
   BulkConfirmSalesOrders,
+  SalesFulfillmentPlanInput,
   InsertSalesOrder,
   SalesShipmentCostsInput,
   SalesShipmentInput,
@@ -95,6 +96,7 @@ import type {
   SalesOrderEditData,
   SalesLinePricingResult,
   SalesOrderListRow,
+  SalesShippingQueueRow,
   SalesOrderItemOption,
   SalesShippingReadiness,
   SalesMarginSummary,
@@ -337,6 +339,15 @@ type PricingScheduleBreakRecord = {
 type DraftOrderConfirmationPayload = {
   id: string;
   orderNumber: string;
+  customerId: string;
+  customerName: string;
+  shipDate: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
   preparedLines: PreparedOrderLineBase[];
   affectedItemIds: string[];
 };
@@ -833,7 +844,9 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
   const [order] = await tx
     .select({
       id: salesOrders.id,
+      orderNumber: salesOrders.orderNumber,
       status: salesOrders.status,
+      shipDate: salesOrders.shipDate,
     })
     .from(salesOrders)
     .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
@@ -981,6 +994,389 @@ function buildShipmentEntries(
   });
 }
 
+type FulfillmentPlanOrderSnapshot = {
+  id: string;
+  orderNumber: string;
+  customerId: string;
+  customerName: string;
+  status: string;
+  shipDate: string | null;
+  requestedDate: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+};
+
+type ShipAddress = {
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+};
+
+type CustomerShipAddress = ShipAddress & {
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
+};
+
+function hasShipAddress(address: ShipAddress) {
+  return [
+    address.shipLine1,
+    address.shipLine2,
+    address.shipCity,
+    address.shipRegion,
+    address.shipPostcode,
+    address.shipCountry,
+  ].some((part) => part != null && part.trim() !== "");
+}
+
+function customerAddressFallback(customer: CustomerShipAddress | null): ShipAddress {
+  if (!customer) {
+    return {
+      shipLine1: null,
+      shipLine2: null,
+      shipCity: null,
+      shipRegion: null,
+      shipPostcode: null,
+      shipCountry: null,
+    };
+  }
+
+  if (hasShipAddress(customer)) {
+    return {
+      shipLine1: customer.shipLine1,
+      shipLine2: customer.shipLine2,
+      shipCity: customer.shipCity,
+      shipRegion: customer.shipRegion,
+      shipPostcode: customer.shipPostcode,
+      shipCountry: customer.shipCountry,
+    };
+  }
+
+  return {
+    shipLine1: customer.billingLine1,
+    shipLine2: customer.billingLine2,
+    shipCity: customer.billingCity,
+    shipRegion: customer.billingRegion,
+    shipPostcode: customer.billingPostcode,
+    shipCountry: customer.billingCountry,
+  };
+}
+
+async function resolveShipmentAddressInTx(
+  tx: Tx,
+  order: ShipAddress & { customerId: string }
+): Promise<ShipAddress> {
+  if (hasShipAddress(order)) {
+    return {
+      shipLine1: order.shipLine1,
+      shipLine2: order.shipLine2,
+      shipCity: order.shipCity,
+      shipRegion: order.shipRegion,
+      shipPostcode: order.shipPostcode,
+      shipCountry: order.shipCountry,
+    };
+  }
+
+  const [customer] = await tx
+    .select({
+      shipLine1: customers.shipLine1,
+      shipLine2: customers.shipLine2,
+      shipCity: customers.shipCity,
+      shipRegion: customers.shipRegion,
+      shipPostcode: customers.shipPostcode,
+      shipCountry: customers.shipCountry,
+      billingLine1: customers.billingLine1,
+      billingLine2: customers.billingLine2,
+      billingCity: customers.billingCity,
+      billingRegion: customers.billingRegion,
+      billingPostcode: customers.billingPostcode,
+      billingCountry: customers.billingCountry,
+    })
+    .from(customers)
+    .where(eq(customers.id, order.customerId));
+
+  return customerAddressFallback(customer ?? null);
+}
+
+type SalesFulfillmentPlanResult = {
+  id: string;
+  shipmentId: string;
+};
+
+async function getActiveDraftShipmentInTx(
+  tx: Tx,
+  orderId: string,
+  shipmentId?: string | null
+) {
+  const conditions = [
+    eq(salesShipments.salesOrderId, orderId),
+    eq(salesShipments.status, "draft"),
+  ];
+
+  if (shipmentId) {
+    conditions.push(eq(salesShipments.id, shipmentId));
+  }
+
+  const [shipment] = await tx
+    .select({
+      id: salesShipments.id,
+      status: salesShipments.status,
+    })
+    .from(salesShipments)
+    .where(and(...conditions))
+    .orderBy(asc(salesShipments.sequence), asc(salesShipments.createdAt))
+    .limit(1)
+    .for("update");
+
+  return shipment ?? null;
+}
+
+async function upsertDraftShipmentForFulfillmentPlanInTx(
+  tx: Tx,
+  orgId: string,
+  order: FulfillmentPlanOrderSnapshot,
+  data: SalesFulfillmentPlanInput
+) {
+  const shipAddress = await resolveShipmentAddressInTx(tx, order);
+  const shipmentData: SalesShipmentInput = {
+    fulfillmentType: data.fulfillmentType,
+    scheduledDate: data.deliveryDate,
+    notes: data.shipmentNotes,
+    lines: data.shipmentLines,
+  };
+  const existingShipment = await getActiveDraftShipmentInTx(
+    tx,
+    order.id,
+    data.shipmentId
+  );
+
+  if (data.shipmentId && !existingShipment) {
+    throw new SalesError("Draft shipment not found.", 404);
+  }
+
+  if (existingShipment) {
+    const states = await getShipmentLineStatesInTx(tx, order.id, {
+      excludeShipmentId: existingShipment.id,
+    });
+    const entries = buildShipmentEntries(states, shipmentData);
+
+    await tx
+      .delete(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, existingShipment.id));
+    await tx.insert(salesShipmentLines).values(
+      entries.map((entry) => ({
+        salesShipmentId: existingShipment.id,
+        salesOrderLineId: entry.state.id,
+        itemId: entry.state.itemId,
+        itemName: entry.state.itemName,
+        itemSku: entry.state.itemSku,
+        unitName: entry.state.unitName,
+        quantity: normalizeNumeric(entry.quantity),
+        sortOrder: entry.state.sortOrder,
+      }))
+    );
+
+    await tx
+      .update(salesShipments)
+      .set({
+        fulfillmentType: shipmentData.fulfillmentType,
+        scheduledDate: shipmentData.scheduledDate,
+        notes: shipmentData.notes,
+        ...shipAddress,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesShipments.id, existingShipment.id));
+
+    return existingShipment.id;
+  }
+
+  const states = await getShipmentLineStatesInTx(tx, order.id);
+  const entries = buildShipmentEntries(states, shipmentData);
+  const sequence = await getNextShipmentSequenceInTx(tx, order.id);
+  const shipmentNumber = `${order.orderNumber}-S${sequence}`;
+  const now = new Date();
+
+  const [shipment] = await tx
+    .insert(salesShipments)
+    .values({
+      organizationId: orgId,
+      salesOrderId: order.id,
+      shipmentNumber,
+      sequence,
+      status: "draft",
+      fulfillmentType: shipmentData.fulfillmentType,
+      scheduledDate: shipmentData.scheduledDate,
+      notes: shipmentData.notes,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      ...shipAddress,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: salesShipments.id });
+
+  await tx.insert(salesShipmentLines).values(
+    entries.map((entry) => ({
+      salesShipmentId: shipment.id,
+      salesOrderLineId: entry.state.id,
+      itemId: entry.state.itemId,
+      itemName: entry.state.itemName,
+      itemSku: entry.state.itemSku,
+      unitName: entry.state.unitName,
+      quantity: normalizeNumeric(entry.quantity),
+      sortOrder: entry.state.sortOrder,
+    }))
+  );
+
+  return shipment.id;
+}
+
+type AutoDraftShipmentOrderSnapshot = {
+  id: string;
+  orderNumber: string;
+  customerId: string;
+  customerName: string;
+  shipDate: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+};
+
+async function syncSalesOrderShipDateFromShipmentsInTx(tx: Tx, orderId: string) {
+  const [row] = await tx
+    .select({
+      scheduledDate: salesShipments.scheduledDate,
+    })
+    .from(salesShipments)
+    .where(
+      and(
+        eq(salesShipments.salesOrderId, orderId),
+        sql`${salesShipments.status} <> 'cancelled'`,
+        sql`${salesShipments.scheduledDate} IS NOT NULL`
+      )
+    )
+    .orderBy(asc(salesShipments.scheduledDate), asc(salesShipments.sequence))
+    .limit(1);
+
+  await tx
+    .update(salesOrders)
+    .set({ shipDate: row?.scheduledDate ?? null, updatedAt: new Date() })
+    .where(eq(salesOrders.id, orderId));
+}
+
+async function upsertDefaultDraftShipmentForOrderInTx(
+  tx: Tx,
+  orgId: string,
+  order: AutoDraftShipmentOrderSnapshot
+) {
+  if (!order.shipDate) {
+    throw new SalesError("Ship date is required to confirm a sales order.", 400, {
+      errors: {
+        shipDate: ["Ship date is required to confirm a sales order"],
+      },
+    });
+  }
+
+  const existingShipment = await getActiveDraftShipmentInTx(tx, order.id);
+  const states = await getShipmentLineStatesInTx(tx, order.id, {
+    excludeShipmentId: existingShipment?.id,
+  });
+  const lines = [...states.values()].flatMap((state) => {
+    const quantity = existingShipment
+      ? normalizeShipmentQuantity(remainingToShip(state) - state.plannedQuantity)
+      : unplannedRemaining(state);
+
+    if (quantity <= 0) return [];
+    return [{ salesOrderLineId: state.id, quantity: normalizeNumeric(quantity) }];
+  });
+
+  if (lines.length === 0) return existingShipment?.id ?? null;
+
+  const shipmentData: SalesShipmentInput = {
+    fulfillmentType: "delivery",
+    scheduledDate: order.shipDate,
+    notes: null,
+    lines,
+  };
+  const shipAddress = await resolveShipmentAddressInTx(tx, order);
+  const entries = buildShipmentEntries(states, shipmentData);
+  const now = new Date();
+
+  if (existingShipment) {
+    await tx
+      .delete(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, existingShipment.id));
+    await tx.insert(salesShipmentLines).values(
+      entries.map((entry) => ({
+        salesShipmentId: existingShipment.id,
+        salesOrderLineId: entry.state.id,
+        itemId: entry.state.itemId,
+        itemName: entry.state.itemName,
+        itemSku: entry.state.itemSku,
+        unitName: entry.state.unitName,
+        quantity: normalizeNumeric(entry.quantity),
+        sortOrder: entry.state.sortOrder,
+      }))
+    );
+
+    await tx
+      .update(salesShipments)
+      .set({ scheduledDate: order.shipDate, ...shipAddress, updatedAt: now })
+      .where(eq(salesShipments.id, existingShipment.id));
+
+    return existingShipment.id;
+  }
+
+  const sequence = await getNextShipmentSequenceInTx(tx, order.id);
+  const shipmentNumber = `${order.orderNumber}-S${sequence}`;
+  const [shipment] = await tx
+    .insert(salesShipments)
+    .values({
+      organizationId: orgId,
+      salesOrderId: order.id,
+      shipmentNumber,
+      sequence,
+      status: "draft",
+      fulfillmentType: shipmentData.fulfillmentType,
+      scheduledDate: shipmentData.scheduledDate,
+      notes: shipmentData.notes,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      ...shipAddress,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: salesShipments.id });
+
+  await tx.insert(salesShipmentLines).values(
+    entries.map((entry) => ({
+      salesShipmentId: shipment.id,
+      salesOrderLineId: entry.state.id,
+      itemId: entry.state.itemId,
+      itemName: entry.state.itemName,
+      itemSku: entry.state.itemSku,
+      unitName: entry.state.unitName,
+      quantity: normalizeNumeric(entry.quantity),
+      sortOrder: entry.state.sortOrder,
+    }))
+  );
+
+  return shipment.id;
+}
+
 async function getNextShipmentSequenceInTx(tx: Tx, salesOrderId: string) {
   const result = await tx.execute(
     sql`SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
@@ -1006,7 +1402,15 @@ async function prepareDraftOrdersForConfirmationInTx(
       id: salesOrders.id,
       orderNumber: salesOrders.orderNumber,
       customerId: salesOrders.customerId,
+      customerName: salesOrders.customerName,
       status: salesOrders.status,
+      shipDate: salesOrders.shipDate,
+      shipLine1: salesOrders.shipLine1,
+      shipLine2: salesOrders.shipLine2,
+      shipCity: salesOrders.shipCity,
+      shipRegion: salesOrders.shipRegion,
+      shipPostcode: salesOrders.shipPostcode,
+      shipCountry: salesOrders.shipCountry,
       createdAt: salesOrders.createdAt,
     })
     .from(salesOrders)
@@ -1020,6 +1424,14 @@ async function prepareDraftOrdersForConfirmationInTx(
 
   if (orders.some((order) => order.status !== "draft")) {
     throw new SalesError("Only draft orders can be confirmed.", 400);
+  }
+
+  if (orders.some((order) => !order.shipDate)) {
+    throw new SalesError("Ship date is required to confirm a sales order.", 400, {
+      errors: {
+        shipDate: ["Ship date is required to confirm a sales order"],
+      },
+    });
   }
 
   const lines = await tx
@@ -1085,6 +1497,15 @@ async function prepareDraftOrdersForConfirmationInTx(
     preparedOrders.push({
       id: order.id,
       orderNumber: order.orderNumber,
+      customerId: order.customerId,
+      customerName: order.customerName,
+      shipDate: order.shipDate,
+      shipLine1: order.shipLine1,
+      shipLine2: order.shipLine2,
+      shipCity: order.shipCity,
+      shipRegion: order.shipRegion,
+      shipPostcode: order.shipPostcode,
+      shipCountry: order.shipCountry,
       preparedLines,
       affectedItemIds: preparedLines.map((line) => line.itemId),
     });
@@ -1222,6 +1643,7 @@ async function prepareOrderPayload(
   customerId: string;
   customerName: string;
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
   notes: string | null;
   shipLine1: string | null;
@@ -1292,6 +1714,7 @@ async function prepareOrderPayload(
     customerId: customer.id,
     customerName: customer.name,
     orderDate: payload.orderDate,
+    shipDate: payload.shipDate ?? null,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
     shipLine1: payload.shipLine1 ?? null,
@@ -2282,6 +2705,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             customerEmail: customers.email,
             status: salesOrders.status,
             orderDate: salesOrders.orderDate,
+            shipDate: salesOrders.shipDate,
             requestedDate: salesOrders.requestedDate,
             shippedAt: salesOrders.shippedAt,
             totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
@@ -2292,7 +2716,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           .from(salesOrders)
           .leftJoin(customers, eq(salesOrders.customerId, customers.id))
           .where(isNull(salesOrders.deletedAt))
-          .orderBy(desc(salesOrders.createdAt));
+          .orderBy(
+            desc(salesOrders.createdAt),
+            asc(salesOrders.orderNumber),
+            asc(salesOrders.id)
+          );
 
         if (orderRows.length === 0) {
           return [];
@@ -2412,6 +2840,56 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
   );
 }
 
+export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> {
+  const orders = await getSalesOrders();
+  const queueCandidates = orders.filter(
+    (order) => order.status === "confirmed" || order.status === "partially_shipped"
+  );
+
+  const details = await Promise.all(
+    queueCandidates.map((order) => getSalesOrder(order.id))
+  );
+
+  return details.flatMap((order) => {
+    if (!order) return [];
+    if (order.status !== "confirmed" && order.status !== "partially_shipped") {
+      return [];
+    }
+    const activeDraftShipment =
+      order.shipments.find((shipment) => shipment.status === "draft") ?? null;
+    const openManufacturingOrders = order.linkedManufacturingOrders.filter(
+      (manufacturingOrder) =>
+        manufacturingOrder.status === "draft" ||
+        manufacturingOrder.status === "released"
+    );
+
+    return [
+      {
+        salesOrderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        status: order.status,
+        deliveryDate: order.requestedDate,
+        requestedDate: order.requestedDate,
+        shipDate: order.shipDate,
+        notes: order.notes,
+        shipLine1: order.shipLine1,
+        shipLine2: order.shipLine2,
+        shipCity: order.shipCity,
+        shipRegion: order.shipRegion,
+        shipPostcode: order.shipPostcode,
+        shipCountry: order.shipCountry,
+        activeDraftShipmentId: activeDraftShipment?.id ?? null,
+        recommendedShipmentId: activeDraftShipment?.id ?? null,
+        shippingReadiness: order.shippingReadiness,
+        lines: order.lines,
+        shipments: order.shipments,
+        openManufacturingOrders,
+      } satisfies SalesShippingQueueRow,
+    ];
+  });
+}
+
 export async function getSalesOrder(
   id: string,
   options?: { includeDeleted?: boolean }
@@ -2431,6 +2909,7 @@ export async function getSalesOrder(
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         orderDate: salesOrders.orderDate,
+        shipDate: salesOrders.shipDate,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
         shippedAt: salesOrders.shippedAt,
@@ -2838,7 +3317,11 @@ export async function getSalesOrder(
           isNull(manufacturingOrders.deletedAt)
         )
       )
-      .orderBy(desc(manufacturingOrders.createdAt));
+      .orderBy(
+        desc(manufacturingOrders.createdAt),
+        asc(manufacturingOrders.orderNumber),
+        asc(manufacturingOrders.id)
+      );
 
     const hasManufacturableLines = manufacturingSummary?.hasManufacturableLines ?? false;
     const linkedManufacturingOrderRows = linkedManufacturingOrders.map((row) => ({
@@ -2892,6 +3375,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         customerId: salesOrders.customerId,
         status: salesOrders.status,
         orderDate: salesOrders.orderDate,
+        shipDate: salesOrders.shipDate,
         requestedDate: salesOrders.requestedDate,
         notes: salesOrders.notes,
         shipLine1: salesOrders.shipLine1,
@@ -2981,6 +3465,7 @@ export async function createSalesOrder(
         customerName: prepared.customerName,
         status: data.status,
         orderDate: prepared.orderDate,
+        shipDate: prepared.shipDate,
         requestedDate: prepared.requestedDate,
         notes: prepared.notes,
         shipLine1: prepared.shipLine1,
@@ -3018,6 +3503,20 @@ export async function createSalesOrder(
           itemId: line.itemId,
           quantity: parseFloat(line.quantity),
         })),
+      });
+
+      await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
+        id: order.id,
+        orderNumber,
+        customerId: prepared.customerId,
+        customerName: prepared.customerName,
+        shipDate: prepared.shipDate,
+        shipLine1: prepared.shipLine1,
+        shipLine2: prepared.shipLine2,
+        shipCity: prepared.shipCity,
+        shipRegion: prepared.shipRegion,
+        shipPostcode: prepared.shipPostcode,
+        shipCountry: prepared.shipCountry,
       });
     }
 
@@ -3151,6 +3650,7 @@ export async function updateSalesOrder(
         customerName: prepared.customerName,
         status: data.status,
         orderDate: prepared.orderDate,
+        shipDate: prepared.shipDate,
         requestedDate: prepared.requestedDate,
         notes: prepared.notes,
         shipLine1: prepared.shipLine1,
@@ -3178,6 +3678,20 @@ export async function updateSalesOrder(
           itemId: line.itemId,
           quantity: parseFloat(line.quantity),
         })),
+      });
+
+      await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
+        id,
+        orderNumber: existingOrder.orderNumber,
+        customerId: prepared.customerId,
+        customerName: prepared.customerName,
+        shipDate: prepared.shipDate,
+        shipLine1: prepared.shipLine1,
+        shipLine2: prepared.shipLine2,
+        shipCity: prepared.shipCity,
+        shipRegion: prepared.shipRegion,
+        shipPostcode: prepared.shipPostcode,
+        shipCountry: prepared.shipCountry,
       });
     }
 
@@ -3221,11 +3735,13 @@ export async function getSalesOrderForBol(
     const [order] = await tx
       .select({
         orderNumber: salesOrders.orderNumber,
+        customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
         requestedDate: salesOrders.requestedDate,
         shippedAt: salesOrders.shippedAt,
         notes: salesOrders.notes,
         status: salesOrders.status,
+        shipDate: salesOrders.shipDate,
         shipLine1: salesOrders.shipLine1,
         shipLine2: salesOrders.shipLine2,
         shipCity: salesOrders.shipCity,
@@ -3250,8 +3766,16 @@ export async function getSalesOrderForBol(
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder));
 
+    const shipAddress = await resolveShipmentAddressInTx(tx, order);
+
     return {
-      ...order,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      requestedDate: order.requestedDate,
+      shippedAt: order.shippedAt,
+      notes: order.notes,
+      status: order.status,
+      ...shipAddress,
       lines,
     };
   });
@@ -3291,6 +3815,7 @@ export async function getSalesShipmentForBol(
         orderNumber: salesShipments.orderNumber,
         shipmentNumber: salesShipments.shipmentNumber,
         customerName: salesShipments.customerName,
+        customerId: salesOrders.customerId,
         requestedDate: salesOrders.requestedDate,
         scheduledDate: salesShipments.scheduledDate,
         shippedAt: salesShipments.shippedAt,
@@ -3303,6 +3828,12 @@ export async function getSalesShipmentForBol(
         shipRegion: salesShipments.shipRegion,
         shipPostcode: salesShipments.shipPostcode,
         shipCountry: salesShipments.shipCountry,
+        orderShipLine1: salesOrders.shipLine1,
+        orderShipLine2: salesOrders.shipLine2,
+        orderShipCity: salesOrders.shipCity,
+        orderShipRegion: salesOrders.shipRegion,
+        orderShipPostcode: salesOrders.shipPostcode,
+        orderShipCountry: salesOrders.shipCountry,
       })
       .from(salesShipments)
       .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
@@ -3327,10 +3858,122 @@ export async function getSalesShipmentForBol(
       .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
       .orderBy(asc(salesShipmentLines.sortOrder));
 
+    const shipAddress = hasShipAddress(shipment)
+      ? {
+          shipLine1: shipment.shipLine1,
+          shipLine2: shipment.shipLine2,
+          shipCity: shipment.shipCity,
+          shipRegion: shipment.shipRegion,
+          shipPostcode: shipment.shipPostcode,
+          shipCountry: shipment.shipCountry,
+        }
+      : await resolveShipmentAddressInTx(tx, {
+          customerId: shipment.customerId,
+          shipLine1: shipment.orderShipLine1,
+          shipLine2: shipment.orderShipLine2,
+          shipCity: shipment.orderShipCity,
+          shipRegion: shipment.orderShipRegion,
+          shipPostcode: shipment.orderShipPostcode,
+          shipCountry: shipment.orderShipCountry,
+        });
+
     return {
-      ...shipment,
+      orderNumber: shipment.orderNumber,
+      shipmentNumber: shipment.shipmentNumber,
+      customerName: shipment.customerName,
+      requestedDate: shipment.requestedDate,
+      scheduledDate: shipment.scheduledDate,
+      shippedAt: shipment.shippedAt,
+      notes: shipment.notes,
+      status: shipment.status,
+      fulfillmentType: shipment.fulfillmentType,
+      ...shipAddress,
       lines,
     };
+  });
+}
+
+export async function planSalesOrderFulfillment(
+  orderId: string,
+  data: SalesFulfillmentPlanInput,
+  options?: { idempotencyKey?: string }
+): Promise<SalesFulfillmentPlanResult | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<SalesFulfillmentPlanResult | null>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "planSalesOrderFulfillment",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { orderId, data },
+      }
+    );
+
+    if (replay.replayed) return replay.result;
+
+    const [order] = await tx
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        customerId: salesOrders.customerId,
+        customerName: salesOrders.customerName,
+        status: salesOrders.status,
+        shipDate: salesOrders.shipDate,
+        requestedDate: salesOrders.requestedDate,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
+      })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)))
+      .for("update");
+
+    if (!order) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
+    }
+
+    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+      throw new SalesError(
+        "Only confirmed or partially shipped orders can be planned for fulfillment.",
+        400
+      );
+    }
+
+    if (order.requestedDate !== data.deliveryDate) {
+      await tx
+        .update(salesOrders)
+        .set({ requestedDate: data.deliveryDate, updatedAt: new Date() })
+        .where(eq(salesOrders.id, order.id));
+    }
+
+    const shipmentId = await upsertDraftShipmentForFulfillmentPlanInTx(
+      tx,
+      orgId,
+      order,
+      data
+    );
+    await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
+    const result = {
+      id: order.id,
+      shipmentId,
+    };
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 }
 
@@ -3353,6 +3996,7 @@ export async function createSalesShipment(
       .select({
         id: salesOrders.id,
         orderNumber: salesOrders.orderNumber,
+        customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
         status: salesOrders.status,
         shipLine1: salesOrders.shipLine1,
@@ -3387,6 +4031,7 @@ export async function createSalesShipment(
     const entries = buildShipmentEntries(states, data);
     const sequence = await getNextShipmentSequenceInTx(tx, orderId);
     const shipmentNumber = `${order.orderNumber}-S${sequence}`;
+    const shipAddress = await resolveShipmentAddressInTx(tx, order);
     const now = new Date();
 
     const [shipment] = await tx
@@ -3402,12 +4047,7 @@ export async function createSalesShipment(
         notes: data.notes,
         orderNumber: order.orderNumber,
         customerName: order.customerName,
-        shipLine1: order.shipLine1,
-        shipLine2: order.shipLine2,
-        shipCity: order.shipCity,
-        shipRegion: order.shipRegion,
-        shipPostcode: order.shipPostcode,
-        shipCountry: order.shipCountry,
+        ...shipAddress,
         createdAt: now,
         updatedAt: now,
       })
@@ -3425,6 +4065,8 @@ export async function createSalesShipment(
         sortOrder: entry.state.sortOrder,
       }))
     );
+
+    await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
 
     const result = { id: shipment.id };
     await finishInventoryOperationInTx(tx, {
@@ -3456,6 +4098,13 @@ export async function updateSalesShipment(
       .select({
         id: salesShipments.id,
         status: salesShipments.status,
+        customerId: salesOrders.customerId,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
       })
       .from(salesShipments)
       .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
@@ -3486,6 +4135,7 @@ export async function updateSalesShipment(
       excludeShipmentId: shipmentId,
     });
     const entries = buildShipmentEntries(states, data);
+    const shipAddress = await resolveShipmentAddressInTx(tx, shipment);
 
     await tx.delete(salesShipmentLines).where(
       eq(salesShipmentLines.salesShipmentId, shipmentId)
@@ -3509,9 +4159,12 @@ export async function updateSalesShipment(
         fulfillmentType: data.fulfillmentType,
         scheduledDate: data.scheduledDate,
         notes: data.notes,
+        ...shipAddress,
         updatedAt: new Date(),
       })
       .where(eq(salesShipments.id, shipmentId));
+
+    await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
 
     const result = { id: shipmentId };
     await finishInventoryOperationInTx(tx, {
@@ -3636,6 +4289,8 @@ export async function cancelSalesShipment(
         .update(salesShipments)
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(eq(salesShipments.id, shipmentId));
+
+      await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
     }
 
     const result = { id: shipmentId };
@@ -4260,6 +4915,8 @@ export async function confirmSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
+    await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, order);
+
     const lineRows = await getSalesLineQuantitiesForReservationInTx(tx, id);
     await reserveForSalesInTx(tx, {
       organizationId: orgId,
@@ -4343,6 +5000,8 @@ export async function bulkConfirmSalesOrders(
       .where(inArray(salesOrders.id, orderIds));
 
     for (const order of orders) {
+      await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, order);
+
       const lineRows = await getSalesLineQuantitiesForReservationInTx(tx, order.id);
       await reserveForSalesInTx(tx, {
         organizationId: orgId,

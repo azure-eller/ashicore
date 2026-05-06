@@ -1,15 +1,18 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryItemBalances,
   inventoryLotBalances,
   lots,
+  manufacturingOrders,
   purchaseOrderLines,
   salesOrderLines,
   salesOrders,
+  salesShipments,
   customers as salesCustomers,
 } from "../../../lib/db/schema";
 import {
+  createCustomer,
   createItem,
   createPurchaseOrder,
   createSalesOrder,
@@ -120,7 +123,7 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
     await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
-    await selectDate(page, page.getByLabel("Requested Delivery Date"), "2026-04-15");
+    await selectDate(page, page.getByLabel("Delivery Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
@@ -215,6 +218,229 @@ test.describe("Sales write-path smoke", () => {
     }).last();
     await expect(expandedLine).toContainText("150");
     await expect(expandedLine).not.toContainText("-200");
+  });
+
+  test("keeps same-date sales order rows in place after confirming from the list", async ({
+    page,
+    db,
+  }) => {
+    const orderingCustomerName = `Fast Same Date Customer ${ts}`;
+    const customerResult = await createCustomer({
+      name: orderingCustomerName,
+      email: `fast-same-date-${ts}@example.com`,
+    });
+    expect(customerResult.status).toBe(201);
+    const orderingCustomerId = customerResult.body.id as string;
+
+    const materialResult = await createItem({
+      name: `Fast Same Date Material ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-SAME-DATE-${ts}`,
+      category: `Fast Same Date ${ts}`,
+      description: "Material for sales order list sort stability",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "5",
+      stock: "20",
+      safetyStock: "0",
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const firstOrderResult = await createSalesOrder({
+      customerId: orderingCustomerId,
+      requestedDate: "2026-05-20",
+      lines: [{ itemId: materialId, quantity: "1", unitPrice: "5" }],
+    });
+    const secondOrderResult = await createSalesOrder({
+      customerId: orderingCustomerId,
+      requestedDate: "2026-05-20",
+      lines: [{ itemId: materialId, quantity: "1", unitPrice: "5" }],
+    });
+    expect(firstOrderResult.status).toBe(201);
+    expect(secondOrderResult.status).toBe(201);
+
+    const sameDateOrders = await db
+      .select({
+        orderNumber: salesOrders.orderNumber,
+      })
+      .from(salesOrders)
+      .where(
+        inArray(salesOrders.id, [
+          firstOrderResult.body.id as string,
+          secondOrderResult.body.id as string,
+        ])
+      )
+      .orderBy(asc(salesOrders.orderNumber));
+    expect(sameDateOrders).toHaveLength(2);
+    const orderNumbers = sameDateOrders.map((order) => order.orderNumber);
+    const [firstOrderNumber, secondOrderNumber] = orderNumbers;
+    if (!firstOrderNumber || !secondOrderNumber) {
+      throw new Error("Expected two same-date sales orders.");
+    }
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", orderingCustomerName);
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeVisible();
+
+    const getSameDatePositions = () =>
+      page.locator("tbody tr").evaluateAll(
+        (rows, orderNumbers) =>
+          (orderNumbers as string[]).map((orderNumber) =>
+            rows.findIndex((row) => row.textContent?.includes(orderNumber))
+          ),
+        orderNumbers
+      );
+
+    const beforeConfirm = await getSameDatePositions();
+    expect(beforeConfirm).toEqual([0, 1]);
+
+    await page
+      .getByRole("row", { name: new RegExp(firstOrderNumber) })
+      .getByRole("button", { name: "Confirm" })
+      .click();
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toContainText("Confirmed", { timeout: 15_000 });
+
+    await expect
+      .poll(getSameDatePositions, { timeout: 15_000 })
+      .toEqual(beforeConfirm);
+  });
+
+  test("confirming schedules a draft shipment and selected MOs stay separate", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-FULFILLMENT`;
+    const materialResult = await createItem({
+      name: `Fast Fulfillment Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-FULFILL-MAT-${suffix}`,
+      category: `Fast Fulfillment ${suffix}`,
+      description: "Material for fulfillment planning",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const firstProductResult = await createItem({
+      name: `Fast Fulfillment Product One ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-FULFILL-P1-${suffix}`,
+      category: `Fast Fulfillment ${suffix}`,
+      description: "Selected fulfillment product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(firstProductResult.status).toBe(201);
+    const firstProductId = firstProductResult.body.id as string;
+
+    const secondProductResult = await createItem({
+      name: `Fast Fulfillment Product Two ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-FULFILL-P2-${suffix}`,
+      category: `Fast Fulfillment ${suffix}`,
+      description: "Unselected fulfillment product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(secondProductResult.status).toBe(201);
+    const secondProductId = secondProductResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      confirmOversell: true,
+      shipDate: "2026-06-02",
+      requestedDate: "2026-06-05",
+      lines: [
+        { itemId: firstProductId, quantity: "2", unitPrice: "10" },
+        { itemId: secondProductId, quantity: "3", unitPrice: "10" },
+      ],
+    });
+    expect(orderResult.status).toBe(201);
+    const fulfillmentOrderId = orderResult.body.id as string;
+
+    const orderLines = await db
+      .select({
+        id: salesOrderLines.id,
+        itemId: salesOrderLines.itemId,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, fulfillmentOrderId));
+    const lineByItemId = new Map(orderLines.map((line) => [line.itemId, line.id]));
+    const selectedLineId = lineByItemId.get(firstProductId);
+    const unselectedLineId = lineByItemId.get(secondProductId);
+    expect(selectedLineId).toBeTruthy();
+    expect(unselectedLineId).toBeTruthy();
+
+    const createMoResponse = await testFetch(
+      `/api/sales-orders/${fulfillmentOrderId}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          plannedDate: "2026-06-02",
+          salesOrderLineIds: [selectedLineId],
+          notes: null,
+        }),
+      }
+    );
+    expect(createMoResponse.status).toBe(201);
+
+    const [plannedOrder] = await db
+      .select({
+        shipDate: salesOrders.shipDate,
+        requestedDate: salesOrders.requestedDate,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fulfillmentOrderId));
+    expect(plannedOrder.shipDate).toBe("2026-06-02");
+    expect(plannedOrder.requestedDate).toBe("2026-06-05");
+
+    const shipments = await db
+      .select({
+        status: salesShipments.status,
+        scheduledDate: salesShipments.scheduledDate,
+      })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, fulfillmentOrderId));
+    expect(shipments).toEqual([
+      { status: "draft", scheduledDate: "2026-06-02" },
+    ]);
+
+    const createdManufacturingOrders = await db
+      .select({
+        salesOrderLineId: manufacturingOrders.salesOrderLineId,
+        productId: manufacturingOrders.productId,
+        plannedDate: manufacturingOrders.plannedDate,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.salesOrderId, fulfillmentOrderId));
+    expect(createdManufacturingOrders).toEqual([
+      {
+        salesOrderLineId: selectedLineId,
+        productId: firstProductId,
+        plannedDate: "2026-06-02",
+      },
+    ]);
   });
 
   test("potential honors BOM lot age constraints in inventory and sales detail", async ({
@@ -554,7 +780,7 @@ test.describe("Sales write-path smoke", () => {
     });
   });
 
-  test("keeps Create MOs enabled on the orders list when another line is already in production", async ({
+  test("keeps Create MOs available when another line is already in production", async ({
     page,
     db,
   }) => {
@@ -620,11 +846,24 @@ test.describe("Sales write-path smoke", () => {
     expect(orderResult.status).toBe(201);
     const partialMoOrderId = orderResult.body.id as string;
 
+    const linkedMoPreview = await testFetch(
+      `/api/sales-orders/${partialMoOrderId}/manufacturing-orders`
+    );
+    expect(linkedMoPreview.status).toBe(200);
+    const linkedMoPreviewBody = await linkedMoPreview.json();
+    const linkedMoLineIds = linkedMoPreviewBody.lines
+      .filter((line: { status: string }) => line.status === "will_create")
+      .map((line: { salesOrderLineId: string }) => line.salesOrderLineId);
+
     const linkedMoResult = await testFetch(
       `/api/sales-orders/${partialMoOrderId}/manufacturing-orders`,
       {
         method: "POST",
-        body: JSON.stringify({ plannedDate: null, notes: null }),
+        body: JSON.stringify({
+          plannedDate: null,
+          salesOrderLineIds: linkedMoLineIds,
+          notes: null,
+        }),
       }
     );
     expect(linkedMoResult.status).toBe(201);
@@ -658,7 +897,12 @@ test.describe("Sales write-path smoke", () => {
     await filterList(page, "Search orders", order.orderNumber);
 
     const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
-    await expect(orderRow.getByRole("button", { name: "In production" })).toBeVisible();
-    await expect(orderRow.getByRole("link", { name: "Create MOs" })).toBeVisible();
+    await orderRow.getByRole("button", { name: "Create MOs" }).click();
+    const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(productTwoName);
+    await expect(dialog).toContainText("1 order");
+    await selectDate(page, dialog.getByLabel("Planned Date"), "2026-05-22");
+    await expect(dialog.getByRole("button", { name: "Create 1 order" })).toBeEnabled();
   });
 });

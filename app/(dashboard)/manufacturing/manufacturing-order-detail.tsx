@@ -33,7 +33,10 @@ import {
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
-import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
+import {
+  formatMinimumLotAgeRequirement,
+  getMinimumLotAgeDays,
+} from "@/lib/bom/constraints";
 import {
   BATCH_YIELD_TOOLTIP,
   BOM_QTY_PER_BATCH_TOOLTIP,
@@ -447,9 +450,7 @@ export function ManufacturingOrderDetail({
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {minimumLotAgeDays
-                          ? `Lot must be at least ${minimumLotAgeDays} ${
-                              minimumLotAgeDays === 1 ? "day" : "days"
-                            } old.`
+                          ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
                           : "\u2014"}
                       </TableCell>
                     </TableRow>

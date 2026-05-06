@@ -164,6 +164,7 @@ export type SalesOrderListRow = {
   customerEmail: string | null;
   status: SalesOrderStatus;
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
   shippedAt: Date | null;
   totalAmount: string;
@@ -276,6 +277,7 @@ export type SalesOrderDetail = {
   orderNumber: string;
   status: SalesOrderStatus;
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
   notes: string | null;
   shippedAt: Date | null;
@@ -318,11 +320,35 @@ export type SalesOrderDetail = {
   }>;
 };
 
+export type SalesShippingQueueRow = {
+  salesOrderId: string;
+  orderNumber: string;
+  customerName: string;
+  status: Extract<SalesOrderStatus, "confirmed" | "partially_shipped">;
+  shipDate: string | null;
+  deliveryDate: string | null;
+  requestedDate: string | null;
+  notes: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  activeDraftShipmentId: string | null;
+  recommendedShipmentId: string | null;
+  shippingReadiness: SalesShippingReadiness;
+  lines: SalesOrderDetailLine[];
+  shipments: SalesShipmentRow[];
+  openManufacturingOrders: SalesOrderDetail["linkedManufacturingOrders"];
+};
+
 export type SalesOrderEditData = {
   id: string;
   customerId: string;
   status: Extract<SalesOrderStatus, "draft">;
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
   notes: string | null;
   shipLine1: string | null;

@@ -262,7 +262,10 @@ export const MANUFACTURABLE_LINES_TOOLTIP =
   "Lines eligible for manufacturing orders.";
 
 export const REQUESTED_DATE_TOOLTIP =
-  "Date the customer wants the order delivered.";
+  "Customer-facing delivery date.";
+
+export const SALES_ORDER_SHIP_DATE_TOOLTIP =
+  "Operational load date for shipment and production planning.";
 
 export const SALES_ORDER_DATE_TOOLTIP =
   "Date the customer placed the order.";

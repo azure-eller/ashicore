@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryEvents,
@@ -9,7 +9,14 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrders,
 } from "../../../lib/db/schema";
-import { createItem, createUnit, getUnitId, testFetch } from "../../helpers/api";
+import {
+  createItem,
+  createManufacturingOrder,
+  createUnit,
+  getUnitId,
+  releaseManufacturingOrder,
+  testFetch,
+} from "../../helpers/api";
 
 test.describe("Manufacturing write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -146,6 +153,152 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
     expect(updatedOrder.notes).toBe("Fast manufacturing updated");
+  });
+
+  test("keeps manufacturing order rows in place after release from the list", async ({
+    page,
+    db,
+  }) => {
+    const firstOrderResult = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "2",
+      plannedDate: "2026-04-26",
+      notes: "Fast MO list position first",
+      ingredients: [
+        { itemId: sandId, quantityPerUnit: "2" },
+        { itemId: compostId, quantityPerUnit: "1" },
+      ],
+    });
+    const secondOrderResult = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "2",
+      plannedDate: "2026-04-26",
+      notes: "Fast MO list position second",
+      ingredients: [
+        { itemId: sandId, quantityPerUnit: "2" },
+        { itemId: compostId, quantityPerUnit: "1" },
+      ],
+    });
+    expect(firstOrderResult.status).toBe(201);
+    expect(secondOrderResult.status).toBe(201);
+
+    const createdOrders = await db
+      .select({ orderNumber: manufacturingOrders.orderNumber })
+      .from(manufacturingOrders)
+      .where(
+        inArray(manufacturingOrders.id, [
+          firstOrderResult.body.id as string,
+          secondOrderResult.body.id as string,
+        ])
+      )
+      .orderBy(asc(manufacturingOrders.orderNumber));
+    expect(createdOrders).toHaveLength(2);
+    const orderNumbers = createdOrders.map((order) => order.orderNumber);
+    const [firstOrderNumber, secondOrderNumber] = orderNumbers;
+    if (!firstOrderNumber || !secondOrderNumber) {
+      throw new Error("Expected two manufacturing orders.");
+    }
+
+    await page.goto("/manufacturing/orders");
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeVisible();
+
+    const getOrderPositions = () =>
+      page.locator("tbody tr").evaluateAll(
+        (rows, numbers) =>
+          (numbers as string[]).map((orderNumber) =>
+            rows.findIndex((row) => row.textContent?.includes(orderNumber))
+          ),
+        orderNumbers
+      );
+
+    const beforeRelease = await getOrderPositions();
+    expect(beforeRelease.every((position) => position >= 0)).toBe(true);
+
+    await page
+      .getByRole("row", { name: new RegExp(firstOrderNumber) })
+      .getByRole("button", { name: "Release" })
+      .click();
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toContainText("Released", { timeout: 15_000 });
+
+    await expect
+      .poll(getOrderPositions, { timeout: 15_000 })
+      .toEqual(beforeRelease);
+  });
+
+  test("uses generic requirement copy for pick override warnings", async ({
+    page,
+  }) => {
+    const requirementTs = Date.now();
+    const requirementMaterial = await createItem({
+      name: `Fast Requirement Material ${requirementTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-REQ-MAT-${requirementTs}`,
+      category: `Fast Requirement ${requirementTs}`,
+      description: "Material for requirement warning copy",
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(requirementMaterial.status).toBe(201);
+    const requirementMaterialId = requirementMaterial.body.id as string;
+
+    const requirementProduct = await createItem({
+      name: `Fast Requirement Product ${requirementTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-REQ-PRODUCT-${requirementTs}`,
+      category: `Fast Requirement ${requirementTs}`,
+      description: "Product for requirement warning copy",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: requirementMaterialId,
+          quantity: "1",
+          minimumLotAgeDays: 7,
+        },
+      ],
+    });
+    expect(requirementProduct.status).toBe(201);
+    const requirementProductId = requirementProduct.body.id as string;
+
+    const order = await createManufacturingOrder({
+      productId: requirementProductId,
+      plannedQuantity: "2",
+      ingredients: [{ itemId: requirementMaterialId, quantityPerUnit: "1" }],
+    });
+    expect(order.status).toBe(201);
+    const requirementOrderId = order.body.id as string;
+
+    const release = await releaseManufacturingOrder(requirementOrderId, {
+      confirmShortage: true,
+    });
+    expect(release.status).toBe(200);
+
+    await page.goto(`/manufacturing/orders/${requirementOrderId}/execute`);
+    await page.getByRole("button", { name: "Pick", exact: true }).click();
+
+    const warningDialog = page.getByRole("alertdialog", {
+      name: "Pick with requirement override?",
+    });
+    await expect(warningDialog).toBeVisible({ timeout: 15_000 });
+    await expect(warningDialog).toContainText(
+      "Ingredient does not match the >= 7 days age requirement."
+    );
+    await expect(warningDialog).not.toContainText("under-age");
+    await expect(warningDialog).not.toContainText("Lot must be at least");
   });
 
   test("runs a batch-mode order through sequential batch execution", async ({

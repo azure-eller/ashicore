@@ -54,6 +54,7 @@ import {
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import {
+  formatMinimumLotAgeRequirementViolation,
   getMinimumLotAgeDays,
   type BomComponentConstraint,
 } from "@/lib/bom/constraints";
@@ -277,7 +278,7 @@ function subtractDays(value: string, days: number) {
 }
 
 function lotAgeRequirementText(days: number) {
-  return `Lot must be at least ${days} ${days === 1 ? "day" : "days"} old.`;
+  return formatMinimumLotAgeRequirementViolation(days);
 }
 
 function getPickProgressStatus(
@@ -1539,7 +1540,11 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           .leftJoin(items, eq(manufacturingOrders.productId, items.id))
           .leftJoin(masterItems, eq(items.parentId, masterItems.id))
           .where(isNull(manufacturingOrders.deletedAt))
-          .orderBy(desc(manufacturingOrders.createdAt))) as Array<
+          .orderBy(
+            desc(manufacturingOrders.createdAt),
+            asc(manufacturingOrders.orderNumber),
+            asc(manufacturingOrders.id)
+          )) as Array<
           Omit<
             ManufacturingOrderListRow,
             | "productMasterName"
@@ -1756,6 +1761,7 @@ export async function getManufacturingSalesOrderOptions(): Promise<
         id: salesOrders.id,
         orderNumber: salesOrders.orderNumber,
         customerName: salesOrders.customerName,
+        shipDate: salesOrders.shipDate,
         requestedDate: salesOrders.requestedDate,
         createdAt: salesOrders.createdAt,
       })
@@ -1784,6 +1790,7 @@ export async function getManufacturingSalesOrderOptions(): Promise<
         id: order.id,
         orderNumber: order.orderNumber,
         customerName: order.customerName,
+        shipDate: order.shipDate,
         requestedDate: order.requestedDate,
         manufacturableLineCount: summary?.manufacturableLineCount ?? 0,
         hasManufacturableLines: summary?.hasManufacturableLines ?? false,
@@ -1803,6 +1810,7 @@ export async function getManufacturingSalesOrderPreview(
         id: salesOrders.id,
         orderNumber: salesOrders.orderNumber,
         customerName: salesOrders.customerName,
+        shipDate: salesOrders.shipDate,
         requestedDate: salesOrders.requestedDate,
       })
       .from(salesOrders)
@@ -1826,6 +1834,7 @@ export async function getManufacturingSalesOrderPreview(
       salesOrderId: order.id,
       salesOrderNumber: order.orderNumber,
       customerName: order.customerName,
+      shipDate: order.shipDate,
       requestedDate: order.requestedDate,
       manufacturableLineCount: summary?.manufacturableLineCount ?? 0,
       hasManufacturableLines: summary?.hasManufacturableLines ?? false,
@@ -2229,97 +2238,121 @@ export async function createManufacturingOrder(
   );
 }
 
+export async function createManufacturingOrdersFromSalesOrderInTx(
+  tx: Tx,
+  orgId: string,
+  salesOrderId: string,
+  payload: CreateManufacturingOrdersFromSalesOrder
+): Promise<ManufacturingOrdersFromSalesOrderResult> {
+  const [order] = await tx
+    .select({
+      id: salesOrders.id,
+      orderNumber: salesOrders.orderNumber,
+      customerName: salesOrders.customerName,
+      shipDate: salesOrders.shipDate,
+      requestedDate: salesOrders.requestedDate,
+      status: salesOrders.status,
+    })
+    .from(salesOrders)
+    .where(and(eq(salesOrders.id, salesOrderId), isNull(salesOrders.deletedAt)))
+    .for("update");
+
+  if (!order) {
+    throw new ManufacturingError("Sales order not found", 404);
+  }
+
+  if (!["confirmed", "partially_shipped"].includes(order.status)) {
+    throw new ManufacturingError(
+      "Only confirmed or partially shipped sales orders can create manufacturing orders",
+      400
+    );
+  }
+
+  const summary = (
+    await getSalesOrderManufacturingSummariesInTx(tx, [salesOrderId])
+  ).get(salesOrderId);
+
+  if (!summary || !summary.hasManufacturableLines) {
+    throw new ManufacturingError(
+      summary?.disabledReason ?? "No manufacturable lines remain on this order.",
+      400
+    );
+  }
+
+  const plannedDate = payload.plannedDate ?? order.shipDate ?? order.requestedDate ?? null;
+  const selectedLineIds = new Set(payload.salesOrderLineIds);
+  const created: ManufacturingOrdersFromSalesOrderResult["created"] = [];
+  const skipped: ManufacturingOrdersFromSalesOrderResult["skipped"] = [];
+  const summaryLineById = new Map(
+    summary.lines.map((line) => [line.salesOrderLineId, line])
+  );
+  const invalidLine = payload.salesOrderLineIds.find((lineId) => {
+    const line = summaryLineById.get(lineId);
+    return !line || line.status !== "will_create" || line.skipReason != null;
+  });
+
+  if (invalidLine) {
+    throw new ManufacturingError(
+      "Selected manufacturing orders changed. Refresh and try again.",
+      409
+    );
+  }
+
+  for (const line of summary.lines) {
+    if (line.status === "skipped" || line.skipReason != null) {
+      skipped.push({
+        salesOrderLineId: line.salesOrderLineId,
+        reason: line.skipReason ?? "existing_active_mo",
+      });
+      continue;
+    }
+
+    if (!selectedLineIds.has(line.salesOrderLineId)) {
+      continue;
+    }
+
+    const product = await getValidatedProductInTx(tx, line.itemId);
+    const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
+      computeBatchPlanning(product, Number(line.quantity));
+    const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
+      tx,
+      line.itemId,
+      ingredientMultiplier
+    );
+    const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
+      product,
+      bomRevisionId,
+      salesLink: {
+        salesOrderId: order.id,
+        salesOrderLineId: line.salesOrderLineId,
+        salesOrderNumber: order.orderNumber,
+        customerName: order.customerName,
+      },
+      requestedQuantity: line.quantity,
+      plannedQuantity,
+      numberOfBatches,
+      plannedDate,
+      notes: payload.notes ?? null,
+      ingredients,
+    });
+
+    created.push({
+      salesOrderLineId: line.salesOrderLineId,
+      manufacturingOrderId: createdOrder.id,
+      orderNumber: createdOrder.orderNumber,
+    });
+  }
+
+  return { created, skipped };
+}
+
 export async function createManufacturingOrdersFromSalesOrder(
   salesOrderId: string,
   payload: CreateManufacturingOrdersFromSalesOrder
 ): Promise<ManufacturingOrdersFromSalesOrderResult> {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const [order] = await tx
-      .select({
-        id: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        customerName: salesOrders.customerName,
-        requestedDate: salesOrders.requestedDate,
-        status: salesOrders.status,
-      })
-      .from(salesOrders)
-      .where(
-        and(
-          eq(salesOrders.id, salesOrderId),
-          isNull(salesOrders.deletedAt)
-        )
-      )
-      .for("update");
-
-    if (!order) {
-      throw new ManufacturingError("Sales order not found", 404);
-    }
-
-    if (!["confirmed", "partially_shipped"].includes(order.status)) {
-      throw new ManufacturingError(
-        "Only confirmed or partially shipped sales orders can create manufacturing orders",
-        400
-      );
-    }
-
-    const summary = (
-      await getSalesOrderManufacturingSummariesInTx(tx, [salesOrderId])
-    ).get(salesOrderId);
-
-    if (!summary || !summary.hasManufacturableLines) {
-      throw new ManufacturingError(
-        summary?.disabledReason ?? "No manufacturable lines remain on this order.",
-        400
-      );
-    }
-
-    const plannedDate = payload.plannedDate ?? order.requestedDate ?? null;
-    const created: ManufacturingOrdersFromSalesOrderResult["created"] = [];
-    const skipped: ManufacturingOrdersFromSalesOrderResult["skipped"] = [];
-
-    for (const line of summary.lines) {
-      if (line.status === "skipped" || line.skipReason != null) {
-        skipped.push({
-          salesOrderLineId: line.salesOrderLineId,
-          reason: line.skipReason ?? "existing_active_mo",
-        });
-        continue;
-      }
-
-      const product = await getValidatedProductInTx(tx, line.itemId);
-      const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
-        computeBatchPlanning(product, Number(line.quantity));
-      const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
-        tx,
-        line.itemId,
-        ingredientMultiplier
-      );
-      const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
-        product,
-        bomRevisionId,
-        salesLink: {
-          salesOrderId: order.id,
-          salesOrderLineId: line.salesOrderLineId,
-          salesOrderNumber: order.orderNumber,
-          customerName: order.customerName,
-        },
-        requestedQuantity: line.quantity,
-        plannedQuantity,
-        numberOfBatches,
-        plannedDate,
-        notes: payload.notes ?? null,
-        ingredients,
-      });
-
-      created.push({
-        salesOrderLineId: line.salesOrderLineId,
-        manufacturingOrderId: createdOrder.id,
-        orderNumber: createdOrder.orderNumber,
-      });
-    }
-
-    return { created, skipped };
-  });
+  return withAuthedOrgContext(async (tx, orgId) =>
+    createManufacturingOrdersFromSalesOrderInTx(tx, orgId, salesOrderId, payload)
+  );
 }
 
 export async function updateManufacturingOrder(
@@ -3225,6 +3258,7 @@ export async function getManufacturingExecutionDetail(
           "expectedBatchYield"
         ),
         numberOfBatches: manufacturingOrders.numberOfBatches,
+        salesOrderId: manufacturingOrders.salesOrderId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
         plannedDate: manufacturingOrders.plannedDate,

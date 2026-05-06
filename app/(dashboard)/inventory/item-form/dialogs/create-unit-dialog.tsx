@@ -5,7 +5,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -70,9 +69,6 @@ export function CreateUnitDialog({
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Create Unit</DialogTitle>
-          <DialogDescription>
-            Define a new unit of measure for your inventory.
-          </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>

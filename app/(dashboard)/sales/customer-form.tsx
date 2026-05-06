@@ -20,7 +20,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -304,9 +303,6 @@ export function CustomerForm({
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Basics</FieldLegend>
-            <FieldDescription>
-              Name and contact details for this customer.
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -429,7 +425,7 @@ export function CustomerForm({
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Billing Address</FieldLegend>
             <FieldDescription>
-              Mailing address used for invoices and accounting sync.
+              Used for invoices and accounting sync.
             </FieldDescription>
             <AddressFields
               control={form.control}
@@ -450,7 +446,7 @@ export function CustomerForm({
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Shipping Address</FieldLegend>
             <FieldDescription>
-              Default ship-to address for sales orders. Each order can override it.
+              Default for sales orders; editable per order.
             </FieldDescription>
             <FieldGroup>
               <Field>
@@ -485,9 +481,6 @@ export function CustomerForm({
 
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Notes</FieldLegend>
-            <FieldDescription>
-              Add any internal context you want to keep with this customer.
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -526,9 +519,6 @@ export function CustomerForm({
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Create Category</DialogTitle>
-            <DialogDescription>
-              Define a new pricing category to group customers.
-            </DialogDescription>
           </DialogHeader>
           <FieldGroup>
             <Field>

@@ -87,6 +87,7 @@ function buildLineSignature(line: {
 function buildOrderSignature(input: {
   customerName: string;
   orderDate: string;
+  shipDate: string | null;
   requestedDate: string | null;
   lines: Array<{
     itemSku: string | null;
@@ -102,6 +103,7 @@ function buildOrderSignature(input: {
   return [
     normalizeCustomerKey(input.customerName),
     input.orderDate,
+    input.shipDate ?? "",
     input.requestedDate ?? "",
     lineSignature,
   ].join("||");
@@ -186,6 +188,7 @@ export async function evaluateSalesImportInTx(
       status: salesOrders.status,
       customerName: salesOrders.customerName,
       orderDate: salesOrders.orderDate,
+      shipDate: salesOrders.shipDate,
       requestedDate: salesOrders.requestedDate,
       notes: salesOrders.notes,
       lineId: salesOrderLines.id,
@@ -218,6 +221,7 @@ export async function evaluateSalesImportInTx(
         status: row.status,
         customerName: row.customerName,
         orderDate: row.orderDate,
+        shipDate: row.shipDate,
         requestedDate: row.requestedDate,
         notes: row.notes,
         lineSignature: "",
@@ -241,11 +245,13 @@ export async function evaluateSalesImportInTx(
     status: order.status,
     customerName: order.customerName,
     orderDate: order.orderDate,
+    shipDate: order.shipDate,
     requestedDate: order.requestedDate,
     notes: order.notes,
     lineSignature: buildOrderSignature({
       customerName: order.customerName,
       orderDate: order.orderDate,
+      shipDate: order.shipDate,
       requestedDate: order.requestedDate,
       lines: order.lines,
     }),
@@ -299,6 +305,7 @@ export async function evaluateSalesImportInTx(
     const label = buildOrderLabel(order);
     const requestedDate = config.requestedDateBySourceRow[order.sourceRows[0]] ?? null;
     const orderDate = order.orderDate ?? requestedDate ?? new Date().toISOString().slice(0, 10);
+    const shipDate = requestedDate;
 
     const issues: string[] = [];
     const preparedLines: PreparedSalesImportLine[] = [];
@@ -392,6 +399,7 @@ export async function evaluateSalesImportInTx(
     const signature = buildOrderSignature({
       customerName: order.customerName,
       orderDate,
+      shipDate,
       requestedDate,
       lines: preparedLines,
     });
@@ -422,6 +430,7 @@ export async function evaluateSalesImportInTx(
       totalAmount,
       lines: preparedLines,
       orderDate,
+      shipDate,
       requestedDate,
     });
   }
@@ -502,6 +511,7 @@ export async function applySalesImportOrdersInTx(
             customerId: customerId!,
             customerName: order.customerName,
             orderDate: order.orderDate,
+            shipDate: order.shipDate,
             requestedDate: order.requestedDate,
             notes: order.notes,
             totalAmount: order.totalAmount,
@@ -534,6 +544,7 @@ export async function applySalesImportOrdersInTx(
             customerName: order.customerName,
             status: "draft",
             orderDate: order.orderDate,
+            shipDate: order.shipDate,
             requestedDate: order.requestedDate,
             notes: order.notes,
             totalAmount: order.totalAmount,

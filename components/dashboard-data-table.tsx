@@ -231,6 +231,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   const table = useReactTable({
     data,
     columns,
+    getRowId: (row) => row.id,
     enableRowSelection: rowSelectionConfig,
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,

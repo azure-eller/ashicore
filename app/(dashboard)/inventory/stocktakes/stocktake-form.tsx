@@ -133,10 +133,6 @@ export function StocktakeForm({
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Basics</FieldLegend>
-            <FieldDescription>
-              Name the stocktake and choose all items, one item type, or a
-              type-specific category.
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 name="name"
@@ -190,10 +186,6 @@ export function StocktakeForm({
                         ))}
                       </SelectContent>
                     </Select>
-                    <FieldDescription>
-                      Quick scopes stay at the top, with categories grouped under
-                      materials and products.
-                    </FieldDescription>
                     {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                   </Field>
                 )}
@@ -224,10 +216,7 @@ export function StocktakeForm({
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>How It Works</FieldLegend>
             <FieldDescription>
-              The stocktake snapshots available stock for every active item in the
-              chosen scope. Blank counted quantities are left unchanged. Completing
-              the stocktake automatically applies counted totals back to available
-              stock.
+              Snapshot available stock; completion applies counted totals.
             </FieldDescription>
           </FieldSet>
         </FieldGroup>

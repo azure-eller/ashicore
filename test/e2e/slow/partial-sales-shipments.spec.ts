@@ -58,6 +58,7 @@ async function createDraftSalesOrder(params: {
   const result = await createSalesOrder({
     customerId: params.customerId,
     status: "draft",
+    shipDate: "2026-04-15",
     lines: [
       {
         itemId: params.itemId,
@@ -127,23 +128,32 @@ test.describe("Partial sales shipments", () => {
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, orderId));
 
-    const firstShipment = await testFetch(`/api/sales-orders/${orderId}/shipments`, {
-      method: "POST",
-      body: JSON.stringify({
-        fulfillmentType: "pickup",
-        scheduledDate: null,
-        notes: "First partial pickup",
-        lines: [{ salesOrderLineId: line.id, quantity: "4" }],
-      }),
-    });
-    expect(firstShipment.status).toBe(201);
-    const firstShipmentBody = await firstShipment.json();
+    const [autoShipment] = await db
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, orderId));
+    expect(autoShipment.id).toBeTruthy();
+
+    const firstShipment = await testFetch(
+      `/api/sales-orders/${orderId}/shipments/${autoShipment.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          fulfillmentType: "pickup",
+          scheduledDate: "2026-04-15",
+          notes: "First partial pickup",
+          lines: [{ salesOrderLineId: line.id, quantity: "4" }],
+        }),
+      }
+    );
+    expect(firstShipment.status).toBe(200);
+    const firstShipmentBody = { id: autoShipment.id };
 
     const overlappingShipment = await testFetch(`/api/sales-orders/${orderId}/shipments`, {
       method: "POST",
       body: JSON.stringify({
         fulfillmentType: "pickup",
-        scheduledDate: null,
+        scheduledDate: "2026-04-15",
         notes: null,
         lines: [{ salesOrderLineId: line.id, quantity: "7" }],
       }),
@@ -266,7 +276,7 @@ test.describe("Partial sales shipments", () => {
       method: "POST",
       body: JSON.stringify({
         fulfillmentType: "pickup",
-        scheduledDate: null,
+        scheduledDate: "2026-04-16",
         notes: "Final pickup",
         lines: [{ salesOrderLineId: line.id, quantity: "6" }],
       }),

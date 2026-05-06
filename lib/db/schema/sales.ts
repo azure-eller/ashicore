@@ -202,6 +202,7 @@ export const salesOrders = salesSchema
       orderDate: date("order_date", { mode: "string" })
         .notNull()
         .default(sql`CURRENT_DATE`),
+      shipDate: date("ship_date", { mode: "string" }),
       requestedDate: date("requested_date", { mode: "string" }),
       notes: text("notes"),
       shippedAt: timestamp("shipped_at"),

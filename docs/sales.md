@@ -19,8 +19,8 @@ Sales v1 includes:
 - projection-backed committed supply from non-deleted confirmed orders with non-deleted lines
 - oversell warnings on confirm-entry actions only
 - sales shipments under confirmed and partially shipped orders
-- draft shipment BOLs before loading
-- final shipment BOLs after shipping
+- automatically generated draft shipment BOLs before loading
+- automatically generated final shipment BOLs after shipping
 - outbound shipment cost capture and margin visibility
 - FIFO stock deduction during shipping
 - `sales_consumption` ledger events for per-lot audit history
@@ -109,8 +109,8 @@ Historical rules:
 - `unplanned_remaining = remaining_to_ship - sum(draft shipment planned_qty)`
 - backend validation enforces draft planned quantity plus shipped quantity cannot exceed ordered quantity minus cancelled quantity
 - shipment numbers use order suffixes like `SO-2026-0123-S1`; numbers are never reused
-- draft shipments are editable/cancellable and can produce a clearly labeled Draft BOL / Planned Shipment
-- shipped shipments are immutable and produce final shipment BOLs
+- draft shipments are editable/cancellable and automatically expose a shipment BOL before loading
+- shipped shipments are immutable and automatically expose final shipment BOLs
 - shipment costs and customer freight recovery stay editable after shipping because they do not change stock movement history
 - shipping a draft shipment consumes live lot-backed stock FIFO for shipment quantities only
 - shipping hard-blocks on insufficient stock; there is no override path

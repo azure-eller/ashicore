@@ -21,12 +21,11 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { SupplierFieldGroups, type SupplierFormValues } from "./supplier-fields";
 
 type ApiError = {
@@ -152,9 +151,6 @@ export function SupplierSelect({
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
-        <FieldDescription>
-          Select an active supplier or create one inline.
-        </FieldDescription>
         {errorMessage && <FieldError>{errorMessage}</FieldError>}
       </Field>
 
@@ -172,9 +168,6 @@ export function SupplierSelect({
         <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Supplier</DialogTitle>
-            <DialogDescription>
-              Create a supplier without leaving this purchase order draft.
-            </DialogDescription>
           </DialogHeader>
 
           {dialogError && <FieldError>{dialogError}</FieldError>}

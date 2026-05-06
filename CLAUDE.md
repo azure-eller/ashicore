@@ -291,11 +291,11 @@ The app sidebar uses this pattern. Never replace it with manual `--sidebar-*` va
 
 ### Tooltips
 
-Add a tooltip only when the trigger is a computed term, domain jargon, an alert indicator, or a disabled/ambiguous icon-only action. Skip tooltips on plain-English labels and obvious actions. See `docs/ui-patterns.md` for the full ruleset.
+Use tooltips when they clarify computed terms, domain jargon, alert indicators, disabled/ambiguous icon-only actions, or compact form guidance that would otherwise add noisy helper text. Skip tooltips that only restate a plain-English label or obvious action. See `docs/ui-patterns.md` for the full ruleset.
 
 Copy: one line, ≤ 80 chars, ends with a period, leads with the definition or formula. Don't restate the trigger label. Shared strings live in `lib/tooltip-copy.ts`.
 
-Triggers: reuse the existing label, link, badge, or status marker as the trigger. No `cursor-help`, no standalone info/help icons.
+Triggers: prefer the existing label, link, badge, or status marker. Standalone help icons are acceptable beside form labels when the guidance is useful but too distracting as visible helper text. No `cursor-help`.
 
 ```tsx
 <SortableHeader column={column} label="Calculated Stock" tooltip="Stock - demand + expected - safety stock." />

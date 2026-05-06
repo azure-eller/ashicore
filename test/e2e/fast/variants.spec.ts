@@ -27,7 +27,7 @@ test.describe("variant master products", () => {
     // Add an axis using the AxesInput component
     const axisInput = page.getByPlaceholder("e.g. Package");
     await axisInput.fill("Package");
-    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await axisInput.press("Enter");
 
     // The axis tag should appear
     await expect(page.getByText("Package").first()).toBeVisible();

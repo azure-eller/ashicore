@@ -50,6 +50,7 @@ async function createConfirmedSalesOrder(payload: {
     body: JSON.stringify({
       customerId: payload.customerId,
       status: "draft",
+      shipDate: "2026-04-15",
       requestedDate: null,
       notes: null,
       lines: [

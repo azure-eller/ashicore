@@ -232,7 +232,7 @@ export function AcceptInvitationForm({
         <CardHeader>
           <CardTitle>Account already exists</CardTitle>
           <CardDescription>
-            You are already signed in as {activeInvitation.email}. Continue to your workspace.
+            Signed in as {activeInvitation.email}.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -250,10 +250,8 @@ export function AcceptInvitationForm({
         <CardHeader>
           <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
           <CardDescription>
-            This invite is for {activeInvitation.email} and starts with{" "}
-            {formatAccessPresetLabel(activeInvitation.presetKey).toLowerCase()} access.
-            Create an account to join this workspace. If you already have an account,
-            sign in instead.
+            {activeInvitation.email} •{" "}
+            {formatAccessPresetLabel(activeInvitation.presetKey)} access.
           </CardDescription>
         </CardHeader>
       <CardContent>

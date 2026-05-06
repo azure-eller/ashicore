@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -61,9 +60,6 @@ export function CurrentStockCostDialog({
               inputMode="decimal"
               autoComplete="off"
             />
-            <FieldDescription>
-              Updated automatically from opening stock and purchase receipts.
-            </FieldDescription>
           </Field>
         </FieldGroup>
         {error && <FieldError>{error}</FieldError>}

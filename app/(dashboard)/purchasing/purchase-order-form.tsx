@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/combobox";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -245,9 +244,6 @@ export function PurchaseOrderForm({
         <FieldGroup className="gap-8">
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Order</FieldLegend>
-            <FieldDescription>
-              Choose the supplier and expected arrival date for this draft PO.
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -294,9 +290,6 @@ export function PurchaseOrderForm({
 
           <FieldSet className="gap-5">
             <FieldLegend>Materials</FieldLegend>
-            <FieldDescription>
-              Add each material once, then set ordered quantity and unit cost.
-            </FieldDescription>
             <FieldGroup className="gap-4">
               {fields.length > 0 ? (
                 <div className="overflow-x-auto rounded-lg border">
@@ -351,7 +344,7 @@ export function PurchaseOrderForm({
               ) : (
                 <div className="rounded-lg border border-dashed px-4 py-6">
                   <p className="text-sm text-muted-foreground">
-                    Add materials to build this purchase order.
+                    No materials added.
                   </p>
                 </div>
               )}
@@ -394,9 +387,6 @@ export function PurchaseOrderForm({
 
           <FieldSet className="max-w-4xl gap-5">
             <FieldLegend>Notes</FieldLegend>
-            <FieldDescription>
-              Capture any supplier-specific notes or receiving context for this PO.
-            </FieldDescription>
             <FieldGroup>
               <Controller
                 control={form.control}

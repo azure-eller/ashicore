@@ -54,11 +54,6 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
             If an account matches that address, we sent a password reset link.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <FieldDescription>
-            You can close this page after you open the link from your inbox.
-          </FieldDescription>
-        </CardContent>
       </Card>
     )
   }
@@ -68,7 +63,7 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
       <CardHeader>
         <CardTitle>Reset your password</CardTitle>
         <CardDescription>
-          Enter your email and we&apos;ll send a reset link if the account exists.
+          We&apos;ll send a reset link if the account exists.
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -26,6 +26,7 @@ import {
 
 async function createDraftSalesOrder(payload: {
   customerId: string;
+  shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
   lines: Array<{
@@ -39,6 +40,7 @@ async function createDraftSalesOrder(payload: {
     body: JSON.stringify({
       customerId: payload.customerId,
       status: "draft",
+      shipDate: payload.shipDate ?? payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
@@ -392,7 +394,7 @@ test.describe("Sales order flow", () => {
     await selectDate(page, page.getByLabel("Order Date"), expectedOrderDate);
     await selectDate(
       page,
-      page.getByLabel("Requested Delivery Date"),
+      page.getByLabel("Delivery Date"),
       expectedRequestedDate
     );
 
@@ -508,7 +510,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByLabel("Order Date")).toContainText(
       expectedOrderDatePickerLabel
     );
-    await expect(page.getByLabel("Requested Delivery Date")).toContainText(
+    await expect(page.getByLabel("Delivery Date")).toContainText(
       expectedRequestedDatePickerLabel
     );
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
@@ -730,31 +732,32 @@ test.describe("Sales order flow", () => {
       });
 
     await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Create MOs", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create MOs", exact: true })).toBeVisible();
   });
 
   test("confirmed orders are read-only from detail", async ({ page }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Ship" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ship" })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Plan Fulfillment", exact: true })
+    ).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Cancel order" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
 
-  test("confirmed orders show Create MOs from detail and the orders table", async ({
+  test("confirmed manufacturable orders show Create MOs from detail and the orders table", async ({
     page,
   }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
-    await page.getByRole("link", { name: "Create MOs", exact: true }).click();
-    await page.waitForURL(`**/manufacturing/orders/new?salesOrderId=${fullOrderId}`);
-    await expect(
-      page.getByRole("heading", { name: "Add Manufacturing Order" })
-    ).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText("Sales Order Preview")).toBeVisible({ timeout: 30000 });
+    await page.getByRole("button", { name: "Create MOs", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
+    await expect(page.getByText(fullOrderNumber)).toBeVisible();
+    await page.keyboard.press("Escape");
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
@@ -763,17 +766,14 @@ test.describe("Sales order flow", () => {
       name: new RegExp(fullOrderNumber),
     });
     await expect(
-      confirmedRow.getByRole("link", { name: "Create MOs" })
+      confirmedRow.getByRole("button", { name: "Create MOs" })
     ).toBeVisible();
-    await confirmedRow.getByRole("link", { name: "Create MOs" }).click();
-    await page.waitForURL(`**/manufacturing/orders/new?salesOrderId=${fullOrderId}`);
-    await expect(
-      page.getByRole("heading", { name: "Add Manufacturing Order" })
-    ).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText("Sales Order Preview")).toBeVisible({ timeout: 30000 });
+    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
+    await expect(page.getByText(fullOrderNumber)).toBeVisible();
   });
 
-  test("confirmed non-manufacturable orders keep Create MOs disabled with a tooltip", async ({
+  test("confirmed non-manufacturable orders do not show production actions", async ({
     page,
     db,
   }) => {
@@ -811,15 +811,12 @@ test.describe("Sales order flow", () => {
     expect(confirmedOrder.status).toBe("confirmed");
 
     await page.goto(`/sales/orders/${noManufacturingOrderId}`);
-    const detailCreateButton = page.getByRole("button", {
-      name: "Create MOs",
-      exact: true,
-    });
-    await expect(detailCreateButton).toBeDisabled();
-    await expect(detailCreateButton).toHaveAttribute(
-      "data-disabled-reason",
-      "No active BOM-backed products remain on this order."
-    );
+    await expect(
+      page.getByRole("button", { name: "Plan Fulfillment", exact: true })
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Create MOs", exact: true })
+    ).toHaveCount(0);
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", noManufacturingOrderNumber);
@@ -827,6 +824,9 @@ test.describe("Sales order flow", () => {
     const disabledRow = page.getByRole("row", {
       name: new RegExp(noManufacturingOrderNumber),
     });
+    await expect(
+      disabledRow.getByRole("button", { name: "Plan Fulfillment" })
+    ).toHaveCount(0);
     await expect(disabledRow.getByRole("button", {
       name: "Create MOs",
     })).toHaveCount(0);
@@ -964,15 +964,6 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, shipOrderId));
 
-    await page.goto(`/sales/orders/${shipOrderId}`);
-    await page.getByRole("button", { name: "Create Shipment" }).click();
-    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toBeVisible();
-    await expect(
-      page.getByLabel(`Shipment quantity for ${primaryProductName}`)
-    ).toHaveValue("3");
-    await page.getByRole("button", { name: "Save Shipment" }).click();
-    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toHaveCount(0);
-
     const [createdShipment] = await db
       .select({ id: salesShipments.id })
       .from(salesShipments)
@@ -1046,7 +1037,7 @@ test.describe("Sales order flow", () => {
     await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Shipping coverage")).toBeVisible();
     await expect(page.locator("table").first()).toContainText(primaryProductName);
-    await expect(page.getByRole("button", { name: "Create Shipment" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Plan Fulfillment" })).toHaveCount(0);
 
     await page.goto("/sales/orders");
     const shippedOrderRow = shipOrderBeforeUi;
@@ -1127,20 +1118,34 @@ test.describe("Sales order flow", () => {
     );
     expect(confirmResponse.status).toBe(200);
 
-    await page.goto(`/sales/orders/${partialOrderId}`);
-    await expect(page.getByText("Partial shortage coverage")).toBeVisible();
-    await page.getByRole("button", { name: "Create Shipment" }).click();
-    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toBeVisible();
-    await page.getByLabel(`Shipment quantity for ${shortItemName}`).fill("5");
-    await page.getByLabel(`Shipment quantity for ${zeroLineItemName}`).fill("0");
-    await page.getByRole("button", { name: "Save Shipment" }).click();
-    await expect(page.getByRole("dialog", { name: "Create Shipment" })).toHaveCount(0);
-
     const [createdShipment] = await db
       .select({ id: salesShipments.id, shipmentNumber: salesShipments.shipmentNumber })
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, partialOrderId));
     expect(createdShipment.id).toBeTruthy();
+
+    const partialLineRows = await db
+      .select({ id: salesOrderLines.id, itemId: salesOrderLines.itemId })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, partialOrderId));
+    const shortLine = partialLineRows.find(
+      (line) => line.itemId === shortItemResult.body.id
+    );
+    expect(shortLine?.id).toBeTruthy();
+
+    const updateShipmentResponse = await testFetch(
+      `/api/sales-orders/${partialOrderId}/shipments/${createdShipment.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-04-19",
+          notes: null,
+          lines: [{ salesOrderLineId: shortLine!.id, quantity: "5" }],
+        }),
+      }
+    );
+    expect(updateShipmentResponse.status).toBe(200);
 
     const createdShipmentLines = await db
       .select({
@@ -1174,7 +1179,7 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/orders/${partialOrderId}`);
     await expect(page.locator("main")).toContainText("remaining quantities were cancelled");
     await expect(page.locator("main")).toContainText(createdShipment.shipmentNumber);
-    await expect(page.getByRole("button", { name: "BOL" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "View BOL" })).toBeVisible();
   });
 
   /* ================================================================ */

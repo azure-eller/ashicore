@@ -139,6 +139,19 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
     accessorKey: "plannedDate",
     header: ({ column }) => <SortableHeader column={column} label="Planned Date" />,
+    sortingFn: (a, b) => {
+      const dateCompare = (a.original.plannedDate ?? "").localeCompare(
+        b.original.plannedDate ?? ""
+      );
+
+      if (dateCompare !== 0) {
+        return dateCompare;
+      }
+
+      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
+        numeric: true,
+      });
+    },
     cell: ({ row }) => formatDate(row.original.plannedDate),
   },
   {
@@ -190,6 +203,7 @@ export function OrdersTable({
       addHref="/manufacturing/orders/new"
       addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
+      initialSorting={[{ id: "orderNumber", desc: true }]}
       deleteAction={{
         endpoint: "/api/manufacturing-orders",
         invalidateQueryKeys: [["manufacturing-orders"], ["items"]],

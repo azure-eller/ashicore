@@ -69,9 +69,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#dddddd",
     borderBottomStyle: "solid",
   },
-  colDesc: { flex: 4 },
-  colQty: { flex: 1, textAlign: "right" },
-  colUnit: { flex: 1 },
+  colDesc: { flex: 1 },
+  colQty: { width: 52, paddingRight: 8, textAlign: "right" },
+  colUnit: { width: 120, paddingLeft: 8 },
   footer: {
     marginTop: 30,
     fontSize: 9,
@@ -138,8 +138,7 @@ export function BillOfLadingDocument({
   const shippedDisplay = order.shippedAt
     ? new Date(order.shippedAt).toLocaleDateString("en-US")
     : "\u2014";
-  const isDraft = order.status === "draft";
-  const title = isDraft ? "Draft BOL" : "Bill of Lading";
+  const title = "Bill of Lading";
 
   return (
     <Document

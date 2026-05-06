@@ -31,6 +31,7 @@ export type ManufacturingSalesOrderOption = {
   id: string;
   orderNumber: string;
   customerName: string;
+  shipDate: string | null;
   requestedDate: string | null;
   manufacturableLineCount: number;
   hasManufacturableLines: boolean;
@@ -58,6 +59,7 @@ export type ManufacturingSalesOrderPreview = {
   salesOrderId: string;
   salesOrderNumber: string;
   customerName: string;
+  shipDate: string | null;
   requestedDate: string | null;
   manufacturableLineCount: number;
   hasManufacturableLines: boolean;
@@ -257,6 +259,7 @@ export type ManufacturingExecutionDetail = {
   expectedBatchYield: string | null;
   numberOfBatches: number | null;
   pickProgressStatus: ManufacturingPickProgressStatus;
+  salesOrderId: string | null;
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   plannedDate: string | null;

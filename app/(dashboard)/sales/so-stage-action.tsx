@@ -6,7 +6,6 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
-import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,6 +24,7 @@ import {
   OVERSELL_WARNING_DESCRIPTION,
   OversellWarningTable,
 } from "./oversell-warning-table";
+import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 
 type ActionError = Error & {
   status: number;
@@ -158,24 +158,21 @@ export function SoStageAction({ order }: Props) {
     );
   }
 
-  if (order.status === "confirmed") {
-    const canCreateMOs = order.hasManufacturableLines;
-    const shouldWaitForProduction = order.shippingReadiness.state === "in_production";
+  if (order.status === "confirmed" || order.status === "partially_shipped") {
+    if (!order.hasManufacturableLines) {
+      return null;
+    }
 
     return (
       <>
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex justify-end">
           <div className="flex flex-col items-end gap-1">
-            {shouldWaitForProduction ? (
-              <DisabledTooltipButton
-                label="In production"
-                tooltip={order.shippingReadiness.message}
+            <div className="flex items-center justify-end gap-2">
+              <CreateManufacturingOrdersDialog
+                salesOrderId={order.id}
+                buttonVariant="secondary"
               />
-            ) : (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/sales/orders/${order.id}`}>Review</Link>
-              </Button>
-            )}
+            </div>
             {errorMessage ? (
               <Link
                 href={`/sales/orders/${order.id}`}
@@ -185,25 +182,8 @@ export function SoStageAction({ order }: Props) {
               </Link>
             ) : null}
           </div>
-          {canCreateMOs ? (
-            <Button variant="ghost" size="sm" asChild>
-              <Link href={`/manufacturing/orders/new?salesOrderId=${order.id}`}>
-                Create MOs
-              </Link>
-            </Button>
-          ) : null}
         </div>
       </>
-    );
-  }
-
-  if (order.status === "partially_shipped") {
-    return (
-      <div className="flex justify-end">
-        <Button variant="outline" size="sm" asChild>
-          <Link href={`/sales/orders/${order.id}`}>Review</Link>
-        </Button>
-      </div>
     );
   }
 

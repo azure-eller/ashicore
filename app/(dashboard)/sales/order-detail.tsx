@@ -9,18 +9,15 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import {
-  AccountingActionConfirmDialog,
   AccountingSyncDialog,
   AccountingSyncStatus,
   buildAccountingSyncStages,
-  type AccountingActionOptions,
   type AccountingSyncDocument,
   type AccountingSyncStage,
 } from "@/components/accounting-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
-import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -66,6 +63,7 @@ import {
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   ITEM_SKU_TOOLTIP,
   REQUESTED_DATE_TOOLTIP,
+  SALES_ORDER_SHIP_DATE_TOOLTIP,
   SALES_ORDER_DATE_TOOLTIP,
   ACTUAL_MARGIN_TOOLTIP,
   ESTIMATED_MARGIN_TOOLTIP,
@@ -90,6 +88,7 @@ import {
   OVERSELL_WARNING_DESCRIPTION,
   OversellWarningTable,
 } from "./oversell-warning-table";
+import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 import type {
   OversellWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
@@ -218,7 +217,7 @@ function buildShipmentFormState(
     shipmentId: shipment?.id ?? null,
     idempotencyKey: `sales-shipment-${shipment ? "update" : "create"}:${crypto.randomUUID()}`,
     fulfillmentType: shipment?.fulfillmentType ?? "delivery",
-    scheduledDate: shipment?.scheduledDate ?? "",
+    scheduledDate: shipment?.scheduledDate ?? order.shipDate ?? "",
     notes: shipment?.notes ?? "",
     quantities,
   };
@@ -343,11 +342,6 @@ export function OrderDetail({
   const [shipmentForm, setShipmentForm] = useState<ShipmentFormState | null>(null);
   const [shipmentCostForm, setShipmentCostForm] =
     useState<ShipmentCostFormState | null>(null);
-  const [shipConfirmOpen, setShipConfirmOpen] = useState(false);
-  const [shipOptions, setShipOptions] = useState<AccountingActionOptions>({
-    syncAccounting: true,
-    sendEmail: order.customerEmail != null && order.customerEmail.trim() !== "",
-  });
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -606,39 +600,6 @@ export function OrderDetail({
     },
   });
 
-  const shipShipmentMutation = useMutation({
-    mutationFn: async ({ shipmentId, idempotencyKey }: ShipmentActionPayload) => {
-      const response = await fetch(
-        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          },
-          body: JSON.stringify({ syncAccounting: true, sendEmail: false }),
-        }
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to ship shipment.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
   const cancelRemainingMutation = useMutation({
     mutationFn: async () => {
       if (!cancelRemainingIdempotencyKey) {
@@ -711,63 +672,6 @@ export function OrderDetail({
     },
   });
 
-  const shipMutation = useMutation({
-    mutationFn: async (options: AccountingActionOptions) => {
-      const response = await fetch(`/api/sales-orders/${order.id}/ship`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("sales-order-ship", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({
-          syncAccounting: options.syncAccounting,
-          sendEmail: options.sendEmail,
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to ship order.");
-      }
-    },
-    onMutate: (options) => {
-      setActionError(null);
-      setShipConfirmOpen(false);
-      openSyncDialog({
-        title: "Shipping Sales Order",
-        description: options.syncAccounting
-          ? "The order will ship, sync an invoice to Xero, and email the customer when enabled."
-          : "The order will ship in ERP only.",
-        localActionLabel: "Ship sales order",
-        includeAccounting: options.syncAccounting,
-        includeEmail: options.sendEmail,
-      });
-    },
-    onSuccess: async (_data, options) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
-      await finishSyncDialog({
-        title: "Sales Order Shipped",
-        description: options.syncAccounting
-          ? "ERP shipping is complete. Xero and email results are shown below."
-          : "ERP shipping is complete.",
-        localActionLabel: "Ship sales order",
-        includeAccounting: options.syncAccounting,
-        includeEmail: options.sendEmail,
-      });
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-      failSyncDialog({
-        title: "Sales Order Not Shipped",
-        description: "The sales order was not shipped.",
-        localActionLabel: "Ship sales order",
-        message: error.message,
-      });
-    },
-  });
-
   const xeroPushMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/sales-orders/${order.id}/xero-push`, {
@@ -782,7 +686,7 @@ export function OrderDetail({
       setActionError(null);
       openSyncDialog({
         title: "Syncing Invoice",
-        description: "The invoice will be retried in Xero and emailed when eligible.",
+        description: "The invoice will be created or retried in Xero.",
         localActionLabel: "Start retry",
       });
     },
@@ -874,10 +778,10 @@ export function OrderDetail({
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
   const canConfirm = !isDeleted && order.status === "draft";
-  const canCreateShipment =
+  const canCreateManufacturingOrders =
     !isDeleted &&
     (order.status === "confirmed" || order.status === "partially_shipped") &&
-    order.lines.some((line) => Number(line.unplannedRemainingQuantity) > 0);
+    order.hasManufacturableLines;
   const canCancelRemaining =
     !isDeleted &&
     (order.status === "confirmed" || order.status === "partially_shipped") &&
@@ -888,14 +792,13 @@ export function OrderDetail({
   const canRetryXeroPush =
     order.status === "shipped" &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
-  const canRetryXeroEmail =
+  const canCreateXeroInvoice = order.status === "shipped" && !order.xeroPushStatus;
+  const canSendXeroEmail =
     order.status === "shipped" &&
     order.xeroPushStatus === "pushed" &&
-    order.xeroEmailStatus === "failed";
-  const canCreateMOs =
-    !isDeleted &&
-    (order.status === "confirmed" || order.status === "partially_shipped");
-  const createMOHref = `/manufacturing/orders/new?salesOrderId=${order.id}`;
+    order.xeroEmailStatus !== "sent";
+  const xeroEmailActionLabel =
+    order.xeroEmailStatus === "failed" ? "Retry Xero email" : "Email invoice";
   const showShippingSection =
     order.status === "confirmed" ||
     order.status === "partially_shipped" ||
@@ -943,7 +846,7 @@ export function OrderDetail({
               ...(canDownloadBol
                 ? [
                     {
-                      label: "Download BOL",
+                      label: "View BOL",
                       onSelect: () => {
                         window.open(
                           `/api/sales-orders/${order.id}/bol`,
@@ -963,10 +866,19 @@ export function OrderDetail({
                     },
                   ]
                 : []),
-              ...(canRetryXeroEmail
+              ...(canCreateXeroInvoice
                 ? [
                     {
-                      label: "Retry Xero email",
+                      label: "Create invoice",
+                      onSelect: () => xeroPushMutation.mutate(),
+                      disabled: xeroPushMutation.isPending,
+                    },
+                  ]
+                : []),
+              ...(canSendXeroEmail
+                ? [
+                    {
+                      label: xeroEmailActionLabel,
                       onSelect: () => xeroEmailMutation.mutate(),
                       disabled: xeroEmailMutation.isPending,
                     },
@@ -1002,25 +914,12 @@ export function OrderDetail({
                 {confirmMutation.isPending ? "Confirming..." : "Confirm"}
               </Button>
             ) : null}
-            {canCreateShipment ? (
-              <Button size="sm" onClick={() => setShipmentForm(buildShipmentFormState(order))}>
-                Create Shipment
-              </Button>
+            {canCreateManufacturingOrders ? (
+              <CreateManufacturingOrdersDialog
+                salesOrderId={order.id}
+                initialOrder={order}
+              />
             ) : null}
-            {canCreateMOs &&
-              (order.hasManufacturableLines ? (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={createMOHref}>Create MOs</Link>
-                </Button>
-              ) : (
-                <DisabledTooltipButton
-                  label="Create MOs"
-                  tooltip={
-                    order.manufacturableDisabledReason ??
-                    "No manufacturable lines remain on this order."
-                  }
-                />
-              ))}
           </DetailPageActions>
         </div>
 
@@ -1085,6 +984,7 @@ export function OrderDetail({
                     <TableHead>Status</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Scheduled</TableHead>
+                    <TableHead>Shipped</TableHead>
                     <TableHead>Lines</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead className="text-right">COGS</TableHead>
@@ -1119,6 +1019,7 @@ export function OrderDetail({
                           {shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
                         </TableCell>
                         <TableCell>{formatDate(shipment.scheduledDate)}</TableCell>
+                        <TableCell>{formatDateTime(shipment.shippedAt)}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             {shipment.lines.map((line) => (
@@ -1172,7 +1073,7 @@ export function OrderDetail({
                                   );
                                 }}
                               >
-                                BOL
+                                View BOL
                               </Button>
                             ) : null}
                             {shipment.status !== "cancelled" ? (
@@ -1200,18 +1101,6 @@ export function OrderDetail({
                                   Edit
                                 </Button>
                                 <Button
-                                  size="sm"
-                                  onClick={() =>
-                                    shipShipmentMutation.mutate({
-                                      shipmentId: shipment.id,
-                                      idempotencyKey: `sales-shipment-ship:${crypto.randomUUID()}`,
-                                    })
-                                  }
-                                  disabled={shipShipmentMutation.isPending}
-                                >
-                                  Ship
-                                </Button>
-                                <Button
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
@@ -1232,7 +1121,7 @@ export function OrderDetail({
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-muted-foreground">
+                      <TableCell colSpan={11} className="text-muted-foreground">
                         No shipments have been planned.
                       </TableCell>
                     </TableRow>
@@ -1243,23 +1132,40 @@ export function OrderDetail({
           </div>
         )}
 
-        <AccountingSyncStatus
-          document={accountingDocument}
-          onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
-          retryPushPending={xeroPushMutation.isPending}
-          onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
-          retryEmailPending={xeroEmailMutation.isPending}
-          providerAction={
-            order.xeroPushStatus === "pushed"
-              ? {
-                  label: "Open online invoice",
-                  onClick: () => onlineInvoiceMutation.mutate(),
-                  pending: onlineInvoiceMutation.isPending,
-                }
-              : undefined
-          }
-          compact
-        />
+        {canCreateXeroInvoice ? (
+          <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
+            <span className="font-medium">Accounting Sync</span>
+            <Badge variant="secondary">Not synced</Badge>
+            <span className="text-muted-foreground">Xero invoice</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => xeroPushMutation.mutate()}
+              disabled={xeroPushMutation.isPending}
+            >
+              {xeroPushMutation.isPending ? "Creating..." : "Create invoice"}
+            </Button>
+          </div>
+        ) : (
+          <AccountingSyncStatus
+            document={accountingDocument}
+            onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
+            retryPushPending={xeroPushMutation.isPending}
+            onRetryEmail={canSendXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
+            retryEmailPending={xeroEmailMutation.isPending}
+            providerAction={
+              order.xeroPushStatus === "pushed"
+                ? {
+                    label: "Open online invoice",
+                    onClick: () => onlineInvoiceMutation.mutate(),
+                    pending: onlineInvoiceMutation.isPending,
+                  }
+                : undefined
+            }
+            compact
+          />
+        )}
 
         {order.shipments.length > 0 ? (
           <div className="flex flex-col gap-3">
@@ -1333,12 +1239,27 @@ export function OrderDetail({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
               <TooltipHeader
-                label="Requested Delivery Date"
+                label="Ship Date"
+                tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
+              />
+            </dt>
+            <dd className="mt-1 text-sm">{formatDate(order.shipDate)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Delivery Date"
                 tooltip={REQUESTED_DATE_TOOLTIP}
               />
             </dt>
             <dd className="mt-1 text-sm">{formatDate(order.requestedDate)}</dd>
           </div>
+          {order.shippedAt ? (
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">Shipped</dt>
+              <dd className="mt-1 text-sm">{formatDateTime(order.shippedAt)}</dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
               <TooltipHeader
@@ -1490,25 +1411,9 @@ export function OrderDetail({
         <Separator />
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold tracking-tight">
-              Linked Manufacturing Orders
-            </h2>
-            {canCreateMOs &&
-              (order.hasManufacturableLines ? (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={createMOHref}>Open Create MOs</Link>
-                </Button>
-              ) : (
-                <DisabledTooltipButton
-                  label="Open Create MOs"
-                  tooltip={
-                    order.manufacturableDisabledReason ??
-                    "No manufacturable lines remain on this order."
-                  }
-                />
-              ))}
-          </div>
+          <h2 className="text-lg font-semibold tracking-tight">
+            Linked Manufacturing Orders
+          </h2>
 
           {order.linkedManufacturingOrders.length > 0 ? (
             <div className="rounded-md border">
@@ -1581,7 +1486,7 @@ export function OrderDetail({
               {shipmentForm?.shipmentId ? "Edit Shipment" : "Create Shipment"}
             </DialogTitle>
             <DialogDescription>
-              Planned shipments can produce a Draft BOL before stock leaves.
+              The BOL is generated automatically from the saved shipment.
             </DialogDescription>
           </DialogHeader>
           {shipmentForm ? (
@@ -1992,34 +1897,6 @@ export function OrderDetail({
           onDone={() => setSyncDialog(null)}
         />
       ) : null}
-
-      <AccountingActionConfirmDialog
-        open={shipConfirmOpen}
-        title="Ship Sales Order"
-        description="Review what happens next."
-        confirmLabel="Ship"
-        pendingLabel="Shipping..."
-        localStep={{
-          title: "Ship order",
-          detail: order.orderNumber,
-          meta: `${order.customerName} · ${formatPrice(order.totalAmount) ?? "-"} · ${order.lines.length} ${order.lines.length === 1 ? "line" : "lines"}`,
-        }}
-        accountingStep={{
-          title: "Create invoice",
-          detail: "Invoice",
-          meta: "Xero",
-        }}
-        emailStep={{
-          title: "Email customer",
-          detail: order.customerEmail ?? "No customer email",
-          meta: order.customerName,
-        }}
-        options={shipOptions}
-        onOptionsChange={setShipOptions}
-        onConfirm={() => shipMutation.mutate(shipOptions)}
-        onOpenChange={setShipConfirmOpen}
-        isPending={shipMutation.isPending}
-      />
 
       <AlertDialog open={oversellWarning != null} onOpenChange={(open) => {
         if (!open) {

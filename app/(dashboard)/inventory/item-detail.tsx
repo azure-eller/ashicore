@@ -70,6 +70,7 @@ import {
   STOCKING_UNIT_TOOLTIP,
   VARIANT_AXES_TOOLTIP,
 } from "@/lib/tooltip-copy";
+import { formatMinimumLotAgeRequirement } from "@/lib/bom/constraints";
 
 function formatMarginPercent(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
@@ -905,9 +906,7 @@ function RecipePanel({
                   )}
                   <TableCell className="text-sm text-muted-foreground">
                     {line.minimumLotAgeDays
-                      ? `Lot must be at least ${line.minimumLotAgeDays} ${
-                          line.minimumLotAgeDays === 1 ? "day" : "days"
-                        } old.`
+                      ? formatMinimumLotAgeRequirement(line.minimumLotAgeDays)
                       : "\u2014"}
                   </TableCell>
                 </TableRow>

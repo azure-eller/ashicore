@@ -141,7 +141,11 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   requestedDate: nullableString.refine((value) => {
     if (value == null) return true;
     return isValidIsoDate(value);
-  }, "Requested delivery date must be a real date in YYYY-MM-DD format"),
+  }, "Delivery date must be a real date in YYYY-MM-DD format"),
+  shipDate: nullableString.refine((value) => {
+    if (value == null) return true;
+    return isValidIsoDate(value);
+  }, "Ship date must be a real date in YYYY-MM-DD format"),
   notes: nullableString,
   shipLine1: nullableString,
   shipLine2: nullableString,
@@ -170,10 +174,20 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
-}).extend({
-  lines: cleanedLinesSchema,
-  confirmOversell: z.boolean().optional(),
-});
+})
+  .extend({
+    lines: cleanedLinesSchema,
+    confirmOversell: z.boolean().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.status === "confirmed" && !values.shipDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Ship date is required to confirm a sales order",
+        path: ["shipDate"],
+      });
+    }
+  });
 
 export const insertSalesOrderSchema = baseSalesOrderSchema;
 
@@ -254,6 +268,23 @@ export const salesShipmentInputSchema = z.object({
 });
 export type SalesShipmentInput = z.infer<typeof salesShipmentInputSchema>;
 
+export const salesFulfillmentPlanInputSchema = z.object({
+  deliveryDate: z
+    .string()
+    .min(1, "Delivery date is required")
+    .refine(
+      (value) => isValidIsoDate(value),
+      "Delivery date must be a real date in YYYY-MM-DD format"
+    ),
+  fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
+  shipmentId: z.string().uuid().nullable().optional(),
+  shipmentNotes: nullableString,
+  shipmentLines: shipmentLinesSchema,
+});
+export type SalesFulfillmentPlanInput = z.infer<
+  typeof salesFulfillmentPlanInputSchema
+>;
+
 export const shipSalesShipmentSchema = z.object({
   syncAccounting: z.boolean().optional(),
   sendEmail: z.boolean().optional(),
@@ -285,6 +316,7 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   customerId: "",
   status: "draft",
   orderDate: new Date().toISOString().slice(0, 10),
+  shipDate: null,
   requestedDate: null,
   notes: null,
   shipLine1: null,

@@ -416,6 +416,7 @@ export async function createSalesOrder(data: {
   customerId: string;
   status?: string;
   orderDate?: string;
+  shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
   lines: Array<{
@@ -431,6 +432,10 @@ export async function createSalesOrder(data: {
       customerId: data.customerId,
       status: data.status ?? "draft",
       ...(data.orderDate ? { orderDate: data.orderDate } : {}),
+      shipDate:
+        data.shipDate ??
+        data.requestedDate ??
+        "2026-04-15",
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
@@ -450,6 +455,7 @@ export async function updateSalesOrder(
     customerId: string;
     status?: string;
     orderDate?: string;
+    shipDate?: string | null;
     requestedDate?: string | null;
     notes?: string | null;
     lines: Array<{
@@ -466,6 +472,10 @@ export async function updateSalesOrder(
       customerId: data.customerId,
       status: data.status ?? "draft",
       ...(data.orderDate ? { orderDate: data.orderDate } : {}),
+      shipDate:
+        data.shipDate ??
+        data.requestedDate ??
+        "2026-04-15",
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   REQUESTED_DATE_TOOLTIP,
+  SALES_ORDER_SHIP_DATE_TOOLTIP,
   SALES_ORDER_DATE_TOOLTIP,
   SALES_ORDER_STATUS_COLUMN_TOOLTIP,
 } from "@/lib/tooltip-copy";
@@ -132,14 +133,51 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     cell: ({ row }) => formatDate(row.original.orderDate),
   },
   {
+    accessorKey: "shipDate",
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Ship"
+        tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
+      />
+    ),
+    sortingFn: (a, b) => {
+      const dateCompare = (a.original.shipDate ?? "").localeCompare(
+        b.original.shipDate ?? ""
+      );
+
+      if (dateCompare !== 0) {
+        return dateCompare;
+      }
+
+      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
+        numeric: true,
+      });
+    },
+    cell: ({ row }) => formatDate(row.original.shipDate),
+  },
+  {
     accessorKey: "requestedDate",
     header: ({ column }) => (
       <SortableHeader
         column={column}
-        label="Requested Delivery"
+        label="Delivery"
         tooltip={REQUESTED_DATE_TOOLTIP}
       />
     ),
+    sortingFn: (a, b) => {
+      const dateCompare = (a.original.requestedDate ?? "").localeCompare(
+        b.original.requestedDate ?? ""
+      );
+
+      if (dateCompare !== 0) {
+        return dateCompare;
+      }
+
+      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
+        numeric: true,
+      });
+    },
     cell: ({ row }) => formatDate(row.original.requestedDate),
   },
   {
@@ -226,7 +264,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         addAriaLabel="New Order"
         emptyMessage="No sales orders yet."
         errorMessage={formError}
-        initialSorting={[{ id: "requestedDate", desc: false }]}
+        initialSorting={[{ id: "shipDate", desc: false }]}
         getRowCanExpand={() => true}
         renderExpandedRow={(row) => <OrderExpandedDetail orderId={row.original.id} />}
         selectedActions={[

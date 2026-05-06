@@ -41,15 +41,20 @@ export function getMinimumLotAgeDays(
   return constraint?.config.days ?? null;
 }
 
+export function formatMinimumLotAgeRequirement(days: number) {
+  return `>= ${days} ${days === 1 ? "day" : "days"} age requirement`;
+}
+
+export function formatMinimumLotAgeRequirementViolation(days: number) {
+  return `Ingredient does not match the ${formatMinimumLotAgeRequirement(days)}.`;
+}
+
 export function formatComponentRequirement(
   constraint: BomComponentConstraint
 ) {
   if (constraint.constraintType === LOT_AGE_MIN_DAYS_CONSTRAINT) {
-    return `Lot must be at least ${constraint.config.days} ${
-      constraint.config.days === 1 ? "day" : "days"
-    } old.`;
+    return formatMinimumLotAgeRequirement(constraint.config.days);
   }
 
   return "Component requirement.";
 }
-

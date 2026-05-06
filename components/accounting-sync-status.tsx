@@ -162,6 +162,10 @@ export function AccountingSyncStatus({
     `${document.documentLabel} in ${document.providerName}`
   );
   const emailStage = buildEmailStage(document, `${document.documentLabel} email`, pushStage.state);
+  const canSendEmail =
+    onRetryEmail && document.pushStatus === "pushed" && document.emailStatus !== "sent";
+  const emailActionLabel =
+    document.emailStatus === "failed" ? "Retry email" : `Email ${document.documentLabel}`;
 
   if (compact) {
     const emailSummary =
@@ -219,7 +223,7 @@ export function AccountingSyncStatus({
             {retryPushPending ? "Retrying..." : "Retry sync"}
           </Button>
         ) : null}
-        {onRetryEmail && document.pushStatus === "pushed" && document.emailStatus === "failed" ? (
+        {canSendEmail ? (
           <Button
             type="button"
             size="sm"
@@ -227,7 +231,7 @@ export function AccountingSyncStatus({
             onClick={onRetryEmail}
             disabled={retryEmailPending}
           >
-            {retryEmailPending ? "Sending..." : "Retry email"}
+            {retryEmailPending ? "Sending..." : emailActionLabel}
           </Button>
         ) : null}
       </div>
@@ -288,7 +292,7 @@ export function AccountingSyncStatus({
               {retryPushPending ? "Retrying..." : "Retry sync"}
             </Button>
           ) : null}
-          {onRetryEmail && document.pushStatus === "pushed" && document.emailStatus === "failed" ? (
+          {canSendEmail ? (
             <Button
               type="button"
               size="sm"
@@ -296,7 +300,7 @@ export function AccountingSyncStatus({
               onClick={onRetryEmail}
               disabled={retryEmailPending}
             >
-              {retryEmailPending ? "Sending..." : "Retry email"}
+              {retryEmailPending ? "Sending..." : emailActionLabel}
             </Button>
           ) : null}
         </div>

@@ -78,6 +78,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import {
   REQUESTED_DATE_TOOLTIP,
+  SALES_ORDER_SHIP_DATE_TOOLTIP,
   SALES_ORDER_DATE_TOOLTIP,
   ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
@@ -310,6 +311,7 @@ export function OrderForm({
           customerId: initialData.customerId,
           status: "draft",
           orderDate: initialData.orderDate,
+          shipDate: initialData.shipDate,
           requestedDate: initialData.requestedDate,
           notes: initialData.notes,
           shipLine1: initialData.shipLine1,
@@ -541,9 +543,6 @@ export function OrderForm({
           <FieldGroup className="gap-8">
             <FieldSet className="max-w-4xl gap-5">
               <FieldLegend>Order</FieldLegend>
-              <FieldDescription>
-                Choose the customer and whether this order stays in draft or moves to confirmed.
-              </FieldDescription>
               <FieldGroup>
                 <Controller
                   control={form.control}
@@ -600,7 +599,7 @@ export function OrderForm({
                   )}
                 />
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <Controller
                     control={form.control}
                     name="status"
@@ -652,8 +651,31 @@ export function OrderForm({
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
                           <TooltipHeader
-                            label="Requested Delivery Date"
+                            label="Delivery Date"
                             tooltip={REQUESTED_DATE_TOOLTIP}
+                          />
+                        </FieldLabel>
+                        <DatePicker
+                          id={field.name}
+                          value={field.value ?? ""}
+                          onChange={(value) => field.onChange(value || null)}
+                          onBlur={field.onBlur}
+                          aria-invalid={fieldState.invalid}
+                        />
+                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      </Field>
+                    )}
+                  />
+
+                  <Controller
+                    control={form.control}
+                    name="shipDate"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          <TooltipHeader
+                            label="Ship Date"
+                            tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
                           />
                         </FieldLabel>
                         <DatePicker
@@ -676,8 +698,7 @@ export function OrderForm({
             <FieldSet className="max-w-4xl gap-5">
               <FieldLegend>Ship To</FieldLegend>
               <FieldDescription>
-                Defaults from the customer&apos;s shipping address. Override for
-                this order if it&apos;s going somewhere else.
+                Defaults from the customer; editable per order.
               </FieldDescription>
               <AddressFields
                 control={form.control}
@@ -697,9 +718,6 @@ export function OrderForm({
 
             <FieldSet className="gap-5">
               <FieldLegend>Items</FieldLegend>
-              <FieldDescription>
-                Add each item once, then set quantities and prices.
-              </FieldDescription>
               <FieldGroup className="gap-4">
                 {fields.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border">
@@ -783,7 +801,7 @@ export function OrderForm({
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
-                      Add items to build this sales order.
+                      No items added.
                     </p>
                   </div>
                 )}
@@ -828,9 +846,6 @@ export function OrderForm({
 
             <FieldSet className="max-w-4xl gap-5">
               <FieldLegend>Notes</FieldLegend>
-              <FieldDescription>
-                Capture any order-specific notes you want to keep with the record.
-              </FieldDescription>
               <FieldGroup>
                 <Controller
                   control={form.control}

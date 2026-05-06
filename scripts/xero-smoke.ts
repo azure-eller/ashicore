@@ -300,6 +300,7 @@ async function shipFreshSalesOrder(
       body: JSON.stringify({
         customerId: customer.id,
         status: "draft",
+        shipDate: new Date().toISOString().slice(0, 10),
         requestedDate: new Date().toISOString().slice(0, 10),
         lines: [{ itemId: item.id, quantity: "10", unitPrice: "20" }],
       }),
@@ -604,6 +605,7 @@ async function smokeSales(
       body: JSON.stringify({
         customerId: customer.id,
         status: "draft",
+        shipDate: new Date().toISOString().slice(0, 10),
         requestedDate: new Date().toISOString().slice(0, 10),
         lines: [{ itemId: item.id, quantity: "10", unitPrice: "20" }],
       }),

@@ -46,7 +46,10 @@ import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
-import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
+import {
+  formatMinimumLotAgeRequirement,
+  getMinimumLotAgeDays,
+} from "@/lib/bom/constraints";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import type {
@@ -488,9 +491,6 @@ export function ManufacturingExecution({
         <Card>
           <CardHeader>
             <CardTitle>Order Summary</CardTitle>
-            <CardDescription>
-              Work from this screen and use the order page only for audit, notes, and history.
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -533,7 +533,7 @@ export function ManufacturingExecution({
             <CardHeader>
               <CardTitle>Batch Progress</CardTitle>
               <CardDescription>
-                Run one batch at a time. Each completed batch records its own finished lot.
+                One batch at a time; each completion creates a lot.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -583,7 +583,7 @@ export function ManufacturingExecution({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  All batches are complete. Review the final order details if needed.
+                  All batches complete.
                 </p>
               )}
             </CardContent>
@@ -594,7 +594,7 @@ export function ManufacturingExecution({
           <div className="space-y-1">
             <h2 className="text-xl font-semibold tracking-tight">Ingredients</h2>
             <p className="text-sm text-muted-foreground">
-              Pick each ingredient at its remaining quantity. FIFO lot selection is automatic.
+              Pick remaining quantities; FIFO is automatic.
             </p>
             {execution.manufacturingMode === "batch" &&
               !canPick &&
@@ -651,8 +651,7 @@ export function ManufacturingExecution({
                         </p>
                         {minimumLotAgeDays ? (
                           <p className="text-sm text-muted-foreground">
-                            Lot must be at least {minimumLotAgeDays}{" "}
-                            {minimumLotAgeDays === 1 ? "day" : "days"} old.
+                            {formatMinimumLotAgeRequirement(minimumLotAgeDays)}
                           </p>
                         ) : null}
                       </div>
@@ -703,10 +702,9 @@ export function ManufacturingExecution({
         >
           <AlertDialogContent className="bg-background text-foreground">
             <AlertDialogHeader>
-              <AlertDialogTitle>Pick under-age lot?</AlertDialogTitle>
+              <AlertDialogTitle>Pick with requirement override?</AlertDialogTitle>
               <AlertDialogDescription>
-                This ingredient does not have enough eligible stock for its component
-                requirement.
+                One or more ingredient requirements are not fully met.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-2 text-sm">
@@ -714,7 +712,7 @@ export function ManufacturingExecution({
                 <div key={ingredient.itemId} className="rounded-md border p-3">
                   <p className="font-medium">{ingredient.itemName}</p>
                   <p className="text-muted-foreground">
-                    {ingredient.requirement ?? "Component requirement is not met."}
+                    {ingredient.requirement ?? "Ingredient requirement is not met."}
                   </p>
                   <p className="text-muted-foreground">
                     Eligible {ingredient.available} {ingredient.unitName}; needed{" "}

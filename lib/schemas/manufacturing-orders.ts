@@ -214,6 +214,9 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
     (value) => value == null || isValidIsoDate(value),
     "Planned date must be a real date in YYYY-MM-DD format"
   ),
+  salesOrderLineIds: z
+    .array(z.string().uuid("Sales order line is required"))
+    .min(1, "Select at least one manufacturing order to create"),
   notes: nullableString,
 });
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<

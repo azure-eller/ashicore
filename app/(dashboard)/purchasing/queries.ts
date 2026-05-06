@@ -501,7 +501,11 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
           })
           .from(purchaseOrders)
           .where(isNull(purchaseOrders.deletedAt))
-          .orderBy(desc(purchaseOrders.createdAt));
+          .orderBy(
+            desc(purchaseOrders.createdAt),
+            asc(purchaseOrders.orderNumber),
+            asc(purchaseOrders.id)
+          );
 
         if (orderRows.length === 0) {
           return [];
