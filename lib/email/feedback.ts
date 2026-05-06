@@ -2,6 +2,7 @@ import "server-only";
 
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAppName } from "@/lib/email/config";
+import { escapeHtml } from "@/lib/format";
 
 export type FeedbackScreenshot = {
   filename: string;
@@ -21,14 +22,14 @@ export type SendFeedbackEmailInput = {
   context: FeedbackContext;
 };
 
-function getFeedbackRecipient(): string | null {
+function getFeedbackRecipient(): string {
   const explicit = process.env.FEEDBACK_EMAIL?.trim();
   if (explicit) return explicit;
 
   const fallback = process.env.EMAIL_FROM?.trim();
   if (fallback) return fallback;
 
-  return null;
+  return "";
 }
 
 function buildSubject(message: string): string {
@@ -60,23 +61,8 @@ function buildBody({ message, context, screenshotCount }: {
   return { text, html };
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 export async function sendFeedbackEmail(input: SendFeedbackEmailInput) {
   const recipient = getFeedbackRecipient();
-  if (!recipient) {
-    throw new Error(
-      "Feedback recipient is not configured. Set FEEDBACK_EMAIL (or EMAIL_FROM) in the environment."
-    );
-  }
-
   const screenshots = input.screenshots ?? [];
   const { text, html } = buildBody({
     message: input.message,
