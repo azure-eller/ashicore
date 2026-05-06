@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -233,15 +234,18 @@ export function FeedbackWidget() {
       <DialogTrigger asChild>
         <Button
           type="button"
-          size="sm"
-          className="fixed bottom-6 right-6 z-50 shadow-lg"
+          size="lg"
+          className="fixed bottom-6 right-6 z-50 h-11 px-4 text-sm shadow-lg"
         >
           Feedback
         </Button>
       </DialogTrigger>
       <DialogContent size="md" onPaste={handlePaste}>
         <DialogHeader>
-          <DialogTitle>Send anonymous feedback</DialogTitle>
+          <DialogTitle>Send feedback or report an issue</DialogTitle>
+          <DialogDescription>
+            Anonymous. Copy and paste images here, or attach them.
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -274,7 +278,7 @@ export function FeedbackWidget() {
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">
-                Screenshots{" "}
+                Images{" "}
                 <span className="font-normal text-muted-foreground">
                   ({screenshots.length}/{MAX_SCREENSHOTS})
                 </span>
@@ -286,7 +290,7 @@ export function FeedbackWidget() {
                 onClick={() => fileInputRef.current?.click()}
                 disabled={screenshots.length >= MAX_SCREENSHOTS}
               >
-                Add image
+                Attach image
               </Button>
               <input
                 ref={fileInputRef}
