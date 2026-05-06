@@ -693,9 +693,9 @@ Never merge main into your branch — always rebase so history stays linear.
 - Schema pattern (RLS, policies): `lib/db/schema/items.ts`
 - DAL auth wrapper: `lib/dal/auth.ts`
 - Org context setter: `lib/db/with-org-context.ts`
-- Inventory DAL queries: `app/(dashboard)/inventory/queries.ts`
+- Inventory DAL queries: `app/(dashboard)/inventory/queries.ts` (barrel) → bulk in `app/(dashboard)/inventory/queries/internal.ts`; per-feature splits in sibling files
 - Sales DAL queries + SalesError: `app/(dashboard)/sales/queries.ts`
-- Item form (unified): `app/(dashboard)/inventory/item-form.tsx`
+- Item form (unified): `app/(dashboard)/inventory/item-form/index.tsx` (with `dialogs/`, `fields/` siblings)
 - Order form (line items + oversell): `app/(dashboard)/sales/order-form.tsx`
 - BOM editor: `app/(dashboard)/inventory/bom-editor.tsx`
 - Data table: `app/(dashboard)/inventory/data-table.tsx`
