@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 
 const MAX_SCREENSHOTS = 3;
@@ -67,8 +66,6 @@ export function FeedbackWidget() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [justSent, setJustSent] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const screenshotsRef = useRef(screenshots);
   useEffect(() => {
     screenshotsRef.current = screenshots;
@@ -148,12 +145,6 @@ export function FeedbackWidget() {
     if (accepted.length) {
       setScreenshots((prev) => [...prev, ...accepted]);
     }
-  };
-
-  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    void addFiles(files);
-    event.target.value = "";
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -240,12 +231,9 @@ export function FeedbackWidget() {
           Feedback
         </Button>
       </DialogTrigger>
-      <DialogContent size="md" onPaste={handlePaste}>
+      <DialogContent size="lg" onPaste={handlePaste}>
         <DialogHeader>
           <DialogTitle>Send feedback or report an issue</DialogTitle>
-          <DialogDescription>
-            Anonymous. Copy and paste images here, or attach them.
-          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -258,13 +246,14 @@ export function FeedbackWidget() {
           }}
         >
           <Field data-invalid={messageError != null}>
-            <FieldLabel htmlFor="feedback-message">Feedback</FieldLabel>
             <Textarea
               id="feedback-message"
+              aria-label="Feedback"
               autoFocus
-              rows={6}
+              rows={8}
               maxLength={MAX_MESSAGE_LENGTH}
-              placeholder="What happened?"
+              className="min-h-40"
+              placeholder="Describe the feedback or issue. You can also paste images."
               value={message}
               aria-invalid={messageError != null}
               onChange={(event) => {
@@ -276,31 +265,12 @@ export function FeedbackWidget() {
           </Field>
 
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">
-                Images{" "}
-                <span className="font-normal text-muted-foreground">
-                  ({screenshots.length}/{MAX_SCREENSHOTS})
-                </span>
+            <span className="text-sm font-medium">
+              Pasted images{" "}
+              <span className="font-normal text-muted-foreground">
+                ({screenshots.length}/{MAX_SCREENSHOTS})
               </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={screenshots.length >= MAX_SCREENSHOTS}
-              >
-                Attach image
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                hidden
-                onChange={handleFileInput}
-              />
-            </div>
+            </span>
 
             {screenshots.length > 0 && (
               <ul className="flex flex-wrap gap-2">
@@ -337,18 +307,24 @@ export function FeedbackWidget() {
             <p className="text-sm text-destructive">{submitError}</p>
           )}
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={mutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={mutation.isPending || justSent}>
-              {justSent ? "Sent — thanks!" : mutation.isPending ? "Sending…" : "Send"}
-            </Button>
+          <DialogFooter className="sm:items-center sm:justify-between">
+            <div className="inline-flex w-fit items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+              <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={2} />
+              Feedback is sent anonymously.
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+                disabled={mutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={mutation.isPending || justSent}>
+                {justSent ? "Sent — thanks!" : mutation.isPending ? "Sending…" : "Send"}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>
