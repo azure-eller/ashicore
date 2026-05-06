@@ -5,6 +5,7 @@ import {
   getRequestLogContext,
   logObservedEvent,
 } from "@/lib/observability/request-log";
+import { APP_NAME } from "@/lib/app-brand";
 import "./globals.css";
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
@@ -12,11 +13,11 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = {
   title: {
-    default: "Paonia Soil Co ERP",
-    template: "%s | Paonia Soil Co ERP",
+    default: APP_NAME,
+    template: `%s | ${APP_NAME}`,
   },
   description:
-    "ERP workspace for inventory, manufacturing, sales, purchasing, and team operations.",
+    "Operations workspace for inventory, manufacturing, sales, purchasing, and team management.",
 };
 
 export default async function RootLayout({

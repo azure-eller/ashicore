@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAccessControl, organization } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
+import { APP_DOMAIN, APP_URL } from "@/lib/app-brand";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import {
   buildMatrixRole,
@@ -26,11 +27,13 @@ const authAllowedHosts = (() => {
     "127.0.0.1:*",
     "[::1]",
     "[::1]:*",
+    APP_DOMAIN,
   ]);
 
   for (const url of [
     process.env.BETTER_AUTH_URL,
     process.env.NEXT_PUBLIC_APP_URL,
+    APP_URL,
     process.env.VERCEL_PROJECT_PRODUCTION_URL,
     process.env.VERCEL_BRANCH_URL,
     process.env.VERCEL_URL,

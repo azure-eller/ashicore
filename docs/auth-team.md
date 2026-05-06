@@ -54,6 +54,7 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 ## Auth Hosts
 
 - Keep `BETTER_AUTH_URL` / `NEXT_PUBLIC_APP_URL` as the canonical app URL for emails and non-request fallbacks.
+- Default production canonical URL is `https://ashicore.app`.
 - `lib/auth.ts` resolves Better Auth URLs from the incoming request when the host is allowed.
 - `localhost`, `127.0.0.1`, and `[::1]` are allowed on any port for local worktrees.
 - Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` or `VERCEL_URL` when the canonical URL env vars are missing.

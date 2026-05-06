@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { APP_URL } from "@/lib/app-brand";
 import {
   ERP_PROXY_STARTED_AT_HEADER,
   ERP_REQUEST_ID_HEADER,
@@ -27,7 +28,8 @@ function getCanonicalProductionOrigin() {
 
   const canonicalUrl =
     normalizeUrl(process.env.BETTER_AUTH_URL) ??
-    normalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
+    normalizeUrl(process.env.NEXT_PUBLIC_APP_URL) ??
+    APP_URL;
 
   if (!canonicalUrl) {
     return null;

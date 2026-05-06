@@ -10,10 +10,11 @@ read_when:
 
 ## Canonical App URL
 
-All auth-facing emails must use one configured canonical app URL.
+All auth-facing emails use one canonical app URL.
 
 - Prefer `BETTER_AUTH_URL`
 - Fall back to `NEXT_PUBLIC_APP_URL`
+- Default production canonical URL: `https://ashicore.app`
 - On Vercel preview deploys, `VERCEL_BRANCH_URL` then `VERCEL_URL` are acceptable non-request fallbacks when the canonical URL vars are unset
 - Never derive invite or auth email links from `request.url`
 
@@ -39,7 +40,12 @@ Production requires real email delivery for:
 Required env vars:
 
 - `RESEND_API_KEY`
-- `EMAIL_FROM`
+
+Default sender:
+
+- `Ashicore <noreply@ashicore.app>`
+
+Set `EMAIL_FROM` only when overriding that sender.
 
 In local and CI environments without Resend configured, the app writes transactional emails to `.tmp/email-outbox/` instead of sending them.
 

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { sendTransactionalEmail } from "@/lib/email/send";
+import { DEFAULT_EMAIL_FROM } from "@/lib/app-brand";
 import { getAppName } from "@/lib/email/config";
 import { escapeHtml } from "@/lib/format";
 
@@ -29,7 +30,7 @@ function getFeedbackRecipient(): string {
   const fallback = process.env.EMAIL_FROM?.trim();
   if (fallback) return fallback;
 
-  return "";
+  return DEFAULT_EMAIL_FROM;
 }
 
 function buildSubject(message: string): string {

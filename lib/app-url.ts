@@ -1,5 +1,7 @@
 import "server-only";
 
+import { APP_URL } from "@/lib/app-brand";
+
 function normalizeUrl(value: string | undefined) {
   if (!value) {
     return null;
@@ -26,18 +28,18 @@ export function getCanonicalAppUrl() {
     return explicitUrl;
   }
 
-  const vercelPreviewUrl =
-    normalizeUrl(process.env.VERCEL_BRANCH_URL) ??
-    normalizeUrl(process.env.VERCEL_URL);
+  if (process.env.VERCEL_ENV === "preview") {
+    const vercelPreviewUrl =
+      normalizeUrl(process.env.VERCEL_BRANCH_URL) ??
+      normalizeUrl(process.env.VERCEL_URL);
 
-  if (vercelPreviewUrl) {
-    return vercelPreviewUrl;
+    if (vercelPreviewUrl) {
+      return vercelPreviewUrl;
+    }
   }
 
   if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "Missing BETTER_AUTH_URL or NEXT_PUBLIC_APP_URL — cannot resolve canonical app URL in production."
-    );
+    return APP_URL;
   }
 
   if (process.env.PORT) {

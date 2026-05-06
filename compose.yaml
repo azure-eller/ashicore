@@ -1,4 +1,4 @@
-name: erp-local
+name: ashicore-local
 
 services:
   postgres:

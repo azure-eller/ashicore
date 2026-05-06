@@ -1,6 +1,6 @@
-# ERP
+# Ashicore
 
-Inventory-first ERP rebuild for a small-scale MRP workflow.
+Inventory-first operations app for a small-scale MRP workflow.
 
 This README is for coding agents and engineers working in the repo. It is a runbook, not a product overview.
 
@@ -90,7 +90,8 @@ Required for auth / absolute URLs:
 
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL` or `NEXT_PUBLIC_APP_URL`
-- `RESEND_API_KEY` and `EMAIL_FROM` in production for invites, password reset, and email verification
+- `RESEND_API_KEY` in production for invites, password reset, and email verification
+- `EMAIL_FROM` optionally overrides the default `Ashicore <noreply@ashicore.app>` sender
 - `SENTRY_DSN` in production for server and edge Sentry events
 - `NEXT_PUBLIC_SENTRY_DSN` in production for browser errors, tracing, and session replay
 
