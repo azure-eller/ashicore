@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { AppSidebar } from "@/components/app-sidebar";
+import { FeedbackWidget } from "@/components/feedback-widget";
 import { Providers } from "@/app/providers";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import {
@@ -39,6 +40,7 @@ export default async function DashboardLayout({
           organizationName={context.organizationName}
         />
         <SidebarInset>{children}</SidebarInset>
+        <FeedbackWidget />
       </SidebarProvider>
     </Providers>
   );

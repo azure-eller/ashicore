@@ -1,5 +1,7 @@
 import "server-only";
 
+import { escapeHtml } from "@/lib/format";
+
 export type AccountingDocumentEmailLine = {
   description: string;
   quantity: string | null;
@@ -28,15 +30,6 @@ const dateFormat = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   year: "numeric",
 });
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function formatMoney(value: string): string {
   return moneyFormat.format(parseFloat(value));
