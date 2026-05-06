@@ -7,13 +7,15 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
-import { resolveVariantDisplay } from "@/lib/format";
+import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { projectedReservableOnHandQtyExpr } from "@/lib/inventory/kernel/read";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
   "non_product",
   "inactive_product",
   "no_active_bom",
+  "stock_on_hand",
   "existing_active_mo",
 ] as const;
 
@@ -50,6 +52,8 @@ function getSkipMessage(reason: SalesOrderManufacturingSkipReason) {
       return "Product is inactive or deleted.";
     case "no_active_bom":
       return "Product has no active BOM ingredients.";
+    case "stock_on_hand":
+      return "Finished goods stock covers this sales line.";
     case "existing_active_mo":
       return "A linked manufacturing order already exists.";
   }
@@ -76,6 +80,13 @@ function getDisabledReason(lines: SalesOrderManufacturingLineSummary[]) {
     skippedReasons.every((reason) => reason === "existing_active_mo")
   ) {
     return "All manufacturable lines already have linked manufacturing orders.";
+  }
+
+  if (
+    skippedReasons.length === lines.length &&
+    skippedReasons.every((reason) => reason === "stock_on_hand")
+  ) {
+    return "Finished goods stock covers every manufacturable line.";
   }
 
   if (
@@ -142,6 +153,9 @@ export async function getSalesOrderManufacturingSummariesInTx(
       variantAttrs: items.variantAttrs,
       masterName: masterItems.name,
       masterVariantAxes: masterItems.variantAxes,
+      reservableOnHandQty: trimScale(
+        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+      ).as("reservableOnHandQty"),
     })
     .from(items)
     .leftJoin(masterItems, eq(items.parentId, masterItems.id))
@@ -182,9 +196,14 @@ export async function getSalesOrderManufacturingSummariesInTx(
       .map((row) => row.salesOrderLineId)
       .filter((value): value is string => value != null)
   );
+  const reservableStockByItemId = new Map(
+    itemRows.map((row) => [row.id, Number(row.reservableOnHandQty)])
+  );
+  const remainingStockByOrderItem = new Map<string, number>();
 
   lines.forEach((line) => {
     let skipReason: SalesOrderManufacturingSkipReason | null = null;
+    let manufacturingQuantity = line.quantity;
     const item = itemById.get(line.itemId);
 
     if (!item) {
@@ -197,6 +216,28 @@ export async function getSalesOrderManufacturingSummariesInTx(
       skipReason = "existing_active_mo";
     } else if (!bomBackedProductIds.has(line.itemId)) {
       skipReason = "no_active_bom";
+    } else {
+      const orderedQuantity = Number(line.quantity);
+      const stockKey = `${line.salesOrderId}:${line.itemId}`;
+      const remainingStock =
+        remainingStockByOrderItem.get(stockKey) ??
+        reservableStockByItemId.get(line.itemId) ??
+        0;
+
+      if (Number.isFinite(orderedQuantity) && orderedQuantity > 0) {
+        if (remainingStock >= orderedQuantity) {
+          skipReason = "stock_on_hand";
+          remainingStockByOrderItem.set(
+            stockKey,
+            roundQuantity(remainingStock - orderedQuantity)
+          );
+        } else if (remainingStock > 0) {
+          manufacturingQuantity = normalizeNumeric(
+            roundQuantity(orderedQuantity - remainingStock)
+          );
+          remainingStockByOrderItem.set(stockKey, 0);
+        }
+      }
     }
 
     const bucket = summaries.get(line.salesOrderId);
@@ -220,7 +261,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
       masterName: display.masterName,
       attrs: display.attrs,
       itemSku: line.itemSku,
-      quantity: line.quantity,
+      quantity: manufacturingQuantity,
       unitName: line.unitName,
       status: skipReason == null ? "will_create" : "skipped",
       skipReason,

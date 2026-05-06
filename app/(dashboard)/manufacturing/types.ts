@@ -50,6 +50,7 @@ export type ManufacturingSalesOrderPreviewLine = {
     | "non_product"
     | "inactive_product"
     | "no_active_bom"
+    | "stock_on_hand"
     | "existing_active_mo"
     | null;
   skipMessage: string | null;
@@ -75,7 +76,12 @@ export type ManufacturingOrdersFromSalesOrderResult = {
   }>;
   skipped: Array<{
     salesOrderLineId: string;
-    reason: "non_product" | "inactive_product" | "no_active_bom" | "existing_active_mo";
+    reason:
+      | "non_product"
+      | "inactive_product"
+      | "no_active_bom"
+      | "stock_on_hand"
+      | "existing_active_mo";
   }>;
 };
 

@@ -905,4 +905,89 @@ test.describe("Sales write-path smoke", () => {
     await selectDate(page, dialog.getByLabel("Planned Date"), "2026-05-22");
     await expect(dialog.getByRole("button", { name: "Create 1 order" })).toBeEnabled();
   });
+
+  test("hides Create MOs when finished goods stock covers the order", async ({
+    page,
+    db,
+  }) => {
+    const suffix = `${ts}-STOCK-MO`;
+    const customerResult = await createCustomer({
+      name: `Fast Stock Covers Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+    const stockedCustomerId = customerResult.body.id as string;
+
+    const materialResult = await createItem({
+      name: `Fast Stock Covers Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-STOCK-MAT-${suffix}`,
+      category: `Fast Stock Covers ${suffix}`,
+      description: "Material for stocked finished goods",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const productName = `Fast Stock Covers Product ${suffix}`;
+    const productResult = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-STOCK-PROD-${suffix}`,
+      category: `Fast Stock Covers ${suffix}`,
+      description: "BOM-backed product with enough finished goods stock",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "5",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+    const stockedProductId = productResult.body.id as string;
+
+    const draftOrderResult = await createSalesOrder({
+      customerId: stockedCustomerId,
+      status: "draft",
+      lines: [{ itemId: stockedProductId, quantity: "4", unitPrice: "10" }],
+    });
+    expect(draftOrderResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: stockedCustomerId,
+      status: "confirmed",
+      lines: [{ itemId: stockedProductId, quantity: "3", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const stockedOrderId = orderResult.body.id as string;
+
+    const previewResponse = await testFetch(
+      `/api/sales-orders/${stockedOrderId}/manufacturing-orders`
+    );
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json();
+    expect(preview.hasManufacturableLines).toBe(false);
+    expect(preview.lines).toMatchObject([
+      {
+        itemName: productName,
+        status: "skipped",
+        skipReason: "stock_on_hand",
+      },
+    ]);
+
+    const [order] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, stockedOrderId));
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", order.orderNumber);
+
+    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
+    await expect(orderRow.getByRole("button", { name: "Create MOs" })).toHaveCount(0);
+  });
 });
