@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  inventoryReservationsSummary,
   items,
   manufacturingOrders,
   salesOrderLines,
@@ -8,7 +9,7 @@ import {
 import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
 import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
-import { projectedReservableOnHandQtyExpr } from "@/lib/inventory/kernel/read";
+import { projectedAvailableQtyExpr } from "@/lib/inventory/kernel/read";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
@@ -153,9 +154,9 @@ export async function getSalesOrderManufacturingSummariesInTx(
       variantAttrs: items.variantAttrs,
       masterName: masterItems.name,
       masterVariantAxes: masterItems.variantAxes,
-      reservableOnHandQty: trimScale(
-        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-      ).as("reservableOnHandQty"),
+      availableQty: trimScale(
+        projectedAvailableQtyExpr(items.organizationId, items.id)
+      ).as("availableQty"),
     })
     .from(items)
     .leftJoin(masterItems, eq(items.parentId, masterItems.id))
@@ -185,6 +186,27 @@ export async function getSalesOrderManufacturingSummariesInTx(
           )
         )
     : [];
+  const reservationRows = salesOrderLineIds.length
+    ? await tx
+        .select({
+          salesOrderLineId: inventoryReservationsSummary.referenceId,
+          itemId: inventoryReservationsSummary.itemId,
+          quantity: trimScale(
+            sql`COALESCE(SUM(${inventoryReservationsSummary.quantity}), 0)`
+          ).as("quantity"),
+        })
+        .from(inventoryReservationsSummary)
+        .where(
+          and(
+            eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+            inArray(inventoryReservationsSummary.referenceId, salesOrderLineIds)
+          )
+        )
+        .groupBy(
+          inventoryReservationsSummary.referenceId,
+          inventoryReservationsSummary.itemId
+        )
+    : [];
 
   const bomBackedProductIds = new Set(
     [...bomCoverage.entries()]
@@ -196,9 +218,24 @@ export async function getSalesOrderManufacturingSummariesInTx(
       .map((row) => row.salesOrderLineId)
       .filter((value): value is string => value != null)
   );
-  const reservableStockByItemId = new Map(
-    itemRows.map((row) => [row.id, Number(row.reservableOnHandQty)])
+  const availableStockByItemId = new Map(
+    itemRows.map((row) => [row.id, Number(row.availableQty)])
   );
+  const salesLineById = new Map(
+    lines.map((line) => [line.salesOrderLineId, line])
+  );
+  const reservationsByOrderItem = new Map<string, number>();
+  reservationRows.forEach((row) => {
+    const line = salesLineById.get(row.salesOrderLineId);
+    if (!line) return;
+    const stockKey = `${line.salesOrderId}:${row.itemId}`;
+    reservationsByOrderItem.set(
+      stockKey,
+      roundQuantity(
+        (reservationsByOrderItem.get(stockKey) ?? 0) + Number(row.quantity)
+      )
+    );
+  });
   const remainingStockByOrderItem = new Map<string, number>();
 
   lines.forEach((line) => {
@@ -219,23 +256,35 @@ export async function getSalesOrderManufacturingSummariesInTx(
     } else {
       const orderedQuantity = Number(line.quantity);
       const stockKey = `${line.salesOrderId}:${line.itemId}`;
+      const itemStockKey = line.itemId;
       const remainingStock =
         remainingStockByOrderItem.get(stockKey) ??
-        reservableStockByItemId.get(line.itemId) ??
-        0;
+        remainingStockByOrderItem.get(itemStockKey) ??
+        roundQuantity(
+          (availableStockByItemId.get(line.itemId) ?? 0) +
+            (reservationsByOrderItem.get(stockKey) ?? 0)
+        );
 
       if (Number.isFinite(orderedQuantity) && orderedQuantity > 0) {
         if (remainingStock >= orderedQuantity) {
           skipReason = "stock_on_hand";
+          const updatedRemainingStock = roundQuantity(
+            remainingStock - orderedQuantity
+          );
           remainingStockByOrderItem.set(
             stockKey,
-            roundQuantity(remainingStock - orderedQuantity)
+            updatedRemainingStock
+          );
+          remainingStockByOrderItem.set(
+            itemStockKey,
+            updatedRemainingStock
           );
         } else if (remainingStock > 0) {
           manufacturingQuantity = normalizeNumeric(
             roundQuantity(orderedQuantity - remainingStock)
           );
           remainingStockByOrderItem.set(stockKey, 0);
+          remainingStockByOrderItem.set(itemStockKey, 0);
         }
       }
     }
