@@ -246,7 +246,7 @@ Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` / `VERCEL_URL` for t
 
 ### Team access presets
 
-Team invites should choose a preset (`admin`, `ops_manager`, `sales_manager`, `sales_operator`, `view_only`) and convert it to matrix roles. Presets are derived from module access later; non-matching access shows as `custom`.
+Team invites should choose a preset (`admin`, `ops_manager`, `ops_operator`, `sales_manager`, `sales_operator`, `view_only`) and convert it to matrix roles. Presets are derived from module access later; non-matching access shows as `custom`.
 
 ```ts
 const assignedRoles = buildPresetAssignedRoles("sales_operator")

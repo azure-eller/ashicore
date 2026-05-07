@@ -15,6 +15,7 @@ export const MATRIX_SENTINEL_ROLE = "access:matrix" as const;
 export const ACCESS_PRESET_KEYS = [
   "admin",
   "ops_manager",
+  "ops_operator",
   "sales_manager",
   "sales_operator",
   "view_only",
@@ -70,6 +71,13 @@ const ACCESS_PRESET_DEFINITIONS: Record<AccessPresetKey, ModuleAccessMap> = {
     sales: "read",
     manufacturing: "admin",
     purchasing: "admin",
+    settings: "none",
+  },
+  ops_operator: {
+    inventory: "read",
+    sales: "read",
+    manufacturing: "operate",
+    purchasing: "read",
     settings: "none",
   },
   sales_manager: {
@@ -209,6 +217,8 @@ export function formatAccessPresetLabel(presetKey: DerivedAccessPresetKey) {
       return "Admin";
     case "ops_manager":
       return "Ops Manager";
+    case "ops_operator":
+      return "Ops Operator";
     case "sales_manager":
       return "Sales Manager";
     case "sales_operator":
