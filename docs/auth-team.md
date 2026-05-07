@@ -68,7 +68,7 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 
 - Team UI lives under `Settings > Team`
 - Owner or `settings:admin` access only
-- Team invites require a preset: `admin`, `ops_manager`, `sales_manager`, `sales_operator`, or `view_only`
+- Team invites require a preset: `admin`, `ops_manager`, `ops_operator`, `sales_manager`, `sales_operator`, or `view_only`
 - Presets are templates over the matrix, not a separate auth system
 - Team UI should show the derived preset first and only open the matrix in a per-member customize surface
 - Any matrix that no longer matches a preset should display as `Custom`

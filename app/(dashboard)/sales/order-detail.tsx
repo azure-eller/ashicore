@@ -140,7 +140,6 @@ type ShipmentCostFormLine = {
 
 type ShipmentCostFormState = {
   shipmentId: string;
-  customerFreightChargeAmount: string;
   costs: ShipmentCostFormLine[];
 };
 
@@ -202,7 +201,6 @@ function buildShipmentFormState(
 function buildShipmentCostFormState(shipment: SalesShipmentRow): ShipmentCostFormState {
   return {
     shipmentId: shipment.id,
-    customerFreightChargeAmount: shipment.customerFreightChargeAmount ?? "",
     costs:
       shipment.costs.length > 0
         ? shipment.costs.map((cost) => ({
@@ -237,10 +235,7 @@ function shipmentPayloadFromState(state: ShipmentFormState) {
 
 function shipmentCostsPayloadFromState(state: ShipmentCostFormState) {
   return {
-    customerFreightChargeAmount:
-      state.customerFreightChargeAmount.trim() === ""
-        ? null
-        : state.customerFreightChargeAmount.trim(),
+    customerFreightChargeAmount: null,
     costs: state.costs
       .filter((cost) => cost.amount.trim() !== "")
       .map((cost) => ({

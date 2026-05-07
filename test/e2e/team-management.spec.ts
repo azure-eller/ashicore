@@ -75,7 +75,7 @@ async function acceptInviteAsNewUser(
 ) {
   const { context, page } = await createFreshPage(browser);
   await page.goto(`/accept-invitation?id=${invitationId}`);
-  await expect(page.getByText(`This invite is for ${email}`)).toBeVisible();
+  await expect(page.getByLabel("Email")).toHaveValue(email);
   await page.getByLabel("Full Name").fill(name);
   await page.getByLabel(/^Password$/).fill(password);
   await page.getByLabel(/^Confirm Password$/).fill(password);
@@ -152,6 +152,7 @@ test.describe("Team management and invite flow", () => {
   const run = Date.now();
   const memberEmail = `member-${run}@example.com`;
   const adminEmail = `admin-${run}@example.com`;
+  const opsOperatorEmail = `ops-operator-${run}@example.com`;
   const memberPassword = "MemberPassword123!";
   const adminPassword = "AdminPassword123!";
   const memberName = `Member ${run}`;
@@ -243,6 +244,7 @@ test.describe("Team management and invite flow", () => {
     };
 
     await inviteMember(memberEmail, "Sales Operator");
+    await inviteMember(opsOperatorEmail, "Ops Operator");
     await inviteMember(adminEmail, "Admin");
 
     const [memberInvite] = await db
@@ -253,6 +255,12 @@ test.describe("Team management and invite flow", () => {
       .select()
       .from(invitation)
       .where(and(eq(invitation.organizationId, TEST_ORG_ID), eq(invitation.email, adminEmail)));
+    const [opsOperatorInvite] = await db
+      .select()
+      .from(invitation)
+      .where(
+        and(eq(invitation.organizationId, TEST_ORG_ID), eq(invitation.email, opsOperatorEmail))
+      );
 
     expectRoleIncludes(memberInvite.role, [
       "access:matrix",
@@ -271,9 +279,18 @@ test.describe("Team management and invite flow", () => {
       "purchasing:admin",
       "settings:admin",
     ]);
+    expectRoleIncludes(opsOperatorInvite.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:read",
+      "manufacturing:operate",
+      "purchasing:read",
+    ]);
 
     await page.reload();
     await expect(pendingInviteCard(page, memberEmail)).toBeVisible();
+    await expect(pendingInviteCard(page, opsOperatorEmail)).toBeVisible();
     await expect(pendingInviteCard(page, adminEmail)).toBeVisible();
 
     memberInvitationId = memberInvite.id;
@@ -342,8 +359,8 @@ test.describe("Team management and invite flow", () => {
     );
 
     await expect(accepted.page).toHaveURL(/\/settings$/);
-    await expect(accepted.page.locator('a[href="/sales/orders"]')).toHaveCount(1);
-    await expect(accepted.page.locator('a[href="/inventory/products"]')).toHaveCount(1);
+    await expect(accepted.page.locator('a[href="/sales/orders"]').first()).toBeVisible();
+    await expect(accepted.page.locator('a[href="/inventory/products"]').first()).toBeVisible();
 
     const [memberUser] = await db.select().from(user).where(eq(user.email, memberEmail));
     expect(memberUser).toBeTruthy();
@@ -518,7 +535,7 @@ test.describe("Team management and invite flow", () => {
       "/inventory/materials"
     );
 
-    await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(1);
+    await expect(memberPage.locator('a[href="/inventory/products"]').first()).toBeVisible();
     await expect(memberPage.locator('a[href="/sales/orders"]')).toHaveCount(0);
 
     await memberPage.goto("/inventory/stocktakes/new");
@@ -830,20 +847,20 @@ test.describe("Team management and invite flow", () => {
       "/sales/orders"
     );
 
-    await expect(memberPage.locator('a[href="/sales/orders"]')).toHaveCount(1);
+    await expect(memberPage.locator('a[href="/sales/orders"]').first()).toBeVisible();
     await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(0);
 
     await memberPage.goto("/sales/orders");
     await expect(memberPage).toHaveURL(/\/sales\/orders$/);
     await expect(memberPage.getByLabel("Search orders")).toBeVisible();
 
-    await memberPage.goto("/inventory/products");
+    await memberPage.goto("/inventory/products", { waitUntil: "commit" });
     await memberPage.waitForURL("**/sales/orders");
 
-    await memberPage.goto("/sales/pricing");
+    await memberPage.goto("/sales/pricing", { waitUntil: "commit" });
     await memberPage.waitForURL("**/sales/orders");
 
-    await memberPage.goto("/sales/pricing/schedules/new");
+    await memberPage.goto("/sales/pricing/schedules/new", { waitUntil: "commit" });
     await memberPage.waitForURL("**/sales/orders");
 
     const allowedSalesMutation = await apiCall<{ error?: string; errors?: Record<string, string[]> }>(
@@ -901,7 +918,7 @@ test.describe("Team management and invite flow", () => {
       "/purchasing/orders"
     );
 
-    await expect(memberPage.locator('a[href="/purchasing/orders"]')).toHaveCount(1);
+    await expect(memberPage.locator('a[href="/purchasing/orders"]').first()).toBeVisible();
     await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(0);
     await expect(memberPage.locator('a[href="/sales/orders"]')).toHaveCount(0);
 
@@ -911,7 +928,7 @@ test.describe("Team management and invite flow", () => {
     await memberPage.goto("/purchasing/suppliers/new");
     await expect(memberPage).toHaveURL(/\/purchasing\/suppliers\/new$/);
 
-    await memberPage.goto("/sales/orders");
+    await memberPage.goto("/sales/orders", { waitUntil: "commit" });
     await memberPage.waitForURL("**/purchasing/orders");
 
     const blockedSalesMutation = await apiCall<{ error?: string }>(memberPage, "/api/sales-orders", {

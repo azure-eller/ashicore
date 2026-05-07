@@ -597,7 +597,7 @@ test.describe("Manufacturing order flow", () => {
     await page.getByRole("button", { name: "Create MOs", exact: true }).first().click();
     const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(batchOrder.orderNumber)).toBeVisible();
+    await expect(dialog.getByText(new RegExp(`^${batchOrder.orderNumber} -`))).toBeVisible();
     await expect(dialog.locator("table")).toContainText(productName);
     await expect(dialog.locator("table")).toContainText(nonManufacturableProductName);
     await expect(dialog.locator("table")).toContainText("Will create");
@@ -616,7 +616,8 @@ test.describe("Manufacturing order flow", () => {
     await page.getByRole("button", { name: "Create 1 order" }).click();
     expect((await createResponse).status()).toBe(201);
 
-    await expect(page.getByText("Linked Manufacturing Orders")).toBeVisible();
+    await page.locator("#sales-order-tab-manufacturing").click();
+    await expect(page.locator("#sales-order-panel-manufacturing table")).toContainText(productName);
 
     const lineRows = await db
       .select({
@@ -653,7 +654,7 @@ test.describe("Manufacturing order flow", () => {
 
     expect(batchIngredients).toHaveLength(2);
     await expect(
-      page.getByRole("link", { name: batchManufacturingOrder.orderNumber })
+      page.getByRole("cell", { name: batchManufacturingOrder.orderNumber })
     ).toBeVisible();
     await expect(page.locator("table").last()).toContainText("Draft");
     await expect(page.locator("table").last()).toContainText(productName);
@@ -744,7 +745,7 @@ test.describe("Manufacturing order flow", () => {
     expect(completeResult.body?.id).toBe(repeatOrderId);
 
     await page.goto(`/sales/orders/${repeatSalesOrderId}`);
-    await expect(page.getByText("Ready to ship.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ship", exact: true }).first()).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Create MOs", exact: true })
     ).toHaveCount(0);
@@ -816,7 +817,9 @@ test.describe("Manufacturing order flow", () => {
     const sandRow = page
       .locator("tbody tr")
       .filter({ hasText: sandName });
-    await sandRow.locator('input[inputmode="decimal"]').fill("3.5");
+    const sandQuantityInput = sandRow.locator('input[inputmode="decimal"]');
+    await sandQuantityInput.fill("3.5");
+    await expect(sandQuantityInput).toHaveValue("3.5");
     await page.getByLabel("Notes").fill("Edited draft before release");
 
     await page.getByRole("button", { name: "Save Changes" }).click();

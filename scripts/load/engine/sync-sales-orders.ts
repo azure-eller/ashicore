@@ -303,9 +303,10 @@ export async function evaluateSalesImportInTx(
   for (const order of config.orderSeeds) {
     const marker = buildOrderMarker(config.orderMarkerPrefix, order.sourceRows);
     const label = buildOrderLabel(order);
-    const requestedDate = config.requestedDateBySourceRow[order.sourceRows[0]] ?? null;
+    const requestedDate =
+      order.requestedDate ?? config.requestedDateBySourceRow?.[order.sourceRows[0]] ?? null;
     const orderDate = order.orderDate ?? requestedDate ?? new Date().toISOString().slice(0, 10);
-    const shipDate = requestedDate;
+    const shipDate = order.shipDate ?? requestedDate;
 
     const issues: string[] = [];
     const preparedLines: PreparedSalesImportLine[] = [];

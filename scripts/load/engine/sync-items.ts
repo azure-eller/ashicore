@@ -54,6 +54,7 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       defaultSellingPrice: items.defaultSellingPrice,
       manufacturingMode: items.manufacturingMode,
       expectedBatchYield: items.expectedBatchYield,
+      bomLocked: items.bomLocked,
       safetyStock: items.safetyStock,
       isMaster: items.isMaster,
       parentId: items.parentId,
@@ -136,6 +137,7 @@ export function planItemsSync(
         existing.manufacturingMode !== seed.manufacturingMode) ||
       (seed.expectedBatchYield !== undefined &&
         !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+      (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
       (seed.safetyStock !== undefined &&
         !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
       JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(seed.variantAxes ?? null) ||
@@ -207,6 +209,7 @@ export async function applyItemsSyncInTx(
           purchaseToStockFactor: seed.purchaseToStockFactor ?? null,
           manufacturingMode: seed.manufacturingMode ?? "discrete",
           expectedBatchYield: seed.expectedBatchYield ?? null,
+          bomLocked: seed.bomLocked ?? false,
           isMaster: seed.isMaster ?? false,
           parentId: resolvedParentId,
           variantAxes: seed.variantAxes ?? null,
@@ -255,6 +258,9 @@ export async function applyItemsSyncInTx(
       if (seed.expectedBatchYield !== undefined) {
         nextValues.expectedBatchYield = seed.expectedBatchYield;
       }
+      if (seed.bomLocked !== undefined) {
+        nextValues.bomLocked = seed.bomLocked;
+      }
       if (seed.safetyStock !== undefined) {
         nextValues.safetyStock = seed.safetyStock ?? "0";
       }
@@ -281,6 +287,7 @@ export async function applyItemsSyncInTx(
           existing.manufacturingMode !== seed.manufacturingMode) ||
         (seed.expectedBatchYield !== undefined &&
           !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+        (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
         (seed.safetyStock !== undefined &&
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
         existing.isMaster !== (seed.isMaster ?? false) ||

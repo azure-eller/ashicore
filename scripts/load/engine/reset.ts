@@ -32,12 +32,28 @@ const STEPS: CountStep[] = [
     count: (tx, orgId) =>
       readCount(
         tx,
-        sql`SELECT COUNT(*)::int AS n FROM inventory.inventory_idempotency_claims WHERE organization_id = ${orgId}`
+        sql`
+          SELECT COUNT(*)::int AS n FROM inventory.inventory_idempotency_claims
+          WHERE organization_id = ${orgId}
+            OR first_event_id IN (
+              SELECT e.id FROM inventory.inventory_events e
+              WHERE e.organization_id = ${orgId}
+                OR e.lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+                OR e.item_id IN (SELECT id FROM inventory.items WHERE organization_id = ${orgId})
+            )
+        `
       ),
     delete: async (tx, orgId) => {
-      await tx.execute(
-        sql`DELETE FROM inventory.inventory_idempotency_claims WHERE organization_id = ${orgId}`
-      );
+      await tx.execute(sql`
+        DELETE FROM inventory.inventory_idempotency_claims
+        WHERE organization_id = ${orgId}
+          OR first_event_id IN (
+            SELECT e.id FROM inventory.inventory_events e
+            WHERE e.organization_id = ${orgId}
+              OR e.lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+              OR e.item_id IN (SELECT id FROM inventory.items WHERE organization_id = ${orgId})
+          )
+      `);
     },
   },
   {
@@ -106,16 +122,55 @@ const STEPS: CountStep[] = [
     },
   },
   {
+    table: "inventory.quality_disposition_events",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`
+          SELECT COUNT(*)::int AS n FROM inventory.quality_disposition_events
+          WHERE organization_id = ${orgId}
+            OR inventory_event_id IN (
+              SELECT e.id FROM inventory.inventory_events e
+              WHERE e.organization_id = ${orgId}
+                OR e.lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+                OR e.item_id IN (SELECT id FROM inventory.items WHERE organization_id = ${orgId})
+            )
+            OR lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+        `
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(sql`
+        DELETE FROM inventory.quality_disposition_events
+        WHERE organization_id = ${orgId}
+          OR inventory_event_id IN (
+            SELECT e.id FROM inventory.inventory_events e
+            WHERE e.organization_id = ${orgId}
+              OR e.lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+              OR e.item_id IN (SELECT id FROM inventory.items WHERE organization_id = ${orgId})
+          )
+          OR lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+      `);
+    },
+  },
+  {
     table: "inventory.inventory_events",
     count: (tx, orgId) =>
       readCount(
         tx,
-        sql`SELECT COUNT(*)::int AS n FROM inventory.inventory_events WHERE organization_id = ${orgId}`
+        sql`
+          SELECT COUNT(*)::int AS n FROM inventory.inventory_events
+          WHERE organization_id = ${orgId}
+            OR lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+            OR item_id IN (SELECT id FROM inventory.items WHERE organization_id = ${orgId})
+        `
       ),
     delete: async (tx, orgId) => {
-      await tx.execute(
-        sql`DELETE FROM inventory.inventory_events WHERE organization_id = ${orgId}`
-      );
+      await tx.execute(sql`
+        DELETE FROM inventory.inventory_events
+        WHERE organization_id = ${orgId}
+          OR lot_id IN (SELECT id FROM inventory.lots WHERE organization_id = ${orgId})
+          OR item_id IN (SELECT id FROM inventory.items WHERE organization_id = ${orgId})
+      `);
     },
   },
 
@@ -287,6 +342,53 @@ const STEPS: CountStep[] = [
   },
 
   // ───────────── Sales ─────────────
+  {
+    table: "sales.sales_shipment_costs",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.sales_shipment_costs WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.sales_shipment_costs WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
+    table: "sales.sales_shipment_lines",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`
+          SELECT COUNT(*)::int AS n FROM sales.sales_shipment_lines
+          WHERE sales_shipment_id IN (
+            SELECT id FROM sales.sales_shipments WHERE organization_id = ${orgId}
+          )
+        `
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(sql`
+        DELETE FROM sales.sales_shipment_lines
+        WHERE sales_shipment_id IN (
+          SELECT id FROM sales.sales_shipments WHERE organization_id = ${orgId}
+        )
+      `);
+    },
+  },
+  {
+    table: "sales.sales_shipments",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.sales_shipments WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.sales_shipments WHERE organization_id = ${orgId}`
+      );
+    },
+  },
   {
     table: "sales.sales_order_lines",
     count: (tx, orgId) =>

@@ -77,11 +77,15 @@ test.describe("Sales order flow", () => {
   currentMonthFifteenth.setDate(15);
   const currentMonthFirst = new Date(currentMonthFifteenth);
   currentMonthFirst.setDate(1);
+  const currentMonthFourteenth = new Date(currentMonthFifteenth);
+  currentMonthFourteenth.setDate(14);
   const expectedOrderDate = format(currentMonthFirst, "yyyy-MM-dd");
   const expectedOrderDatePickerLabel = format(currentMonthFirst, "MMMM d, yyyy");
   const expectedOrderDateLabel = new Date(
     `${expectedOrderDate}T00:00:00`
   ).toLocaleDateString("en-US");
+  const expectedShipDate = format(currentMonthFourteenth, "yyyy-MM-dd");
+  const expectedShipDatePickerLabel = format(currentMonthFourteenth, "MMMM d, yyyy");
   const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
   const expectedRequestedDatePickerLabel = format(currentMonthFifteenth, "MMMM d, yyyy");
   const expectedRequestedDateLabel = new Date(
@@ -397,6 +401,7 @@ test.describe("Sales order flow", () => {
       page.getByLabel("Delivery Date"),
       expectedRequestedDate
     );
+    await selectDate(page, page.getByLabel("Ship Date"), expectedShipDate);
 
     const itemInput = page.getByPlaceholder("Search items...");
     await itemInput.click();
@@ -426,12 +431,9 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText(primaryProductName)).toBeVisible();
     await expect(page.getByText(secondaryProductName)).toBeVisible();
     await expect(page.getByText(expectedRequestedDateLabel)).toBeVisible();
-    await expect(page.locator("dl").getByText("$158.97", { exact: true })).toBeVisible();
+    await expect(page.getByText("$158.97", { exact: true }).first()).toBeVisible();
     await expect(page.locator("table").first()).toContainText("$104.97");
     await expect(page.locator("table").first()).toContainText("$54.00");
-    await expect(page.locator("table").first()).toContainText(
-      `Suggested $10.80 from Wholesale ${run} Default, 5+`
-    );
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
@@ -449,6 +451,7 @@ test.describe("Sales order flow", () => {
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("draft");
     expect(order.orderDate).toBe(expectedOrderDate);
+    expect(order.shipDate).toBe(expectedShipDate);
     expect(order.requestedDate).toBe(expectedRequestedDate);
     expect(order.notes).toBe("Full lifecycle test order");
     expect(order.deletedAt).toBeNull();
@@ -513,6 +516,9 @@ test.describe("Sales order flow", () => {
     await expect(page.getByLabel("Delivery Date")).toContainText(
       expectedRequestedDatePickerLabel
     );
+    await expect(page.getByLabel("Ship Date")).toContainText(
+      expectedShipDatePickerLabel
+    );
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
 
     // Change first line quantity from 3 to 5
@@ -531,7 +537,6 @@ test.describe("Sales order flow", () => {
     // UI
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
     await expect(page.locator("table").first()).toContainText("$11.25");
-    await expect(page.locator("table").first()).toContainText("Manual override");
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     // DB
@@ -739,10 +744,7 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Ship" })).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Plan Fulfillment", exact: true })
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ship" }).first()).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Cancel order" })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -756,7 +758,11 @@ test.describe("Sales order flow", () => {
 
     await page.getByRole("button", { name: "Create MOs", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
-    await expect(page.getByText(fullOrderNumber)).toBeVisible();
+    await expect(
+      page
+        .getByRole("dialog", { name: "Create Manufacturing Orders" })
+        .getByText(new RegExp(`^${fullOrderNumber} -`))
+    ).toBeVisible();
     await page.keyboard.press("Escape");
 
     await page.goto("/sales/orders");

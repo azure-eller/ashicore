@@ -4,7 +4,12 @@ import {
 } from "@/lib/inventory/cost";
 import { normalizeNumericScale } from "@/lib/format";
 import { isValidIsoDate } from "@/lib/schemas/shared";
-import type { ExistingItem, InitialStockEntry, ItemSeed } from "./types";
+import type {
+  ExistingItem,
+  InitialStockEntry,
+  InitialStockLotEntry,
+  ItemSeed,
+} from "./types";
 
 export function resolveSeedSellable(
   seed: ItemSeed,
@@ -42,7 +47,7 @@ export function resolveSeedCurrentStockUnitCost(seed: ItemSeed) {
 // exists to prevent.
 export function resolveSeedOpeningQuantity(
   seed: ItemSeed,
-  entry: InitialStockEntry
+  entry: InitialStockLotEntry
 ): { stockQuantity: number; sourceLabel: string } {
   if (typeof entry === "string") {
     return { stockQuantity: Number(entry), sourceLabel: entry };
@@ -50,8 +55,12 @@ export function resolveSeedOpeningQuantity(
 
   const inputQty = Number(entry.quantity);
 
-  if (entry.unitKey == null || entry.unitKey === seed.unitKey) {
+  if (entry.unitKey == null) {
     return { stockQuantity: inputQty, sourceLabel: entry.quantity };
+  }
+
+  if (entry.unitKey === seed.unitKey) {
+    return { stockQuantity: inputQty, sourceLabel: `${entry.quantity} ${entry.unitKey}` };
   }
 
   if (entry.unitKey === seed.purchaseUnitKey) {
@@ -72,7 +81,7 @@ export function resolveSeedOpeningQuantity(
   );
 }
 
-export function resolveSeedOpeningReceivedAt(entry: InitialStockEntry): Date {
+export function resolveSeedOpeningReceivedAt(entry: InitialStockLotEntry): Date {
   if (typeof entry === "string") {
     return new Date();
   }
@@ -100,6 +109,12 @@ export function resolveSeedOpeningReceivedAt(entry: InitialStockEntry): Date {
   }
 
   return new Date();
+}
+
+export function resolveSeedOpeningLotEntries(
+  entry: InitialStockEntry
+): InitialStockLotEntry[] {
+  return Array.isArray(entry) ? entry : [entry];
 }
 
 function resolveSeedDirectOpeningUnitCost(seed: ItemSeed) {

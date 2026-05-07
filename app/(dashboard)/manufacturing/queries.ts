@@ -846,7 +846,10 @@ async function prepareUpdatedIngredientsInTx(
       itemType: selected.itemType,
       unitName: selected.unitName,
       quantityPerUnit,
-      plannedQuantity: multiplyQuantityString(quantityPerUnit, ingredientMultiplier),
+      plannedQuantity: multiplyQuantityString(
+        quantityPerUnit,
+        ingredientMultiplier
+      ),
       sortOrder: existingRow.sortOrder,
       constraints: row.constraints,
     };
