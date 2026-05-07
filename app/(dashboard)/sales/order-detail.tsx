@@ -769,10 +769,12 @@ function ShippingPanel({
     postcode: order.shipPostcode,
     country: order.shipCountry,
   });
-  const preparedCount = order.shipments.filter(
+  const shippedShipmentCount = order.shipments.filter(
+    (shipment) => shipment.status === "shipped"
+  ).length;
+  const activeShipmentCount = order.shipments.filter(
     (shipment) => shipment.status !== "cancelled"
   ).length;
-  const activeShipmentCount = preparedCount;
 
   return (
     <div className="space-y-3">
@@ -808,7 +810,7 @@ function ShippingPanel({
 
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm text-muted-foreground">
-          {preparedCount} of {activeShipmentCount} prepared
+          {shippedShipmentCount} of {activeShipmentCount} shipped
         </span>
         {canCreateShipment ? (
           <Button variant="outline" size="sm" onClick={onCreateShipment}>
