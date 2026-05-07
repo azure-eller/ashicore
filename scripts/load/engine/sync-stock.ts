@@ -77,18 +77,38 @@ function buildLotNumbers(
   );
 }
 
-function buildExistingLotNumberCandidates(
+function uniqueLotNumbers(candidates: string[]) {
+  return Array.from(new Set(candidates));
+}
+
+function buildCurrentLotNumberCandidates(
   prefix: string,
   seed: ItemSeed,
   lotSuffix?: string | null
 ) {
-  const candidates = buildLotNumbers(prefix, seed, lotSuffix);
+  return uniqueLotNumbers(buildLotNumbers(prefix, seed, lotSuffix));
+}
 
-  if (lotSuffix) {
-    candidates.push(...buildLotNumbers(prefix, seed));
+function buildLegacyLotNumberCandidates(
+  prefix: string,
+  seed: ItemSeed,
+  lotSuffix?: string | null
+) {
+  return lotSuffix ? uniqueLotNumbers(buildLotNumbers(prefix, seed)) : [];
+}
+
+async function findExistingLotByNumberCandidates(tx: Tx, candidates: string[]) {
+  if (candidates.length === 0) {
+    return null;
   }
 
-  return Array.from(new Set(candidates));
+  const [existingLot] = await tx
+    .select({ id: lots.id, lotNumber: lots.lotNumber })
+    .from(lots)
+    .where(inArray(lots.lotNumber, candidates))
+    .limit(1);
+
+  return existingLot ?? null;
 }
 
 export async function planStockSyncInTx(
@@ -107,14 +127,29 @@ export async function planStockSyncInTx(
   for (const [key, entry] of Object.entries(initialStockByKey)) {
     const seed = seedByKey.get(key);
     if (!seed) continue;
+    const claimedLegacyLotNumbers = new Set<string>();
     for (const lotEntry of resolveSeedOpeningLotEntries(entry)) {
       const lotSuffix = resolveLotSuffix(lotEntry);
-      const existingLotNumber = buildExistingLotNumberCandidates(
+      const currentCandidates = buildCurrentLotNumberCandidates(
         openingLotPrefix,
         seed,
         lotSuffix
-      ).find((candidate) => existingLotNumbers.has(candidate)
       );
+      const legacyCandidates = buildLegacyLotNumberCandidates(
+        openingLotPrefix,
+        seed,
+        lotSuffix
+      ).filter((candidate) => !claimedLegacyLotNumbers.has(candidate));
+      const currentLotNumber = currentCandidates.find((candidate) =>
+        existingLotNumbers.has(candidate)
+      );
+      const legacyLotNumber = currentLotNumber
+        ? null
+        : legacyCandidates.find((candidate) => existingLotNumbers.has(candidate));
+      const existingLotNumber = currentLotNumber ?? legacyLotNumber;
+      if (legacyLotNumber) {
+        claimedLegacyLotNumbers.add(legacyLotNumber);
+      }
       const openingUnitCost = resolveSeedOpeningUnitCost(seed, seedByKey);
       const { sourceLabel } = resolveSeedOpeningQuantity(seed, lotEntry);
       resolveSeedOpeningReceivedAt(lotEntry);
@@ -146,22 +181,34 @@ export async function applyStockSyncInTx(
     const itemId = itemIdByKey.get(key);
     const seed = seedByKey.get(key);
     if (!itemId || !seed) continue;
+    const claimedLegacyLotNumbers = new Set<string>();
 
     for (const lotEntry of resolveSeedOpeningLotEntries(entry)) {
       const lotSuffix = resolveLotSuffix(lotEntry);
       const [lotNumber] = buildLotNumbers(openingLotPrefix, seed, lotSuffix);
-      const existingLotNumberCandidates = buildExistingLotNumberCandidates(
+      const currentCandidates = buildCurrentLotNumberCandidates(
         openingLotPrefix,
         seed,
         lotSuffix
       );
-      const [existingLot] = await tx
-        .select({ id: lots.id, lotNumber: lots.lotNumber })
-        .from(lots)
-        .where(inArray(lots.lotNumber, existingLotNumberCandidates))
-        .limit(1);
+      const existingCurrentLot = await findExistingLotByNumberCandidates(
+        tx,
+        currentCandidates
+      );
+      const legacyCandidates = buildLegacyLotNumberCandidates(
+        openingLotPrefix,
+        seed,
+        lotSuffix
+      ).filter((candidate) => !claimedLegacyLotNumbers.has(candidate));
+      const existingLegacyLot = existingCurrentLot
+        ? null
+        : await findExistingLotByNumberCandidates(tx, legacyCandidates);
+      const existingLot = existingCurrentLot ?? existingLegacyLot;
 
       if (existingLot) {
+        if (existingLegacyLot) {
+          claimedLegacyLotNumbers.add(existingLegacyLot.lotNumber);
+        }
         report.stockLotsExisting.push(`${seed.name} (${existingLot.lotNumber})`);
         continue;
       }
