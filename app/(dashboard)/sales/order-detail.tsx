@@ -772,6 +772,7 @@ function ShippingPanel({
   const preparedCount = order.shipments.filter(
     (shipment) => shipment.status !== "cancelled"
   ).length;
+  const activeShipmentCount = preparedCount;
 
   return (
     <div className="space-y-3">
@@ -807,7 +808,7 @@ function ShippingPanel({
 
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm text-muted-foreground">
-          {preparedCount} of {order.shipments.length} prepared
+          {preparedCount} of {activeShipmentCount} prepared
         </span>
         {canCreateShipment ? (
           <Button variant="outline" size="sm" onClick={onCreateShipment}>
@@ -1113,7 +1114,9 @@ function ManufacturingPanel({
         }
         description={
           hasManufacturableLines
-            ? `${order.manufacturableLineCount} manufacturable lines can be sent to production.`
+            ? `${order.manufacturableLineCount} manufacturable ${
+                order.manufacturableLineCount === 1 ? "line" : "lines"
+              } can be sent to production.`
             : "All line items are stocked."
         }
       />
@@ -1131,8 +1134,6 @@ function ManufacturingPanel({
             <TableHead className="text-right">
               <TooltipHeader label="Qty" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
             </TableHead>
-            <TableHead>Started</TableHead>
-            <TableHead>Completed</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -1157,8 +1158,6 @@ function ManufacturingPanel({
                 {formatQuantity(manufacturingOrder.plannedQuantity)}{" "}
                 {manufacturingOrder.unitName}
               </TableCell>
-              <TableCell className="text-muted-foreground">\u2014</TableCell>
-              <TableCell className="text-muted-foreground">\u2014</TableCell>
               <TableCell className="text-right">
                 <Button variant="ghost" size="sm" asChild>
                   <Link href={`/manufacturing/orders/${manufacturingOrder.id}`}>
