@@ -540,8 +540,14 @@ function CompactMarginReceipt({ margin }: { margin: SalesMarginSummary }) {
   return (
     <div className="text-sm">
       <div className="flex items-baseline justify-between border-b py-2">
-        <span className="text-xs text-muted-foreground">Revenue</span>
+        <span className="text-xs text-muted-foreground">Product revenue</span>
         <span className="font-mono tabular-nums">{money(margin.productRevenue)}</span>
+      </div>
+      <div className="flex items-baseline justify-between border-b py-2">
+        <span className="text-xs text-muted-foreground">Freight recovered</span>
+        <span className="font-mono tabular-nums text-muted-foreground">
+          {money(margin.freightRecovery)}
+        </span>
       </div>
       <div className="flex items-baseline justify-between border-b py-2">
         <span className="text-xs text-muted-foreground">COGS</span>
