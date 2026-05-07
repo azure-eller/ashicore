@@ -15,7 +15,7 @@ export function ManufacturingPickProgressBadge({
   let badge;
 
   if (status === "picked") {
-    badge = <Badge variant="outline">Picked</Badge>;
+    badge = <Badge variant="outline">Done</Badge>;
   } else if (status === "in_progress") {
     badge = <Badge>In Progress</Badge>;
   } else {

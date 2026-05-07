@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import {
   formatMinimumLotAgeRequirement,
@@ -58,12 +58,29 @@ import type {
 } from "./types";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 
+const EXECUTION_SYNC_INTERVAL_MS = 5000;
+
 function getDefaultActualQuantity(execution: ManufacturingExecutionDetail) {
   if (execution.manufacturingMode === "batch" && execution.currentBatch != null) {
     return execution.currentBatch.plannedQuantity;
   }
 
   return execution.plannedQuantity;
+}
+
+function getDiscreteRequirementMath(
+  execution: ManufacturingExecutionDetail,
+  ingredient: ManufacturingExecutionDetail["ingredients"][number]
+) {
+  if (execution.manufacturingMode !== "discrete") {
+    return null;
+  }
+
+  if (!execution.plannedQuantity || !ingredient.quantityPerUnit) {
+    return null;
+  }
+
+  return `${formatQuantity(execution.plannedQuantity)} x ${formatQuantity(ingredient.quantityPerUnit)} ${ingredient.unitName}`;
 }
 
 export type IngredientActualInput = {
@@ -176,7 +193,7 @@ function CompleteDialog({
               <div className="space-y-1">
                 <p className="text-sm font-medium">Actual Ingredient Consumption</p>
                 <p className="text-xs text-muted-foreground">
-                  Defaults to the picked quantity. Adjust if the worker used more or less than planned — variance is written as an inventory movement.
+                  Defaults to the done quantity. Adjust if the worker used more or less than planned; variance is written as an inventory movement.
                 </p>
               </div>
               <div className="grid gap-3">
@@ -199,7 +216,7 @@ function CompleteDialog({
                         />
                         {" · "}
                         <QuantityWithUnit
-                          label="Picked"
+                          label="Done"
                           value={ingredient.pickedQuantity}
                           unitName={ingredient.unitName}
                           muted
@@ -266,15 +283,44 @@ export function ManufacturingExecution({
     execution.currentBatch?.status === "in_progress" ||
     execution.currentBatchId === optimisticStartedBatchId;
 
-  const refreshData = async () => {
+  const refreshExecutionScreen = useCallback(() => {
+    startTransition(() => {
+      router.refresh();
+    });
+  }, [router]);
+
+  const refreshData = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
       queryClient.invalidateQueries({ queryKey: ["items"] }),
     ]);
-    startTransition(() => {
-      router.refresh();
-    });
-  };
+    refreshExecutionScreen();
+  }, [queryClient, refreshExecutionScreen]);
+
+  useEffect(() => {
+    if (execution.status !== "released") {
+      return;
+    }
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshExecutionScreen();
+      }
+    };
+
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    const interval = window.setInterval(
+      refreshIfVisible,
+      EXECUTION_SYNC_INTERVAL_MS
+    );
+
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.clearInterval(interval);
+    };
+  }, [execution.status, refreshExecutionScreen]);
 
   const startBatchMutation = useMutation({
     mutationFn: async () => {
@@ -330,7 +376,7 @@ export function ManufacturingExecution({
       if (!response.ok) {
         throw {
           status: response.status,
-          message: body?.error ?? "Failed to pick ingredient.",
+          message: body?.error ?? "Failed to mark ingredient done.",
           shortage: body?.shortage as ManufacturingReleaseWarningPayload | undefined,
         };
       }
@@ -364,7 +410,7 @@ export function ManufacturingExecution({
       }
       setPickError({
         id: input.ingredientId,
-        message: error.message ?? "Failed to pick ingredient.",
+        message: error.message ?? "Failed to mark ingredient done.",
       });
     },
   });
@@ -594,13 +640,13 @@ export function ManufacturingExecution({
           <div className="space-y-1">
             <h2 className="text-xl font-semibold tracking-tight">Ingredients</h2>
             <p className="text-sm text-muted-foreground">
-              Pick remaining quantities; FIFO is automatic.
+              Mark each ingredient done as it is finished.
             </p>
             {execution.manufacturingMode === "batch" &&
               !canPick &&
               execution.currentBatch && (
                 <p className="text-sm text-muted-foreground">
-                  Start batch {execution.currentBatch.batchNumber} before picking.
+                  Start batch {execution.currentBatch.batchNumber} before marking ingredients done.
                 </p>
               )}
           </div>
@@ -609,6 +655,10 @@ export function ManufacturingExecution({
             {execution.ingredients.map((ingredient) => {
               const isPicked = ingredient.remainingQuantity === "0";
               const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+              const discreteRequirementMath = getDiscreteRequirementMath(
+                execution,
+                ingredient
+              );
 
               return (
                 <Card key={ingredient.id} size="sm" className="border border-border/80">
@@ -625,8 +675,20 @@ export function ManufacturingExecution({
                               : ingredient.itemName}
                           </Link>
                           <Badge variant="outline">{ingredient.itemType}</Badge>
-                          {isPicked && <Badge variant="outline">Picked</Badge>}
+                          {isPicked && <Badge variant="outline">Done</Badge>}
                         </div>
+                        {discreteRequirementMath ? (
+                          <p className="text-sm text-muted-foreground">
+                            Total required:{" "}
+                            <QuantityWithUnit
+                              value={ingredient.plannedQuantity}
+                              unitName={ingredient.unitName}
+                              muted
+                            />
+                            {" • "}
+                            {discreteRequirementMath}
+                          </p>
+                        ) : null}
                         <p className="text-sm text-muted-foreground">
                           <QuantityWithUnit
                             label="Planned"
@@ -636,7 +698,7 @@ export function ManufacturingExecution({
                           />
                           {" • "}
                           <QuantityWithUnit
-                            label="Picked"
+                            label="Done"
                             value={ingredient.pickedQuantity}
                             unitName={ingredient.unitName}
                             muted
@@ -668,10 +730,10 @@ export function ManufacturingExecution({
                         }
                       >
                         {isPicked
-                          ? "Picked"
+                          ? "Done"
                           : pickingIngredientId === ingredient.id
-                            ? "Picking..."
-                            : "Pick"}
+                            ? "In Progress"
+                            : "Mark Done"}
                       </Button>
                     </div>
                     {pickError?.id === ingredient.id && (
@@ -702,7 +764,7 @@ export function ManufacturingExecution({
         >
           <AlertDialogContent className="bg-background text-foreground">
             <AlertDialogHeader>
-              <AlertDialogTitle>Pick with requirement override?</AlertDialogTitle>
+              <AlertDialogTitle>Mark done with requirement override?</AlertDialogTitle>
               <AlertDialogDescription>
                 One or more ingredient requirements are not fully met.
               </AlertDialogDescription>
@@ -736,7 +798,7 @@ export function ManufacturingExecution({
                   });
                 }}
               >
-                {pickMutation.isPending ? "Picking..." : "Pick Anyway"}
+                {pickMutation.isPending ? "In Progress" : "Mark Done Anyway"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

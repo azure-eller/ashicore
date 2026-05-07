@@ -115,9 +115,9 @@ export const MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP =
   "Status values: draft, released, completed, cancelled.";
 
 export const PICK_PROGRESS_TOOLTIP = {
-  not_started: "No ingredients picked yet.",
-  in_progress: "Some ingredients picked; some still open.",
-  picked: "All ingredients picked from stock.",
+  not_started: "No ingredients done yet.",
+  in_progress: "Some ingredients done; some still open.",
+  picked: "All ingredients are done.",
 } as const;
 
 export const MANUFACTURING_PLANNED_QTY_TOOLTIP =
@@ -130,7 +130,7 @@ export const MANUFACTURING_SALES_ORDER_TOOLTIP =
   "Sales order line claimed by this manufacturing order.";
 
 export const MANUFACTURING_EXECUTION_TOOLTIP =
-  "Ingredient picking progress for the order.";
+  "Ingredient completion progress for the order.";
 
 export const MANUFACTURING_COMPONENT_COST_TOOLTIP =
   "Actual cost consumed for this ingredient.";
@@ -142,10 +142,10 @@ export const MANUFACTURING_NEEDED_QTY_TOOLTIP =
   "Quantity this order requires.";
 
 export const MANUFACTURING_PICKED_QTY_TOOLTIP =
-  "Quantity already picked from stock.";
+  "Quantity already marked done.";
 
 export const MANUFACTURING_REMAINING_QTY_TOOLTIP =
-  "Quantity still to pick.";
+  "Quantity still open.";
 
 export const MANUFACTURING_PLANNED_TOTAL_TOOLTIP =
   "Quantity per unit times planned units.";

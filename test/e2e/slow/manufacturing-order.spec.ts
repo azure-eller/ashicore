@@ -995,8 +995,8 @@ test.describe("Manufacturing order flow", () => {
       .filter({ hasText: compostName })
       .first();
 
-    await sandCard.getByRole("button", { name: "Pick", exact: true }).click();
-    await compostCard.getByRole("button", { name: "Pick", exact: true }).click();
+    await sandCard.getByRole("button", { name: "Mark Done", exact: true }).click();
+    await compostCard.getByRole("button", { name: "Mark Done", exact: true }).click();
 
     await page.getByRole("button", { name: "Complete Order" }).click();
     await page.getByLabel("Actual Output").fill("6");

@@ -288,10 +288,10 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(release.status).toBe(200);
 
     await page.goto(`/manufacturing/orders/${requirementOrderId}/execute`);
-    await page.getByRole("button", { name: "Pick", exact: true }).click();
+    await page.getByRole("button", { name: "Mark Done", exact: true }).click();
 
     const warningDialog = page.getByRole("alertdialog", {
-      name: "Pick with requirement override?",
+      name: "Mark done with requirement override?",
     });
     await expect(warningDialog).toBeVisible({ timeout: 15_000 });
     await expect(warningDialog).toContainText(
@@ -460,8 +460,8 @@ test.describe("Manufacturing write-path smoke", () => {
         .filter({ hasText: batchCompostName })
         .first();
 
-      await sandCard.getByRole("button", { name: "Pick", exact: true }).click();
-      await compostCard.getByRole("button", { name: "Pick", exact: true }).click();
+      await sandCard.getByRole("button", { name: "Mark Done", exact: true }).click();
+      await compostCard.getByRole("button", { name: "Mark Done", exact: true }).click();
 
       await expect
         .poll(
