@@ -344,6 +344,14 @@ function negativeMoney(value: string | null | undefined) {
   return formatted ? `\u2212 ${formatted}` : "\u2014";
 }
 
+function marginToneClass(value: string | null | undefined) {
+  const parsed = value == null ? NaN : Number(value);
+  if (!Number.isFinite(parsed)) return "text-muted-foreground";
+  if (parsed < 0) return "text-destructive";
+  if (parsed > 0) return "text-success";
+  return "text-muted-foreground";
+}
+
 function sumNumeric(values: Array<string | null | undefined>) {
   return values.reduce((total, value) => {
     const parsed = value == null ? NaN : Number(value);
@@ -558,7 +566,12 @@ function CompactMarginReceipt({ margin }: { margin: SalesMarginSummary }) {
           <span className="font-mono text-base font-semibold tabular-nums">
             {money(margin.contributionMargin)}
           </span>
-          <span className="ml-2 text-xs font-medium text-success">
+          <span
+            className={cn(
+              "ml-2 text-xs font-medium",
+              marginToneClass(margin.marginPercent)
+            )}
+          >
             {formatMarginPercent(margin.marginPercent)}
           </span>
         </span>
@@ -1014,7 +1027,12 @@ function FinancialsPanel({
               <span className="font-mono text-lg font-semibold tabular-nums">
                 {money(margin.contributionMargin)}
               </span>
-              <div className="text-xs font-medium text-success">
+              <div
+                className={cn(
+                  "text-xs font-medium",
+                  marginToneClass(margin.marginPercent)
+                )}
+              >
                 {formatMarginPercent(margin.marginPercent)} of revenue
               </div>
             </span>
@@ -1084,10 +1102,20 @@ function ManufacturingPanel({
   order: SalesOrderDetailType;
 }) {
   if (order.linkedManufacturingOrders.length === 0) {
+    const hasManufacturableLines = order.manufacturableLineCount > 0;
+
     return (
       <EmptyPanel
-        title="No manufacturing required"
-        description={`All line items are stocked. ${order.manufacturableLineCount} manufacturable lines.`}
+        title={
+          hasManufacturableLines
+            ? "No manufacturing orders created yet"
+            : "No manufacturing required"
+        }
+        description={
+          hasManufacturableLines
+            ? `${order.manufacturableLineCount} manufacturable lines can be sent to production.`
+            : "All line items are stocked."
+        }
       />
     );
   }
