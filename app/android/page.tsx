@@ -8,8 +8,8 @@ const apkUrl =
   "/downloads/ashicore-erp.apk";
 
 export const metadata: Metadata = {
-  title: "Android App",
-  description: `Download the ${APP_NAME} Android app.`,
+  title: "Mobile App",
+  description: `Download the ${APP_NAME} mobile app.`,
 };
 
 export default function AndroidDownloadPage() {
@@ -19,27 +19,27 @@ export default function AndroidDownloadPage() {
         <div className="space-y-8">
           <div className="space-y-3">
             <p className="text-sm font-medium uppercase tracking-[0.22em] text-muted-foreground">
-              Android install
+              Mobile app
             </p>
             <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-              Download {APP_NAME}
+              Download the mobile app
             </h1>
             <p className="max-w-xl text-base leading-7 text-muted-foreground">
-              Install the employee Android app from the latest signed APK.
+              Use this link on an Android phone to install the employee app.
             </p>
           </div>
 
           <div className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm">
             <ol className="list-decimal space-y-3 pl-5 text-sm leading-6 text-muted-foreground">
-              <li>Tap download on the Android phone.</li>
-              <li>Allow installs from the browser if Android asks.</li>
-              <li>Open the downloaded file and tap install.</li>
+              <li>Open this page on the phone.</li>
+              <li>Tap download.</li>
+              <li>If the phone asks for permission, allow the install.</li>
             </ol>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button asChild size="lg">
-              <Link href={apkUrl}>Download Android APK</Link>
+              <Link href={apkUrl}>Download mobile app</Link>
             </Button>
             <Button asChild size="lg" variant="outline">
               <Link href="/sign-in">Back to sign in</Link>
@@ -47,8 +47,7 @@ export default function AndroidDownloadPage() {
           </div>
 
           <p className="text-xs leading-5 text-muted-foreground">
-            Updates use the same link. If Android says the app cannot be updated,
-            uninstall the old app and install again.
+            Updates use this same page.
           </p>
         </div>
       </section>
