@@ -339,6 +339,9 @@ export function OrderDetail({
   const [cancelRemainingOpen, setCancelRemainingOpen] = useState(false);
   const [cancelRemainingIdempotencyKey, setCancelRemainingIdempotencyKey] =
     useState<string | null>(null);
+  const [shipmentToShip, setShipmentToShip] = useState<SalesShipmentRow | null>(null);
+  const [shipShipmentIdempotencyKey, setShipShipmentIdempotencyKey] =
+    useState<string | null>(null);
   const [shipmentForm, setShipmentForm] = useState<ShipmentFormState | null>(null);
   const [shipmentCostForm, setShipmentCostForm] =
     useState<ShipmentCostFormState | null>(null);
@@ -597,6 +600,74 @@ export function OrderDetail({
     },
     onError: (error) => {
       setActionError(error.message);
+    },
+  });
+
+  const shipShipmentMutation = useMutation({
+    mutationFn: async ({ shipmentId, idempotencyKey }: ShipmentActionPayload) => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({ sendEmail: false }),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to ship shipment.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+      openSyncDialog({
+        title: "Shipping Shipment",
+        description:
+          "The shipment will be marked shipped. If this completes the order, the invoice will sync to Xero.",
+        localActionLabel: "Mark shipment shipped",
+        includeEmail: false,
+      });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+
+      const latest = await fetchSalesOrderDetail(order.id);
+      const latestDocument = salesOrderAccountingDocument(latest);
+      const includeAccounting = latest.status === "shipped";
+      setSyncDialog({
+        title: includeAccounting ? "Shipment Complete" : "Shipment Recorded",
+        description: includeAccounting
+          ? "The order is shipped. The Xero invoice result is shown below."
+          : "The shipment was marked shipped. Remaining quantities still need shipment.",
+        stages: buildAccountingSyncStages({
+          document: latestDocument,
+          includeAccounting,
+          includeEmail: false,
+          localActionLabel: "Mark shipment shipped",
+        }),
+        error: null,
+        isWorking: false,
+        documentNumber: includeAccounting ? latestDocument.documentNumber : null,
+        showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
+      });
+      setShipmentToShip(null);
+      setShipShipmentIdempotencyKey(null);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+      failSyncDialog({
+        title: "Shipment Failed",
+        description: "The shipment was not marked shipped.",
+        localActionLabel: "Mark shipment shipped",
+        message: error.message,
+      });
     },
   });
 
@@ -1091,6 +1162,19 @@ export function OrderDetail({
                             ) : null}
                             {shipment.status === "draft" ? (
                               <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setShipmentToShip(shipment);
+                                    setShipShipmentIdempotencyKey(
+                                      `sales-shipment-ship:${crypto.randomUUID()}`
+                                    );
+                                  }}
+                                  disabled={shipShipmentMutation.isPending}
+                                >
+                                  Ship
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1972,6 +2056,48 @@ export function OrderDetail({
               onClick={() => cancelRemainingMutation.mutate()}
             >
               {cancelRemainingMutation.isPending ? "Cancelling..." : "Cancel Remaining"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={shipmentToShip != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShipmentToShip(null);
+            setShipShipmentIdempotencyKey(null);
+          } else if (!shipShipmentIdempotencyKey) {
+            setShipShipmentIdempotencyKey(
+              `sales-shipment-ship:${crypto.randomUUID()}`
+            );
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ship this shipment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Inventory will be consumed. If this completes the order, the invoice will sync to Xero and email will not be sent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={shipShipmentMutation.isPending}
+              onClick={() => {
+                if (!shipmentToShip || !shipShipmentIdempotencyKey) {
+                  setActionError("Choose a shipment before shipping.");
+                  return;
+                }
+
+                shipShipmentMutation.mutate({
+                  shipmentId: shipmentToShip.id,
+                  idempotencyKey: shipShipmentIdempotencyKey,
+                });
+              }}
+            >
+              {shipShipmentMutation.isPending ? "Shipping..." : "Ship Shipment"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

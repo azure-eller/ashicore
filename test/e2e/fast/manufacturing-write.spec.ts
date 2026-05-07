@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
+import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryEvents,
   inventoryItemBalances,
@@ -200,6 +200,7 @@ test.describe("Manufacturing write-path smoke", () => {
     }
 
     await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", productName);
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
     ).toBeVisible();

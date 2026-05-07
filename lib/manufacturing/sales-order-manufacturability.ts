@@ -1,19 +1,26 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  inventoryReservationsSummary,
   items,
   manufacturingOrders,
   salesOrderLines,
+  salesOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
-import { resolveVariantDisplay } from "@/lib/format";
+import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import {
+  projectedCommittedQtyExpr,
+  projectedReservableOnHandQtyExpr,
+} from "@/lib/inventory/kernel/read";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
   "non_product",
   "inactive_product",
   "no_active_bom",
+  "stock_on_hand",
   "existing_active_mo",
 ] as const;
 
@@ -50,6 +57,8 @@ function getSkipMessage(reason: SalesOrderManufacturingSkipReason) {
       return "Product is inactive or deleted.";
     case "no_active_bom":
       return "Product has no active BOM ingredients.";
+    case "stock_on_hand":
+      return "Finished goods stock covers this sales line.";
     case "existing_active_mo":
       return "A linked manufacturing order already exists.";
   }
@@ -76,6 +85,13 @@ function getDisabledReason(lines: SalesOrderManufacturingLineSummary[]) {
     skippedReasons.every((reason) => reason === "existing_active_mo")
   ) {
     return "All manufacturable lines already have linked manufacturing orders.";
+  }
+
+  if (
+    skippedReasons.length === lines.length &&
+    skippedReasons.every((reason) => reason === "stock_on_hand")
+  ) {
+    return "Finished goods stock covers every manufacturable line.";
   }
 
   if (
@@ -119,10 +135,12 @@ export async function getSalesOrderManufacturingSummariesInTx(
       itemSku: salesOrderLines.itemSku,
       quantity: trimScale(salesOrderLines.quantity).as("quantity"),
       unitName: salesOrderLines.unitName,
+      orderStatus: salesOrders.status,
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
     })
     .from(salesOrderLines)
+    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .where(inArray(salesOrderLines.salesOrderId, uniqueOrderIds))
     .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 
@@ -142,6 +160,12 @@ export async function getSalesOrderManufacturingSummariesInTx(
       variantAttrs: items.variantAttrs,
       masterName: masterItems.name,
       masterVariantAxes: masterItems.variantAxes,
+      committedQty: trimScale(
+        projectedCommittedQtyExpr(items.organizationId, items.id)
+      ).as("committedQty"),
+      reservableOnHandQty: trimScale(
+        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+      ).as("reservableOnHandQty"),
     })
     .from(items)
     .leftJoin(masterItems, eq(items.parentId, masterItems.id))
@@ -171,6 +195,27 @@ export async function getSalesOrderManufacturingSummariesInTx(
           )
         )
     : [];
+  const reservationRows = salesOrderLineIds.length
+    ? await tx
+        .select({
+          salesOrderLineId: inventoryReservationsSummary.referenceId,
+          itemId: inventoryReservationsSummary.itemId,
+          quantity: trimScale(
+            sql`COALESCE(SUM(${inventoryReservationsSummary.quantity}), 0)`
+          ).as("quantity"),
+        })
+        .from(inventoryReservationsSummary)
+        .where(
+          and(
+            eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+            inArray(inventoryReservationsSummary.referenceId, salesOrderLineIds)
+          )
+        )
+        .groupBy(
+          inventoryReservationsSummary.referenceId,
+          inventoryReservationsSummary.itemId
+        )
+    : [];
 
   const bomBackedProductIds = new Set(
     [...bomCoverage.entries()]
@@ -182,9 +227,26 @@ export async function getSalesOrderManufacturingSummariesInTx(
       .map((row) => row.salesOrderLineId)
       .filter((value): value is string => value != null)
   );
+  const committedStockByItemId = new Map(
+    itemRows.map((row) => [row.id, Number(row.committedQty)])
+  );
+  const reservableStockByItemId = new Map(
+    itemRows.map((row) => [row.id, Number(row.reservableOnHandQty)])
+  );
+  const selectedReservationsByItem = new Map<string, number>();
+  reservationRows.forEach((row) => {
+    selectedReservationsByItem.set(
+      row.itemId,
+      roundQuantity(
+        (selectedReservationsByItem.get(row.itemId) ?? 0) + Number(row.quantity)
+      )
+    );
+  });
+  const remainingAllocatableStockByItemId = new Map<string, number>();
 
   lines.forEach((line) => {
     let skipReason: SalesOrderManufacturingSkipReason | null = null;
+    let manufacturingQuantity = line.quantity;
     const item = itemById.get(line.itemId);
 
     if (!item) {
@@ -193,10 +255,49 @@ export async function getSalesOrderManufacturingSummariesInTx(
       skipReason = "non_product";
     } else if (item.deletedAt != null) {
       skipReason = "inactive_product";
-    } else if (existingManufacturingLineIds.has(line.salesOrderLineId)) {
-      skipReason = "existing_active_mo";
-    } else if (!bomBackedProductIds.has(line.itemId)) {
-      skipReason = "no_active_bom";
+    } else {
+      const orderedQuantity = Number(line.quantity);
+      const canCreateFromOrder =
+        line.orderStatus === "confirmed" || line.orderStatus === "partially_shipped";
+      let stockCoversLine = false;
+      let uncoveredQuantity: string | null = null;
+
+      if (canCreateFromOrder && Number.isFinite(orderedQuantity) && orderedQuantity > 0) {
+        const committedOutsideSelection = Math.max(
+          0,
+          roundQuantity(
+            (committedStockByItemId.get(line.itemId) ?? 0) -
+              (selectedReservationsByItem.get(line.itemId) ?? 0)
+          )
+        );
+        const remainingStock =
+          remainingAllocatableStockByItemId.get(line.itemId) ??
+          roundQuantity(
+            (reservableStockByItemId.get(line.itemId) ?? 0) -
+              committedOutsideSelection
+          );
+        const updatedRemainingStock = roundQuantity(
+          remainingStock - orderedQuantity
+        );
+
+        remainingAllocatableStockByItemId.set(line.itemId, updatedRemainingStock);
+
+        if (remainingStock >= orderedQuantity) {
+          stockCoversLine = true;
+        } else if (remainingStock > 0) {
+          uncoveredQuantity = normalizeNumeric(roundQuantity(orderedQuantity - remainingStock));
+        }
+      }
+
+      if (existingManufacturingLineIds.has(line.salesOrderLineId)) {
+        skipReason = "existing_active_mo";
+      } else if (!bomBackedProductIds.has(line.itemId)) {
+        skipReason = "no_active_bom";
+      } else if (stockCoversLine) {
+        skipReason = "stock_on_hand";
+      } else if (uncoveredQuantity != null) {
+        manufacturingQuantity = uncoveredQuantity;
+      }
     }
 
     const bucket = summaries.get(line.salesOrderId);
@@ -220,7 +321,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
       masterName: display.masterName,
       attrs: display.attrs,
       itemSku: line.itemSku,
-      quantity: line.quantity,
+      quantity: manufacturingQuantity,
       unitName: line.unitName,
       status: skipReason == null ? "will_create" : "skipped",
       skipReason,

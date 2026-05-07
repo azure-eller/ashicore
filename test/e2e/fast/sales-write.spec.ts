@@ -905,4 +905,203 @@ test.describe("Sales write-path smoke", () => {
     await selectDate(page, dialog.getByLabel("Planned Date"), "2026-05-22");
     await expect(dialog.getByRole("button", { name: "Create 1 order" })).toBeEnabled();
   });
+
+  test("hides Create MOs when finished goods stock covers the order", async ({
+    page,
+    db,
+  }) => {
+    const suffix = `${ts}-STOCK-MO`;
+    const customerResult = await createCustomer({
+      name: `Fast Stock Covers Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+    const stockedCustomerId = customerResult.body.id as string;
+
+    const materialResult = await createItem({
+      name: `Fast Stock Covers Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-STOCK-MAT-${suffix}`,
+      category: `Fast Stock Covers ${suffix}`,
+      description: "Material for stocked finished goods",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const productName = `Fast Stock Covers Product ${suffix}`;
+    const productResult = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-STOCK-PROD-${suffix}`,
+      category: `Fast Stock Covers ${suffix}`,
+      description: "BOM-backed product with enough finished goods stock",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "5",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+    const stockedProductId = productResult.body.id as string;
+
+    const draftOrderResult = await createSalesOrder({
+      customerId: stockedCustomerId,
+      status: "draft",
+      lines: [{ itemId: stockedProductId, quantity: "4", unitPrice: "10" }],
+    });
+    expect(draftOrderResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: stockedCustomerId,
+      status: "confirmed",
+      lines: [{ itemId: stockedProductId, quantity: "3", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const stockedOrderId = orderResult.body.id as string;
+
+    const previewResponse = await testFetch(
+      `/api/sales-orders/${stockedOrderId}/manufacturing-orders`
+    );
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json();
+    expect(preview.hasManufacturableLines).toBe(false);
+    expect(preview.lines).toMatchObject([
+      {
+        itemName: productName,
+        status: "skipped",
+        skipReason: "stock_on_hand",
+      },
+    ]);
+
+    const oversellOrderResult = await createSalesOrder({
+      customerId: stockedCustomerId,
+      status: "confirmed",
+      confirmOversell: true,
+      lines: [{ itemId: stockedProductId, quantity: "4", unitPrice: "10" }],
+    });
+    expect(oversellOrderResult.status).toBe(201);
+    const oversellOrderId = oversellOrderResult.body.id as string;
+
+    const oversellPreviewResponse = await testFetch(
+      `/api/sales-orders/${oversellOrderId}/manufacturing-orders`
+    );
+    expect(oversellPreviewResponse.status).toBe(200);
+    const oversellPreview = await oversellPreviewResponse.json();
+    expect(oversellPreview.hasManufacturableLines).toBe(true);
+    expect(oversellPreview.lines).toMatchObject([
+      {
+        itemName: productName,
+        quantity: "2",
+        status: "will_create",
+        skipReason: null,
+      },
+    ]);
+
+    const listResponse = await testFetch("/api/sales-orders");
+    expect(listResponse.status).toBe(200);
+    const listRows = (await listResponse.json()) as Array<{
+      id: string;
+      hasManufacturableLines: boolean;
+      manufacturableLineCount: number;
+    }>;
+    expect(listRows.find((row) => row.id === stockedOrderId)).toMatchObject({
+      hasManufacturableLines: false,
+      manufacturableLineCount: 0,
+    });
+    expect(listRows.find((row) => row.id === oversellOrderId)).toMatchObject({
+      hasManufacturableLines: true,
+      manufacturableLineCount: 1,
+    });
+
+    const [order] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, stockedOrderId));
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", order.orderNumber);
+
+    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
+    await expect(orderRow.getByRole("button", { name: "Create MOs" })).toHaveCount(0);
+  });
+
+  test("ships a draft shipment from sales order detail", async ({ page, db }) => {
+    const suffix = `${ts}-WS`;
+    const customerResult = await createCustomer({
+      name: `Fast Web Ship Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+    const webShipCustomerId = customerResult.body.id as string;
+
+    const materialResult = await createItem({
+      name: `Fast Web Ship Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-WS-MAT-${suffix}`,
+      category: `Fast Web Ship ${suffix}`,
+      description: "Material for stocked web shipment product",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const webShipMaterialId = materialResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Web Ship Product ${suffix}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-WS-${suffix}`,
+      category: `Fast Web Ship ${suffix}`,
+      description: "Stocked product for web shipment action",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "5",
+      safetyStock: "0",
+      bom: [{ componentId: webShipMaterialId, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+    const webShipProductId = productResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId: webShipCustomerId,
+      status: "confirmed",
+      lines: [{ itemId: webShipProductId, quantity: "2", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const webShipOrderId = orderResult.body.id as string;
+
+    await page.goto(`/sales/orders/${webShipOrderId}`);
+    const shipmentRow = page.getByRole("row", { name: /Draft/ });
+    await shipmentRow.getByRole("button", { name: "Ship", exact: true }).click();
+
+    const dialog = page.getByRole("alertdialog", { name: "Ship this shipment?" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Ship Shipment" }).click();
+    await expect(page.getByRole("dialog", { name: "Shipment Complete" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const [shippedOrder] = await db
+      .select({ status: salesOrders.status, shippedAt: salesOrders.shippedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, webShipOrderId));
+    expect(shippedOrder.status).toBe("shipped");
+    expect(shippedOrder.shippedAt).not.toBeNull();
+
+    const [shippedShipment] = await db
+      .select({ status: salesShipments.status, shippedAt: salesShipments.shippedAt })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, webShipOrderId));
+    expect(shippedShipment.status).toBe("shipped");
+    expect(shippedShipment.shippedAt).not.toBeNull();
+  });
 });
