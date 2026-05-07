@@ -51,7 +51,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { getFieldArrayError, normalizeNumeric, parsePositive } from "@/lib/format";
+import {
+  formatQuantity,
+  getFieldArrayError,
+  normalizeNumeric,
+  parsePositive,
+} from "@/lib/format";
 import {
   BOM_QTY_PER_BATCH_TOOLTIP,
   BOM_QTY_PER_UNIT_TOOLTIP,
@@ -130,6 +135,14 @@ function multiplyQuantityString(quantity: string, factor: string) {
   return normalizeNumeric(quantityNumber * factorNumber);
 }
 
+function getTodayDateString() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function ManufacturingOrderForm({
   productTemplates = [],
   salesLineOptions = [],
@@ -152,6 +165,7 @@ export function ManufacturingOrderForm({
     ? `/manufacturing/orders/${initialData.id}`
     : "/manufacturing/orders";
   const [formError, setFormError] = useState<string | null>(null);
+  const todayDate = getTodayDateString();
   const formResolver = zodResolver(
     isEditing ? updateManufacturingOrderSchema : manufacturingOrderCreateFormSchema
   ) as Resolver<ManufacturingOrderFormValues>;
@@ -176,10 +190,7 @@ export function ManufacturingOrderForm({
       : {
           ...manufacturingOrderDefaultValues,
           salesOrderId: initialSalesOrderId ?? null,
-          plannedDate:
-            initialSalesOrderPreview?.shipDate ??
-            initialSalesOrderPreview?.requestedDate ??
-            null,
+          plannedDate: todayDate,
         },
   });
 
@@ -247,15 +258,18 @@ export function ManufacturingOrderForm({
   const batchYield = isEditing
     ? initialData?.expectedBatchYield != null ? parseFloat(initialData.expectedBatchYield) : null
     : selectedProduct?.expectedBatchYield != null ? parseFloat(selectedProduct.expectedBatchYield) : null;
+  const isManualBatchCreate = !isEditing && !isSalesOrderMode && isBatchMode;
 
-  // Batch calculation from the desired quantity
+  // Manual batch creation enters batch count; existing/edit flows enter output quantity.
   const batchCalc = (() => {
     if (!isBatchMode || batchYield == null || batchYield <= 0) return null;
-    const desired = parseFloat(watchedPlannedQuantity ?? "");
-    if (!Number.isFinite(desired) || desired <= 0) return null;
-    const numberOfBatches = Math.ceil(desired / batchYield);
+    const entered = parseFloat(watchedPlannedQuantity ?? "");
+    if (!Number.isFinite(entered) || entered <= 0) return null;
+    const numberOfBatches = isManualBatchCreate
+      ? entered
+      : Math.ceil(entered / batchYield);
     const plannedOutput = numberOfBatches * batchYield;
-    const excess = plannedOutput - desired;
+    const excess = isManualBatchCreate ? 0 : plannedOutput - entered;
     return { numberOfBatches, plannedOutput, excess };
   })();
 
@@ -319,11 +333,35 @@ export function ManufacturingOrderForm({
         };
       }
 
+      const plannedQuantity = (() => {
+        if (!isManualBatchCreate) return values.plannedQuantity ?? "";
+
+        const batchCount = Number(values.plannedQuantity ?? "");
+        if (
+          !Number.isFinite(batchCount) ||
+          batchCount <= 0 ||
+          !Number.isInteger(batchCount) ||
+          batchYield == null ||
+          batchYield <= 0
+        ) {
+          throw {
+            errors: {
+              plannedQuantity: ["Enter a whole number of batches."],
+            },
+          } satisfies ApiError;
+        }
+
+        return normalizeNumeric(batchCount * batchYield);
+      })();
+      const manualBatchCount = isManualBatchCreate
+        ? Number(values.plannedQuantity ?? "")
+        : null;
+
       const payload = initialData
         ? {
             salesOrderId: values.salesOrderId,
             salesOrderLineId: values.salesOrderLineId,
-            plannedQuantity: values.plannedQuantity ?? "",
+            plannedQuantity,
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
@@ -332,7 +370,8 @@ export function ManufacturingOrderForm({
             productId: values.productId ?? "",
             salesOrderId: null,
             salesOrderLineId: null,
-            plannedQuantity: values.plannedQuantity ?? "",
+            plannedQuantity,
+            numberOfBatches: manualBatchCount,
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
@@ -422,7 +461,7 @@ export function ManufacturingOrderForm({
     form.setValue("productId", "");
     form.setValue("plannedQuantity", "");
     form.setValue("ingredients", []);
-    form.setValue("plannedDate", selected.shipDate ?? selected.requestedDate ?? null, {
+    form.setValue("plannedDate", todayDate, {
       shouldValidate: true,
       shouldDirty: true,
     });
@@ -706,17 +745,21 @@ export function ManufacturingOrderForm({
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name}>
-                          <TooltipHeader
-                            label="Planned Quantity"
-                            tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
-                          />
+                          {isManualBatchCreate ? (
+                            "Batches"
+                          ) : (
+                            <TooltipHeader
+                              label="Planned Quantity"
+                              tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
+                            />
+                          )}
                         </FieldLabel>
                         <Input
                           {...field}
                           id={field.name}
                           value={field.value ?? ""}
                           aria-invalid={fieldState.invalid}
-                          inputMode="decimal"
+                          inputMode={isManualBatchCreate ? "numeric" : "decimal"}
                           autoComplete="off"
                           placeholder="0"
                         />
@@ -731,11 +774,11 @@ export function ManufacturingOrderForm({
                     <p className="text-sm text-muted-foreground">
                       <span className="font-medium text-foreground">{batchCalc.numberOfBatches} batch{batchCalc.numberOfBatches === 1 ? "" : "es"}</span>
                       {" \u00d7 "}
-                      {batchYield} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}/batch
+                      {formatQuantity(String(batchYield))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}/batch
                       {" = "}
-                      <span className="font-medium text-foreground">{batchCalc.plannedOutput} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}</span>
+                      <span className="font-medium text-foreground">{formatQuantity(String(batchCalc.plannedOutput))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}</span>
                       {batchCalc.excess > 0 && (
-                        <span className="text-muted-foreground"> ({batchCalc.excess} excess)</span>
+                        <span className="text-muted-foreground"> ({formatQuantity(String(batchCalc.excess))} excess)</span>
                       )}
                     </p>
                   </div>

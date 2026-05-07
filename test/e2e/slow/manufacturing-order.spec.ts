@@ -595,9 +595,9 @@ test.describe("Manufacturing order flow", () => {
 
     await page.goto(`/sales/orders/${batchSalesOrderId}`);
     await page.getByRole("button", { name: "Create MOs", exact: true }).first().click();
-    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
-    await expect(page.getByText(batchOrder.orderNumber)).toBeVisible();
     const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(batchOrder.orderNumber)).toBeVisible();
     await expect(dialog.locator("table")).toContainText(productName);
     await expect(dialog.locator("table")).toContainText(nonManufacturableProductName);
     await expect(dialog.locator("table")).toContainText("Will create");
@@ -744,9 +744,7 @@ test.describe("Manufacturing order flow", () => {
     expect(completeResult.body?.id).toBe(repeatOrderId);
 
     await page.goto(`/sales/orders/${repeatSalesOrderId}`);
-    await expect(
-      page.getByRole("button", { name: "Plan Fulfillment", exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("Ready to ship.")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Create MOs", exact: true })
     ).toHaveCount(0);
