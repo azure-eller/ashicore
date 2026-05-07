@@ -8,7 +8,7 @@ export const ON_HAND_STOCK_TOOLTIP =
   "Physical stock currently on hand.";
 
 export const AVAILABLE_QTY_TOOLTIP =
-  "Available-disposition stock minus existing reservations.";
+  "Stock not currently reserved by other orders.";
 
 export const RESERVED_QTY_TOOLTIP =
   "Stock already reserved for demand.";

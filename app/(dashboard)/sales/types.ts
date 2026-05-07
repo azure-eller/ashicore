@@ -213,6 +213,7 @@ export type SalesOrderDetailLine = {
   createdAt: Date;
   updatedAt: Date;
   onHandQty: string | null;
+  availableQty: string | null;
   potential: string | null;
 };
 

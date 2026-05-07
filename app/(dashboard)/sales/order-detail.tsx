@@ -612,17 +612,17 @@ function CompactMarginReceipt({ margin }: { margin: SalesMarginSummary }) {
       <div className="mt-1.5 flex items-baseline justify-between border-t border-foreground pt-2.5">
         <span className="font-semibold">Contribution margin</span>
         <span className="text-right">
-          <span className="font-mono text-base font-semibold tabular-nums">
-            {money(margin.contributionMargin)}
-          </span>
-          <span
+          <div
             className={cn(
-              "ml-2 text-xs font-medium",
+              "font-mono text-lg font-semibold tabular-nums",
               marginToneClass(margin.marginPercent)
             )}
           >
             {formatMarginPercent(margin.marginPercent)}
-          </span>
+          </div>
+          <div className="font-mono text-xs tabular-nums text-muted-foreground">
+            {money(margin.contributionMargin)}
+          </div>
         </span>
       </div>
     </div>
@@ -681,10 +681,10 @@ function LinesPanel({
                 <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
               </TableHead>
               <TableHead className="text-right">
-                <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
+                <TooltipHeader label="Unit Cost" tooltip={UNIT_COST_TOOLTIP} />
               </TableHead>
               <TableHead className="text-right">
-                <TooltipHeader label="Unit Cost" tooltip={UNIT_COST_TOOLTIP} />
+                <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
               </TableHead>
               <TableHead className="text-right">
                 <TooltipHeader label="Unit Margin" tooltip={UNIT_MARGIN_TOOLTIP} />
@@ -716,16 +716,22 @@ function LinesPanel({
                     {formatQuantity(line.quantity)}
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
-                    {money(line.unitPrice)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
                     {money(margin.unitCost)}
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
-                    <div>{money(margin.unitMargin)}</div>
+                    {money(line.unitPrice)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <div
+                      className={cn(
+                        "font-semibold",
+                        marginToneClass(margin.marginPercent)
+                      )}
+                    >
+                      {formatMarginPercent(margin.marginPercent)}
+                    </div>
                     <div className="font-sans text-xs text-muted-foreground">
-                      {formatMarginPercent(margin.marginPercent)} {"\u00b7"}{" "}
-                      {margin.statusLabel}
+                      {money(margin.unitMargin)} {"\u00b7"} {margin.statusLabel}
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-mono font-medium tabular-nums">

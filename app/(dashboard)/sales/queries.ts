@@ -2996,7 +2996,13 @@ export async function getSalesOrder(
     );
     const actualLineCosts = await getActualSalesLineCostsByLineIdInTx(tx, id);
 
-    const lines = lineRows.map(({ variantAttrs, masterName, masterVariantAxes, ...rest }) => {
+    const lines = lineRows.map(({
+      variantAttrs,
+      masterName,
+      masterVariantAxes,
+      reservableOnHandQty,
+      ...rest
+    }) => {
       const display = resolveVariantDisplay(
         rest.itemName,
         masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
@@ -3038,6 +3044,7 @@ export async function getSalesOrder(
         actualCogs: actualMargin?.cogs ?? null,
         actualGrossProfit: actualMargin?.grossProfit ?? null,
         actualMarginPercent: actualMargin?.marginPercent ?? null,
+        availableQty: reservableOnHandQty,
       };
     });
 
@@ -3351,16 +3358,16 @@ export async function getSalesOrder(
       status: row.status as SalesOrderDetail["linkedManufacturingOrders"][number]["status"],
     }));
     const stockBlockers = linesWithFulfillment.flatMap((line) => {
-      const reservableOnHandQty = Number(line.reservableOnHandQty ?? "0");
+      const availableQty = Number(line.availableQty ?? "0");
       const quantity = Number(line.remainingQuantity);
 
-      if (!Number.isFinite(quantity) || reservableOnHandQty >= quantity) {
+      if (!Number.isFinite(quantity) || availableQty >= quantity) {
         return [];
       }
 
       return [
         `${line.itemName} needs ${formatQuantity(line.remainingQuantity)} ${line.unitName}; ${formatQuantity(
-          line.reservableOnHandQty ?? "0"
+          line.availableQty ?? "0"
         )} ${line.unitName} available`,
       ];
     });
