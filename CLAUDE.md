@@ -1,6 +1,7 @@
 ## Project
 
 Multi-module ERP: inventory, manufacturing, sales, purchasing.
+Android companion app lives at `~/Projects/erp-android`; check it when changing REST contracts or mobile workflows.
 
 ## Stack
 
@@ -87,6 +88,8 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - Run `pnpm build` after changes to catch type errors
 - Run `pnpm test` after changes to catch regressions
 - Inventory-affecting changes must run `pnpm verify:inventory` after the relevant Playwright tests refresh `test/.test-env.json`
+- Create GitHub PRs ready for review, not as drafts.
+- After opening or updating a PR, poll GitHub checks and review threads with `gh`/GitHub connector until all actionables are resolved.
 
 ## Linear Workflow
 
