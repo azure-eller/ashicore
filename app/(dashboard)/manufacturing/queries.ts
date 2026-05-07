@@ -1651,6 +1651,41 @@ export async function getManufacturingExecutionQueue(): Promise<
   ManufacturingExecutionQueueRow[]
 > {
   const orders = await getManufacturingOrders();
+  const batchOrderIds = orders
+    .filter(
+      (order) =>
+        order.status === "released" &&
+        order.manufacturingMode === "batch" &&
+        (order.numberOfBatches ?? 0) > 0
+    )
+    .map((order) => order.id);
+  const nextBatchIdByOrderId = new Map<string, string>();
+
+  if (batchOrderIds.length > 0) {
+    const batchRows = await withAuthedOrgContext((tx) =>
+      tx
+        .select({
+          id: manufacturingOrderBatches.id,
+          manufacturingOrderId: manufacturingOrderBatches.manufacturingOrderId,
+          status: manufacturingOrderBatches.status,
+          batchNumber: manufacturingOrderBatches.batchNumber,
+        })
+        .from(manufacturingOrderBatches)
+        .where(inArray(manufacturingOrderBatches.manufacturingOrderId, batchOrderIds))
+        .orderBy(
+          asc(manufacturingOrderBatches.manufacturingOrderId),
+          asc(manufacturingOrderBatches.batchNumber)
+        )
+    );
+
+    for (const batch of batchRows) {
+      if (batch.status === "completed" || nextBatchIdByOrderId.has(batch.manufacturingOrderId)) {
+        continue;
+      }
+
+      nextBatchIdByOrderId.set(batch.manufacturingOrderId, batch.id);
+    }
+  }
 
   return orders
     .filter((order) => order.status === "released")
@@ -1659,6 +1694,10 @@ export async function getManufacturingExecutionQueue(): Promise<
       const nextBatchNumber =
         order.manufacturingMode === "batch" && totalBatchCount > 0
           ? Math.min(order.completedBatchCount + 1, totalBatchCount)
+          : null;
+      const nextBatchId =
+        order.manufacturingMode === "batch"
+          ? nextBatchIdByOrderId.get(order.id) ?? null
           : null;
 
       return {
@@ -1672,7 +1711,7 @@ export async function getManufacturingExecutionQueue(): Promise<
         plannedDate: order.plannedDate,
         manufacturingMode: order.manufacturingMode,
         pickProgressStatus: order.pickProgressStatus,
-        nextBatchId: null,
+        nextBatchId,
         nextBatchNumber,
         completedBatchCount: order.completedBatchCount,
         totalBatchCount,
