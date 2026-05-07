@@ -84,6 +84,8 @@ export function proxy(request: NextRequest) {
     pathname === "/favicon.ico" ||
     pathname.startsWith("/monitoring") ||
     pathname.startsWith("/api/auth") ||
+    pathname === "/android" ||
+    pathname.startsWith("/downloads/") ||
     pathname === "/forgot-password" ||
     pathname === "/reset-password" ||
     pathname === "/sign-in" ||
