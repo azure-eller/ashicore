@@ -1003,6 +1003,22 @@ test.describe("Sales write-path smoke", () => {
       },
     ]);
 
+    const listResponse = await testFetch("/api/sales-orders");
+    expect(listResponse.status).toBe(200);
+    const listRows = (await listResponse.json()) as Array<{
+      id: string;
+      hasManufacturableLines: boolean;
+      manufacturableLineCount: number;
+    }>;
+    expect(listRows.find((row) => row.id === stockedOrderId)).toMatchObject({
+      hasManufacturableLines: false,
+      manufacturableLineCount: 0,
+    });
+    expect(listRows.find((row) => row.id === oversellOrderId)).toMatchObject({
+      hasManufacturableLines: true,
+      manufacturableLineCount: 1,
+    });
+
     const [order] = await db
       .select({ orderNumber: salesOrders.orderNumber })
       .from(salesOrders)

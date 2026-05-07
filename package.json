@@ -30,6 +30,7 @@
     "cleanup": "tsx scripts/cleanup-worktree.ts",
     "test": "pnpm test:e2e:fast",
     "test:e2e:fast": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast --workers=${PLAYWRIGHT_FAST_WORKERS:-8}",
+    "test:e2e:planning": "INCLUDE_PARKED_PLANNING=1 EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast/planning.spec.ts --workers=1",
     "test:e2e:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow",
     "test:reconciliation": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/reconciliation",
     "test:e2e:sections": "pnpm test:e2e:fast",
