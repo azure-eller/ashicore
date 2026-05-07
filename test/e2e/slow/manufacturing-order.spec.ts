@@ -595,8 +595,8 @@ test.describe("Manufacturing order flow", () => {
 
     await page.goto(`/sales/orders/${batchSalesOrderId}`);
     await page.getByRole("button", { name: "Create MOs", exact: true }).first().click();
-    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
     const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
+    await expect(dialog).toBeVisible();
     await expect(dialog.getByText(new RegExp(`^${batchOrder.orderNumber} -`))).toBeVisible();
     await expect(dialog.locator("table")).toContainText(productName);
     await expect(dialog.locator("table")).toContainText(nonManufacturableProductName);

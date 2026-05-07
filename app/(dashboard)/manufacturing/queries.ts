@@ -307,7 +307,8 @@ function getPickProgressStatus(
  */
 function computeBatchPlanning(
   product: ProductSnapshot,
-  desiredQuantity: number
+  desiredQuantity: number,
+  options: { numberOfBatches?: number | null } = {}
 ): {
   plannedQuantity: number;
   numberOfBatches: number | null;
@@ -316,7 +317,16 @@ function computeBatchPlanning(
   if (product.manufacturingMode === "batch" && product.expectedBatchYield != null) {
     const yield_ = parseFloat(product.expectedBatchYield);
     if (yield_ > 0) {
-      const numberOfBatches = Math.ceil(desiredQuantity / yield_);
+      const submittedBatchCount = options.numberOfBatches;
+      if (
+        submittedBatchCount != null &&
+        (!Number.isInteger(submittedBatchCount) || submittedBatchCount <= 0)
+      ) {
+        throw new ManufacturingError("Enter a whole number of batches.", 400, {
+          errors: { plannedQuantity: ["Enter a whole number of batches."] },
+        });
+      }
+      const numberOfBatches = submittedBatchCount ?? Math.ceil(desiredQuantity / yield_);
       return {
         plannedQuantity: normalizeQuantityNumber(numberOfBatches * yield_),
         numberOfBatches,
@@ -591,17 +601,16 @@ async function prepareCreateIngredientsInTx(
         );
       }
 
+      const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
+
       return {
         itemId: selected.itemId,
         itemName: selected.itemName,
         itemSku: selected.itemSku,
         itemType: selected.itemType,
         unitName: selected.unitName,
-        quantityPerUnit: selected.quantityPerUnit,
-        plannedQuantity: multiplyQuantityString(
-          selected.quantityPerUnit,
-          ingredientMultiplier
-        ),
+        quantityPerUnit,
+        plannedQuantity: multiplyQuantityString(quantityPerUnit, ingredientMultiplier),
         sortOrder: index,
         constraints: row.constraints,
       };
@@ -828,7 +837,7 @@ async function prepareUpdatedIngredientsInTx(
 
     const submitted = submittedIngredients[index];
     const selected = getApprovedBomMaterialOption(row, submitted.itemId);
-    const quantityPerUnit = submitted.quantityPerUnit;
+    const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
 
     return {
       itemId: selected.itemId,
@@ -2203,7 +2212,9 @@ export async function createManufacturingOrderInTx(
 
   const product = await getValidatedProductInTx(tx, payload.productId);
   const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
-    computeBatchPlanning(product, Number(payload.plannedQuantity));
+    computeBatchPlanning(product, Number(payload.plannedQuantity), {
+      numberOfBatches: payload.numberOfBatches,
+    });
 
   const salesLink = await validateSalesLineLinkInTx(tx, {
     salesOrderId: payload.salesOrderId,

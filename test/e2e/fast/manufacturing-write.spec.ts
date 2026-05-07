@@ -374,7 +374,11 @@ test.describe("Manufacturing write-path smoke", () => {
     await productInput.fill(batchProductName);
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
 
-    await page.getByLabel("Planned Quantity").fill("5");
+    await page.getByLabel("Batches").fill("3");
+    await expect(page.getByText("3 batches")).toBeVisible();
+    await expect(page.getByText(/6 test-unit-/)).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(batchSandName) })).toContainText("9");
+    await expect(page.getByRole("row", { name: new RegExp(batchCompostName) })).toContainText("3");
     await page.getByLabel("Notes").fill("Fast batch execution smoke");
     await page.getByRole("button", { name: "Create Order" }).click();
 
