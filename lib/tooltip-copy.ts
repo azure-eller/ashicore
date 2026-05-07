@@ -8,7 +8,7 @@ export const ON_HAND_STOCK_TOOLTIP =
   "Physical stock currently on hand.";
 
 export const AVAILABLE_QTY_TOOLTIP =
-  "Available-disposition stock minus existing reservations.";
+  "Stock not currently reserved by other orders.";
 
 export const RESERVED_QTY_TOOLTIP =
   "Stock already reserved for demand.";
@@ -69,9 +69,17 @@ export const ACTUAL_MARGIN_TOOLTIP =
 
 export const LINE_COGS_TOOLTIP =
   "Inventory cost tied to the line.";
+export const UNIT_COST_TOOLTIP =
+  "Inventory cost per unit.";
+export const UNIT_MARGIN_TOOLTIP =
+  "Unit price minus unit cost.";
 
 export const ESTIMATED_LINE_COGS_TOOLTIP =
   "Estimated inventory cost for the line quantity.";
+export const ESTIMATED_ORDER_COGS_TOOLTIP =
+  "Estimated until the order is manufactured and shipped.";
+export const ESTIMATED_SHIPMENT_COSTS_TOOLTIP =
+  "Estimated until shipped and actual costs are entered.";
 
 export const LOT_PHYSICAL_TOOLTIP =
   "Physical lot balance across all dispositions.";

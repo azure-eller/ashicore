@@ -15,9 +15,8 @@ import {
 } from "@/components/ui/table";
 import { formatPrice, formatQuantity } from "@/lib/format";
 import {
+  AVAILABLE_QTY_TOOLTIP,
   ITEM_SKU_TOOLTIP,
-  ESTIMATED_LINE_COGS_TOOLTIP,
-  ESTIMATED_MARGIN_TOOLTIP,
   ON_HAND_STOCK_TOOLTIP,
   POTENTIAL_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
@@ -65,26 +64,23 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
               <TooltipHeader label="In Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
             </TableHead>
             <TableHead className="text-xs text-right">
+              <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
+            </TableHead>
+            <TableHead className="text-xs text-right">
               <TooltipHeader label="Potential" tooltip={POTENTIAL_TOOLTIP} />
             </TableHead>
             <TableHead className="text-xs text-right">
               <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
             </TableHead>
             <TableHead className="text-xs text-right">
-              <TooltipHeader label="Est. COGS" tooltip={ESTIMATED_LINE_COGS_TOOLTIP} />
-            </TableHead>
-            <TableHead className="text-xs text-right">
               <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
-            </TableHead>
-            <TableHead className="text-xs text-right">
-              <TooltipHeader label="Est. Margin" tooltip={ESTIMATED_MARGIN_TOOLTIP} />
             </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={9}>
+              <TableCell colSpan={8}>
                 <div className="flex min-h-24 items-center justify-center">
                   <Spinner className="text-foreground" />
                 </div>
@@ -116,28 +112,23 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                     <StockCell value={line.onHandQty} threshold={lineQty} />
                   </TableCell>
                   <TableCell className="text-sm text-right">
+                    <StockCell value={line.availableQty} threshold={lineQty} />
+                  </TableCell>
+                  <TableCell className="text-sm text-right">
                     <StockCell value={line.potential} threshold={lineQty} />
                   </TableCell>
                   <TableCell className="text-sm text-right">
                     {formatPrice(line.unitPrice) ?? "\u2014"}
                   </TableCell>
                   <TableCell className="text-sm text-right">
-                    {formatPrice(line.estimatedCogs) ?? "\u2014"}
-                  </TableCell>
-                  <TableCell className="text-sm text-right">
                     {formatPrice(line.lineTotal) ?? "\u2014"}
-                  </TableCell>
-                  <TableCell className="text-sm text-right">
-                    {line.estimatedMarginPercent != null
-                      ? `${line.estimatedMarginPercent}%`
-                      : "\u2014"}
                   </TableCell>
                 </TableRow>
               );
             })
           ) : (
             <TableRow>
-              <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
+              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
                 No line items.
               </TableCell>
             </TableRow>

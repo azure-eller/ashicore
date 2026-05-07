@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, HelpCircleIcon } from "@hugeicons/core-free-icons";
 import {
   AccountingSyncDialog,
   AccountingSyncStatus,
@@ -48,34 +48,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import {
-  MANUFACTURABLE_LINES_TOOLTIP,
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   ITEM_SKU_TOOLTIP,
-  REQUESTED_DATE_TOOLTIP,
-  SALES_ORDER_SHIP_DATE_TOOLTIP,
-  SALES_ORDER_DATE_TOOLTIP,
-  ACTUAL_MARGIN_TOOLTIP,
-  ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
   SALES_UNIT_PRICE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
-  LINE_COGS_TOOLTIP,
-  UNIT_TOOLTIP,
-  ORDER_TOTAL_TOOLTIP,
+  UNIT_COST_TOOLTIP,
+  UNIT_MARGIN_TOOLTIP,
+  ESTIMATED_ORDER_COGS_TOOLTIP,
+  ESTIMATED_SHIPMENT_COSTS_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
+import {
+  formatAddressLines,
+  formatDate,
+  formatDateTime,
+  normalizeMoney,
+  formatPrice,
+  formatQuantity,
+} from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { cn } from "@/lib/utils";
 import {
   SALES_SHIPMENT_COST_STATUSES,
   SALES_SHIPMENT_COST_TYPES,
@@ -104,38 +112,6 @@ type ActionError = {
 
 function formatMarginPercent(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
-}
-
-function getShipToLines(order: SalesOrderDetailType) {
-  return [
-    order.shipLine1,
-    order.shipLine2,
-    [order.shipCity, order.shipRegion, order.shipPostcode]
-      .filter(Boolean)
-      .join(", "),
-    order.shipCountry,
-  ].filter((line): line is string => Boolean(line));
-}
-
-function ShipToAddress({ order }: { order: SalesOrderDetailType }) {
-  const lines = getShipToLines(order);
-
-  return (
-    <div className="flex flex-col gap-1 text-sm">
-      <div className="font-medium">Ship to</div>
-      {lines.length > 0 ? (
-        <div className="text-muted-foreground">
-          {lines.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-muted-foreground">
-          No ship-to address is saved on this order.
-        </div>
-      )}
-    </div>
-  );
 }
 
 type ShipmentFormState = {
@@ -325,6 +301,820 @@ function salesOrderAccountingDocument(
   };
 }
 
+type SalesOrderDetailTab =
+  | "lines"
+  | "shipping"
+  | "manufacturing"
+  | "activity";
+
+type SalesOrderTabConfig = {
+  value: SalesOrderDetailTab;
+  label: string;
+  count?: ReactNode;
+};
+
+function normalizeSalesOrderDetailTab(value: string | null | undefined) {
+  if (
+    value === "lines" ||
+    value === "shipping" ||
+    value === "manufacturing" ||
+    value === "activity"
+  ) {
+    return value;
+  }
+
+  return "lines";
+}
+
+function getInitialSalesOrderDetailTab(fallback: SalesOrderDetailTab = "lines") {
+  if (typeof window === "undefined") return fallback;
+  const hashTab = window.location.hash.replace("#", "");
+  return hashTab ? normalizeSalesOrderDetailTab(hashTab) : fallback;
+}
+
+function selectHashTab(tab: SalesOrderDetailTab) {
+  if (typeof window === "undefined") return;
+  window.history.replaceState(null, "", `${window.location.pathname}#${tab}`);
+}
+
+function money(value: string | null | undefined) {
+  return formatPrice(value) ?? "\u2014";
+}
+
+function negativeMoney(value: string | null | undefined) {
+  if (value == null) return "\u2014";
+  const parsed = Number(value);
+  const absolute = Number.isFinite(parsed) ? Math.abs(parsed).toString() : value;
+  const formatted = formatPrice(absolute);
+  return formatted ? `\u2212 ${formatted}` : "\u2014";
+}
+
+function marginToneClass(value: string | null | undefined) {
+  const parsed = value == null ? NaN : Number(value);
+  if (!Number.isFinite(parsed)) return "text-muted-foreground";
+  if (parsed < 0) return "text-destructive";
+  if (parsed > 0) return "text-success";
+  return "text-muted-foreground";
+}
+
+function EstimatedReceiptLabel({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span>{label}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex text-muted-foreground hover:text-foreground"
+            aria-label={`${label} estimate note`}
+          >
+            <HugeiconsIcon icon={HelpCircleIcon} size={12} strokeWidth={2} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">{tooltip}</TooltipContent>
+      </Tooltip>
+    </span>
+  );
+}
+
+function sumNumeric(values: Array<string | null | undefined>) {
+  return values.reduce((total, value) => {
+    const parsed = value == null ? NaN : Number(value);
+    return Number.isFinite(parsed) ? total + parsed : total;
+  }, 0);
+}
+
+function lineMarginParts(
+  line: SalesOrderDetailType["lines"][number],
+  orderStatus: SalesOrderDetailType["status"]
+) {
+  const hasActualMargin = line.actualCogs != null;
+  const unitCost = hasActualMargin ? line.actualUnitCost : line.estimatedUnitCost;
+  const unitPrice = Number(line.unitPrice);
+  const parsedUnitCost = unitCost == null ? NaN : Number(unitCost);
+  const unitMargin =
+    Number.isFinite(unitPrice) && Number.isFinite(parsedUnitCost)
+      ? normalizeMoney(unitPrice - parsedUnitCost)
+      : null;
+
+  return {
+    unitCost,
+    unitMargin,
+    marginPercent: hasActualMargin
+      ? line.actualMarginPercent
+      : line.estimatedMarginPercent,
+    statusLabel: hasActualMargin || orderStatus === "shipped" ? "Actual" : "Estimated",
+  };
+}
+
+function SalesOrderDetailTabs({
+  tabs,
+  activeTab,
+  onTabChange,
+  panels,
+}: {
+  tabs: SalesOrderTabConfig[];
+  activeTab: SalesOrderDetailTab;
+  onTabChange: (tab: SalesOrderDetailTab) => void;
+  panels: Record<SalesOrderDetailTab, ReactNode>;
+}) {
+  return (
+    <>
+      <nav
+        className="flex gap-1 overflow-x-auto border-b"
+        aria-label="Sales order detail sections"
+      >
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.value;
+
+          return (
+            <button
+              id={`sales-order-tab-${tab.value}`}
+              key={tab.value}
+              type="button"
+              aria-current={isActive ? "page" : undefined}
+              aria-controls={`sales-order-panel-${tab.value}`}
+              className={cn(
+                "inline-flex h-10 shrink-0 items-center border-b-2 px-4 text-sm font-medium transition-colors",
+                isActive
+                  ? "border-foreground text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => onTabChange(tab.value)}
+            >
+              {tab.label}
+              {tab.count != null ? (
+                <span
+                  className={cn(
+                    "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.7rem] font-medium",
+                    isActive
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {tab.count}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
+      <section
+        id={`sales-order-panel-${activeTab}`}
+        className="py-5"
+        aria-labelledby={`sales-order-tab-${activeTab}`}
+      >
+        {panels[activeTab]}
+      </section>
+    </>
+  );
+}
+
+function KeyFactRows({
+  order,
+  canEdit,
+}: {
+  order: SalesOrderDetailType;
+  canEdit: boolean;
+}) {
+  const shipToLines = formatAddressLines({
+    line1: order.shipLine1,
+    line2: order.shipLine2,
+    city: order.shipCity,
+    region: order.shipRegion,
+    postcode: order.shipPostcode,
+    country: order.shipCountry,
+  });
+
+  const rows: Array<{ label: string; value: ReactNode; highlight?: boolean }> = [
+    {
+      label: "Customer",
+      value: (
+        <>
+          <span className="font-medium">{order.customerName}</span>
+          {order.customerEmail ? (
+            <span className="ml-1.5 text-muted-foreground">
+              {"\u00b7"} {order.customerEmail}
+            </span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      label: "Ship to",
+      value:
+        shipToLines.length > 0 ? (
+          <span className="block text-muted-foreground">
+            {shipToLines.map((line) => (
+              <span key={line} className="block">
+                {line}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className="text-warning">
+            No address saved
+            {canEdit ? (
+              <>
+                {" \u00b7 "}
+                <Link
+                  href={`/sales/orders/${order.id}/edit`}
+                  className="underline underline-offset-4"
+                >
+                  Add address
+                </Link>
+              </>
+            ) : null}
+          </span>
+        ),
+    },
+    {
+      label: "Order date",
+      value: formatDate(order.orderDate),
+    },
+    {
+      label: "Ship by",
+      value: formatDate(order.shipDate),
+      highlight: true,
+    },
+    {
+      label: "Delivery",
+      value: formatDate(order.requestedDate),
+    },
+  ];
+
+  return (
+    <dl>
+      {rows.map((row, index) => (
+        <div
+          key={row.label}
+          className={cn(
+            "grid gap-3 py-2 text-sm sm:grid-cols-[10rem_minmax(0,1fr)]",
+            index < rows.length - 1 && "border-b"
+          )}
+        >
+          <dt className="text-xs text-muted-foreground">{row.label}</dt>
+          <dd className={cn("min-w-0", row.highlight && "font-semibold")}>
+            {row.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function CompactMarginReceipt({ margin }: { margin: SalesMarginSummary }) {
+  const showsEstimatedCosts =
+    margin.costStatus === "estimated" || margin.costStatus === "mixed";
+
+  return (
+    <div className="text-sm">
+      <div className="flex items-baseline justify-between border-b py-2">
+        <span className="text-xs text-muted-foreground">Product revenue</span>
+        <span className="font-mono tabular-nums">{money(margin.productRevenue)}</span>
+      </div>
+      <div className="flex items-baseline justify-between border-b py-2">
+        <span className="text-xs text-muted-foreground">
+          {showsEstimatedCosts ? (
+            <EstimatedReceiptLabel
+              label="COGS"
+              tooltip={ESTIMATED_ORDER_COGS_TOOLTIP}
+            />
+          ) : (
+            "COGS"
+          )}
+        </span>
+        <span className="text-right font-mono tabular-nums text-muted-foreground">
+          {negativeMoney(margin.productCogs)}
+        </span>
+      </div>
+      <div className="flex items-baseline justify-between border-b py-2">
+        <span className="text-xs text-muted-foreground">
+          {showsEstimatedCosts ? (
+            <EstimatedReceiptLabel
+              label="Shipment costs"
+              tooltip={ESTIMATED_SHIPMENT_COSTS_TOOLTIP}
+            />
+          ) : (
+            "Shipment costs"
+          )}
+        </span>
+        <span className="font-mono tabular-nums text-muted-foreground">
+          {negativeMoney(margin.shipmentCosts)}
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-baseline justify-between border-t border-foreground pt-2.5">
+        <span className="font-semibold">Contribution margin</span>
+        <span className="text-right">
+          <div
+            className={cn(
+              "font-mono text-lg font-semibold tabular-nums",
+              marginToneClass(margin.marginPercent)
+            )}
+          >
+            {formatMarginPercent(margin.marginPercent)}
+          </div>
+          <div className="font-mono text-xs tabular-nums text-muted-foreground">
+            {money(margin.contributionMargin)}
+          </div>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function EmptyPanel({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-md border border-dashed bg-muted/30 px-6 py-10 text-center">
+      <div className="text-sm font-medium">{title}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{description}</div>
+    </div>
+  );
+}
+
+function LinesPanel({
+  order,
+  canEdit,
+}: {
+  order: SalesOrderDetailType;
+  canEdit: boolean;
+}) {
+  const totalQuantity = sumNumeric(order.lines.map((line) => line.quantity));
+  const totalLineAmount = sumNumeric(order.lines.map((line) => line.lineTotal));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">
+          {order.lines.length} {order.lines.length === 1 ? "line" : "lines"}{" "}
+          {"\u00b7"}{" "}
+          {formatQuantity(String(totalQuantity))} units
+        </span>
+        {canEdit ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/sales/orders/${order.id}/edit`}>Add line</Link>
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Item</TableHead>
+              <TableHead>
+                <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Unit Cost" tooltip={UNIT_COST_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Unit Margin" tooltip={UNIT_MARGIN_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {order.lines.map((line) => {
+              const margin = lineMarginParts(line, order.status);
+
+              return (
+                <TableRow key={line.id}>
+                  <TableCell>
+                    <Link
+                      href={itemDetailHref("product", line.itemId)}
+                      className="font-medium hover:underline"
+                    >
+                      {line.itemName}
+                    </Link>
+                    <div className="text-xs text-muted-foreground">{line.unitName}</div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {line.itemSku ?? "\u2014"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {formatQuantity(line.quantity)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {money(margin.unitCost)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {money(line.unitPrice)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <div
+                      className={cn(
+                        "font-semibold",
+                        marginToneClass(margin.marginPercent)
+                      )}
+                    >
+                      {formatMarginPercent(margin.marginPercent)}
+                    </div>
+                    <div className="font-sans text-xs text-muted-foreground">
+                      {money(margin.unitMargin)} {"\u00b7"} {margin.statusLabel}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono font-medium tabular-nums">
+                    {money(line.lineTotal)}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell
+                colSpan={2}
+                className="text-xs font-medium uppercase text-muted-foreground"
+              >
+                Total
+              </TableCell>
+              <TableCell className="text-right font-mono tabular-nums">
+                {formatQuantity(String(totalQuantity))}
+              </TableCell>
+              <TableCell />
+              <TableCell />
+              <TableCell />
+              <TableCell className="text-right font-mono tabular-nums">
+                {money(String(totalLineAmount))}
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function ShippingPanel({
+  order,
+  canCreateShipment,
+  canEdit,
+  hasCancelledRemainingHistory,
+  onCreateShipment,
+  onEditShipment,
+  onShipShipment,
+  onCancelShipment,
+  onEditCosts,
+  shipShipmentPending,
+  cancelShipmentPending,
+}: {
+  order: SalesOrderDetailType;
+  canCreateShipment: boolean;
+  canEdit: boolean;
+  hasCancelledRemainingHistory: boolean;
+  onCreateShipment: () => void;
+  onEditShipment: (shipment: SalesShipmentRow) => void;
+  onShipShipment: (shipment: SalesShipmentRow) => void;
+  onCancelShipment: (shipment: SalesShipmentRow) => void;
+  onEditCosts: (shipment: SalesShipmentRow) => void;
+  shipShipmentPending: boolean;
+  cancelShipmentPending: boolean;
+}) {
+  const shipToLines = formatAddressLines({
+    line1: order.shipLine1,
+    line2: order.shipLine2,
+    city: order.shipCity,
+    region: order.shipRegion,
+    postcode: order.shipPostcode,
+    country: order.shipCountry,
+  });
+  const shippedShipmentCount = order.shipments.filter(
+    (shipment) => shipment.status === "shipped"
+  ).length;
+  const activeShipmentCount = order.shipments.filter(
+    (shipment) => shipment.status !== "cancelled"
+  ).length;
+
+  return (
+    <div className="space-y-3">
+      {shipToLines.length === 0 ? (
+        <div className="flex flex-col gap-3 rounded-md border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="font-medium">No ship-to address saved</div>
+            <div className="mt-1 text-warning/80">
+              Address required before shipment can be marked shipped.
+            </div>
+          </div>
+          {canEdit ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/sales/orders/${order.id}/edit`}>Add address</Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {hasCancelledRemainingHistory ? (
+        <div className="rounded-md border bg-muted px-4 py-3 text-sm text-muted-foreground">
+          This order shipped partially; remaining quantities were cancelled.
+        </div>
+      ) : null}
+
+      {order.shippingReadiness.blockers.length > 0 ? (
+        <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
+          {order.shippingReadiness.blockers.map((blocker) => (
+            <div key={blocker}>{blocker}</div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">
+          {shippedShipmentCount} of {activeShipmentCount} shipped
+        </span>
+        {canCreateShipment ? (
+          <Button variant="outline" size="sm" onClick={onCreateShipment}>
+            New shipment
+          </Button>
+        ) : null}
+      </div>
+
+      {order.shipments.length > 0 ? (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Shipment</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Scheduled</TableHead>
+                <TableHead>Lines</TableHead>
+                <TableHead className="text-right">Revenue</TableHead>
+                <TableHead className="text-right">COGS</TableHead>
+                <TableHead className="text-right">Ship Cost</TableHead>
+                <TableHead className="text-right">Margin</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {order.shipments.map((shipment) => (
+                <TableRow key={shipment.id}>
+                  <TableCell className="font-mono text-xs">
+                    {shipment.shipmentNumber}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        shipment.status === "shipped"
+                          ? "outline"
+                          : shipment.status === "cancelled"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                    >
+                      {shipment.status === "shipped"
+                        ? "Shipped"
+                        : shipment.status === "cancelled"
+                          ? "Cancelled"
+                          : "Draft"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
+                  </TableCell>
+                  <TableCell>{formatDate(shipment.scheduledDate)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {shipment.lines.map((line) => (
+                        <span
+                          key={line.id}
+                          className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
+                        >
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {formatQuantity(line.quantity)}
+                          </span>
+                          <Badge variant="secondary">{line.unitName}</Badge>
+                          <span className="min-w-0 truncate">{line.itemName}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {money(shipment.marginSummary.productRevenue)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <div>{money(shipment.marginSummary.productCogs)}</div>
+                    <div className="font-sans text-xs text-muted-foreground">
+                      {marginStatusLabel(shipment.marginSummary.costStatus)}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {money(shipment.marginSummary.shipmentCosts)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    <div>{money(shipment.marginSummary.contributionMargin)}</div>
+                    <div className="font-sans text-xs text-muted-foreground">
+                      {formatMarginPercent(shipment.marginSummary.marginPercent)}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1.5">
+                      {shipment.status !== "cancelled" ? (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              window.open(
+                                `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
+                                "_blank",
+                                "noopener,noreferrer"
+                              );
+                            }}
+                          >
+                            View BOL
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onEditCosts(shipment)}
+                          >
+                            Costs
+                          </Button>
+                        </>
+                      ) : null}
+                      {shipment.status === "draft" ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onShipShipment(shipment)}
+                            disabled={shipShipmentPending}
+                          >
+                            Ship
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onEditShipment(shipment)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onCancelShipment(shipment)}
+                            disabled={cancelShipmentPending}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <EmptyPanel
+          title="No shipments planned"
+          description="Create a shipment when this order is ready for fulfillment."
+        />
+      )}
+    </div>
+  );
+}
+
+function ManufacturingPanel({
+  order,
+}: {
+  order: SalesOrderDetailType;
+}) {
+  if (order.linkedManufacturingOrders.length === 0) {
+    const hasManufacturableLines = order.manufacturableLineCount > 0;
+
+    return (
+      <EmptyPanel
+        title={
+          hasManufacturableLines
+            ? "No manufacturing orders created yet"
+            : "No manufacturing required"
+        }
+        description={
+          hasManufacturableLines
+            ? `${order.manufacturableLineCount} manufacturable ${
+                order.manufacturableLineCount === 1 ? "line" : "lines"
+              } can be sent to production.`
+            : "All line items are stocked."
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>MO</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Item</TableHead>
+            <TableHead className="text-right">
+              <TooltipHeader label="Qty" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
+            </TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {order.linkedManufacturingOrders.map((manufacturingOrder) => (
+            <TableRow key={manufacturingOrder.id}>
+              <TableCell className="font-mono text-xs">
+                {manufacturingOrder.orderNumber}
+              </TableCell>
+              <TableCell>
+                <ManufacturingOrderStatusBadge status={manufacturingOrder.status} />
+              </TableCell>
+              <TableCell>
+                <div className="font-medium">{manufacturingOrder.productName}</div>
+                {manufacturingOrder.productSku ? (
+                  <div className="font-mono text-xs text-muted-foreground">
+                    {manufacturingOrder.productSku}
+                  </div>
+                ) : null}
+              </TableCell>
+              <TableCell className="text-right font-mono tabular-nums">
+                {formatQuantity(manufacturingOrder.plannedQuantity)}{" "}
+                {manufacturingOrder.unitName}
+              </TableCell>
+              <TableCell className="text-right">
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href={`/manufacturing/orders/${manufacturingOrder.id}`}>
+                    Open
+                  </Link>
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function ActivityPanel({ order }: { order: SalesOrderDetailType }) {
+  const events = [
+    {
+      timestamp: order.updatedAt,
+      actor: "System",
+      action: "Order updated",
+      detail: `Status is ${order.status.replace(/_/g, " ")}.`,
+    },
+    {
+      timestamp: order.createdAt,
+      actor: "System",
+      action: "Order created",
+      detail: `${order.orderNumber} created for ${order.customerName}.`,
+    },
+  ];
+
+  return (
+    <div className="max-w-3xl">
+      {events.map((event) => (
+        <div
+          key={`${event.action}-${event.timestamp}`}
+          className="flex gap-4 border-b py-3"
+        >
+          <div className="w-[140px] shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+            {formatDateTime(event.timestamp)}
+          </div>
+          <div className="min-w-0 flex-1 text-sm">
+            <div>
+              <span className="font-medium">{event.actor}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                {"\u00b7"} {event.action}
+              </span>
+            </div>
+            <div className="mt-1 text-muted-foreground">{event.detail}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function OrderDetail({
   order,
   canViewLedger = false,
@@ -350,6 +1140,14 @@ export function OrderDetail({
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
   const accountingDocument = salesOrderAccountingDocument(order);
+  const [activeTab, setActiveTab] = useState<SalesOrderDetailTab>(() =>
+    getInitialSalesOrderDetailTab(order.shipments.length > 0 ? "shipping" : "lines")
+  );
+
+  const handleTabChange = (nextTab: SalesOrderDetailTab) => {
+    setActiveTab(nextTab);
+    selectHashTab(nextTab);
+  };
 
   const openSyncDialog = ({
     title,
@@ -870,691 +1668,267 @@ export function OrderDetail({
     order.xeroEmailStatus !== "sent";
   const xeroEmailActionLabel =
     order.xeroEmailStatus === "failed" ? "Retry Xero email" : "Email invoice";
-  const showShippingSection =
-    order.status === "confirmed" ||
-    order.status === "partially_shipped" ||
-    order.status === "shipped" ||
-    order.shipments.length > 0;
+  const canCreateShipment =
+    !isDeleted &&
+    (order.status === "confirmed" || order.status === "partially_shipped");
   const hasCancelledRemainingHistory =
     order.status === "cancelled" &&
     order.shipments.some((shipment) => shipment.status === "shipped");
+  const tabs: SalesOrderTabConfig[] = [
+    { value: "lines", label: "Line Items", count: order.lines.length },
+    { value: "shipping", label: "Shipping", count: order.shipments.length },
+    {
+      value: "manufacturing",
+      label: "Manufacturing",
+      count: order.linkedManufacturingOrders.length,
+    },
+    { value: "activity", label: "Activity" },
+  ];
+  const accountingStatus = canCreateXeroInvoice ? (
+    <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
+      <span className="font-medium">Accounting Sync</span>
+      <Badge variant="secondary">Not synced</Badge>
+      <span className="text-muted-foreground">Xero invoice</span>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => xeroPushMutation.mutate()}
+        disabled={xeroPushMutation.isPending}
+      >
+        {xeroPushMutation.isPending ? "Creating..." : "Create invoice"}
+      </Button>
+    </div>
+  ) : (
+    <AccountingSyncStatus
+      document={accountingDocument}
+      onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
+      retryPushPending={xeroPushMutation.isPending}
+      onRetryEmail={canSendXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
+      retryEmailPending={xeroEmailMutation.isPending}
+      providerAction={
+        order.xeroPushStatus === "pushed"
+          ? {
+              label: "Open online invoice",
+              onClick: () => onlineInvoiceMutation.mutate(),
+              pending: onlineInvoiceMutation.isPending,
+            }
+          : undefined
+      }
+      compact
+    />
+  );
+
+  const openCancelRemainingDialog = () => {
+    setCancelRemainingIdempotencyKey(
+      `sales-order-cancel-remaining:${crypto.randomUUID()}`
+    );
+    setCancelRemainingOpen(true);
+  };
+
+  const openShipShipmentDialog = (shipment: SalesShipmentRow) => {
+    setShipmentToShip(shipment);
+    setShipShipmentIdempotencyKey(`sales-shipment-ship:${crypto.randomUUID()}`);
+  };
 
   return (
     <>
-      <div className="space-y-6 p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <Link
-              href="/sales/orders"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to Orders
+      <div className="mx-auto w-full max-w-7xl px-8 py-6">
+        <div className="space-y-5">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
+            <Link href="/sales/orders" className="hover:text-foreground">
+              Back to Orders
             </Link>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">{order.orderNumber}</h1>
-              <SalesOrderStatusBadge status={order.status} />
-              {isDeleted && <Badge variant="outline">Deleted</Badge>}
-            </div>
           </div>
 
-          <DetailPageActions
-            editHref={canEdit ? `/sales/orders/${order.id}/edit` : undefined}
-            menu={[
-              ...(canViewLedger
-                ? [
-                    {
-                      label: "View inventory activity",
-                      onSelect: () =>
-                        router.push(
-                          buildInventoryLedgerHref({
-                            documentType: "sales_order",
-                            documentId: order.id,
-                          })
-                        ),
-                    },
-                  ]
-                : []),
-              ...(canDownloadBol
-                ? [
-                    {
-                      label: "View BOL",
-                      onSelect: () => {
-                        window.open(
-                          `/api/sales-orders/${order.id}/bol`,
-                          "_blank",
-                          "noopener,noreferrer"
-                        );
-                      },
-                    },
-                  ]
-                : []),
-              ...(canRetryXeroPush
-                ? [
-                    {
-                      label: "Retry Xero push",
-                      onSelect: () => xeroPushMutation.mutate(),
-                      disabled: xeroPushMutation.isPending,
-                    },
-                  ]
-                : []),
-              ...(canCreateXeroInvoice
-                ? [
-                    {
-                      label: "Create invoice",
-                      onSelect: () => xeroPushMutation.mutate(),
-                      disabled: xeroPushMutation.isPending,
-                    },
-                  ]
-                : []),
-              ...(canSendXeroEmail
-                ? [
-                    {
-                      label: xeroEmailActionLabel,
-                      onSelect: () => xeroEmailMutation.mutate(),
-                      disabled: xeroEmailMutation.isPending,
-                    },
-                  ]
-                : []),
-              ...(canCancel
-                ? [
-                    {
-                      label: "Cancel order",
-                      onSelect: () => setCancelOpen(true),
-                      disabled: cancelMutation.isPending,
-                    },
-                  ]
-                : []),
-              ...(canDelete
-                ? [
-                    {
-                      label: "Delete",
-                      onSelect: () => setDeleteOpen(true),
-                      disabled: deleteMutation.isPending,
-                      destructive: true,
-                    },
-                  ]
-                : []),
-            ]}
-          >
-            {canConfirm ? (
-              <Button
-                size="sm"
-                onClick={() => confirmMutation.mutate(false)}
-                disabled={confirmMutation.isPending}
-              >
-                {confirmMutation.isPending ? "Confirming..." : "Confirm"}
-              </Button>
-            ) : null}
-            {canCreateManufacturingOrders ? (
-              <CreateManufacturingOrdersDialog
-                salesOrderId={order.id}
-                initialOrder={order}
-              />
-            ) : null}
-          </DetailPageActions>
-        </div>
-
-        <Separator />
-
-        {order.notes && (
-          <p className="max-w-2xl text-sm text-muted-foreground">{order.notes}</p>
-        )}
-
-        {actionError && <p className="text-sm text-destructive">{actionError}</p>}
-
-        {showShippingSection && (
-          <div className="flex flex-col gap-3 rounded-md border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold tracking-tight">Shipping</h2>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  {order.orderNumber}
+                </h1>
+                <SalesOrderStatusBadge status={order.status} />
                 <Badge
                   variant={
                     order.shippingReadiness.state === "ready"
-                      ? "default"
+                      ? "success"
                       : order.shippingReadiness.state === "shipped"
                         ? "outline"
                         : "secondary"
                   }
                 >
+                  {order.shippingReadiness.state === "ready" ? "\u25cf " : ""}
                   {order.shippingReadiness.message}
                 </Badge>
-                {canCancelRemaining ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setCancelRemainingIdempotencyKey(
-                        `sales-order-cancel-remaining:${crypto.randomUUID()}`
-                      );
-                      setCancelRemainingOpen(true);
-                    }}
-                  >
-                    Cancel Remaining
-                  </Button>
-                ) : null}
+                {isDeleted ? <Badge variant="outline">Deleted</Badge> : null}
               </div>
+              {order.notes ? (
+                <p className="max-w-3xl text-xs text-muted-foreground">
+                  {order.notes}
+                </p>
+              ) : null}
             </div>
-            {hasCancelledRemainingHistory ? (
-              <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
-                This order shipped partially; remaining quantities were cancelled.
-              </div>
-            ) : null}
-            {order.shippingReadiness.blockers.length > 0 ? (
-              <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-                {order.shippingReadiness.blockers.map((blocker) => (
-                  <li key={blocker}>{blocker}</li>
-                ))}
-              </ul>
-            ) : null}
-            <ShipToAddress order={order} />
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Shipment</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Scheduled</TableHead>
-                    <TableHead>Shipped</TableHead>
-                    <TableHead>Lines</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">COGS</TableHead>
-                    <TableHead className="text-right">Ship Cost</TableHead>
-                    <TableHead className="text-right">Margin</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {order.shipments.length > 0 ? (
-                    order.shipments.map((shipment) => (
-                      <TableRow key={shipment.id}>
-                        <TableCell>{shipment.shipmentNumber}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              shipment.status === "shipped"
-                                ? "outline"
-                                : shipment.status === "cancelled"
-                                  ? "destructive"
-                                  : "secondary"
-                            }
-                          >
-                            {shipment.status === "shipped"
-                              ? "Shipped"
-                              : shipment.status === "cancelled"
-                                ? "Cancelled"
-                                : "Draft"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
-                        </TableCell>
-                        <TableCell>{formatDate(shipment.scheduledDate)}</TableCell>
-                        <TableCell>{formatDateTime(shipment.shippedAt)}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            {shipment.lines.map((line) => (
-                              <span
-                                key={line.id}
-                                className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
-                              >
-                                <QuantityWithUnit
-                                  value={line.quantity}
-                                  unitName={line.unitName}
-                                />
-                                <span className="min-w-0 truncate">{line.itemName}</span>
-                              </span>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatPrice(shipment.marginSummary.productRevenue) ?? "\u2014"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div>
-                            {formatPrice(shipment.marginSummary.productCogs) ?? "\u2014"}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {marginStatusLabel(shipment.marginSummary.costStatus)}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatPrice(shipment.marginSummary.shipmentCosts) ?? "\u2014"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div>
-                            {formatPrice(shipment.marginSummary.contributionMargin) ??
-                              "\u2014"}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatMarginPercent(shipment.marginSummary.marginPercent)}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            {shipment.status !== "cancelled" ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  window.open(
-                                    `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
-                                    "_blank",
-                                    "noopener,noreferrer"
-                                  );
-                                }}
-                              >
-                                View BOL
-                              </Button>
-                            ) : null}
-                            {shipment.status !== "cancelled" ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  setShipmentCostForm(
-                                    buildShipmentCostFormState(shipment)
-                                  )
-                                }
-                              >
-                                Costs
-                              </Button>
-                            ) : null}
-                            {shipment.status === "draft" ? (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setShipmentToShip(shipment);
-                                    setShipShipmentIdempotencyKey(
-                                      `sales-shipment-ship:${crypto.randomUUID()}`
-                                    );
-                                  }}
-                                  disabled={shipShipmentMutation.isPending}
-                                >
-                                  Ship
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    setShipmentForm(buildShipmentFormState(order, shipment))
-                                  }
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    cancelShipmentMutation.mutate({
-                                      shipmentId: shipment.id,
-                                      idempotencyKey: `sales-shipment-cancel:${crypto.randomUUID()}`,
-                                    })
-                                  }
-                                  disabled={cancelShipmentMutation.isPending}
-                                >
-                                  Cancel
-                                </Button>
-                              </>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={11} className="text-muted-foreground">
-                        No shipments have been planned.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )}
 
-        {canCreateXeroInvoice ? (
-          <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
-            <span className="font-medium">Accounting Sync</span>
-            <Badge variant="secondary">Not synced</Badge>
-            <span className="text-muted-foreground">Xero invoice</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => xeroPushMutation.mutate()}
-              disabled={xeroPushMutation.isPending}
+            <DetailPageActions
+              editHref={canEdit ? `/sales/orders/${order.id}/edit` : undefined}
+              menu={[
+                ...(canViewLedger
+                  ? [
+                      {
+                        label: "View inventory activity",
+                        onSelect: () =>
+                          router.push(
+                            buildInventoryLedgerHref({
+                              documentType: "sales_order",
+                              documentId: order.id,
+                            })
+                          ),
+                      },
+                    ]
+                  : []),
+                ...(canDownloadBol
+                  ? [
+                      {
+                        label: "View BOL",
+                        onSelect: () => {
+                          window.open(
+                            `/api/sales-orders/${order.id}/bol`,
+                            "_blank",
+                            "noopener,noreferrer"
+                          );
+                        },
+                      },
+                    ]
+                  : []),
+                ...(canRetryXeroPush
+                  ? [
+                      {
+                        label: "Retry Xero push",
+                        onSelect: () => xeroPushMutation.mutate(),
+                        disabled: xeroPushMutation.isPending,
+                      },
+                    ]
+                  : []),
+                ...(canCreateXeroInvoice
+                  ? [
+                      {
+                        label: "Create invoice",
+                        onSelect: () => xeroPushMutation.mutate(),
+                        disabled: xeroPushMutation.isPending,
+                      },
+                    ]
+                  : []),
+                ...(canSendXeroEmail
+                  ? [
+                      {
+                        label: xeroEmailActionLabel,
+                        onSelect: () => xeroEmailMutation.mutate(),
+                        disabled: xeroEmailMutation.isPending,
+                      },
+                    ]
+                  : []),
+                ...(canCancel
+                  ? [
+                      {
+                        label: "Cancel order",
+                        onSelect: () => setCancelOpen(true),
+                        disabled: cancelMutation.isPending,
+                      },
+                    ]
+                  : []),
+                ...(canDelete
+                  ? [
+                      {
+                        label: "Delete",
+                        onSelect: () => setDeleteOpen(true),
+                        disabled: deleteMutation.isPending,
+                        destructive: true,
+                      },
+                    ]
+                  : []),
+              ]}
             >
-              {xeroPushMutation.isPending ? "Creating..." : "Create invoice"}
-            </Button>
+              {canCancelRemaining ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openCancelRemainingDialog}
+                >
+                  Cancel remaining
+                </Button>
+              ) : null}
+              {canConfirm ? (
+                <Button
+                  size="sm"
+                  onClick={() => confirmMutation.mutate(false)}
+                  disabled={confirmMutation.isPending}
+                >
+                  {confirmMutation.isPending ? "Confirming..." : "Confirm"}
+                </Button>
+              ) : null}
+              {canCreateShipment ? (
+                <Button
+                  size="sm"
+                  onClick={() => setShipmentForm(buildShipmentFormState(order))}
+                >
+                  Ship
+                </Button>
+              ) : null}
+              {canCreateManufacturingOrders ? (
+                <CreateManufacturingOrdersDialog
+                  salesOrderId={order.id}
+                  initialOrder={order}
+                  buttonVariant="outline"
+                />
+              ) : null}
+            </DetailPageActions>
           </div>
-        ) : (
-          <AccountingSyncStatus
-            document={accountingDocument}
-            onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
-            retryPushPending={xeroPushMutation.isPending}
-            onRetryEmail={canSendXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
-            retryEmailPending={xeroEmailMutation.isPending}
-            providerAction={
-              order.xeroPushStatus === "pushed"
-                ? {
-                    label: "Open online invoice",
-                    onClick: () => onlineInvoiceMutation.mutate(),
-                    pending: onlineInvoiceMutation.isPending,
+
+          {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+
+          <div className="grid gap-x-12 gap-y-6 lg:grid-cols-2">
+            <KeyFactRows order={order} canEdit={canEdit} />
+            <CompactMarginReceipt margin={order.marginSummary} />
+            <div className="lg:col-span-2">{accountingStatus}</div>
+          </div>
+
+          <SalesOrderDetailTabs
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            panels={{
+              lines: <LinesPanel order={order} canEdit={canEdit} />,
+              shipping: (
+                <ShippingPanel
+                  order={order}
+                  canCreateShipment={canCreateShipment}
+                  canEdit={canEdit}
+                  hasCancelledRemainingHistory={hasCancelledRemainingHistory}
+                  onCreateShipment={() =>
+                    setShipmentForm(buildShipmentFormState(order))
                   }
-                : undefined
-            }
-            compact
+                  onEditShipment={(shipment) =>
+                    setShipmentForm(buildShipmentFormState(order, shipment))
+                  }
+                  onShipShipment={openShipShipmentDialog}
+                  onCancelShipment={(shipment) =>
+                    cancelShipmentMutation.mutate({
+                      shipmentId: shipment.id,
+                      idempotencyKey: `sales-shipment-cancel:${crypto.randomUUID()}`,
+                    })
+                  }
+                  onEditCosts={(shipment) =>
+                    setShipmentCostForm(buildShipmentCostFormState(shipment))
+                  }
+                  shipShipmentPending={shipShipmentMutation.isPending}
+                  cancelShipmentPending={cancelShipmentMutation.isPending}
+                />
+              ),
+              manufacturing: <ManufacturingPanel order={order} />,
+              activity: <ActivityPanel order={order} />,
+            }}
           />
-        )}
-
-        {order.shipments.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold tracking-tight">Order Margin</h2>
-              <Badge variant="secondary">
-                {marginStatusLabel(order.marginSummary.costStatus)}
-              </Badge>
-            </div>
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableBody>
-                  <TableRow>
-                    <TableCell>Product revenue</TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(order.marginSummary.productRevenue) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Freight recovered</TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(order.marginSummary.freightRecovery) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Product COGS</TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(order.marginSummary.productCogs) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Shipment costs</TableCell>
-                    <TableCell className="text-right">
-                      {formatPrice(order.marginSummary.shipmentCosts) ?? "\u2014"}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Contribution margin</TableCell>
-                    <TableCell className="text-right">
-                      <div>
-                        {formatPrice(order.marginSummary.contributionMargin) ?? "\u2014"}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatMarginPercent(order.marginSummary.marginPercent)}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        ) : null}
-
-        <dl className="grid max-w-2xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Customer</dt>
-            <dd className="mt-1 text-sm">{order.customerName}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Status</dt>
-            <dd className="mt-1 text-sm">
-              <SalesOrderStatusBadge status={order.status} />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Order Date" tooltip={SALES_ORDER_DATE_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">{formatDate(order.orderDate)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader
-                label="Ship Date"
-                tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
-              />
-            </dt>
-            <dd className="mt-1 text-sm">{formatDate(order.shipDate)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader
-                label="Delivery Date"
-                tooltip={REQUESTED_DATE_TOOLTIP}
-              />
-            </dt>
-            <dd className="mt-1 text-sm">{formatDate(order.requestedDate)}</dd>
-          </div>
-          {order.shippedAt ? (
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Shipped</dt>
-              <dd className="mt-1 text-sm">{formatDateTime(order.shippedAt)}</dd>
-            </div>
-          ) : null}
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader
-                label="Manufacturable Lines"
-                tooltip={MANUFACTURABLE_LINES_TOOLTIP}
-              />
-            </dt>
-            <dd className="mt-1 text-sm">{order.manufacturableLineCount}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Total" tooltip={ORDER_TOTAL_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">{formatPrice(order.totalAmount) ?? "\u2014"}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.createdAt)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
-          </div>
-          {order.deletedAt && (
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
-              <dd className="mt-1 text-sm">{formatDateTime(order.deletedAt)}</dd>
-            </div>
-          )}
-        </dl>
-
-        <Separator />
-
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold tracking-tight">Lines</h2>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead>
-                    <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">Planned</TableHead>
-                  <TableHead className="text-right">Shipped</TableHead>
-                  <TableHead className="text-right">Remaining</TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader
-                      label="COGS"
-                      tooltip={LINE_COGS_TOOLTIP}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Profit</TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader
-                      label={order.status === "shipped" ? "Actual Margin" : "Est. Margin"}
-                      tooltip={
-                        order.status === "shipped"
-                          ? ACTUAL_MARGIN_TOOLTIP
-                          : ESTIMATED_MARGIN_TOOLTIP
-                      }
-                    />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {order.lines.map((line) => {
-                  const hasActualMargin = line.actualCogs != null;
-                  const cogs = hasActualMargin ? line.actualCogs : line.estimatedCogs;
-                  const grossProfit = hasActualMargin
-                    ? line.actualGrossProfit
-                    : line.estimatedGrossProfit;
-                  const marginPercent = hasActualMargin
-                    ? line.actualMarginPercent
-                    : line.estimatedMarginPercent;
-
-                  return (
-                    <TableRow key={line.id}>
-                      <TableCell>
-                        <Link
-                          href={itemDetailHref("product", line.itemId)}
-                          className="hover:underline"
-                        >
-                          {line.itemName}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{line.itemSku ?? "\u2014"}</TableCell>
-                      <TableCell className="text-right">{line.quantity}</TableCell>
-                      <TableCell className="text-right">{line.plannedQuantity}</TableCell>
-                      <TableCell className="text-right">{line.shippedQuantity}</TableCell>
-                      <TableCell className="text-right">{line.remainingQuantity}</TableCell>
-                      <TableCell>{line.unitName}</TableCell>
-                      <TableCell className="text-right">
-                        <div>
-                          <div>{formatPrice(line.unitPrice) ?? "\u2014"}</div>
-                          {line.suggestedUnitPrice && (
-                            <div className="text-xs text-muted-foreground">
-                              Suggested {formatPrice(line.suggestedUnitPrice) ?? "\u2014"}
-                              {line.pricingSourceType === "schedule_break" &&
-                              line.pricingScheduleName
-                                ? ` from ${line.pricingScheduleName}${
-                                    line.pricingBreakLabel
-                                      ? `, ${line.pricingBreakLabel}`
-                                      : ""
-                                  }`
-                                : " from base price"}
-                              {line.isPriceOverridden ? " · Manual override" : ""}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPrice(line.lineTotal) ?? "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPrice(cogs) ?? "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPrice(grossProfit) ?? "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="font-medium">
-                          {formatMarginPercent(marginPercent)}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {hasActualMargin ? "Actual" : "Estimated"}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Linked Manufacturing Orders
-          </h2>
-
-          {order.linkedManufacturingOrders.length > 0 ? (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>MO</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">
-                      <TooltipHeader label="Qty" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
-                    </TableHead>
-                    <TableHead>
-                      <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
-                    </TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {order.linkedManufacturingOrders.map((manufacturingOrder) => (
-                    <TableRow key={manufacturingOrder.id}>
-                      <TableCell>
-                        <Link
-                          href={`/manufacturing/orders/${manufacturingOrder.id}`}
-                          className="hover:underline"
-                        >
-                          {manufacturingOrder.orderNumber}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div>{manufacturingOrder.productName}</div>
-                          {manufacturingOrder.productSku && (
-                            <p className="text-xs text-muted-foreground">
-                              {manufacturingOrder.productSku}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {manufacturingOrder.plannedQuantity}
-                      </TableCell>
-                      <TableCell>{manufacturingOrder.unitName}</TableCell>
-                      <TableCell>
-                        <ManufacturingOrderStatusBadge status={manufacturingOrder.status} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed px-4 py-6">
-              <p className="text-sm text-muted-foreground">
-                No manufacturing orders have been created from this sales order yet.
-              </p>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1706,10 +2080,6 @@ export function OrderDetail({
         <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Costs & Margin</DialogTitle>
-            <DialogDescription>
-              Customer freight recovery is for margin tracking only. Not added to Xero
-              invoices.
-            </DialogDescription>
           </DialogHeader>
           {shipmentCostForm ? (
             <form
@@ -1719,23 +2089,6 @@ export function OrderDetail({
                 shipmentCostMutation.mutate(shipmentCostForm);
               }}
             >
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium" htmlFor="customer-freight-recovery">
-                  Customer freight recovery
-                </label>
-                <Input
-                  id="customer-freight-recovery"
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={shipmentCostForm.customerFreightChargeAmount}
-                  onChange={(event) =>
-                    setShipmentCostForm({
-                      ...shipmentCostForm,
-                      customerFreightChargeAmount: event.target.value,
-                    })
-                  }
-                />
-              </div>
               <div className="overflow-x-auto rounded-md border">
                 <Table>
                   <TableHeader>
