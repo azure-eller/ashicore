@@ -70,6 +70,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
   description: nullableString,
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
+  allowPartialManufacturingOutput: z.boolean().default(false),
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
 }).omit({
   id: true,
@@ -219,6 +220,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   currentStockUnitCost: currentStockUnitCostUpdateSchema,
   sellable: z.boolean().optional(),
   manufacturingMode: z.enum(["discrete", "batch"]),
+  allowPartialManufacturingOutput: z.boolean().default(false),
   stock: z.string().refine(
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
@@ -260,6 +262,7 @@ export const insertVariantSchema = z.object({
   ),
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
+  allowPartialManufacturingOutput: z.boolean().default(false),
   bom: z.array(bomRowSchema).optional(),
   revisionNote: nullableStringOptional,
 }).superRefine((data, ctx) => {

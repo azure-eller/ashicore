@@ -16,6 +16,7 @@ export const INVENTORY_OPERATION_NAMES = [
   "pickManufacturingIngredient",
   "unpickManufacturingIngredient",
   "produceManufacturedStock",
+  "recordManufacturingOutput",
   "cancelManufacturingOrder",
   "manualIncreaseStock",
   "manualDecreaseStock",

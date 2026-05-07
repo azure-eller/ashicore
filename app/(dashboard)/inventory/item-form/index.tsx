@@ -181,6 +181,8 @@ export function ItemForm({
           sellable: initialData.sellable ?? true,
           manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
           expectedBatchYield: initialData.expectedBatchYield,
+          allowPartialManufacturingOutput:
+            initialData.allowPartialManufacturingOutput ?? false,
           bomLocked: initialData.bomLocked ?? false,
           stock: initialData.stock,
           safetyStock: initialData.safetyStock,
@@ -209,6 +211,7 @@ export function ItemForm({
             sellable: true,
             manufacturingMode: "discrete" as const,
             expectedBatchYield: null,
+            allowPartialManufacturingOutput: false,
             bomLocked: false,
             stock: "0",
             safetyStock: "0",
@@ -1076,6 +1079,21 @@ export function ItemForm({
                     )}
                   />
                 )}
+                <Controller
+                  control={form.control}
+                  name="allowPartialManufacturingOutput"
+                  render={({ field }) => (
+                    <Field orientation="horizontal" className="justify-between">
+                      <div className="space-y-1">
+                        <FieldLabel>Allow partial output during manufacturing</FieldLabel>
+                      </div>
+                      <Switch
+                        checked={Boolean(field.value)}
+                        onCheckedChange={field.onChange}
+                      />
+                    </Field>
+                  )}
+                />
                 <BomEditor
                   control={form.control as Parameters<typeof BomEditor>[0]["control"]}
                   availableComponents={availableComponents}

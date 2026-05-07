@@ -31,6 +31,7 @@ const INVENTORY_LOCK_SPECS: Record<InventoryOperationName, SourceLockSpec | null
   pickManufacturingIngredient: { table: "manufacturing_orders", required: true },
   unpickManufacturingIngredient: { table: "manufacturing_orders", required: true },
   produceManufacturedStock: { table: "manufacturing_orders", required: true },
+  recordManufacturingOutput: { table: "manufacturing_orders", required: true },
   cancelManufacturingOrder: { table: "manufacturing_orders", required: true },
   manualIncreaseStock: null,
   manualDecreaseStock: null,

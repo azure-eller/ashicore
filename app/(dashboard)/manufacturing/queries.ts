@@ -12,12 +12,15 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryEvents,
+  inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryReservationsSummary,
   items,
   lots,
   manufacturingOrderBatches,
+  manufacturingOrderOutputConsumptions,
+  manufacturingOrderOutputs,
   manufacturingOrderIngredientConstraints,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -27,7 +30,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { normalizeNumeric, resolveVariantDisplay } from "@/lib/format";
+import { normalizeNumeric, normalizeNumericScale, resolveVariantDisplay } from "@/lib/format";
 import {
   getBomRevisionComponentsInTx,
   getCurrentActiveBomIngredientsInTx,
@@ -38,8 +41,12 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   addExpectedFromManufacturingInTx,
+  applyDemandReferenceDeltasInTx,
+  applyExpectedReferenceDeltasInTx,
+  applyReservationReferenceDeltasInTx,
   beginInventoryOperationInTx,
   cancelReleasedManufacturingOrderInTx,
+  consumeStockFifoInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   getCurrentAvailableQtyAtLocationInTx,
@@ -50,6 +57,7 @@ import {
   produceManufacturedStockInTx,
   projectedLotUnitCost,
   reconcileIngredientActualsInTx,
+  releaseIngredientReservationForManufacturingInTx,
   reserveIngredientsForManufacturingInTx,
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
@@ -71,6 +79,7 @@ import type {
   ManufacturingBatchStatus,
   ManufacturingOrderStatus,
   ManufacturingPickStatus,
+  RecordManufacturingOutput,
   UpdateManufacturingOrder,
 } from "@/lib/schemas/manufacturing-orders";
 import type {
@@ -96,6 +105,7 @@ type ProductSnapshot = {
   unitName: string;
   manufacturingMode: string;
   expectedBatchYield: string | null;
+  allowPartialManufacturingOutput: boolean;
 };
 
 type SalesLineSnapshot = {
@@ -112,6 +122,7 @@ type LockedManufacturingOrder = {
   manufacturingMode: string;
   numberOfBatches: number | null;
   expectedBatchYield: string | null;
+  allowPartialManufacturingOutput: boolean;
   salesOrderId: string | null;
   salesOrderLineId: string | null;
   salesOrderNumber: string | null;
@@ -376,6 +387,8 @@ async function getLockedManufacturingOrderInTx(
       expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
         "expectedBatchYield"
       ),
+      allowPartialManufacturingOutput:
+        manufacturingOrders.allowPartialManufacturingOutput,
       salesOrderId: manufacturingOrders.salesOrderId,
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       salesOrderNumber: manufacturingOrders.salesOrderNumber,
@@ -430,6 +443,7 @@ async function getValidatedProductInTx(
       expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
         "expectedBatchYield"
       ),
+      allowPartialManufacturingOutput: items.allowPartialManufacturingOutput,
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -769,6 +783,7 @@ async function insertManufacturingOrderInTx(
       manufacturingMode: values.product.manufacturingMode,
       numberOfBatches: values.numberOfBatches,
       expectedBatchYield: values.product.expectedBatchYield,
+      allowPartialManufacturingOutput: values.product.allowPartialManufacturingOutput,
       requestedQuantity: normalizeNumeric(Number(values.requestedQuantity)),
       salesOrderNumber: values.salesLink?.salesOrderNumber ?? null,
       salesCustomerName: values.salesLink?.customerName ?? null,
@@ -1408,6 +1423,155 @@ async function getPickAllocationTotalsInTx(tx: Tx, ingredientIds: string[]) {
   return totals;
 }
 
+async function getOutputQuantityInTx(
+  tx: Tx,
+  params: {
+    manufacturingOrderId: string;
+    manufacturingOrderBatchId?: string | null;
+  }
+) {
+  const [row] = await tx
+    .select({
+      quantity: trimScale(sql`COALESCE(SUM(${manufacturingOrderOutputs.quantity}), 0)`).as(
+        "quantity"
+      ),
+    })
+    .from(manufacturingOrderOutputs)
+    .where(
+      and(
+        eq(manufacturingOrderOutputs.manufacturingOrderId, params.manufacturingOrderId),
+        params.manufacturingOrderBatchId
+          ? eq(manufacturingOrderOutputs.manufacturingOrderBatchId, params.manufacturingOrderBatchId)
+          : sql`${manufacturingOrderOutputs.manufacturingOrderBatchId} IS NULL`
+      )
+    );
+
+  return parseFloat(row?.quantity ?? "0");
+}
+
+async function getConsumedQuantityByIngredientInTx(tx: Tx, ingredientIds: string[]) {
+  const uniqueIds = [...new Set(ingredientIds)];
+  if (uniqueIds.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const rows = await tx
+    .select({
+      ingredientId: manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId,
+      quantity: trimScale(
+        sql`COALESCE(SUM(${manufacturingOrderOutputConsumptions.quantityUsed}), 0)`
+      ).as("quantity"),
+    })
+    .from(manufacturingOrderOutputConsumptions)
+    .where(
+      inArray(manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId, uniqueIds)
+    )
+    .groupBy(manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId);
+
+  return new Map(rows.map((row) => [row.ingredientId, parseFloat(row.quantity)]));
+}
+
+async function getPickAllocationsByIngredientInTx(tx: Tx, ingredientIds: string[]) {
+  const uniqueIds = [...new Set(ingredientIds)];
+  if (uniqueIds.length === 0) {
+    return new Map<
+      string,
+      Array<{ lotId: string; quantityUsed: string; costPerUnit: string | null }>
+    >();
+  }
+
+  const rows = await tx
+    .select({
+      manufacturingOrderIngredientId: manufacturingPickAllocations.manufacturingOrderIngredientId,
+      lotId: manufacturingPickAllocations.lotId,
+      quantityUsed: trimScale(manufacturingPickAllocations.quantityUsed).as("quantityUsed"),
+      costPerUnit: trimScaleNullable(manufacturingPickAllocations.costPerUnit).as(
+        "costPerUnit"
+      ),
+    })
+    .from(manufacturingPickAllocations)
+    .where(
+      inArray(manufacturingPickAllocations.manufacturingOrderIngredientId, uniqueIds)
+    )
+    .orderBy(asc(manufacturingPickAllocations.createdAt), asc(manufacturingPickAllocations.id));
+
+  const allocations = new Map<
+    string,
+    Array<{ lotId: string; quantityUsed: string; costPerUnit: string | null }>
+  >();
+
+  for (const row of rows) {
+    const ingredientAllocations = allocations.get(row.manufacturingOrderIngredientId) ?? [];
+    ingredientAllocations.push({
+      lotId: row.lotId,
+      quantityUsed: row.quantityUsed,
+      costPerUnit: row.costPerUnit,
+    });
+    allocations.set(row.manufacturingOrderIngredientId, ingredientAllocations);
+  }
+
+  return allocations;
+}
+
+async function nextOutputNumberInTx(tx: Tx, manufacturingOrderId: string) {
+  const [row] = await tx
+    .select({
+      value: sql<number>`COALESCE(MAX(${manufacturingOrderOutputs.outputNumber}), 0)::int`,
+    })
+    .from(manufacturingOrderOutputs)
+    .where(eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrderId));
+
+  return Number(row?.value ?? 0) + 1;
+}
+
+async function releaseRemainingExpectedOutputInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    manufacturingOrderId: string;
+    actorUserId?: string | null;
+    quantity?: number | null;
+  }
+) {
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const expectedRows = await tx
+    .select({
+      itemId: inventoryExpectedSummary.itemId,
+      quantity: inventoryExpectedSummary.quantity,
+    })
+    .from(inventoryExpectedSummary)
+    .where(
+      and(
+        eq(inventoryExpectedSummary.organizationId, params.organizationId),
+        eq(inventoryExpectedSummary.locationId, location.id),
+        eq(inventoryExpectedSummary.referenceType, "manufacturing_order"),
+        eq(inventoryExpectedSummary.referenceId, params.manufacturingOrderId)
+      )
+    );
+
+  await applyExpectedReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: "completed",
+    deltas: expectedRows
+      .map((row) => {
+        const currentOpenQty = parseFloat(row.quantity);
+        const releaseQty =
+          params.quantity == null ? currentOpenQty : Math.min(currentOpenQty, params.quantity);
+        return releaseQty > 0
+          ? {
+              itemId: row.itemId,
+              referenceType: "manufacturing_order",
+              referenceId: params.manufacturingOrderId,
+              quantity: -releaseQty,
+            }
+          : null;
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null),
+  });
+}
+
 function toIngredientDetail(ingredient: ExecutionIngredientRow): ManufacturingOrderIngredientDetail {
   return {
     ...ingredient,
@@ -1541,6 +1705,8 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             status: manufacturingOrders.status,
             manufacturingMode: manufacturingOrders.manufacturingMode,
             numberOfBatches: manufacturingOrders.numberOfBatches,
+            allowPartialManufacturingOutput:
+              manufacturingOrders.allowPartialManufacturingOutput,
             deletedAt: manufacturingOrders.deletedAt,
             createdAt: manufacturingOrders.createdAt,
             updatedAt: manufacturingOrders.updatedAt,
@@ -1716,6 +1882,9 @@ export async function getManufacturingExecutionQueue(): Promise<
         completedBatchCount: order.completedBatchCount,
         totalBatchCount,
         actionLabel:
+          order.allowPartialManufacturingOutput
+            ? "Record Output"
+            :
           order.manufacturingMode === "batch"
             ? nextBatchNumber == null
               ? "Continue"
@@ -1762,6 +1931,7 @@ export async function getManufacturingProductTemplates(): Promise<
         expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
           "expectedBatchYield"
         ),
+        allowPartialManufacturingOutput: items.allowPartialManufacturingOutput,
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -1952,6 +2122,8 @@ export async function getManufacturingOrder(
         expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
           "expectedBatchYield"
         ),
+        allowPartialManufacturingOutput:
+          manufacturingOrders.allowPartialManufacturingOutput,
         requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
           "requestedQuantity"
         ),
@@ -2429,6 +2601,7 @@ export async function updateManufacturingOrder(
       unitName: "",
       manufacturingMode: existing.manufacturingMode,
       expectedBatchYield: existing.expectedBatchYield,
+      allowPartialManufacturingOutput: existing.allowPartialManufacturingOutput,
     };
     const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
       computeBatchPlanning(batchProduct, Number(payload.plannedQuantity));
@@ -2624,6 +2797,368 @@ export async function releaseManufacturingOrder(
   });
 }
 
+export async function recordManufacturingOutput(
+  orderId: string,
+  payload: RecordManufacturingOutput,
+  options?: { idempotencyKey?: string; batchId?: string | null }
+): Promise<{ id: string; lotId: string }> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string; lotId: string }>(tx, {
+      organizationId: orgId,
+      operationName: "recordManufacturingOutput",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, payload, batchId: options?.batchId ?? null },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
+    const order = await getLockedManufacturingOrderInTx(tx, orderId);
+    if (!order) {
+      throw new ManufacturingError("Order not found", 404);
+    }
+
+    if (order.status !== "released") {
+      throw new ManufacturingError("Only released orders can record output", 400);
+    }
+
+    if (!order.allowPartialManufacturingOutput) {
+      throw new ManufacturingError("This product does not allow partial output.", 400);
+    }
+
+    const outputQuantity = Number(payload.quantity);
+    let batch: LockedBatchStateRow | null = null;
+    let plannedOutputQuantity = parseFloat(
+      (
+        await tx
+          .select({
+            plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
+          })
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, orderId))
+      )[0]?.plannedQuantity ?? "0"
+    );
+
+    if (order.manufacturingMode === "batch") {
+      await ensureBatchExecutionRowsInTx(tx, order);
+      const batches = await getLockedBatchStateRowsInTx(tx, orderId);
+      batch = options?.batchId
+        ? batches.find((row) => row.id === options.batchId) ?? null
+        : getCurrentExecutionBatch(batches);
+      if (!batch) {
+        throw new ManufacturingError("Batch not found", 404);
+      }
+      assertCurrentExecutionBatch(batches, batch.id, "started");
+      const [batchQuantity] = await tx
+        .select({
+          plannedQuantity: trimScale(manufacturingOrderBatches.plannedQuantity).as(
+            "plannedQuantity"
+          ),
+        })
+        .from(manufacturingOrderBatches)
+        .where(eq(manufacturingOrderBatches.id, batch.id));
+      plannedOutputQuantity = parseFloat(batchQuantity?.plannedQuantity ?? "0");
+
+      if (batch.status === "pending") {
+        await tx
+          .update(manufacturingOrderBatches)
+          .set({
+            status: "in_progress",
+            startedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(manufacturingOrderBatches.id, batch.id));
+      }
+    } else if (options?.batchId) {
+      throw new ManufacturingError("Discrete orders cannot record batch output.", 400);
+    }
+
+    if (plannedOutputQuantity <= 0) {
+      throw new ManufacturingError("Planned output quantity is invalid.", 400);
+    }
+
+    const existingOutputQuantity = await getOutputQuantityInTx(tx, {
+      manufacturingOrderId: orderId,
+      manufacturingOrderBatchId: batch?.id ?? null,
+    });
+    if (normalizeQuantityNumber(existingOutputQuantity + outputQuantity) > plannedOutputQuantity) {
+      throw new ManufacturingError("Output above planned quantity is blocked in v1.", 400);
+    }
+
+    const ingredientRows =
+      batch != null
+        ? await getBatchIngredientsInTx(tx, batch.id)
+        : await getTemplateIngredientsInTx(tx, orderId);
+    await validateActiveIngredientItemsInTx(
+      tx,
+      ingredientRows.map((row) => row.itemId)
+    );
+
+    const outputConsumedByIngredient = await getConsumedQuantityByIngredientInTx(
+      tx,
+      ingredientRows.map((row) => row.id)
+    );
+    const pickAllocationsByIngredient = await getPickAllocationsByIngredientInTx(
+      tx,
+      ingredientRows.map((row) => row.id)
+    );
+    const ratio = outputQuantity / plannedOutputQuantity;
+    const location = await getDefaultInventoryLocationInTx(tx, orgId);
+    const outputConsumptionRows: Array<{
+      manufacturingOrderIngredientId: string;
+      lotId: string;
+      quantityUsed: string;
+      costPerUnit: string;
+    }> = [];
+    const produceIngredientRows: Array<{
+      ingredientId: string;
+      actualQuantity: number;
+      actualCostTotal: number;
+    }> = [];
+
+    for (const ingredient of ingredientRows) {
+      const plannedIngredientQuantity = parseFloat(ingredient.plannedQuantity);
+      const alreadyOutputConsumed = outputConsumedByIngredient.get(ingredient.id) ?? 0;
+      const remainingPlanned = Math.max(
+        0,
+        plannedIngredientQuantity - alreadyOutputConsumed
+      );
+      const requiredQuantity = normalizeQuantityNumber(
+        Math.min(remainingPlanned, plannedIngredientQuantity * ratio)
+      );
+      if (requiredQuantity <= 0) {
+        continue;
+      }
+
+      let actualCostTotal = 0;
+      let remainingRequiredQuantity = requiredQuantity;
+      let skippedPickedQuantity = alreadyOutputConsumed;
+      const pickedAllocations = pickAllocationsByIngredient.get(ingredient.id) ?? [];
+
+      for (const allocation of pickedAllocations) {
+        if (remainingRequiredQuantity <= 0) {
+          break;
+        }
+
+        const allocationQuantity = parseFloat(allocation.quantityUsed);
+        if (skippedPickedQuantity >= allocationQuantity) {
+          skippedPickedQuantity = normalizeQuantityNumber(
+            skippedPickedQuantity - allocationQuantity
+          );
+          continue;
+        }
+
+        const availablePickedQuantity = normalizeQuantityNumber(
+          allocationQuantity - skippedPickedQuantity
+        );
+        skippedPickedQuantity = 0;
+        const quantityUsed = normalizeQuantityNumber(
+          Math.min(remainingRequiredQuantity, availablePickedQuantity)
+        );
+        if (quantityUsed <= 0) {
+          continue;
+        }
+
+        const costPerUnit = allocation.costPerUnit != null ? parseFloat(allocation.costPerUnit) : 0;
+        actualCostTotal += quantityUsed * costPerUnit;
+        remainingRequiredQuantity = normalizeQuantityNumber(
+          remainingRequiredQuantity - quantityUsed
+        );
+        outputConsumptionRows.push({
+          manufacturingOrderIngredientId: ingredient.id,
+          lotId: allocation.lotId,
+          quantityUsed: normalizeNumericScale(quantityUsed, 4),
+          costPerUnit: normalizeNumericScale(costPerUnit, 6),
+        });
+      }
+
+      if (remainingRequiredQuantity > 0) {
+        const consumed = await consumeStockFifoInTx(tx, {
+          organizationId: orgId,
+          locationId: location.id,
+          itemId: ingredient.itemId,
+          quantity: remainingRequiredQuantity,
+          eventType: "manufacturing_ingredient_consumption",
+          eventSubtype: "manufacturing_output",
+          referenceType: batch != null ? "manufacturing_batch" : "manufacturing_order",
+          referenceId: batch?.id ?? orderId,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            `consume:${ingredient.id}`
+          ),
+          metadata: { manufacturingOrderIngredientId: ingredient.id },
+        });
+
+        for (const allocation of consumed.allocations) {
+          actualCostTotal += allocation.quantity * allocation.unitCost;
+          outputConsumptionRows.push({
+            manufacturingOrderIngredientId: ingredient.id,
+            lotId: allocation.lotId,
+            quantityUsed: normalizeNumericScale(allocation.quantity, 4),
+            costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
+          });
+        }
+      }
+
+      const autoConsumedQuantity = normalizeQuantityNumber(
+        remainingRequiredQuantity > 0 ? remainingRequiredQuantity : 0
+      );
+      const nextActualQuantity = alreadyOutputConsumed + requiredQuantity;
+      const nextPickedQuantity = Math.max(
+        parseFloat(ingredient.pickedQuantity),
+        nextActualQuantity
+      );
+      const nextActualCostTotal =
+        parseFloat(ingredient.actualCostTotal ?? "0") + actualCostTotal;
+      await tx
+        .update(manufacturingOrderIngredients)
+        .set({
+          actualQuantity: normalizeNumeric(nextActualQuantity),
+          actualCostTotal: normalizeNumeric(nextActualCostTotal),
+          pickedQuantity: normalizeNumeric(nextPickedQuantity),
+          pickStatus:
+            nextPickedQuantity >= plannedIngredientQuantity ? "picked" : "in_progress",
+          pickedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrderIngredients.id, ingredient.id));
+
+      produceIngredientRows.push({
+        ingredientId: ingredient.id,
+        actualQuantity: requiredQuantity,
+        actualCostTotal,
+      });
+
+      if (autoConsumedQuantity <= 0) {
+        continue;
+      }
+
+      await applyDemandReferenceDeltasInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        actorUserId: userId,
+        eventSubtype: "manufacturing_output",
+        deltas: [
+          {
+            itemId: ingredient.itemId,
+            referenceType: "manufacturing_order_ingredient",
+            referenceId: ingredient.id,
+            quantity: -autoConsumedQuantity,
+          },
+        ],
+      });
+      await applyReservationReferenceDeltasInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        actorUserId: userId,
+        eventSubtype: "manufacturing_output",
+        deltas: [
+          {
+            itemId: ingredient.itemId,
+            referenceType: "manufacturing_order_ingredient",
+            referenceId: ingredient.id,
+            quantity: -autoConsumedQuantity,
+          },
+        ],
+      });
+    }
+
+    const materialCostTotal = produceIngredientRows.reduce(
+      (sum, ingredient) => sum + ingredient.actualCostTotal,
+      0
+    );
+    const produced = await produceManufacturedStockInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: orderId,
+      productId: order.productId,
+      quantity: outputQuantity,
+      actorUserId: userId,
+      outputDisposition: payload.outputDisposition,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "output-lot"
+      ),
+      expectedReleaseQuantity: outputQuantity,
+      ingredientRows: produceIngredientRows,
+    });
+
+    const [output] = await tx
+      .insert(manufacturingOrderOutputs)
+      .values({
+        manufacturingOrderId: orderId,
+        manufacturingOrderBatchId: batch?.id ?? null,
+        lotId: produced.lotId,
+        outputNumber: await nextOutputNumberInTx(tx, orderId),
+        quantity: normalizeNumeric(outputQuantity),
+        disposition: payload.outputDisposition,
+        unitCost: normalizeNumericScale(materialCostTotal / outputQuantity, 6),
+        materialCostTotal: normalizeNumericScale(materialCostTotal, 6),
+        notes: payload.notes,
+        createdBy: userId,
+      })
+      .returning({ id: manufacturingOrderOutputs.id });
+
+    if (outputConsumptionRows.length > 0) {
+      await tx.insert(manufacturingOrderOutputConsumptions).values(
+        outputConsumptionRows.map((row) => ({
+          manufacturingOrderOutputId: output.id,
+          ...row,
+        }))
+      );
+    }
+
+    const updatedActualQuantity = normalizeQuantityNumber(
+      existingOutputQuantity + outputQuantity
+    );
+    if (batch != null) {
+      await tx
+        .update(manufacturingOrderBatches)
+        .set({
+          actualQuantity: normalizeNumeric(updatedActualQuantity),
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrderBatches.id, batch.id));
+    }
+
+    const allOutputs = await tx
+      .select({
+        quantity: trimScale(sql`COALESCE(SUM(${manufacturingOrderOutputs.quantity}), 0)`).as(
+          "quantity"
+        ),
+        materialCostTotal: trimScale(
+          sql`COALESCE(SUM(${manufacturingOrderOutputs.materialCostTotal}), 0)`
+        ).as("materialCostTotal"),
+      })
+      .from(manufacturingOrderOutputs)
+      .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
+    const totalActualQuantity = parseFloat(allOutputs[0]?.quantity ?? "0");
+    const totalMaterialCost = parseFloat(allOutputs[0]?.materialCostTotal ?? "0");
+    await tx
+      .update(manufacturingOrders)
+      .set({
+        actualQuantity: normalizeNumeric(totalActualQuantity),
+        actualMaterialCost: normalizeNumeric(totalMaterialCost),
+        actualCostPerUnit:
+          totalActualQuantity > 0
+            ? normalizeNumeric(totalMaterialCost / totalActualQuantity)
+            : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(manufacturingOrders.id, orderId));
+
+    const result = { id: output.id, lotId: produced.lotId };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
+  });
+}
+
 export async function completeManufacturingOrder(
   id: string,
   payload: CompleteManufacturingOrder,
@@ -2656,6 +3191,61 @@ export async function completeManufacturingOrder(
         "Batch-mode orders must be completed one batch at a time.",
         400
       );
+    }
+
+    if (order.allowPartialManufacturingOutput) {
+      if (payload.actualQuantity != null) {
+        throw new ManufacturingError(
+          "Record final output before completing this order.",
+          400
+        );
+      }
+
+      const outputQuantity = await getOutputQuantityInTx(tx, {
+        manufacturingOrderId: id,
+      });
+      if (outputQuantity <= 0) {
+        throw new ManufacturingError(
+          "Record at least one output before completing this order.",
+          400
+        );
+      }
+
+      const reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, id);
+      await releaseIngredientReservationForManufacturingInTx(tx, {
+        organizationId: orgId,
+        manufacturingOrderId: id,
+        actorUserId: userId,
+        reason: "completed",
+        ingredientIds: reservationRows.map((row) => row.ingredientId),
+      });
+      await releaseRemainingExpectedOutputInTx(tx, {
+        organizationId: orgId,
+        manufacturingOrderId: id,
+        actorUserId: userId,
+      });
+
+      const [completed] = await tx
+        .update(manufacturingOrders)
+        .set({
+          status: "completed",
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrders.id, id))
+        .returning({ id: manufacturingOrders.id });
+
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: completed,
+      });
+
+      return completed;
+    }
+
+    if (payload.actualQuantity == null) {
+      throw new ManufacturingError("Actual quantity is required.", 400);
     }
 
     const actualQuantity = Number(payload.actualQuantity);
@@ -2891,6 +3481,88 @@ export async function completeManufacturingBatch(
       (currentBatch) => currentBatch.id === batchId || currentBatch.status === "completed"
     );
 
+    if (order.allowPartialManufacturingOutput) {
+      if (payload.actualQuantity != null) {
+        throw new ManufacturingError(
+          "Record final output before completing this batch.",
+          400
+        );
+      }
+
+      const outputQuantity = await getOutputQuantityInTx(tx, {
+        manufacturingOrderId: orderId,
+        manufacturingOrderBatchId: batchId,
+      });
+      const plannedBatchQuantity = parseFloat(
+        (
+          await tx
+            .select({
+              plannedQuantity: trimScale(manufacturingOrderBatches.plannedQuantity).as(
+                "plannedQuantity"
+              ),
+            })
+            .from(manufacturingOrderBatches)
+            .where(eq(manufacturingOrderBatches.id, batchId))
+        )[0]?.plannedQuantity ?? "0"
+      );
+      const ingredientRows = await getBatchIngredientsInTx(tx, batchId);
+      await releaseIngredientReservationForManufacturingInTx(tx, {
+        organizationId: orgId,
+        manufacturingOrderId: orderId,
+        actorUserId: userId,
+        reason: "completed",
+        ingredientIds: ingredientRows.map((row) => row.id),
+      });
+      if (!completesOrder) {
+        await releaseRemainingExpectedOutputInTx(tx, {
+          organizationId: orgId,
+          manufacturingOrderId: orderId,
+          actorUserId: userId,
+          quantity: Math.max(0, plannedBatchQuantity - outputQuantity),
+        });
+      } else {
+        await releaseRemainingExpectedOutputInTx(tx, {
+          organizationId: orgId,
+          manufacturingOrderId: orderId,
+          actorUserId: userId,
+        });
+      }
+
+      await tx
+        .update(manufacturingOrderBatches)
+        .set({
+          status: "completed",
+          actualQuantity: normalizeNumeric(outputQuantity),
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrderBatches.id, batchId));
+
+      const updatedBatches = await getBatchRowsInTx(tx, orderId);
+      const completedBatchCount = updatedBatches.filter(
+        (currentBatch) => currentBatch.status === "completed"
+      ).length;
+      const allCompleted =
+        updatedBatches.length > 0 && completedBatchCount === updatedBatches.length;
+      await tx
+        .update(manufacturingOrders)
+        .set({
+          status: allCompleted ? "completed" : "released",
+          completedAt: allCompleted ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrders.id, orderId));
+
+      const result = { id: batchId };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+
+      return result;
+    }
+
     const ingredientRows = await getBatchIngredientsInTx(tx, batchId);
     await validateActiveIngredientItemsInTx(
       tx,
@@ -2921,6 +3593,10 @@ export async function completeManufacturingBatch(
           },
         }
       );
+    }
+
+    if (payload.actualQuantity == null) {
+      throw new ManufacturingError("Actual quantity is required.", 400);
     }
 
     const actualQuantity = Number(payload.actualQuantity);
@@ -3308,6 +3984,8 @@ export async function getManufacturingExecutionDetail(
         expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
           "expectedBatchYield"
         ),
+        allowPartialManufacturingOutput:
+          manufacturingOrders.allowPartialManufacturingOutput,
         numberOfBatches: manufacturingOrders.numberOfBatches,
         salesOrderId: manufacturingOrders.salesOrderId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
@@ -3334,6 +4012,12 @@ export async function getManufacturingExecutionDetail(
       order.manufacturingMode === "batch" && currentBatch != null
         ? (await getBatchIngredientsInTx(tx, currentBatch.id)).map(toIngredientDetail)
         : (await getTemplateIngredientsInTx(tx, orderId)).map(toIngredientDetail);
+    const recordedOutputQuantity = order.allowPartialManufacturingOutput
+      ? await getOutputQuantityInTx(tx, {
+          manufacturingOrderId: orderId,
+          manufacturingOrderBatchId: currentBatch?.id ?? null,
+        })
+      : 0;
 
     return {
       ...order,
@@ -3348,7 +4032,9 @@ export async function getManufacturingExecutionDetail(
               }))
             ),
       canComplete:
-        order.manufacturingMode === "batch"
+        order.allowPartialManufacturingOutput
+          ? recordedOutputQuantity > 0
+          : order.manufacturingMode === "batch"
           ? currentBatch != null &&
             ingredients.every(
               (ingredient) =>

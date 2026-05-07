@@ -49,6 +49,9 @@ export const manufacturingOrders = manufacturingSchema
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       numberOfBatches: integer("number_of_batches"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
+      allowPartialManufacturingOutput: boolean("allow_partial_manufacturing_output")
+        .notNull()
+        .default(false),
       requestedQuantity: numeric("requested_quantity", { precision: 12, scale: 4 })
         .notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
@@ -251,6 +254,114 @@ export const manufacturingPickAllocations = manufacturingSchema
           FROM manufacturing.manufacturing_order_ingredients i
           INNER JOIN manufacturing.manufacturing_orders o
             ON o.id = i.manufacturing_order_id
+          WHERE o.organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const manufacturingOrderOutputs = manufacturingSchema
+  .table(
+    "manufacturing_order_outputs",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      manufacturingOrderId: uuid("manufacturing_order_id")
+        .notNull()
+        .references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+      manufacturingOrderBatchId: uuid("manufacturing_order_batch_id").references(
+        () => manufacturingOrderBatches.id,
+        { onDelete: "cascade" }
+      ),
+      lotId: uuid("lot_id")
+        .notNull()
+        .references(() => lots.id),
+      outputNumber: integer("output_number").notNull(),
+      quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      disposition: varchar("disposition", { length: 24 }).notNull().default("available"),
+      unitCost: numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),
+      materialCostTotal: numeric("material_cost_total", {
+        precision: 18,
+        scale: 6,
+      }).notNull(),
+      notes: text("notes"),
+      createdBy: text("created_by").notNull(),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("manufacturing_order_outputs_order_id_idx").on(
+        table.manufacturingOrderId
+      ),
+      index("manufacturing_order_outputs_batch_id_idx").on(
+        table.manufacturingOrderBatchId
+      ),
+      index("manufacturing_order_outputs_lot_id_idx").on(table.lotId),
+      uniqueIndex("manufacturing_order_outputs_order_number_uidx").on(
+        table.manufacturingOrderId,
+        table.outputNumber
+      ),
+      check(
+        "manufacturing_order_outputs_disposition_check",
+        sql`disposition IN ('available', 'blocked')`
+      ),
+      pgPolicy("manufacturing_order_outputs_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`manufacturing_order_id IN (
+          SELECT id
+          FROM manufacturing.manufacturing_orders
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`manufacturing_order_id IN (
+          SELECT id
+          FROM manufacturing.manufacturing_orders
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const manufacturingOrderOutputConsumptions = manufacturingSchema
+  .table(
+    "manufacturing_order_output_consumptions",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      manufacturingOrderOutputId: uuid("manufacturing_order_output_id")
+        .notNull()
+        .references(() => manufacturingOrderOutputs.id, { onDelete: "cascade" }),
+      manufacturingOrderIngredientId: uuid("manufacturing_order_ingredient_id")
+        .notNull()
+        .references(() => manufacturingOrderIngredients.id, { onDelete: "cascade" }),
+      lotId: uuid("lot_id")
+        .notNull()
+        .references(() => lots.id),
+      quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
+      costPerUnit: numeric("cost_per_unit", { precision: 18, scale: 6 }).notNull(),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+      index("manufacturing_order_output_consumptions_output_id_idx").on(
+        table.manufacturingOrderOutputId
+      ),
+      index("manufacturing_order_output_consumptions_ingredient_id_idx").on(
+        table.manufacturingOrderIngredientId
+      ),
+      pgPolicy("manufacturing_order_output_consumptions_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`manufacturing_order_output_id IN (
+          SELECT oo.id
+          FROM manufacturing.manufacturing_order_outputs oo
+          INNER JOIN manufacturing.manufacturing_orders o
+            ON o.id = oo.manufacturing_order_id
+          WHERE o.organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`manufacturing_order_output_id IN (
+          SELECT oo.id
+          FROM manufacturing.manufacturing_order_outputs oo
+          INNER JOIN manufacturing.manufacturing_orders o
+            ON o.id = oo.manufacturing_order_id
           WHERE o.organization_id = current_setting('app.current_org_id', true)
         )`,
       }),

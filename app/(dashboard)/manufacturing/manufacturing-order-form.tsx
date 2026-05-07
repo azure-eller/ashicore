@@ -461,7 +461,7 @@ export function ManufacturingOrderForm({
     form.setValue("productId", "");
     form.setValue("plannedQuantity", "");
     form.setValue("ingredients", []);
-    form.setValue("plannedDate", todayDate, {
+    form.setValue("plannedDate", selected.shipDate ?? selected.requestedDate ?? todayDate, {
       shouldValidate: true,
       shouldDirty: true,
     });
