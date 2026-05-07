@@ -18,6 +18,7 @@ import {
   customerCategories,
   customers,
   inventoryEvents,
+  inventoryReservationsSummary,
   items,
   manufacturingOrders,
   pricingScheduleBreaks,
@@ -35,6 +36,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
   consumeForShipmentInTx,
+  defaultLocationIdSubquery,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   getSalesLineQuantitiesForReservationInTx,
@@ -2973,9 +2975,17 @@ export async function getSalesOrder(
         onHandQty: trimScaleNullable(
           projectedOnHandQtyExpr(items.organizationId, items.id)
         ).as("onHandQty"),
-        reservableOnHandQty: trimScaleNullable(
-          projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-        ).as("reservableOnHandQty"),
+        availableQty: availableQtySubquery,
+        allocatedQty: trimScale(sql`COALESCE((
+          SELECT SUM(${inventoryReservationsSummary.quantity})
+          FROM ${inventoryReservationsSummary}
+          WHERE ${inventoryReservationsSummary.organizationId} = ${items.organizationId}
+            AND ${inventoryReservationsSummary.itemId} = ${items.id}
+            AND ${inventoryReservationsSummary.locationId} = ${defaultLocationIdSubquery(items.organizationId)}
+            AND ${inventoryReservationsSummary.referenceType} = 'sales_order_line'
+            AND ${inventoryReservationsSummary.referenceId} = ${salesOrderLines.id}
+            AND ${inventoryReservationsSummary.quantity} > 0
+        ), 0)`).as("allocatedQty"),
         potential: projectedPotentialQty(
           items.organizationId,
           items.id,
@@ -3000,7 +3010,6 @@ export async function getSalesOrder(
       variantAttrs,
       masterName,
       masterVariantAxes,
-      reservableOnHandQty,
       ...rest
     }) => {
       const display = resolveVariantDisplay(
@@ -3044,7 +3053,6 @@ export async function getSalesOrder(
         actualCogs: actualMargin?.cogs ?? null,
         actualGrossProfit: actualMargin?.grossProfit ?? null,
         actualMarginPercent: actualMargin?.marginPercent ?? null,
-        availableQty: reservableOnHandQty,
       };
     });
 
@@ -3359,15 +3367,18 @@ export async function getSalesOrder(
     }));
     const stockBlockers = linesWithFulfillment.flatMap((line) => {
       const availableQty = Number(line.availableQty ?? "0");
+      const allocatedQty = Number(line.allocatedQty ?? "0");
+      const fulfillmentAvailableQty =
+        availableQty + (Number.isFinite(allocatedQty) ? allocatedQty : 0);
       const quantity = Number(line.remainingQuantity);
 
-      if (!Number.isFinite(quantity) || availableQty >= quantity) {
+      if (!Number.isFinite(quantity) || fulfillmentAvailableQty >= quantity) {
         return [];
       }
 
       return [
         `${line.itemName} needs ${formatQuantity(line.remainingQuantity)} ${line.unitName}; ${formatQuantity(
-          line.availableQty ?? "0"
+          fulfillmentAvailableQty.toString()
         )} ${line.unitName} available`,
       ];
     });

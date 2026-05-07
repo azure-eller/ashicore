@@ -30,6 +30,16 @@ export function formatScope(scope: StocktakeScope) {
   return `${formatStocktakeScopeTypeLabel(parsed.itemType)}: ${parsed.category}`;
 }
 
+export function buildStocktakeName(scope: StocktakeScope, date = new Date()) {
+  const scopeToken = formatScope(scope)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const dateToken = date.toISOString().slice(0, 10);
+
+  return `${scopeToken}_${dateToken}`;
+}
+
 function formatStocktakeScopeTypeLabel(itemType: StocktakeScopeItemType) {
   return itemType === "material" ? "Materials" : "Products";
 }

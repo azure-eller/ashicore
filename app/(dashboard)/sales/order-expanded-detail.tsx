@@ -19,6 +19,7 @@ import {
   ITEM_SKU_TOOLTIP,
   ON_HAND_STOCK_TOOLTIP,
   POTENTIAL_TOOLTIP,
+  SALES_LINE_ALLOCATED_QTY_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
   SALES_UNIT_PRICE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
@@ -67,6 +68,12 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
               <TooltipHeader label="Available" tooltip={AVAILABLE_QTY_TOOLTIP} />
             </TableHead>
             <TableHead className="text-xs text-right">
+              <TooltipHeader
+                label="Allocated"
+                tooltip={SALES_LINE_ALLOCATED_QTY_TOOLTIP}
+              />
+            </TableHead>
+            <TableHead className="text-xs text-right">
               <TooltipHeader label="Potential" tooltip={POTENTIAL_TOOLTIP} />
             </TableHead>
             <TableHead className="text-xs text-right">
@@ -80,7 +87,7 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={8}>
+              <TableCell colSpan={9}>
                 <div className="flex min-h-24 items-center justify-center">
                   <Spinner className="text-foreground" />
                 </div>
@@ -89,6 +96,11 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
           ) : data?.lines.length ? (
             data.lines.map((line) => {
               const lineQty = parseFloat(line.quantity);
+              const allocatedQty = Number(line.allocatedQty ?? "0");
+              const availableThreshold = Math.max(
+                0,
+                lineQty - (Number.isFinite(allocatedQty) ? allocatedQty : 0)
+              );
               return (
                 <TableRow key={line.id}>
                   <TableCell className="text-sm text-right">
@@ -112,7 +124,13 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                     <StockCell value={line.onHandQty} threshold={lineQty} />
                   </TableCell>
                   <TableCell className="text-sm text-right">
-                    <StockCell value={line.availableQty} threshold={lineQty} />
+                    <StockCell
+                      value={line.availableQty}
+                      threshold={availableThreshold}
+                    />
+                  </TableCell>
+                  <TableCell className="text-sm text-right">
+                    {formatQuantity(line.allocatedQty)}
                   </TableCell>
                   <TableCell className="text-sm text-right">
                     <StockCell value={line.potential} threshold={lineQty} />
@@ -128,7 +146,7 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
             })
           ) : (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+              <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
                 No line items.
               </TableCell>
             </TableRow>

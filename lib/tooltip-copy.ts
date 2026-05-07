@@ -13,6 +13,9 @@ export const AVAILABLE_QTY_TOOLTIP =
 export const RESERVED_QTY_TOOLTIP =
   "Stock already reserved for demand.";
 
+export const SALES_LINE_ALLOCATED_QTY_TOOLTIP =
+  "Stock reserved by this sales order line.";
+
 export const DEMAND_QTY_TOOLTIP =
   "Demand from confirmed sales and released manufacturing orders.";
 

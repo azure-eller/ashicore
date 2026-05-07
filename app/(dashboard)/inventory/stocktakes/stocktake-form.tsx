@@ -34,9 +34,10 @@ import { TooltipHeader } from "@/components/tooltip-header";
 import {
   insertStocktakeSchema,
   stocktakeDefaultValues,
+  type StocktakeScope,
 } from "@/lib/schemas/stocktakes";
 import { STOCKTAKE_SCOPE_TOOLTIP } from "@/lib/tooltip-copy";
-import type { StocktakeScopeOptionGroup } from "./types";
+import { buildStocktakeName, type StocktakeScopeOptionGroup } from "./types";
 
 type ApiError = {
   error?: string;
@@ -53,11 +54,15 @@ export function StocktakeForm({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [formError, setFormError] = useState<string | null>(null);
+  const [nameDate] = useState(() => new Date());
 
   const form = useForm<StocktakeFormValues>({
     resolver: zodResolver(insertStocktakeSchema),
     mode: "onBlur",
-    defaultValues: stocktakeDefaultValues,
+    defaultValues: {
+      ...stocktakeDefaultValues,
+      name: buildStocktakeName(stocktakeDefaultValues.scope, nameDate),
+    },
   });
 
   const mutation = useMutation<{ id: string }, ApiError, StocktakeFormValues>({
@@ -164,7 +169,14 @@ export function StocktakeForm({
                     <Select
                       name={field.name}
                       value={field.value}
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        form.setValue(
+                          "name",
+                          buildStocktakeName(value as StocktakeScope, nameDate),
+                          { shouldDirty: true, shouldValidate: true }
+                        );
+                      }}
                       >
                         <SelectTrigger
                           id={field.name}

@@ -4,6 +4,10 @@ import { items, stocktakeItems, stocktakes } from "../../../lib/db/schema";
 import { createItem, getUnitId } from "../../helpers/api";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 test.describe("Stocktake write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -64,10 +68,15 @@ test.describe("Stocktake write-path smoke", () => {
     await page.goto("/inventory/stocktakes/new");
     await expect(page.getByText("New Stocktake")).toBeVisible();
 
-    await page.locator("#name").fill(`Fast Count ${ts}`);
+    await expect(page.locator("#name")).toHaveValue(`all_items_${todayIsoDate()}`);
     await page.locator("#notes").fill("Fast stocktake smoke test");
     await page.locator("#scope").click();
     await page.getByRole("option", { name: materialCategory, exact: true }).click();
+    const expectedStocktakeName = `materials_${materialCategory
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")}_${todayIsoDate()}`;
+    await expect(page.locator("#name")).toHaveValue(expectedStocktakeName);
     const [createStocktakeResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
@@ -92,6 +101,7 @@ test.describe("Stocktake write-path smoke", () => {
     expect(stocktake.scope).toBe(
       buildStocktakeCategoryScope("material", materialCategory)
     );
+    expect(stocktake.name).toBe(expectedStocktakeName);
     expect(stocktake.status).toBe("draft");
 
     const lines = await db

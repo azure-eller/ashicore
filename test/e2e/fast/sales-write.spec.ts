@@ -172,19 +172,25 @@ test.describe("Sales write-path smoke", () => {
     expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
   });
 
-  test("expanded order lines show physical stock instead of projected shortage", async ({
+  test("expanded order lines show available stock after confirmed reservations", async ({
     page,
     db,
   }) => {
-    const materialName = `Fast Oversold Stock Label ${ts}`;
-    const materialSku = `FAST-OVERSOLD-STOCK-${ts}`;
+    const reservedCustomerResult = await createCustomer({
+      name: `Fast Reserved Stock Customer ${ts}`,
+      email: `fast-reserved-stock-${ts}@example.com`,
+    });
+    expect(reservedCustomerResult.status).toBe(201);
+    const reservedCustomerId = reservedCustomerResult.body.id as string;
+    const materialName = `Fast Reserved Stock Label ${ts}`;
+    const materialSku = `FAST-RESERVED-STOCK-${ts}`;
     const materialResult = await createItem({
       name: materialName,
       itemType: "material",
       unitDefinitionId: unitId,
       sku: materialSku,
       category: `Fast Sales ${ts}`,
-      description: "Material for expanded order stock label regression",
+      description: "Material for expanded order availability label regression",
       defaultPurchasePrice: "1",
       defaultSellingPrice: "10",
       stock: "150",
@@ -194,18 +200,18 @@ test.describe("Sales write-path smoke", () => {
     const materialId = materialResult.body.id as string;
 
     const orderResult = await createSalesOrder({
-      customerId,
+      customerId: reservedCustomerId,
       status: "confirmed",
       confirmOversell: true,
-      lines: [{ itemId: materialId, quantity: "350", unitPrice: "10" }],
+      lines: [{ itemId: materialId, quantity: "150", unitPrice: "10" }],
     });
     expect(orderResult.status).toBe(201);
-    const oversoldOrderId = orderResult.body.id as string;
+    const reservedOrderId = orderResult.body.id as string;
 
     const [order] = await db
       .select({ orderNumber: salesOrders.orderNumber })
       .from(salesOrders)
-      .where(eq(salesOrders.id, oversoldOrderId));
+      .where(eq(salesOrders.id, reservedOrderId));
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", order.orderNumber);
@@ -216,7 +222,10 @@ test.describe("Sales write-path smoke", () => {
     const expandedLine = page.getByRole("row", {
       name: new RegExp(`${materialName}.*${materialSku}`),
     }).last();
-    await expect(expandedLine).toContainText("150");
+    const cells = expandedLine.getByRole("cell");
+    await expect(cells.nth(3)).toHaveText("150");
+    await expect(cells.nth(4)).toHaveText("0");
+    await expect(cells.nth(5)).toHaveText("150");
     await expect(expandedLine).not.toContainText("-200");
   });
 
