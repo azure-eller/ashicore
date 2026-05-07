@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { getXeroConnection } from "@/lib/dal/xero";
+import { getRecentXeroImportRuns, getXeroConnection } from "@/lib/dal/xero";
 import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getSettingsSections } from "./sections";
@@ -26,19 +26,36 @@ export default async function SettingsPage({
     "sales",
     "operate"
   );
+  const canResetCustomerImports = hasModuleAccess(
+    context.assignedRoles,
+    "sales",
+    "admin"
+  );
   const canImportSuppliers = hasModuleAccess(
     context.assignedRoles,
     "purchasing",
     "operate"
   );
+  const canResetSupplierImports = hasModuleAccess(
+    context.assignedRoles,
+    "purchasing",
+    "admin"
+  );
   const showIntegrations = canManageXero || canImportSuppliers;
 
   const sections = getSettingsSections({ showTeam, showIntegrations });
 
-  const [accountData, teamData, xeroConnection, resolvedSearchParams] = await Promise.all([
+  const [
+    accountData,
+    teamData,
+    xeroConnection,
+    xeroImportRuns,
+    resolvedSearchParams,
+  ] = await Promise.all([
     getAccountPageData(),
     showTeam ? getTeamPageData() : null,
     showIntegrations ? getXeroConnection() : null,
+    showIntegrations ? getRecentXeroImportRuns() : [],
     searchParams,
   ]);
 
@@ -59,10 +76,13 @@ export default async function SettingsPage({
           {showIntegrations ? (
             <IntegrationsSection
               connection={xeroConnection}
+              importRuns={xeroImportRuns}
               error={resolvedSearchParams.error}
               canManageConnection={canManageXero}
               canImportCustomers={canManageXero}
               canImportSuppliers={canImportSuppliers}
+              canResetCustomerImports={canResetCustomerImports}
+              canResetSupplierImports={canResetSupplierImports}
             />
           ) : null}
         </div>

@@ -5,6 +5,7 @@ import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateXeroSettings } from "@/lib/dal/xero";
 
 const updateSchema = z.object({
+  tenantId: z.string().trim().nullable().optional(),
   defaultAccountCode: z.string().trim().nullable(),
   defaultTaxType: z.string().trim().nullable(),
   invoiceStatusPreference: z.enum(["DRAFT", "AUTHORISED"]),
@@ -20,7 +21,8 @@ export const PUT = apiHandler(async (request: Request) => {
   const body = await request.json();
   const data = updateSchema.parse(body);
 
-  const connection = await updateXeroSettings({
+  const result = await updateXeroSettings({
+    tenantId: data.tenantId?.length ? data.tenantId : null,
     defaultAccountCode: data.defaultAccountCode?.length
       ? data.defaultAccountCode
       : null,
@@ -37,12 +39,22 @@ export const PUT = apiHandler(async (request: Request) => {
     purchaseOrderStatusPreference: data.purchaseOrderStatusPreference,
   });
 
-  if (!connection) {
+  if (!result) {
     return NextResponse.json(
       { error: "Xero is not connected." },
       { status: 409 }
     );
   }
 
-  return NextResponse.json(connection);
+  if (!result.ok) {
+    return NextResponse.json(
+      {
+        error:
+          "That Xero organisation isn't in this connection's authorised list. Reconnect to update access.",
+      },
+      { status: 400 }
+    );
+  }
+
+  return NextResponse.json(result.summary);
 });

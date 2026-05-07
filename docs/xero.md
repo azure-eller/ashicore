@@ -23,6 +23,9 @@ read_when:
   app fetches the Xero-rendered PDF with `getPurchaseOrderAsPdf` and sends
   it through the transactional email pipeline.
 - **Contact upsert** — `lib/xero/contacts.ts`. Shared by both push paths.
+- **Contact import** — `lib/xero/import-contacts.ts`. Customer/supplier
+  imports preview counts before writing, record `xero_import_runs`, and
+  can reset a completed run when imported rows are not referenced by orders.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
   beyond that, idempotency comes from reconcile-by-reference, not

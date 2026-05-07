@@ -126,6 +126,7 @@ export type CustomerSeed = {
   name: string;
   address: string | null;
   phone: string | null;
+  notes?: string | null;
 };
 
 export type SupplierSeed = {
@@ -303,6 +304,10 @@ export type SalesImportConfig = {
   productAliasToSeedKey: Record<string, string>;
   requestedDateBySourceRow?: Record<number, string>;
   customerNotesDefault: string;
+  customerMode?: "sync" | "existing-only";
+  customerAliases?: Record<string, string>;
+  customerAliasesBySourceRow?: Record<number, string>;
+  provisionalCustomers?: CustomerSeed[];
   orderMarkerPrefix: string;
 };
 

@@ -10,6 +10,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { buildExistingItemsByName, findExistingItem } from "./seeds";
 import {
   assertNoDuplicateCustomerNames,
+  buildExistingCustomersByKey,
   buildCustomerPlans,
   loadExistingCustomersInTx,
   normalizeCustomerKey,
@@ -109,6 +110,49 @@ function buildOrderSignature(input: {
   ].join("||");
 }
 
+function buildCustomerAliasByKey(config: SalesImportConfig) {
+  const aliases = new Map<string, string>();
+  for (const [sourceName, targetName] of Object.entries(config.customerAliases ?? {})) {
+    aliases.set(normalizeCustomerKey(sourceName), targetName);
+  }
+  return aliases;
+}
+
+function buildCustomerAliasBySourceRow(config: SalesImportConfig) {
+  return new Map(
+    Object.entries(config.customerAliasesBySourceRow ?? {}).map(
+      ([sourceRow, targetName]) => [Number(sourceRow), targetName]
+    )
+  );
+}
+
+function resolveOrderCustomerAliasName(
+  order: SalesImportConfig["orderSeeds"][number],
+  customerAliasByKey: Map<string, string>,
+  customerAliasBySourceRow: Map<number, string>
+) {
+  for (const sourceRow of order.sourceRows) {
+    const targetName = customerAliasBySourceRow.get(sourceRow);
+    if (targetName) return targetName;
+  }
+
+  return customerAliasByKey.get(normalizeCustomerKey(order.customerName)) ?? null;
+}
+
+function resolveOrderCustomerKey(
+  order: SalesImportConfig["orderSeeds"][number],
+  customerAliasByKey: Map<string, string>,
+  customerAliasBySourceRow: Map<number, string>
+) {
+  const sourceKey = normalizeCustomerKey(order.customerName);
+  const targetName = resolveOrderCustomerAliasName(
+    order,
+    customerAliasByKey,
+    customerAliasBySourceRow
+  );
+  return targetName ? normalizeCustomerKey(targetName) : sourceKey;
+}
+
 function addPreparedLine(
   preparedLines: PreparedSalesImportLine[],
   nextLine: Omit<PreparedSalesImportLine, "sortOrder">
@@ -144,17 +188,26 @@ async function generateSalesOrderNumber(tx: Tx) {
 }
 
 function buildCustomerSeedsFromOrders(
-  orderSeeds: SalesImportConfig["orderSeeds"]
+  orderSeeds: SalesImportConfig["orderSeeds"],
+  customerAliasByKey: Map<string, string>,
+  customerAliasBySourceRow: Map<number, string>
 ): Map<string, CustomerSeed> {
   const customerByKey = new Map<string, CustomerSeed>();
 
   for (const order of orderSeeds) {
-    const key = normalizeCustomerKey(order.customerName);
+    const sourceKey = normalizeCustomerKey(order.customerName);
+    const aliasName = resolveOrderCustomerAliasName(
+      order,
+      customerAliasByKey,
+      customerAliasBySourceRow
+    );
+    const key = aliasName ? normalizeCustomerKey(aliasName) : sourceKey;
+    const name = aliasName ?? order.customerName;
     const existing = customerByKey.get(key);
 
     if (!existing) {
       customerByKey.set(key, {
-        name: order.customerName,
+        name,
         address: order.address,
         phone: order.contact,
       });
@@ -172,6 +225,15 @@ function buildCustomerSeedsFromOrders(
   return customerByKey;
 }
 
+function buildProvisionalCustomerSeedsByKey(config: SalesImportConfig) {
+  return new Map(
+    (config.provisionalCustomers ?? []).map((customer) => [
+      normalizeCustomerKey(customer.name),
+      customer,
+    ])
+  );
+}
+
 export async function evaluateSalesImportInTx(
   tx: Tx,
   config: SalesImportConfig,
@@ -180,6 +242,10 @@ export async function evaluateSalesImportInTx(
 ): Promise<SalesImportEvaluation> {
   const existingCustomers = await loadExistingCustomersInTx(tx);
   assertNoDuplicateCustomerNames(existingCustomers);
+  const customerMode = config.customerMode ?? "sync";
+  const customerAliasByKey = buildCustomerAliasByKey(config);
+  const customerAliasBySourceRow = buildCustomerAliasBySourceRow(config);
+  const provisionalCustomerSeedsByKey = buildProvisionalCustomerSeedsByKey(config);
 
   const existingOrderRows = await tx
     .select({
@@ -267,11 +333,11 @@ export async function evaluateSalesImportInTx(
   const existingItems = await loadExistingItemsInTx(tx);
   assertNoDuplicateSkus(existingItems, managedItemSkus);
 
-  const existingCustomersByKey = new Map(
-    existingCustomers.map((row) => [normalizeCustomerKey(row.name), row])
-  );
+  const existingCustomersByKey = buildExistingCustomersByKey(existingCustomers, {
+    includeDeletedFallback: customerMode === "sync",
+  });
   const existingCustomerIdByKey = new Map(
-    existingCustomers.map((row) => [normalizeCustomerKey(row.name), row.id])
+    [...existingCustomersByKey].map(([key, row]) => [key, row.id])
   );
   const existingOrdersByMarker = new Map<string, ExistingSalesOrder>();
   const existingOrdersBySignature = new Map<string, ExistingSalesOrder>();
@@ -291,12 +357,24 @@ export async function evaluateSalesImportInTx(
   const existingItemsByName = buildExistingItemsByName(existingItems);
   const unitNameById = new Map(existingUnits.map((row) => [row.id, row.name]));
 
-  const customerSeedsByKey = buildCustomerSeedsFromOrders(config.orderSeeds);
-  const customerPlans = buildCustomerPlans(
-    customerSeedsByKey,
+  const customerSeedsByKey = buildCustomerSeedsFromOrders(
+    config.orderSeeds,
+    customerAliasByKey,
+    customerAliasBySourceRow
+  );
+  const provisionalCustomerPlans = buildCustomerPlans(
+    provisionalCustomerSeedsByKey,
     existingCustomersByKey,
     config.customerNotesDefault
   );
+  const customerPlans =
+    customerMode === "sync"
+      ? buildCustomerPlans(
+          customerSeedsByKey,
+          existingCustomersByKey,
+          config.customerNotesDefault
+        )
+      : provisionalCustomerPlans;
 
   const orders: EvaluatedSalesImportOrder[] = [];
 
@@ -307,6 +385,13 @@ export async function evaluateSalesImportInTx(
       order.requestedDate ?? config.requestedDateBySourceRow?.[order.sourceRows[0]] ?? null;
     const orderDate = order.orderDate ?? requestedDate ?? new Date().toISOString().slice(0, 10);
     const shipDate = order.shipDate ?? requestedDate;
+    const customerKey = resolveOrderCustomerKey(
+      order,
+      customerAliasByKey,
+      customerAliasBySourceRow
+    );
+    const existingCustomer = existingCustomersByKey.get(customerKey) ?? null;
+    const provisionalCustomerSeed = provisionalCustomerSeedsByKey.get(customerKey) ?? null;
 
     const issues: string[] = [];
     const preparedLines: PreparedSalesImportLine[] = [];
@@ -393,12 +478,31 @@ export async function evaluateSalesImportInTx(
       continue;
     }
 
+    if (
+      customerMode === "existing-only" &&
+      !existingCustomer &&
+      !provisionalCustomerSeed
+    ) {
+      issues.push(
+        `Customer "${order.customerName}" is not an active existing customer.`
+      );
+      orders.push({
+        kind: "skipped",
+        label,
+        sourceRows: order.sourceRows,
+        issues,
+      });
+      continue;
+    }
+
     const totalAmount = normalizeMoney(
       preparedLines.reduce((sum, line) => sum + parseFloat(line.lineTotal), 0)
     );
     const readyLabel = hasUnmappedLines ? `${label} [UNFINISHED]` : label;
+    const resolvedCustomerName =
+      existingCustomer?.name ?? provisionalCustomerSeed?.name ?? order.customerName;
     const signature = buildOrderSignature({
-      customerName: order.customerName,
+      customerName: resolvedCustomerName,
       orderDate,
       shipDate,
       requestedDate,
@@ -425,8 +529,8 @@ export async function evaluateSalesImportInTx(
       sourceRows: order.sourceRows,
       existingId: existingOrder?.id ?? null,
       existingOrderNumber: existingOrder?.orderNumber ?? null,
-      customerKey: normalizeCustomerKey(order.customerName),
-      customerName: order.customerName,
+      customerKey,
+      customerName: resolvedCustomerName,
       notes: buildOrderNotes(config.orderMarkerPrefix, order.sourceRows, order),
       totalAmount,
       lines: preparedLines,

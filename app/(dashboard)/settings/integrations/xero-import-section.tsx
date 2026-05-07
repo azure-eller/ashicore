@@ -1,38 +1,116 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Spinner } from "@/components/ui/spinner";
+import { formatDateTime } from "@/lib/format";
+import type { XeroImportRunSummary } from "@/lib/dal/xero";
+
+type EntityType = "customers" | "suppliers";
 
 type ImportResult = {
+  runId: string;
+  tenantName: string;
   created: number;
   updated: number;
   skipped: number;
   errors: string[];
 };
 
-function useImportMutation(endpoint: string) {
-  return useMutation({
-    mutationFn: async () => {
-      const res = await fetch(endpoint, { method: "POST" });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(body?.error ?? "Import failed.");
-      }
-      return body as ImportResult;
-    },
+type ContactImportPreview = {
+  entityType: EntityType;
+  tenantName: string;
+  isDemoCompany: boolean;
+  totalFetched: number;
+  toCreate: number;
+  toUpdate: number;
+  skipped: number;
+  errors: string[];
+  sampleCreates: string[];
+  sampleUpdates: string[];
+  sampleSkipped: string[];
+};
+
+type UndoPreview = {
+  runId: string;
+  entityType: EntityType;
+  tenantName: string;
+  status: string;
+  createdRows: number;
+  updatedRows: number;
+  blockedRows: number;
+  canUndo: boolean;
+  sampleNames: string[];
+  blockedNames: string[];
+};
+
+type DialogAction =
+  | { mode: "import"; entityType: EntityType }
+  | { mode: "reset"; run: XeroImportRunSummary };
+
+function entityLabel(entityType: EntityType) {
+  return entityType === "customers" ? "customers" : "suppliers";
+}
+
+function entityTitle(entityType: EntityType) {
+  return entityType === "customers" ? "Customers" : "Suppliers";
+}
+
+async function readJson<T>(res: Response, defaultError: string): Promise<T> {
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error ?? defaultError);
+  }
+  return body as T;
+}
+
+async function fetchPreview(action: DialogAction) {
+  if (action.mode === "import") {
+    const res = await fetch(`/api/xero/import/${action.entityType}/preview`, {
+      method: "POST",
+    });
+    return readJson<ContactImportPreview>(res, "Failed to preview import.");
+  }
+
+  const res = await fetch(`/api/xero/import-runs/${action.run.id}/undo/preview`, {
+    method: "POST",
   });
+  return readJson<UndoPreview>(res, "Failed to preview reset.");
 }
 
 export function XeroImportSection({
   canImportCustomers,
   canImportSuppliers,
+  canResetCustomerImports,
+  canResetSupplierImports,
+  importRuns,
 }: {
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
+  canResetCustomerImports: boolean;
+  canResetSupplierImports: boolean;
+  importRuns: XeroImportRunSummary[];
 }) {
-  const customersMutation = useImportMutation("/api/xero/import/customers");
-  const suppliersMutation = useImportMutation("/api/xero/import/suppliers");
+  const router = useRouter();
+  const [runs, setRuns] = useState(importRuns);
+  const [dialogAction, setDialogAction] = useState<DialogAction | null>(null);
+  const [preview, setPreview] = useState<ContactImportPreview | UndoPreview | null>(
+    null
+  );
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [customerSummary, setCustomerSummary] = useState<ImportResult | null>(
     null
   );
@@ -40,59 +118,191 @@ export function XeroImportSection({
     null
   );
 
+  useEffect(() => {
+    setRuns(importRuns);
+  }, [importRuns]);
+
+  useEffect(() => {
+    if (!dialogAction) return;
+
+    let active = true;
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+
+    fetchPreview(dialogAction)
+      .then((data) => {
+        if (active) setPreview(data);
+      })
+      .catch((error) => {
+        if (active) setPreviewError((error as Error).message);
+      })
+      .finally(() => {
+        if (active) setPreviewLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [dialogAction]);
+
+  const actionMutation = useMutation({
+    mutationFn: async () => {
+      if (!dialogAction || !preview) return null;
+
+      if (dialogAction.mode === "import") {
+        const importPreview = preview as ContactImportPreview;
+        const res = await fetch(`/api/xero/import/${dialogAction.entityType}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            allowDemoCompany: importPreview.isDemoCompany,
+          }),
+        });
+        return {
+          mode: "import" as const,
+          entityType: dialogAction.entityType,
+          data: await readJson<ImportResult>(res, "Import failed."),
+        };
+      }
+
+      const res = await fetch(
+        `/api/xero/import-runs/${dialogAction.run.id}/undo`,
+        { method: "POST" }
+      );
+      return {
+        mode: "reset" as const,
+        runId: dialogAction.run.id,
+        data: await readJson<UndoPreview>(res, "Reset failed."),
+      };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
+
+      if (result.mode === "import") {
+        const nextRun: XeroImportRunSummary = {
+          id: result.data.runId,
+          entityType: result.entityType,
+          tenantName: result.data.tenantName,
+          status: "completed",
+          createdCount: result.data.created,
+          updatedCount: result.data.updated,
+          skippedCount: result.data.skipped,
+          errorCount: result.data.errors.length,
+          createdAt: new Date(),
+          undoneAt: null,
+        };
+        setRuns((current) => [nextRun, ...current].slice(0, 8));
+        if (result.entityType === "customers") {
+          setCustomerSummary(result.data);
+        } else {
+          setSupplierSummary(result.data);
+        }
+      } else {
+        setRuns((current) =>
+          current.map((run) =>
+            run.id === result.runId
+              ? { ...run, status: "undone", undoneAt: new Date() }
+              : run
+          )
+        );
+      }
+
+      setDialogAction(null);
+      router.refresh();
+    },
+  });
+
   if (!canImportCustomers && !canImportSuppliers) {
     return null;
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-2">
-        {canImportCustomers && (
+        {canImportCustomers ? (
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              customersMutation.mutate(undefined, {
-                onSuccess: (data) => setCustomerSummary(data),
-              })
-            }
-            disabled={customersMutation.isPending}
+            onClick={() => setDialogAction({ mode: "import", entityType: "customers" })}
           >
-            {customersMutation.isPending ? "Importing…" : "Import customers"}
+            Import customers
           </Button>
-        )}
-        {canImportSuppliers && (
+        ) : null}
+        {canImportSuppliers ? (
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              suppliersMutation.mutate(undefined, {
-                onSuccess: (data) => setSupplierSummary(data),
-              })
-            }
-            disabled={suppliersMutation.isPending}
+            onClick={() => setDialogAction({ mode: "import", entityType: "suppliers" })}
           >
-            {suppliersMutation.isPending ? "Importing…" : "Import suppliers"}
+            Import suppliers
           </Button>
-        )}
+        ) : null}
       </div>
 
-      {canImportCustomers && customerSummary && (
+      {customerSummary ? (
         <ImportSummary label="Customers" summary={customerSummary} />
-      )}
-      {canImportSuppliers && supplierSummary && (
+      ) : null}
+      {supplierSummary ? (
         <ImportSummary label="Suppliers" summary={supplierSummary} />
-      )}
-      {canImportCustomers && customersMutation.error && (
-        <p className="text-sm text-destructive">
-          Customers: {(customersMutation.error as Error).message}
-        </p>
-      )}
-      {canImportSuppliers && suppliersMutation.error && (
-        <p className="text-sm text-destructive">
-          Suppliers: {(suppliersMutation.error as Error).message}
-        </p>
-      )}
+      ) : null}
+
+      {runs.length > 0 ? (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-foreground">Recent imports</h3>
+          <div className="divide-y rounded-md border">
+            {runs.map((run) => {
+              const canReset =
+                run.status === "completed" &&
+                ((run.entityType === "customers" && canResetCustomerImports) ||
+                  (run.entityType === "suppliers" && canResetSupplierImports));
+
+              return (
+                <div
+                  key={run.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">
+                        {entityTitle(run.entityType)}
+                      </span>
+                      <Badge variant={run.status === "undone" ? "secondary" : "outline"}>
+                        {run.status === "undone" ? "Reset" : "Imported"}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {run.tenantName} · {formatDateTime(run.createdAt)} ·{" "}
+                      {run.createdCount} created, {run.updatedCount} updated,{" "}
+                      {run.skippedCount} skipped
+                    </div>
+                  </div>
+                  {canReset ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDialogAction({ mode: "reset", run })}
+                    >
+                      Reset
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <ImportActionDialog
+        action={dialogAction}
+        preview={preview}
+        previewError={previewError}
+        previewLoading={previewLoading}
+        pending={actionMutation.isPending}
+        actionError={(actionMutation.error as Error | null)?.message ?? null}
+        onCancel={() => setDialogAction(null)}
+        onConfirm={() => actionMutation.mutate()}
+      />
     </div>
   );
 }
@@ -105,18 +315,177 @@ function ImportSummary({
   summary: ImportResult;
 }) {
   return (
-    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+    <div className="rounded-md border bg-muted/40 p-3 text-sm">
       <p className="font-medium">
         {label}: {summary.created} created, {summary.updated} updated,{" "}
         {summary.skipped} skipped
       </p>
-      {summary.errors.length > 0 && (
+      {summary.errors.length > 0 ? (
         <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
           {summary.errors.map((error, index) => (
             <li key={index}>{error}</li>
           ))}
         </ul>
-      )}
+      ) : null}
+    </div>
+  );
+}
+
+function ImportActionDialog({
+  action,
+  preview,
+  previewError,
+  previewLoading,
+  pending,
+  actionError,
+  onCancel,
+  onConfirm,
+}: {
+  action: DialogAction | null;
+  preview: ContactImportPreview | UndoPreview | null;
+  previewError: string | null;
+  previewLoading: boolean;
+  pending: boolean;
+  actionError: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const open = action != null;
+  const isImport = action?.mode === "import";
+  const entityType =
+    action?.mode === "import" ? action.entityType : action?.run.entityType;
+  const title = action
+    ? isImport
+      ? `Import ${entityLabel(entityType!)}`
+      : `Reset ${entityLabel(entityType!)} import`
+    : "";
+  const canConfirm =
+    Boolean(preview) &&
+    !previewLoading &&
+    !previewError &&
+    (isImport || (preview as UndoPreview).canUndo);
+
+  return (
+    <AlertDialog open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
+      <AlertDialogContent size="lg">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {isImport
+              ? "Review the Xero import preview before creating or updating records."
+              : "Review the reset preview before undoing this import."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="min-h-24 rounded-md border bg-muted/30 p-3">
+          {previewLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner />
+              Loading preview
+            </div>
+          ) : previewError ? (
+            <p className="text-sm text-destructive">{previewError}</p>
+          ) : preview ? (
+            isImport ? (
+              <ImportPreviewDetails preview={preview as ContactImportPreview} />
+            ) : (
+              <ResetPreviewDetails preview={preview as UndoPreview} />
+            )
+          ) : null}
+        </div>
+
+        {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <Button onClick={onConfirm} disabled={!canConfirm || pending}>
+            {pending ? (
+              <>
+                <Spinner />
+                Working
+              </>
+            ) : isImport ? (
+              "Import"
+            ) : (
+              "Reset"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function ImportPreviewDetails({ preview }: { preview: ContactImportPreview }) {
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="grid gap-2 sm:grid-cols-4">
+        <PreviewMetric label="Fetched" value={preview.totalFetched} />
+        <PreviewMetric label="Create" value={preview.toCreate} />
+        <PreviewMetric label="Update" value={preview.toUpdate} />
+        <PreviewMetric label="Skip" value={preview.skipped} />
+      </div>
+      <p className="text-muted-foreground">Xero organisation: {preview.tenantName}</p>
+      {preview.isDemoCompany ? (
+        <p className="text-destructive">
+          This is Xero Demo Company. Only continue for a test import.
+        </p>
+      ) : null}
+      <PreviewSamples title="Creating" values={preview.sampleCreates} />
+      <PreviewSamples title="Updating" values={preview.sampleUpdates} />
+      {preview.errors.length > 0 ? (
+        <PreviewSamples title="Errors" values={preview.errors.slice(0, 5)} destructive />
+      ) : null}
+    </div>
+  );
+}
+
+function ResetPreviewDetails({ preview }: { preview: UndoPreview }) {
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <PreviewMetric label="Delete" value={preview.createdRows} />
+        <PreviewMetric label="Restore" value={preview.updatedRows} />
+        <PreviewMetric label="Blocked" value={preview.blockedRows} />
+      </div>
+      <p className="text-muted-foreground">Xero organisation: {preview.tenantName}</p>
+      {!preview.canUndo ? (
+        <p className="text-destructive">
+          This import cannot be reset while imported records are referenced.
+        </p>
+      ) : null}
+      <PreviewSamples title="Records" values={preview.sampleNames} />
+      <PreviewSamples title="Blocked" values={preview.blockedNames} destructive />
+    </div>
+  );
+}
+
+function PreviewMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border bg-background p-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function PreviewSamples({
+  title,
+  values,
+  destructive,
+}: {
+  title: string;
+  values: string[];
+  destructive?: boolean;
+}) {
+  if (values.length === 0) return null;
+
+  return (
+    <div>
+      <div className="text-xs font-medium text-muted-foreground">{title}</div>
+      <div className={destructive ? "text-destructive" : "text-foreground"}>
+        {values.join(", ")}
+      </div>
     </div>
   );
 }

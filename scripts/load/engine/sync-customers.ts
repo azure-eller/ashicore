@@ -15,6 +15,7 @@ export function normalizeCustomerKey(name: string) {
 export function assertNoDuplicateCustomerNames(rows: ExistingCustomer[]) {
   const seen = new Set<string>();
   for (const row of rows) {
+    if (row.deletedAt) continue;
     const key = normalizeCustomerKey(row.name);
     if (seen.has(key)) {
       throw new Error(`Duplicate customer name found: ${row.name}`);
@@ -38,6 +39,35 @@ export async function loadExistingCustomersInTx(
     .from(customers);
 }
 
+export function buildExistingCustomersByKey(
+  rows: ExistingCustomer[],
+  options: { includeDeletedFallback: boolean }
+) {
+  const activeByKey = new Map<string, ExistingCustomer>();
+  const deletedByKey = new Map<string, ExistingCustomer>();
+
+  for (const row of rows) {
+    const key = normalizeCustomerKey(row.name);
+    if (row.deletedAt) {
+      if (!deletedByKey.has(key)) {
+        deletedByKey.set(key, row);
+      }
+      continue;
+    }
+    activeByKey.set(key, row);
+  }
+
+  if (!options.includeDeletedFallback) {
+    return activeByKey;
+  }
+
+  const result = new Map(deletedByKey);
+  for (const [key, row] of activeByKey) {
+    result.set(key, row);
+  }
+  return result;
+}
+
 export function buildCustomerPlans(
   customerSeedsByKey: Map<string, CustomerSeed>,
   existingCustomersByKey: Map<string, ExistingCustomer>,
@@ -48,7 +78,7 @@ export function buildCustomerPlans(
     const existing = existingCustomersByKey.get(key) ?? null;
     const nextAddress = existing?.address ?? seed.address ?? null;
     const nextPhone = existing?.phone ?? seed.phone ?? null;
-    const nextNotes = existing?.notes ?? defaultNotes;
+    const nextNotes = existing?.notes ?? seed.notes ?? defaultNotes;
     let action: CustomerPlan["action"] = "create";
 
     if (existing) {

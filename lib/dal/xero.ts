@@ -1,7 +1,7 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
-import { xeroConnections } from "@/lib/db/schema";
+import { desc, eq } from "drizzle-orm";
+import { xeroConnections, xeroImportRuns } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "./auth";
 import type { XeroConnectionRow } from "@/lib/xero/client";
 import {
@@ -23,6 +23,19 @@ export type XeroConnectionSummary = {
   purchaseOrderStatusPreference: string;
   authorizedTenants: Array<{ tenantId: string; tenantName: string }>;
   updatedAt: Date;
+};
+
+export type XeroImportRunSummary = {
+  id: string;
+  entityType: "customers" | "suppliers";
+  tenantName: string;
+  status: string;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  createdAt: Date;
+  undoneAt: Date | null;
 };
 
 function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
@@ -50,6 +63,29 @@ export async function getXeroConnection(): Promise<XeroConnectionSummary | null>
       .from(xeroConnections)
       .where(eq(xeroConnections.organizationId, orgId));
     return row ? toSummary(row) : null;
+  });
+}
+
+export async function getRecentXeroImportRuns(
+  limit = 8
+): Promise<XeroImportRunSummary[]> {
+  return withAuthedOrgContext(async (tx) => {
+    return tx
+      .select({
+        id: xeroImportRuns.id,
+        entityType: xeroImportRuns.entityType,
+        tenantName: xeroImportRuns.tenantName,
+        status: xeroImportRuns.status,
+        createdCount: xeroImportRuns.createdCount,
+        updatedCount: xeroImportRuns.updatedCount,
+        skippedCount: xeroImportRuns.skippedCount,
+        errorCount: xeroImportRuns.errorCount,
+        createdAt: xeroImportRuns.createdAt,
+        undoneAt: xeroImportRuns.undoneAt,
+      })
+      .from(xeroImportRuns)
+      .orderBy(desc(xeroImportRuns.createdAt))
+      .limit(limit);
   });
 }
 
@@ -128,6 +164,7 @@ export async function switchActiveXeroTenant(tenantId: string) {
 }
 
 export async function updateXeroSettings(params: {
+  tenantId?: string | null;
   defaultAccountCode: string | null;
   defaultTaxType: string | null;
   invoiceStatusPreference: "DRAFT" | "AUTHORISED";
@@ -138,9 +175,32 @@ export async function updateXeroSettings(params: {
   purchaseOrderStatusPreference: "DRAFT" | "SUBMITTED" | "AUTHORISED";
 }) {
   return withAuthedOrgContext(async (tx, orgId) => {
+    const [existing] = await tx
+      .select()
+      .from(xeroConnections)
+      .where(eq(xeroConnections.organizationId, orgId))
+      .for("update");
+
+    if (!existing) return null;
+
+    let tenantPatch = {};
+    if (params.tenantId && params.tenantId !== existing.tenantId) {
+      const candidate = (existing.authorizedTenants ?? []).find(
+        (entry) => entry.tenantId === params.tenantId
+      );
+      if (!candidate) {
+        return { ok: false as const, reason: "unauthorized_tenant" };
+      }
+      tenantPatch = {
+        tenantId: candidate.tenantId,
+        tenantName: candidate.tenantName,
+      };
+    }
+
     const [row] = await tx
       .update(xeroConnections)
       .set({
+        ...tenantPatch,
         defaultAccountCode: params.defaultAccountCode,
         defaultTaxType: params.defaultTaxType,
         invoiceStatusPreference: params.invoiceStatusPreference,
@@ -154,6 +214,6 @@ export async function updateXeroSettings(params: {
       .where(eq(xeroConnections.organizationId, orgId))
       .returning();
 
-    return row ? toSummary(row) : null;
+    return { ok: true as const, summary: row ? toSummary(row) : null };
   });
 }

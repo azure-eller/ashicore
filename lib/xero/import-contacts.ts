@@ -1,17 +1,62 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Address, type Contact } from "xero-node";
-import { customers, suppliers } from "@/lib/db/schema";
+import {
+  customers,
+  purchaseOrders,
+  salesOrders,
+  suppliers,
+  xeroImportRunRows,
+  xeroImportRuns,
+  type XeroImportEntityType,
+} from "@/lib/db/schema";
+import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 
+export type ContactImportEntity = XeroImportEntityType;
+
 export type ImportResult = {
+  runId: string;
+  tenantName: string;
   created: number;
   updated: number;
   skipped: number;
   errors: string[];
+};
+
+export type ContactImportPreview = {
+  entityType: ContactImportEntity;
+  tenantName: string;
+  isDemoCompany: boolean;
+  totalFetched: number;
+  toCreate: number;
+  toUpdate: number;
+  skipped: number;
+  errors: string[];
+  sampleCreates: string[];
+  sampleUpdates: string[];
+  sampleSkipped: string[];
+};
+
+export type ImportUndoPreview = {
+  runId: string;
+  entityType: ContactImportEntity;
+  tenantName: string;
+  status: string;
+  createdRows: number;
+  updatedRows: number;
+  blockedRows: number;
+  canUndo: boolean;
+  sampleNames: string[];
+  blockedNames: string[];
+};
+
+export type ImportUndoResult = ImportUndoPreview & {
+  undoneCreatedRows: number;
+  restoredUpdatedRows: number;
 };
 
 type CustomerAddressFields = {
@@ -37,6 +82,55 @@ type SupplierAddressFields = {
   billingPostcode: string | null;
   billingCountry: string | null;
 };
+
+type CustomerSnapshot = CustomerAddressFields & {
+  name: string;
+  email: string | null;
+  xeroContactId: string | null;
+};
+
+type SupplierSnapshot = SupplierAddressFields & {
+  name: string;
+  email: string | null;
+  xeroContactId: string | null;
+};
+
+type ExistingCustomer = CustomerSnapshot & { id: string };
+type ExistingSupplier = SupplierSnapshot & { id: string };
+
+function customerSnapshot(row: ExistingCustomer): CustomerSnapshot {
+  return {
+    name: row.name,
+    email: row.email,
+    xeroContactId: row.xeroContactId,
+    billingLine1: row.billingLine1,
+    billingLine2: row.billingLine2,
+    billingCity: row.billingCity,
+    billingRegion: row.billingRegion,
+    billingPostcode: row.billingPostcode,
+    billingCountry: row.billingCountry,
+    shipLine1: row.shipLine1,
+    shipLine2: row.shipLine2,
+    shipCity: row.shipCity,
+    shipRegion: row.shipRegion,
+    shipPostcode: row.shipPostcode,
+    shipCountry: row.shipCountry,
+  };
+}
+
+function supplierSnapshot(row: ExistingSupplier): SupplierSnapshot {
+  return {
+    name: row.name,
+    email: row.email,
+    xeroContactId: row.xeroContactId,
+    billingLine1: row.billingLine1,
+    billingLine2: row.billingLine2,
+    billingCity: row.billingCity,
+    billingRegion: row.billingRegion,
+    billingPostcode: row.billingPostcode,
+    billingCountry: row.billingCountry,
+  };
+}
 
 function addressByType(
   addresses: Address[] | undefined,
@@ -77,10 +171,22 @@ function mapSupplierAddresses(contact: Contact): SupplierAddressFields {
   };
 }
 
+function isDemoCompanyTenant(tenantName: string) {
+  return tenantName.toLowerCase().startsWith("demo company");
+}
+
+function whereForEntity(entityType: ContactImportEntity) {
+  return entityType === "customers" ? "IsCustomer==true" : "IsSupplier==true";
+}
+
 async function fetchAllContacts(
   orgId: string,
-  where: string
-): Promise<Contact[]> {
+  entityType: ContactImportEntity
+): Promise<{
+  tenantId: string;
+  tenantName: string;
+  contacts: Contact[];
+}> {
   const authed = await getAuthedXeroClient(orgId);
   const all: Contact[] = [];
   const pageSize = 100;
@@ -91,7 +197,7 @@ async function fetchAllContacts(
       const response = await authed.client.accountingApi.getContacts(
         authed.tenantId,
         undefined,
-        where,
+        whereForEntity(entityType),
         undefined,
         undefined,
         page,
@@ -113,198 +219,615 @@ async function fetchAllContacts(
     }
   }
 
-  return all;
+  return {
+    tenantId: authed.tenantId,
+    tenantName: authed.tenantName,
+    contacts: all,
+  };
 }
 
-async function findExistingCustomer(
-  orgId: string,
+function customerSelect() {
+  return {
+    id: customers.id,
+    name: customers.name,
+    email: customers.email,
+    xeroContactId: customers.xeroContactId,
+    billingLine1: customers.billingLine1,
+    billingLine2: customers.billingLine2,
+    billingCity: customers.billingCity,
+    billingRegion: customers.billingRegion,
+    billingPostcode: customers.billingPostcode,
+    billingCountry: customers.billingCountry,
+    shipLine1: customers.shipLine1,
+    shipLine2: customers.shipLine2,
+    shipCity: customers.shipCity,
+    shipRegion: customers.shipRegion,
+    shipPostcode: customers.shipPostcode,
+    shipCountry: customers.shipCountry,
+  };
+}
+
+function supplierSelect() {
+  return {
+    id: suppliers.id,
+    name: suppliers.name,
+    email: suppliers.email,
+    xeroContactId: suppliers.xeroContactId,
+    billingLine1: suppliers.billingLine1,
+    billingLine2: suppliers.billingLine2,
+    billingCity: suppliers.billingCity,
+    billingRegion: suppliers.billingRegion,
+    billingPostcode: suppliers.billingPostcode,
+    billingCountry: suppliers.billingCountry,
+  };
+}
+
+async function findExistingCustomerInTx(
+  tx: Tx,
+  contact: Contact
+): Promise<ExistingCustomer | null> {
+  if (contact.contactID) {
+    const [row] = await tx
+      .select(customerSelect())
+      .from(customers)
+      .where(
+        and(
+          eq(customers.xeroContactId, contact.contactID),
+          isNull(customers.deletedAt)
+        )
+      );
+    if (row) return row;
+  }
+
+  if (contact.emailAddress) {
+    const [row] = await tx
+      .select(customerSelect())
+      .from(customers)
+      .where(
+        and(
+          sql`LOWER(${customers.email}) = LOWER(${contact.emailAddress})`,
+          isNull(customers.deletedAt)
+        )
+      );
+    if (row) return row;
+  }
+
+  if (contact.name) {
+    const [row] = await tx
+      .select(customerSelect())
+      .from(customers)
+      .where(
+        and(
+          sql`LOWER(${customers.name}) = LOWER(${contact.name})`,
+          isNull(customers.deletedAt)
+        )
+      );
+    if (row) return row;
+  }
+
+  return null;
+}
+
+async function findExistingSupplierInTx(
+  tx: Tx,
+  contact: Contact
+): Promise<ExistingSupplier | null> {
+  if (contact.contactID) {
+    const [row] = await tx
+      .select(supplierSelect())
+      .from(suppliers)
+      .where(
+        and(
+          eq(suppliers.xeroContactId, contact.contactID),
+          isNull(suppliers.deletedAt)
+        )
+      );
+    if (row) return row;
+  }
+
+  if (contact.emailAddress) {
+    const [row] = await tx
+      .select(supplierSelect())
+      .from(suppliers)
+      .where(
+        and(
+          sql`LOWER(${suppliers.email}) = LOWER(${contact.emailAddress})`,
+          isNull(suppliers.deletedAt)
+        )
+      );
+    if (row) return row;
+  }
+
+  if (contact.name) {
+    const [row] = await tx
+      .select(supplierSelect())
+      .from(suppliers)
+      .where(
+        and(
+          sql`LOWER(${suppliers.name}) = LOWER(${contact.name})`,
+          isNull(suppliers.deletedAt)
+        )
+      );
+    if (row) return row;
+  }
+
+  return null;
+}
+
+async function findExistingInTx(
+  tx: Tx,
+  entityType: ContactImportEntity,
   contact: Contact
 ) {
+  return entityType === "customers"
+    ? findExistingCustomerInTx(tx, contact)
+    : findExistingSupplierInTx(tx, contact);
+}
+
+export async function previewXeroContactImport(
+  orgId: string,
+  entityType: ContactImportEntity
+): Promise<ContactImportPreview> {
+  const fetched = await fetchAllContacts(orgId, entityType);
+
   return withOrgContext(orgId, async (tx) => {
-    if (contact.contactID) {
-      const [row] = await tx
-        .select({ id: customers.id })
-        .from(customers)
-        .where(
-          and(
-            eq(customers.xeroContactId, contact.contactID),
-            isNull(customers.deletedAt)
-          )
+    const preview: ContactImportPreview = {
+      entityType,
+      tenantName: fetched.tenantName,
+      isDemoCompany: isDemoCompanyTenant(fetched.tenantName),
+      totalFetched: fetched.contacts.length,
+      toCreate: 0,
+      toUpdate: 0,
+      skipped: 0,
+      errors: [],
+      sampleCreates: [],
+      sampleUpdates: [],
+      sampleSkipped: [],
+    };
+
+    for (const contact of fetched.contacts) {
+      if (!contact.name) {
+        preview.skipped += 1;
+        preview.sampleSkipped.push("(unnamed)");
+        continue;
+      }
+
+      try {
+        const existing = await findExistingInTx(tx, entityType, contact);
+        if (existing) {
+          preview.toUpdate += 1;
+          preview.sampleUpdates.push(contact.name);
+        } else {
+          preview.toCreate += 1;
+          preview.sampleCreates.push(contact.name);
+        }
+      } catch (error) {
+        preview.errors.push(
+          `${contact.name}: ${extractXeroMessage(error)}`
         );
-      if (row) return row.id;
+        preview.skipped += 1;
+      }
     }
 
-    if (contact.emailAddress) {
-      const [row] = await tx
-        .select({ id: customers.id })
-        .from(customers)
-        .where(
-          and(
-            sql`LOWER(${customers.email}) = LOWER(${contact.emailAddress})`,
-            isNull(customers.deletedAt)
-          )
-        );
-      if (row) return row.id;
-    }
-
-    if (contact.name) {
-      const [row] = await tx
-        .select({ id: customers.id })
-        .from(customers)
-        .where(
-          and(
-            sql`LOWER(${customers.name}) = LOWER(${contact.name})`,
-            isNull(customers.deletedAt)
-          )
-        );
-      if (row) return row.id;
-    }
-
-    return null;
+    preview.sampleCreates = preview.sampleCreates.slice(0, 5);
+    preview.sampleUpdates = preview.sampleUpdates.slice(0, 5);
+    preview.sampleSkipped = preview.sampleSkipped.slice(0, 5);
+    return preview;
   });
 }
 
-async function findExistingSupplier(orgId: string, contact: Contact) {
+function assertDemoImportAllowed(tenantName: string, allowDemoCompany: boolean) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    isDemoCompanyTenant(tenantName) &&
+    !allowDemoCompany
+  ) {
+    throw new XeroError(
+      "This is Xero Demo Company. Confirm the demo import explicitly before importing.",
+      409
+    );
+  }
+}
+
+export async function importContactsFromXero(
+  orgId: string,
+  entityType: ContactImportEntity,
+  options?: { allowDemoCompany?: boolean }
+): Promise<ImportResult> {
+  const fetched = await fetchAllContacts(orgId, entityType);
+  assertDemoImportAllowed(
+    fetched.tenantName,
+    options?.allowDemoCompany ?? false
+  );
+
   return withOrgContext(orgId, async (tx) => {
-    if (contact.contactID) {
-      const [row] = await tx
-        .select({ id: suppliers.id })
-        .from(suppliers)
-        .where(
-          and(
-            eq(suppliers.xeroContactId, contact.contactID),
-            isNull(suppliers.deletedAt)
-          )
+    const [run] = await tx
+      .insert(xeroImportRuns)
+      .values({
+        organizationId: orgId,
+        entityType,
+        tenantId: fetched.tenantId,
+        tenantName: fetched.tenantName,
+      })
+      .returning({ id: xeroImportRuns.id });
+
+    const result: ImportResult = {
+      runId: run.id,
+      tenantName: fetched.tenantName,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [],
+    };
+
+    for (const contact of fetched.contacts) {
+      if (!contact.name) {
+        result.skipped += 1;
+        continue;
+      }
+
+      try {
+        await tx.transaction(async (rowTx) => {
+          if (entityType === "customers") {
+            await importCustomerInTx(rowTx, orgId, run.id, contact, result);
+          } else {
+            await importSupplierInTx(rowTx, orgId, run.id, contact, result);
+          }
+        });
+      } catch (error) {
+        console.error("Xero contact import row failed:", redactXeroError(error));
+        result.errors.push(
+          `${contact.name ?? "(unnamed)"}: ${extractXeroMessage(error)}`
         );
-      if (row) return row.id;
+        result.skipped += 1;
+      }
     }
 
-    if (contact.emailAddress) {
-      const [row] = await tx
-        .select({ id: suppliers.id })
-        .from(suppliers)
-        .where(
-          and(
-            sql`LOWER(${suppliers.email}) = LOWER(${contact.emailAddress})`,
-            isNull(suppliers.deletedAt)
-          )
-        );
-      if (row) return row.id;
-    }
+    await tx
+      .update(xeroImportRuns)
+      .set({
+        createdCount: result.created,
+        updatedCount: result.updated,
+        skippedCount: result.skipped,
+        errorCount: result.errors.length,
+        updatedAt: new Date(),
+      })
+      .where(eq(xeroImportRuns.id, run.id));
 
-    if (contact.name) {
-      const [row] = await tx
-        .select({ id: suppliers.id })
-        .from(suppliers)
-        .where(
-          and(
-            sql`LOWER(${suppliers.name}) = LOWER(${contact.name})`,
-            isNull(suppliers.deletedAt)
-          )
-        );
-      if (row) return row.id;
-    }
-
-    return null;
+    return result;
   });
 }
 
-export async function importCustomersFromXero(orgId: string): Promise<ImportResult> {
-  const contacts = await fetchAllContacts(orgId, "IsCustomer==true");
-  const result: ImportResult = { created: 0, updated: 0, skipped: 0, errors: [] };
+async function importCustomerInTx(
+  tx: Tx,
+  orgId: string,
+  runId: string,
+  contact: Contact,
+  result: ImportResult
+) {
+  const existing = await findExistingCustomerInTx(tx, contact);
+  const addr = mapCustomerAddresses(contact);
+  const nextData = {
+    name: contact.name!,
+    email: contact.emailAddress ?? null,
+    xeroContactId: contact.contactID ?? null,
+    ...addr,
+  };
 
-  for (const contact of contacts) {
-    if (!contact.name) {
-      result.skipped += 1;
-      continue;
+  if (existing) {
+    await tx
+      .update(customers)
+      .set({ ...nextData, updatedAt: new Date() })
+      .where(eq(customers.id, existing.id));
+    await tx.insert(xeroImportRunRows).values({
+      organizationId: orgId,
+      runId,
+      entityType: "customers",
+      action: "updated",
+      localRecordId: existing.id,
+      xeroContactId: contact.contactID ?? null,
+      localName: contact.name!,
+      previousData: customerSnapshot(existing),
+    });
+    result.updated += 1;
+    return;
+  }
+
+  const [created] = await tx
+    .insert(customers)
+    .values({ organizationId: orgId, ...nextData })
+    .returning({ id: customers.id });
+  await tx.insert(xeroImportRunRows).values({
+    organizationId: orgId,
+    runId,
+    entityType: "customers",
+    action: "created",
+    localRecordId: created.id,
+    xeroContactId: contact.contactID ?? null,
+    localName: contact.name!,
+    previousData: null,
+  });
+  result.created += 1;
+}
+
+async function importSupplierInTx(
+  tx: Tx,
+  orgId: string,
+  runId: string,
+  contact: Contact,
+  result: ImportResult
+) {
+  const existing = await findExistingSupplierInTx(tx, contact);
+  const addr = mapSupplierAddresses(contact);
+  const nextData = {
+    name: contact.name!,
+    email: contact.emailAddress ?? null,
+    xeroContactId: contact.contactID ?? null,
+    ...addr,
+  };
+
+  if (existing) {
+    await tx
+      .update(suppliers)
+      .set({ ...nextData, updatedAt: new Date() })
+      .where(eq(suppliers.id, existing.id));
+    await tx.insert(xeroImportRunRows).values({
+      organizationId: orgId,
+      runId,
+      entityType: "suppliers",
+      action: "updated",
+      localRecordId: existing.id,
+      xeroContactId: contact.contactID ?? null,
+      localName: contact.name!,
+      previousData: supplierSnapshot(existing),
+    });
+    result.updated += 1;
+    return;
+  }
+
+  const [created] = await tx
+    .insert(suppliers)
+    .values({ organizationId: orgId, ...nextData })
+    .returning({ id: suppliers.id });
+  await tx.insert(xeroImportRunRows).values({
+    organizationId: orgId,
+    runId,
+    entityType: "suppliers",
+    action: "created",
+    localRecordId: created.id,
+    xeroContactId: contact.contactID ?? null,
+    localName: contact.name!,
+    previousData: null,
+  });
+  result.created += 1;
+}
+
+async function loadUndoPreviewInTx(
+  tx: Tx,
+  runId: string
+): Promise<ImportUndoPreview> {
+  const [run] = await tx
+    .select()
+    .from(xeroImportRuns)
+    .where(eq(xeroImportRuns.id, runId));
+
+  if (!run) {
+    throw new XeroError("Xero import run not found.", 404);
+  }
+
+  const rows = await tx
+    .select({
+      action: xeroImportRunRows.action,
+      localRecordId: xeroImportRunRows.localRecordId,
+      localName: xeroImportRunRows.localName,
+    })
+    .from(xeroImportRunRows)
+    .where(eq(xeroImportRunRows.runId, runId));
+
+  const ids = rows.map((row) => row.localRecordId);
+  const blockedIds =
+    ids.length === 0
+      ? new Set<string>()
+      : run.entityType === "customers"
+        ? await loadReferencedCustomerIdsInTx(tx, ids)
+        : await loadReferencedSupplierIdsInTx(tx, ids);
+  const blockedNames = rows
+    .filter((row) => blockedIds.has(row.localRecordId))
+    .map((row) => row.localName);
+
+  return {
+    runId,
+    entityType: run.entityType,
+    tenantName: run.tenantName,
+    status: run.status,
+    createdRows: rows.filter((row) => row.action === "created").length,
+    updatedRows: rows.filter((row) => row.action === "updated").length,
+    blockedRows: blockedIds.size,
+    canUndo: run.status === "completed" && blockedIds.size === 0,
+    sampleNames: rows.map((row) => row.localName).slice(0, 5),
+    blockedNames: blockedNames.slice(0, 5),
+  };
+}
+
+async function loadReferencedCustomerIdsInTx(tx: Tx, ids: string[]) {
+  const rows = await tx
+    .select({ id: salesOrders.customerId })
+    .from(salesOrders)
+    .where(
+      and(
+        inArray(salesOrders.customerId, ids),
+        inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"]),
+        isNull(salesOrders.deletedAt)
+      )
+    );
+  return new Set(rows.map((row) => row.id).filter((id): id is string => id != null));
+}
+
+async function loadReferencedSupplierIdsInTx(tx: Tx, ids: string[]) {
+  const rows = await tx
+    .select({ id: purchaseOrders.supplierId })
+    .from(purchaseOrders)
+    .where(
+      and(
+        inArray(purchaseOrders.supplierId, ids),
+        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+        isNull(purchaseOrders.deletedAt)
+      )
+    );
+  return new Set(rows.map((row) => row.id).filter((id): id is string => id != null));
+}
+
+export async function previewXeroImportUndo(
+  orgId: string,
+  runId: string
+): Promise<ImportUndoPreview> {
+  return withOrgContext(orgId, (tx) => loadUndoPreviewInTx(tx, runId));
+}
+
+export async function getXeroImportRunEntityType(
+  orgId: string,
+  runId: string
+): Promise<ContactImportEntity> {
+  return withOrgContext(orgId, async (tx) => {
+    const [run] = await tx
+      .select({ entityType: xeroImportRuns.entityType })
+      .from(xeroImportRuns)
+      .where(eq(xeroImportRuns.id, runId));
+
+    if (!run) {
+      throw new XeroError("Xero import run not found.", 404);
     }
 
-    try {
-      const existingId = await findExistingCustomer(orgId, contact);
-      const addr = mapCustomerAddresses(contact);
+    return run.entityType;
+  });
+}
 
-      await withOrgContext(orgId, async (tx) => {
-        if (existingId) {
+async function lockUndoTargetRowsInTx(
+  tx: Tx,
+  entityType: ContactImportEntity,
+  ids: string[]
+) {
+  if (ids.length === 0) {
+    return;
+  }
+
+  if (entityType === "customers") {
+    await tx
+      .select({ id: customers.id })
+      .from(customers)
+      .where(inArray(customers.id, ids))
+      .for("update");
+    return;
+  }
+
+  await tx
+    .select({ id: suppliers.id })
+    .from(suppliers)
+    .where(inArray(suppliers.id, ids))
+    .for("update");
+}
+
+export async function undoXeroImportRun(
+  orgId: string,
+  runId: string
+): Promise<ImportUndoResult> {
+  return withOrgContext(orgId, async (tx) => {
+    const [lockedRun] = await tx
+      .select()
+      .from(xeroImportRuns)
+      .where(eq(xeroImportRuns.id, runId))
+      .for("update");
+
+    if (!lockedRun) {
+      throw new XeroError("Xero import run not found.", 404);
+    }
+    if (lockedRun.status !== "completed") {
+      throw new XeroError("This Xero import run has already been reset.", 409);
+    }
+
+    const rows = await tx
+      .select()
+      .from(xeroImportRunRows)
+      .where(eq(xeroImportRunRows.runId, runId));
+    await lockUndoTargetRowsInTx(
+      tx,
+      lockedRun.entityType,
+      rows.map((row) => row.localRecordId)
+    );
+
+    const preview = await loadUndoPreviewInTx(tx, runId);
+    if (!preview.canUndo) {
+      throw new XeroError(
+        "This Xero import cannot be reset because imported rows are referenced by orders.",
+        409
+      );
+    }
+
+    const now = new Date();
+    let undoneCreatedRows = 0;
+    let restoredUpdatedRows = 0;
+
+    for (const row of rows) {
+      if (lockedRun.entityType === "customers") {
+        if (row.action === "created") {
           await tx
             .update(customers)
-            .set({
-              name: contact.name!,
-              email: contact.emailAddress ?? null,
-              xeroContactId: contact.contactID ?? null,
-              ...addr,
-              updatedAt: new Date(),
-            })
-            .where(eq(customers.id, existingId));
-          result.updated += 1;
+            .set({ deletedAt: now, updatedAt: now })
+            .where(eq(customers.id, row.localRecordId));
+          undoneCreatedRows += 1;
         } else {
-          await tx.insert(customers).values({
-            organizationId: orgId,
-            name: contact.name!,
-            email: contact.emailAddress ?? null,
-            xeroContactId: contact.contactID ?? null,
-            ...addr,
-          });
-          result.created += 1;
+          const previous = row.previousData as CustomerSnapshot | null;
+          if (previous) {
+            await tx
+              .update(customers)
+              .set({ ...previous, updatedAt: now })
+              .where(eq(customers.id, row.localRecordId));
+            restoredUpdatedRows += 1;
+          }
         }
-      });
-    } catch (error) {
-      console.error("Xero customer import row failed:", redactXeroError(error));
-      result.errors.push(
-        `${contact.name ?? "(unnamed)"}: ${extractXeroMessage(error)}`
-      );
-      result.skipped += 1;
-    }
-  }
-
-  return result;
-}
-
-export async function importSuppliersFromXero(orgId: string): Promise<ImportResult> {
-  const contacts = await fetchAllContacts(orgId, "IsSupplier==true");
-  const result: ImportResult = { created: 0, updated: 0, skipped: 0, errors: [] };
-
-  for (const contact of contacts) {
-    if (!contact.name) {
-      result.skipped += 1;
-      continue;
-    }
-
-    try {
-      const existingId = await findExistingSupplier(orgId, contact);
-      const addr = mapSupplierAddresses(contact);
-
-      await withOrgContext(orgId, async (tx) => {
-        if (existingId) {
+      } else if (row.action === "created") {
+        await tx
+          .update(suppliers)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(eq(suppliers.id, row.localRecordId));
+        undoneCreatedRows += 1;
+      } else {
+        const previous = row.previousData as SupplierSnapshot | null;
+        if (previous) {
           await tx
             .update(suppliers)
-            .set({
-              name: contact.name!,
-              email: contact.emailAddress ?? null,
-              xeroContactId: contact.contactID ?? null,
-              ...addr,
-              updatedAt: new Date(),
-            })
-            .where(eq(suppliers.id, existingId));
-          result.updated += 1;
-        } else {
-          await tx.insert(suppliers).values({
-            organizationId: orgId,
-            name: contact.name!,
-            email: contact.emailAddress ?? null,
-            xeroContactId: contact.contactID ?? null,
-            ...addr,
-          });
-          result.created += 1;
+            .set({ ...previous, updatedAt: now })
+            .where(eq(suppliers.id, row.localRecordId));
+          restoredUpdatedRows += 1;
         }
-      });
-    } catch (error) {
-      console.error("Xero supplier import row failed:", redactXeroError(error));
-      result.errors.push(
-        `${contact.name ?? "(unnamed)"}: ${extractXeroMessage(error)}`
-      );
-      result.skipped += 1;
+      }
     }
-  }
 
-  return result;
+    await tx
+      .update(xeroImportRuns)
+      .set({ status: "undone", undoneAt: now, updatedAt: now })
+      .where(eq(xeroImportRuns.id, runId));
+
+    return {
+      ...preview,
+      status: "undone",
+      canUndo: false,
+      undoneCreatedRows,
+      restoredUpdatedRows,
+    };
+  });
+}
+
+export async function importCustomersFromXero(
+  orgId: string,
+  options?: { allowDemoCompany?: boolean }
+): Promise<ImportResult> {
+  return importContactsFromXero(orgId, "customers", options);
+}
+
+export async function importSuppliersFromXero(
+  orgId: string,
+  options?: { allowDemoCompany?: boolean }
+): Promise<ImportResult> {
+  return importContactsFromXero(orgId, "suppliers", options);
 }

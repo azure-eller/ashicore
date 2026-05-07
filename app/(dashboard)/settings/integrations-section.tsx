@@ -21,7 +21,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { XeroConnectionSummary } from "@/lib/dal/xero";
+import type {
+  XeroConnectionSummary,
+  XeroImportRunSummary,
+} from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -72,12 +75,18 @@ function XeroRow({
   canManageConnection,
   canImportCustomers,
   canImportSuppliers,
+  canResetCustomerImports,
+  canResetSupplierImports,
+  importRuns,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
+  canResetCustomerImports: boolean;
+  canResetSupplierImports: boolean;
+  importRuns: XeroImportRunSummary[];
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -111,25 +120,6 @@ function XeroRow({
     ? "connected"
     : "disconnected";
 
-  const switchTenantMutation = useMutation({
-    mutationFn: async (tenantId: string) => {
-      const res = await fetch("/api/xero/switch-tenant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to switch tenant.");
-      }
-    },
-    onSuccess: () => {
-      setFormError(null);
-      router.refresh();
-    },
-    onError: (err) => setFormError((err as Error).message),
-  });
-
   const disconnectMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/xero/disconnect", { method: "POST" });
@@ -148,6 +138,7 @@ function XeroRow({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          tenantId: pendingTenantId || null,
           defaultAccountCode: accountCode.trim() || null,
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
@@ -261,20 +252,8 @@ function XeroRow({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => switchTenantMutation.mutate(pendingTenantId)}
-                  disabled={
-                    switchTenantMutation.isPending ||
-                    pendingTenantId === connection?.tenantId
-                  }
-                >
-                  {switchTenantMutation.isPending ? "Switching…" : "Switch"}
-                </Button>
                 <span className="text-xs text-muted-foreground">
-                  Pushes go to this organisation. Token already covers all
-                  authorised tenants — no re-OAuth needed to swap.
+                  Pushes and imports use this organisation after Save.
                 </span>
               </div>
             </div>
@@ -386,6 +365,9 @@ function XeroRow({
           <XeroImportSection
             canImportCustomers={canImportCustomers}
             canImportSuppliers={canImportSuppliers}
+            canResetCustomerImports={canResetCustomerImports}
+            canResetSupplierImports={canResetSupplierImports}
+            importRuns={importRuns}
           />
         </div>
       ) : null}
@@ -399,12 +381,18 @@ export function IntegrationsSection({
   canManageConnection,
   canImportCustomers,
   canImportSuppliers,
+  canResetCustomerImports,
+  canResetSupplierImports,
+  importRuns,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
+  canResetCustomerImports: boolean;
+  canResetSupplierImports: boolean;
+  importRuns: XeroImportRunSummary[];
 }) {
   return (
     <section id="integrations" className="scroll-mt-24 rounded-lg border">
@@ -418,6 +406,9 @@ export function IntegrationsSection({
           canManageConnection={canManageConnection}
           canImportCustomers={canImportCustomers}
           canImportSuppliers={canImportSuppliers}
+          canResetCustomerImports={canResetCustomerImports}
+          canResetSupplierImports={canResetSupplierImports}
+          importRuns={importRuns}
         />
       </div>
     </section>
