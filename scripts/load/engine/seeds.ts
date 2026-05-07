@@ -55,8 +55,12 @@ export function resolveSeedOpeningQuantity(
 
   const inputQty = Number(entry.quantity);
 
-  if (entry.unitKey == null || entry.unitKey === seed.unitKey) {
+  if (entry.unitKey == null) {
     return { stockQuantity: inputQty, sourceLabel: entry.quantity };
+  }
+
+  if (entry.unitKey === seed.unitKey) {
+    return { stockQuantity: inputQty, sourceLabel: `${entry.quantity} ${entry.unitKey}` };
   }
 
   if (entry.unitKey === seed.purchaseUnitKey) {

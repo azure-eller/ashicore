@@ -11,6 +11,9 @@ import {
 } from "./seeds";
 import type { InitialStockEntry, InitialStockLotEntry, ItemSeed, Report } from "./types";
 
+const LOT_NUMBER_MAX_LENGTH = 20;
+const LOT_NUMBER_HASH_LENGTH = 6;
+
 function normalizeLotSegment(value: string) {
   return value
     .trim()
@@ -32,16 +35,31 @@ function buildLotNumber(prefix: string, sku: string, lotSuffix?: string | null) 
     .replace(/[^A-Za-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toUpperCase();
-  const maxSkuLength = 20 - effectivePrefix.length - 1;
+  const maxSkuLength = LOT_NUMBER_MAX_LENGTH - effectivePrefix.length - 1;
   if (normalizedSku.length <= maxSkuLength) {
     return `${effectivePrefix}-${normalizedSku}`;
   }
 
-  const hash = createHash("sha1").update(sku).digest("hex").slice(0, 6).toUpperCase();
-  const hashSuffixLength = hash.length + 1;
-  const skuPrefix = normalizedSku
-    .slice(0, maxSkuLength - hashSuffixLength)
-    .replace(/-+$/g, "");
+  const hash = createHash("sha1")
+    .update(sku)
+    .digest("hex")
+    .slice(0, LOT_NUMBER_HASH_LENGTH)
+    .toUpperCase();
+  const hashBudget = Math.max(0, LOT_NUMBER_MAX_LENGTH - effectivePrefix.length - 1);
+  if (hashBudget <= 0) {
+    const prefixBudget = LOT_NUMBER_MAX_LENGTH - hash.length - 1;
+    const prefixPart = effectivePrefix.slice(0, prefixBudget).replace(/-+$/g, "");
+    return `${prefixPart}-${hash}`;
+  }
+  if (hashBudget <= LOT_NUMBER_HASH_LENGTH) {
+    return `${effectivePrefix}-${hash.slice(0, hashBudget)}`;
+  }
+
+  const skuPrefixLength = hashBudget - LOT_NUMBER_HASH_LENGTH - 1;
+  const skuPrefix = normalizedSku.slice(0, skuPrefixLength).replace(/-+$/g, "");
+  if (!skuPrefix) {
+    return `${effectivePrefix}-${hash.slice(0, hashBudget)}`;
+  }
   return `${effectivePrefix}-${skuPrefix}-${hash}`;
 }
 
@@ -57,6 +75,20 @@ function buildLotNumbers(
   return [seed.sku, ...(seed.legacySkus ?? [])].map((sku) =>
     buildLotNumber(prefix, sku, lotSuffix)
   );
+}
+
+function buildExistingLotNumberCandidates(
+  prefix: string,
+  seed: ItemSeed,
+  lotSuffix?: string | null
+) {
+  const candidates = buildLotNumbers(prefix, seed, lotSuffix);
+
+  if (lotSuffix) {
+    candidates.push(...buildLotNumbers(prefix, seed));
+  }
+
+  return Array.from(new Set(candidates));
 }
 
 export async function planStockSyncInTx(
@@ -76,19 +108,18 @@ export async function planStockSyncInTx(
     const seed = seedByKey.get(key);
     if (!seed) continue;
     for (const lotEntry of resolveSeedOpeningLotEntries(entry)) {
-      const [lotNumber, ...legacyLotNumbers] = buildLotNumbers(
+      const lotSuffix = resolveLotSuffix(lotEntry);
+      const existingLotNumber = buildExistingLotNumberCandidates(
         openingLotPrefix,
         seed,
-        resolveLotSuffix(lotEntry)
-      );
-      const hasExistingLot = [lotNumber, ...legacyLotNumbers].some((candidate) =>
-        existingLotNumbers.has(candidate)
+        lotSuffix
+      ).find((candidate) => existingLotNumbers.has(candidate)
       );
       const openingUnitCost = resolveSeedOpeningUnitCost(seed, seedByKey);
       const { sourceLabel } = resolveSeedOpeningQuantity(seed, lotEntry);
       resolveSeedOpeningReceivedAt(lotEntry);
-      if (hasExistingLot) {
-        report.stockLotsExisting.push(`${seed.name} (${lotNumber})`);
+      if (existingLotNumber) {
+        report.stockLotsExisting.push(`${seed.name} (${existingLotNumber})`);
       } else if (openingUnitCost == null) {
         report.stockLotsSkippedMissingCost.push(
           `${seed.name}: missing current stock unit cost or default purchase price for opening stock`
@@ -117,19 +148,21 @@ export async function applyStockSyncInTx(
     if (!itemId || !seed) continue;
 
     for (const lotEntry of resolveSeedOpeningLotEntries(entry)) {
-      const [lotNumber, ...legacyLotNumbers] = buildLotNumbers(
+      const lotSuffix = resolveLotSuffix(lotEntry);
+      const [lotNumber] = buildLotNumbers(openingLotPrefix, seed, lotSuffix);
+      const existingLotNumberCandidates = buildExistingLotNumberCandidates(
         openingLotPrefix,
         seed,
-        resolveLotSuffix(lotEntry)
+        lotSuffix
       );
       const [existingLot] = await tx
-        .select({ id: lots.id })
+        .select({ id: lots.id, lotNumber: lots.lotNumber })
         .from(lots)
-        .where(inArray(lots.lotNumber, [lotNumber, ...legacyLotNumbers]))
+        .where(inArray(lots.lotNumber, existingLotNumberCandidates))
         .limit(1);
 
       if (existingLot) {
-        report.stockLotsExisting.push(`${seed.name} (${lotNumber})`);
+        report.stockLotsExisting.push(`${seed.name} (${existingLot.lotNumber})`);
         continue;
       }
 
