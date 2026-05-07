@@ -828,6 +828,7 @@ async function prepareUpdatedIngredientsInTx(
 
     const submitted = submittedIngredients[index];
     const selected = getApprovedBomMaterialOption(row, submitted.itemId);
+    const quantityPerUnit = submitted.quantityPerUnit;
 
     return {
       itemId: selected.itemId,
@@ -835,9 +836,9 @@ async function prepareUpdatedIngredientsInTx(
       itemSku: selected.itemSku,
       itemType: selected.itemType,
       unitName: selected.unitName,
-      quantityPerUnit: selected.quantityPerUnit,
+      quantityPerUnit,
       plannedQuantity: multiplyQuantityString(
-        selected.quantityPerUnit,
+        quantityPerUnit,
         ingredientMultiplier
       ),
       sortOrder: existingRow.sortOrder,

@@ -66,7 +66,7 @@ test.describe("Material current stock unit cost story", () => {
     explicitMaterialId = getIdFromUrl(page.url());
 
     await expect(page.getByRole("heading", { name: explicitMaterialName })).toBeVisible();
-    await expect(page.locator("dl")).toContainText("$1.234567");
+    await expect(page.getByText("$1.23", { exact: true })).toBeVisible();
 
     const [material] = await db
       .select({

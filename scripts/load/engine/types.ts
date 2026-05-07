@@ -1,14 +1,17 @@
-// Opening stock can be entered as a bare string (in the seed's stock unit)
-// or as { quantity, unitKey } where unitKey is the seed's purchase unit
-// (the engine converts via purchaseToStockFactor at write time).
-export type InitialStockEntry =
+// Opening stock can be entered as a bare string (in the seed's stock unit),
+// as { quantity, unitKey } where unitKey is the seed's purchase unit, or as an
+// array of entries when one seed needs separate opening lots.
+export type InitialStockLotEntry =
   | string
   | {
       quantity: string;
       unitKey?: string;
       ageDays?: number;
       receivedAt?: string;
+      lotSuffix?: string;
     };
+
+export type InitialStockEntry = InitialStockLotEntry | InitialStockLotEntry[];
 
 export type UnitSeed = {
   key: string;
@@ -284,6 +287,8 @@ export type OrderSeed = {
   customerName: string;
   reference: string | null;
   orderDate?: string | null;
+  shipDate?: string | null;
+  requestedDate?: string | null;
   requestedWindow?: string | null;
   address: string | null;
   contact: string | null;
@@ -294,7 +299,7 @@ export type OrderSeed = {
 export type SalesImportConfig = {
   orderSeeds: OrderSeed[];
   productAliasToSeedKey: Record<string, string>;
-  requestedDateBySourceRow: Record<number, string>;
+  requestedDateBySourceRow?: Record<number, string>;
   customerNotesDefault: string;
   orderMarkerPrefix: string;
 };

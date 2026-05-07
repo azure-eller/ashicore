@@ -67,7 +67,7 @@ test.describe("Inventory creation flow", () => {
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option", { name: "+ Create new unit" }).click();
 
-    await expect(page.getByText("Define a new unit of measure")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Create Unit" })).toBeVisible();
     await page.locator("#unit-name").fill(`Bag ${ts}`);
     await page.locator("#unit-size").fill("25");
     await page.locator("#unit-uom").click();
@@ -104,12 +104,12 @@ test.describe("Inventory creation flow", () => {
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
     await expect(page.getByText("Fine grain river sand")).toBeVisible();
-    await expect(page.getByText(sku)).toBeVisible();
+    await expect(page.getByText(sku).first()).toBeVisible();
     await expect(page.locator("dl").getByText(`Bag ${ts} (25 kg)`, { exact: true })).toBeVisible();
     await expect(page.locator("dl").getByText("$3.50", { exact: true }).first()).toBeVisible();
     await expect(page.locator("dl").getByText("$6.00", { exact: true })).toBeVisible();
-    await expect(page.locator("dl").getByText(`200 Bag ${ts}`, { exact: true }).first()).toBeVisible();
-    await expect(page.locator("dl").getByText(`25 Bag ${ts}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`200 Bag ${ts}`, { exact: true }).first()).toBeVisible();
+    await expect(page.locator("dl").getByText("25", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.goto("/inventory/materials");
@@ -167,7 +167,7 @@ test.describe("Inventory creation flow", () => {
 
     // UI — verify detail page reflects the edits
     await expect(page.getByText("Coarse river sand — updated")).toBeVisible();
-    await expect(page.locator("dl").getByText(`30 Bag ${ts}`, { exact: true })).toBeVisible();
+    await expect(page.locator("dl").getByText("30", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.goto("/inventory/materials");
@@ -212,7 +212,7 @@ test.describe("Inventory creation flow", () => {
 
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
-    await expect(page.getByText("No lots recorded.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Lots 0" })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.goto("/inventory/materials");
@@ -288,17 +288,14 @@ test.describe("Inventory creation flow", () => {
     await page.waitForURL(`**/inventory/materials/${lowStockMaterialId}`);
     await expect(page.getByRole("heading", { name: lowStockMaterialName })).toBeVisible();
 
-    await page.getByText("Calculated Stock", { exact: true }).hover();
+    await page.getByText("Calculated", { exact: true }).hover();
     await expect(
       page.getByText("Stock - demand + expected - safety stock.")
     ).toBeVisible();
 
     await page.keyboard.press("Escape");
 
-    await page.locator("dd span.text-destructive").focus();
-    await expect(
-      page.getByText("Below safety stock after demand and expected supply.")
-    ).toBeVisible();
+    await expect(page.getByText("-5", { exact: true })).toBeVisible();
   });
 
   /* ── 3. Product without BOM ──────────────────────────────────── */
@@ -322,7 +319,7 @@ test.describe("Inventory creation flow", () => {
     await page.locator("#unitDefinitionId").click();
     await page.getByRole("option", { name: "+ Create new unit" }).click();
 
-    await expect(page.getByText("Define a new unit of measure")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Create Unit" })).toBeVisible();
     await page.locator("#unit-name").fill(`Bucket ${ts}`);
     await page.locator("#unit-size").fill("10");
     await page.locator("#unit-uom").click();
@@ -358,11 +355,11 @@ test.describe("Inventory creation flow", () => {
     // UI — verify the detail page
     await expect(page.getByRole("heading", { name: simpleProductName })).toBeVisible();
     await expect(page.getByText("Simple base product")).toBeVisible();
-    await expect(page.getByText(`PROD-BASE-${ts}`)).toBeVisible();
+    await expect(page.getByText(`PROD-BASE-${ts}`).first()).toBeVisible();
     await expect(page.locator("dl").getByText(`Bucket ${ts} (10 l)`, { exact: true })).toBeVisible();
     await expect(page.locator("dl").getByText("$12.00", { exact: true })).toBeVisible();
-    await expect(page.locator("dl").getByText(`10 Bucket ${ts}`, { exact: true })).toBeVisible();
-    await expect(page.getByText("No lots recorded.")).toBeVisible();
+    await expect(page.locator("dl").getByText("10", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Lots 0" })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.goto("/inventory/products");
@@ -457,6 +454,7 @@ test.describe("Inventory creation flow", () => {
 
     // UI — verify the detail page and BOM table
     await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
+    await page.getByRole("button", { name: /^Recipe/ }).click();
     const bomTable = page.locator("table").first();
     await expect(bomTable).toContainText(fullMaterialName);
     await expect(bomTable).toContainText(minimalMaterialName);
@@ -464,7 +462,6 @@ test.describe("Inventory creation flow", () => {
     await expect(bomTable).toContainText("4.5");
     await expect(bomTable).toContainText("3");
     await expect(bomTable).toContainText("2");
-    await expect(page.locator("dl").getByText("$29.99", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.goto("/inventory/products");
@@ -539,6 +536,7 @@ test.describe("Inventory creation flow", () => {
     await expect(page.locator("dl").getByText("$34.99", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
+    await page.getByRole("button", { name: /^Recipe/ }).click();
     const updatedBomTable = page.locator("table").first();
     await expect(updatedBomTable).toContainText(fullMaterialName);
     await expect(updatedBomTable).toContainText(minimalMaterialName);

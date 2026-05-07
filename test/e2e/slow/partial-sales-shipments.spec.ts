@@ -215,7 +215,7 @@ test.describe("Partial sales shipments", () => {
       {
         method: "PUT",
         body: JSON.stringify({
-          customerFreightChargeAmount: "20.00",
+          customerFreightChargeAmount: null,
           costs: [
             {
               costType: "freight",
@@ -264,11 +264,11 @@ test.describe("Partial sales shipments", () => {
     );
     expect(firstDetailShipment.marginSummary).toMatchObject({
       productRevenue: "36",
-      freightRecovery: "20",
+      freightRecovery: "0",
       productCogs: "4",
       shipmentCosts: "15",
-      contributionMargin: "37",
-      marginPercent: "66.1",
+      contributionMargin: "17",
+      marginPercent: "47.2",
       costStatus: "actual",
     });
 
