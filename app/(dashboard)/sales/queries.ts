@@ -3197,8 +3197,6 @@ export async function getSalesOrder(
             parseMoneyValue(shipmentLine.quantity)
         );
       }, 0);
-      const freightRecovery = parseMoneyValue(shipment.customerFreightChargeAmount);
-
       let productCogs: number | null = null;
       let productCostStatus: SalesMarginSummary["costStatus"] = "unknown";
 
@@ -3232,7 +3230,7 @@ export async function getSalesOrder(
       );
       shipment.marginSummary = buildSalesMarginSummary({
         productRevenue,
-        freightRecovery,
+        freightRecovery: 0,
         productCogs,
         shipmentCosts: shipmentCostSelection.amount,
         costStatus: combineMarginStatuses([
@@ -3245,32 +3243,56 @@ export async function getSalesOrder(
     const activeShipmentSummaries = shipments
       .filter((shipment) => shipment.status !== "cancelled")
       .map((shipment) => shipment.marginSummary);
-    const orderProductCogs = activeShipmentSummaries.some(
-      (summary) => summary.productCogs == null
-    )
-      ? null
-      : activeShipmentSummaries.reduce(
-          (sum, summary) => sum + parseMoneyValue(summary.productCogs),
-          0
-        );
-    const orderMarginSummary = buildSalesMarginSummary({
-      productRevenue: activeShipmentSummaries.reduce(
-        (sum, summary) => sum + parseMoneyValue(summary.productRevenue),
-        0
-      ),
-      freightRecovery: activeShipmentSummaries.reduce(
-        (sum, summary) => sum + parseMoneyValue(summary.freightRecovery),
-        0
-      ),
-      productCogs: orderProductCogs,
-      shipmentCosts: activeShipmentSummaries.reduce(
-        (sum, summary) => sum + parseMoneyValue(summary.shipmentCosts),
-        0
-      ),
-      costStatus: combineMarginStatuses(
-        activeShipmentSummaries.map((summary) => summary.costStatus)
-      ),
-    });
+    const orderFreightRecovery = activeShipmentSummaries.reduce(
+      (sum, summary) => sum + parseMoneyValue(summary.freightRecovery),
+      0
+    );
+    const orderShipmentCosts = activeShipmentSummaries.reduce(
+      (sum, summary) => sum + parseMoneyValue(summary.shipmentCosts),
+      0
+    );
+    const orderMarginSummary =
+      order.status === "shipped"
+        ? (() => {
+            const orderProductCogs = activeShipmentSummaries.some(
+              (summary) => summary.productCogs == null
+            )
+              ? null
+              : activeShipmentSummaries.reduce(
+                  (sum, summary) => sum + parseMoneyValue(summary.productCogs),
+                  0
+                );
+
+            return buildSalesMarginSummary({
+              productRevenue: activeShipmentSummaries.reduce(
+                (sum, summary) => sum + parseMoneyValue(summary.productRevenue),
+                0
+              ),
+              freightRecovery: orderFreightRecovery,
+              productCogs: orderProductCogs,
+              shipmentCosts: orderShipmentCosts,
+              costStatus: combineMarginStatuses(
+                activeShipmentSummaries.map((summary) => summary.costStatus)
+              ),
+            });
+          })()
+        : buildSalesMarginSummary({
+            productRevenue: lines.reduce(
+              (sum, line) => sum + parseMoneyValue(line.lineTotal),
+              0
+            ),
+            freightRecovery: orderFreightRecovery,
+            productCogs: lines.some((line) => line.estimatedCogs == null)
+              ? null
+              : lines.reduce(
+                  (sum, line) => sum + parseMoneyValue(line.estimatedCogs),
+                  0
+                ),
+            shipmentCosts: orderShipmentCosts,
+            costStatus: lines.some((line) => line.estimatedCogs == null)
+              ? "unknown"
+              : "estimated",
+          });
 
     const linesWithFulfillment = lines.map((line) => {
       const shippedQuantity = shippedByLine.get(line.id) ?? 0;

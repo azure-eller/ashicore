@@ -69,9 +69,17 @@ export const ACTUAL_MARGIN_TOOLTIP =
 
 export const LINE_COGS_TOOLTIP =
   "Inventory cost tied to the line.";
+export const UNIT_COST_TOOLTIP =
+  "Inventory cost per unit.";
+export const UNIT_MARGIN_TOOLTIP =
+  "Unit price minus unit cost.";
 
 export const ESTIMATED_LINE_COGS_TOOLTIP =
   "Estimated inventory cost for the line quantity.";
+export const ESTIMATED_ORDER_COGS_TOOLTIP =
+  "Estimated until the order is manufactured and shipped.";
+export const ESTIMATED_SHIPMENT_COSTS_TOOLTIP =
+  "Estimated until shipped and actual costs are entered.";
 
 export const LOT_PHYSICAL_TOOLTIP =
   "Physical lot balance across all dispositions.";

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, HelpCircleIcon } from "@hugeicons/core-free-icons";
 import {
   AccountingSyncDialog,
   AccountingSyncStatus,
@@ -50,6 +50,11 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Table,
   TableBody,
   TableCell,
@@ -61,17 +66,19 @@ import {
 import {
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   ITEM_SKU_TOOLTIP,
-  ACTUAL_MARGIN_TOOLTIP,
-  ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
   SALES_UNIT_PRICE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
-  LINE_COGS_TOOLTIP,
+  UNIT_COST_TOOLTIP,
+  UNIT_MARGIN_TOOLTIP,
+  ESTIMATED_ORDER_COGS_TOOLTIP,
+  ESTIMATED_SHIPMENT_COSTS_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import {
   formatAddressLines,
   formatDate,
   formatDateTime,
+  normalizeMoney,
   formatPrice,
   formatQuantity,
 } from "@/lib/format";
@@ -297,7 +304,6 @@ function salesOrderAccountingDocument(
 type SalesOrderDetailTab =
   | "lines"
   | "shipping"
-  | "financials"
   | "manufacturing"
   | "activity";
 
@@ -311,7 +317,6 @@ function normalizeSalesOrderDetailTab(value: string | null | undefined) {
   if (
     value === "lines" ||
     value === "shipping" ||
-    value === "financials" ||
     value === "manufacturing" ||
     value === "activity"
   ) {
@@ -352,6 +357,32 @@ function marginToneClass(value: string | null | undefined) {
   return "text-muted-foreground";
 }
 
+function EstimatedReceiptLabel({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span>{label}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex text-muted-foreground hover:text-foreground"
+            aria-label={`${label} estimate note`}
+          >
+            <HugeiconsIcon icon={HelpCircleIcon} size={12} strokeWidth={2} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">{tooltip}</TooltipContent>
+      </Tooltip>
+    </span>
+  );
+}
+
 function sumNumeric(values: Array<string | null | undefined>) {
   return values.reduce((total, value) => {
     const parsed = value == null ? NaN : Number(value);
@@ -364,10 +395,17 @@ function lineMarginParts(
   orderStatus: SalesOrderDetailType["status"]
 ) {
   const hasActualMargin = line.actualCogs != null;
+  const unitCost = hasActualMargin ? line.actualUnitCost : line.estimatedUnitCost;
+  const unitPrice = Number(line.unitPrice);
+  const parsedUnitCost = unitCost == null ? NaN : Number(unitCost);
+  const unitMargin =
+    Number.isFinite(unitPrice) && Number.isFinite(parsedUnitCost)
+      ? normalizeMoney(unitPrice - parsedUnitCost)
+      : null;
 
   return {
-    cogs: hasActualMargin ? line.actualCogs : line.estimatedCogs,
-    grossProfit: hasActualMargin ? line.actualGrossProfit : line.estimatedGrossProfit,
+    unitCost,
+    unitMargin,
     marginPercent: hasActualMargin
       ? line.actualMarginPercent
       : line.estimatedMarginPercent,
@@ -532,10 +570,8 @@ function KeyFactRows({
 }
 
 function CompactMarginReceipt({ margin }: { margin: SalesMarginSummary }) {
-  const costStatus =
-    margin.costStatus === "unknown"
-      ? null
-      : marginStatusLabel(margin.costStatus).toLowerCase();
+  const showsEstimatedCosts =
+    margin.costStatus === "estimated" || margin.costStatus === "mixed";
 
   return (
     <div className="text-sm">
@@ -544,24 +580,31 @@ function CompactMarginReceipt({ margin }: { margin: SalesMarginSummary }) {
         <span className="font-mono tabular-nums">{money(margin.productRevenue)}</span>
       </div>
       <div className="flex items-baseline justify-between border-b py-2">
-        <span className="text-xs text-muted-foreground">Freight recovered</span>
-        <span className="font-mono tabular-nums text-muted-foreground">
-          {money(margin.freightRecovery)}
+        <span className="text-xs text-muted-foreground">
+          {showsEstimatedCosts ? (
+            <EstimatedReceiptLabel
+              label="COGS"
+              tooltip={ESTIMATED_ORDER_COGS_TOOLTIP}
+            />
+          ) : (
+            "COGS"
+          )}
         </span>
-      </div>
-      <div className="flex items-baseline justify-between border-b py-2">
-        <span className="text-xs text-muted-foreground">COGS</span>
         <span className="text-right font-mono tabular-nums text-muted-foreground">
           {negativeMoney(margin.productCogs)}
-          {costStatus ? (
-            <span className="ml-1.5 font-sans text-xs text-muted-foreground">
-              {"\u00b7"} {costStatus}
-            </span>
-          ) : null}
         </span>
       </div>
       <div className="flex items-baseline justify-between border-b py-2">
-        <span className="text-xs text-muted-foreground">Shipment costs</span>
+        <span className="text-xs text-muted-foreground">
+          {showsEstimatedCosts ? (
+            <EstimatedReceiptLabel
+              label="Shipment costs"
+              tooltip={ESTIMATED_SHIPMENT_COSTS_TOOLTIP}
+            />
+          ) : (
+            "Shipment costs"
+          )}
+        </span>
         <span className="font-mono tabular-nums text-muted-foreground">
           {negativeMoney(margin.shipmentCosts)}
         </span>
@@ -610,14 +653,6 @@ function LinesPanel({
 }) {
   const totalQuantity = sumNumeric(order.lines.map((line) => line.quantity));
   const totalLineAmount = sumNumeric(order.lines.map((line) => line.lineTotal));
-  const totalCogs = sumNumeric(
-    order.lines.map((line) => lineMarginParts(line, order.status).cogs)
-  );
-  const totalProfit = sumNumeric(
-    order.lines.map((line) => lineMarginParts(line, order.status).grossProfit)
-  );
-  const totalMarginPercent =
-    totalLineAmount > 0 ? `${((totalProfit / totalLineAmount) * 100).toFixed(1)}%` : "\u2014";
 
   return (
     <div className="space-y-3">
@@ -649,21 +684,13 @@ function LinesPanel({
                 <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
               </TableHead>
               <TableHead className="text-right">
+                <TooltipHeader label="Unit Cost" tooltip={UNIT_COST_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Unit Margin" tooltip={UNIT_MARGIN_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
                 <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="COGS" tooltip={LINE_COGS_TOOLTIP} />
-              </TableHead>
-              <TableHead className="text-right">Profit</TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader
-                  label={order.status === "shipped" ? "Actual Margin" : "Est. Margin"}
-                  tooltip={
-                    order.status === "shipped"
-                      ? ACTUAL_MARGIN_TOOLTIP
-                      : ESTIMATED_MARGIN_TOOLTIP
-                  }
-                />
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -691,20 +718,18 @@ function LinesPanel({
                   <TableCell className="text-right font-mono tabular-nums">
                     {money(line.unitPrice)}
                   </TableCell>
-                  <TableCell className="text-right font-mono font-medium tabular-nums">
-                    {money(line.lineTotal)}
-                  </TableCell>
                   <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
-                    {money(margin.cogs)}
+                    {money(margin.unitCost)}
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
-                    {money(margin.grossProfit)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
-                    <div>{formatMarginPercent(margin.marginPercent)}</div>
+                    <div>{money(margin.unitMargin)}</div>
                     <div className="font-sans text-xs text-muted-foreground">
+                      {formatMarginPercent(margin.marginPercent)} {"\u00b7"}{" "}
                       {margin.statusLabel}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono font-medium tabular-nums">
+                    {money(line.lineTotal)}
                   </TableCell>
                 </TableRow>
               );
@@ -722,17 +747,10 @@ function LinesPanel({
                 {formatQuantity(String(totalQuantity))}
               </TableCell>
               <TableCell />
+              <TableCell />
+              <TableCell />
               <TableCell className="text-right font-mono tabular-nums">
                 {money(String(totalLineAmount))}
-              </TableCell>
-              <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
-                {money(String(totalCogs))}
-              </TableCell>
-              <TableCell className="text-right font-mono tabular-nums">
-                {money(String(totalProfit))}
-              </TableCell>
-              <TableCell className="text-right font-mono tabular-nums">
-                {totalMarginPercent}
               </TableCell>
             </TableRow>
           </TableFooter>
@@ -971,138 +989,6 @@ function ShippingPanel({
       )}
     </div>
   );
-}
-
-function FinancialsPanel({
-  order,
-  accountingStatus,
-}: {
-  order: SalesOrderDetailType;
-  accountingStatus: ReactNode;
-}) {
-  const margin = order.marginSummary;
-  const subtotalRevenue = sumNumeric([
-    margin.productRevenue,
-    margin.freightRecovery,
-  ]);
-  const subtotalCosts = sumNumeric([margin.productCogs, margin.shipmentCosts]);
-
-  return (
-    <div className="space-y-5">
-      <div className="max-w-[30rem]">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Order Margin
-          </div>
-          <Badge variant="secondary">{marginStatusLabel(margin.costStatus)}</Badge>
-        </div>
-
-        <div className="text-sm">
-          <ReceiptLine label="Product revenue" value={money(margin.productRevenue)} />
-          <ReceiptLine
-            label="Freight recovered"
-            value={money(margin.freightRecovery)}
-            muted
-          />
-          <ReceiptDivider />
-          <ReceiptLine
-            label="Subtotal revenue"
-            value={money(String(subtotalRevenue))}
-            bold
-          />
-
-          <div className="h-4" />
-
-          <ReceiptLine
-            label="Product COGS"
-            value={negativeMoney(margin.productCogs)}
-            sub={marginStatusLabel(margin.costStatus).toLowerCase()}
-          />
-          <ReceiptLine
-            label="Shipment costs"
-            value={negativeMoney(margin.shipmentCosts)}
-            muted
-          />
-          <ReceiptDivider />
-          <ReceiptLine
-            label="Subtotal costs"
-            value={negativeMoney(String(subtotalCosts))}
-            bold
-          />
-
-          <div className="mt-4 flex items-baseline justify-between border-y border-b-[3px] border-double border-foreground py-3">
-            <span className="font-semibold">Contribution margin</span>
-            <span className="text-right">
-              <span className="font-mono text-lg font-semibold tabular-nums">
-                {money(margin.contributionMargin)}
-              </span>
-              <div
-                className={cn(
-                  "text-xs font-medium",
-                  marginToneClass(margin.marginPercent)
-                )}
-              >
-                {formatMarginPercent(margin.marginPercent)} of revenue
-              </div>
-            </span>
-          </div>
-
-          <div className="mt-4 text-xs leading-5 text-muted-foreground">
-            COGS is estimated until fulfillment records actual lot cost.
-            <br />
-            Shipment costs firm up as costs are entered.
-          </div>
-        </div>
-      </div>
-
-      {accountingStatus}
-    </div>
-  );
-}
-
-function ReceiptLine({
-  label,
-  value,
-  sub,
-  bold,
-  muted,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  bold?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-1.5">
-      <span
-        className={cn(
-          muted ? "text-muted-foreground" : "text-foreground",
-          bold && "font-semibold"
-        )}
-      >
-        {label}
-      </span>
-      <span className="text-right">
-        <span
-          className={cn(
-            "font-mono text-xs tabular-nums",
-            muted && "text-muted-foreground",
-            bold && "font-semibold text-foreground"
-          )}
-        >
-          {value}
-        </span>
-        {sub ? (
-          <span className="ml-1.5 text-xs text-muted-foreground">{sub}</span>
-        ) : null}
-      </span>
-    </div>
-  );
-}
-
-function ReceiptDivider() {
-  return <div className="my-1 border-t border-dashed border-muted-foreground/40" />;
 }
 
 function ManufacturingPanel({
@@ -1785,7 +1671,6 @@ export function OrderDetail({
   const tabs: SalesOrderTabConfig[] = [
     { value: "lines", label: "Line Items", count: order.lines.length },
     { value: "shipping", label: "Shipping", count: order.shipments.length },
-    { value: "financials", label: "Financials" },
     {
       value: "manufacturing",
       label: "Manufacturing",
@@ -1999,6 +1884,7 @@ export function OrderDetail({
           <div className="grid gap-x-12 gap-y-6 lg:grid-cols-2">
             <KeyFactRows order={order} canEdit={canEdit} />
             <CompactMarginReceipt margin={order.marginSummary} />
+            <div className="lg:col-span-2">{accountingStatus}</div>
           </div>
 
           <SalesOrderDetailTabs
@@ -2032,9 +1918,6 @@ export function OrderDetail({
                   shipShipmentPending={shipShipmentMutation.isPending}
                   cancelShipmentPending={cancelShipmentMutation.isPending}
                 />
-              ),
-              financials: (
-                <FinancialsPanel order={order} accountingStatus={accountingStatus} />
               ),
               manufacturing: <ManufacturingPanel order={order} />,
               activity: <ActivityPanel order={order} />,
@@ -2191,10 +2074,6 @@ export function OrderDetail({
         <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Costs & Margin</DialogTitle>
-            <DialogDescription>
-              Customer freight recovery is for margin tracking only. Not added to Xero
-              invoices.
-            </DialogDescription>
           </DialogHeader>
           {shipmentCostForm ? (
             <form
@@ -2204,23 +2083,6 @@ export function OrderDetail({
                 shipmentCostMutation.mutate(shipmentCostForm);
               }}
             >
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium" htmlFor="customer-freight-recovery">
-                  Customer freight recovery
-                </label>
-                <Input
-                  id="customer-freight-recovery"
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={shipmentCostForm.customerFreightChargeAmount}
-                  onChange={(event) =>
-                    setShipmentCostForm({
-                      ...shipmentCostForm,
-                      customerFreightChargeAmount: event.target.value,
-                    })
-                  }
-                />
-              </div>
               <div className="overflow-x-auto rounded-md border">
                 <Table>
                   <TableHeader>
