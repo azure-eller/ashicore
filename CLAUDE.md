@@ -511,6 +511,8 @@ if (!senderConfig || (await shouldWriteEmailOutbox())) await writeEmailOutbox(em
 
 ### Observability hygiene
 
+For production errors, use the Sentry skill. Source credentials from `~/.config/erp/sentry.env`; org/project are `7050technologies/javascript-nextjs`. Never commit or paste tokens.
+
 Sentry and API error logging must redact secrets and user-entered notes. Never capture passwords, tokens, cookies, raw request bodies, or customer notes/comments by default.
 
 Keep Sentry `includeLocalVariables` local-only and opt-in. It opens the Node inspector and can explode Vercel cold starts.

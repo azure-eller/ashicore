@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Address, type Contact, Phone } from "xero-node";
 import {
   customers,
@@ -100,6 +100,7 @@ type SupplierSnapshot = SupplierAddressFields & {
 
 type ExistingCustomer = CustomerSnapshot & { id: string };
 type ExistingSupplier = SupplierSnapshot & { id: string };
+type ExistingContactMaps = Awaited<ReturnType<typeof loadExistingContactMapsInTx>>;
 
 function customerSnapshot(row: ExistingCustomer): CustomerSnapshot {
   return {
@@ -313,106 +314,71 @@ function supplierSelect() {
   };
 }
 
-async function findExistingCustomerInTx(
-  tx: Tx,
-  contact: Contact
-): Promise<ExistingCustomer | null> {
-  if (contact.contactID) {
-    const [row] = await tx
-      .select(customerSelect())
-      .from(customers)
-      .where(
-        and(
-          eq(customers.xeroContactId, contact.contactID),
-          isNull(customers.deletedAt)
-        )
-      );
-    if (row) return row;
-  }
-
-  if (contact.emailAddress) {
-    const [row] = await tx
-      .select(customerSelect())
-      .from(customers)
-      .where(
-        and(
-          sql`LOWER(${customers.email}) = LOWER(${contact.emailAddress})`,
-          isNull(customers.deletedAt)
-        )
-      );
-    if (row) return row;
-  }
-
-  if (contact.name) {
-    const [row] = await tx
-      .select(customerSelect())
-      .from(customers)
-      .where(
-        and(
-          sql`LOWER(${customers.name}) = LOWER(${contact.name})`,
-          isNull(customers.deletedAt)
-        )
-      );
-    if (row) return row;
-  }
-
-  return null;
+function key(value: string | null | undefined) {
+  return cleanString(value)?.toLowerCase() ?? null;
 }
 
-async function findExistingSupplierInTx(
-  tx: Tx,
-  contact: Contact
-): Promise<ExistingSupplier | null> {
-  if (contact.contactID) {
-    const [row] = await tx
-      .select(supplierSelect())
-      .from(suppliers)
-      .where(
-        and(
-          eq(suppliers.xeroContactId, contact.contactID),
-          isNull(suppliers.deletedAt)
-        )
-      );
-    if (row) return row;
+function addExistingToMaps<T extends ExistingCustomer | ExistingSupplier>(
+  row: T,
+  maps: {
+    byXeroContactId: Map<string, T>;
+    byEmail: Map<string, T>;
+    byName: Map<string, T>;
   }
-
-  if (contact.emailAddress) {
-    const [row] = await tx
-      .select(supplierSelect())
-      .from(suppliers)
-      .where(
-        and(
-          sql`LOWER(${suppliers.email}) = LOWER(${contact.emailAddress})`,
-          isNull(suppliers.deletedAt)
-        )
-      );
-    if (row) return row;
-  }
-
-  if (contact.name) {
-    const [row] = await tx
-      .select(supplierSelect())
-      .from(suppliers)
-      .where(
-        and(
-          sql`LOWER(${suppliers.name}) = LOWER(${contact.name})`,
-          isNull(suppliers.deletedAt)
-        )
-      );
-    if (row) return row;
-  }
-
-  return null;
-}
-
-async function findExistingInTx(
-  tx: Tx,
-  entityType: ContactImportEntity,
-  contact: Contact
 ) {
-  return entityType === "customers"
-    ? findExistingCustomerInTx(tx, contact)
-    : findExistingSupplierInTx(tx, contact);
+  const xeroContactId = key(row.xeroContactId);
+  const email = key(row.email);
+  const name = key(row.name);
+
+  if (xeroContactId) maps.byXeroContactId.set(xeroContactId, row);
+  if (email) maps.byEmail.set(email, row);
+  if (name) maps.byName.set(name, row);
+}
+
+async function loadExistingContactMapsInTx(
+  tx: Tx,
+  entityType: ContactImportEntity
+) {
+  const maps = {
+    byXeroContactId: new Map<string, ExistingCustomer | ExistingSupplier>(),
+    byEmail: new Map<string, ExistingCustomer | ExistingSupplier>(),
+    byName: new Map<string, ExistingCustomer | ExistingSupplier>(),
+  };
+
+  const rows =
+    entityType === "customers"
+      ? await tx
+          .select(customerSelect())
+          .from(customers)
+          .where(isNull(customers.deletedAt))
+      : await tx
+          .select(supplierSelect())
+          .from(suppliers)
+          .where(isNull(suppliers.deletedAt));
+
+  for (const row of rows) {
+    addExistingToMaps(row, maps);
+  }
+
+  return maps;
+}
+
+function findExistingInMaps(maps: ExistingContactMaps, contact: Contact) {
+  const xeroContactId = key(contact.contactID);
+  const email = key(contact.emailAddress);
+  const name = key(contact.name);
+
+  if (xeroContactId) {
+    const row = maps.byXeroContactId.get(xeroContactId);
+    if (row) return row;
+  }
+
+  if (email) {
+    const row = maps.byEmail.get(email);
+    if (row) return row;
+  }
+
+  return name ? maps.byName.get(name) ?? null : null;
 }
 
 export async function previewXeroContactImport(
@@ -435,6 +401,7 @@ export async function previewXeroContactImport(
       sampleUpdates: [],
       sampleSkipped: [],
     };
+    const existingMaps = await loadExistingContactMapsInTx(tx, entityType);
 
     for (const contact of fetched.contacts) {
       const contactName = cleanString(contact.name);
@@ -445,7 +412,7 @@ export async function previewXeroContactImport(
       }
 
       try {
-        const existing = await findExistingInTx(tx, entityType, contact);
+        const existing = findExistingInMaps(existingMaps, contact);
         if (existing) {
           preview.toUpdate += 1;
           preview.sampleUpdates.push(contactName);
@@ -514,6 +481,7 @@ export async function importContactsFromXero(
       skipped: 0,
       errors: [],
     };
+    const existingMaps = await loadExistingContactMapsInTx(tx, entityType);
 
     for (const contact of fetched.contacts) {
       const contactName = cleanString(contact.name);
@@ -523,11 +491,34 @@ export async function importContactsFromXero(
       }
 
       try {
+        const existing = findExistingInMaps(existingMaps, contact);
+        if (!existing && !isXeroEntity(contact, entityType)) {
+          result.skipped += 1;
+          continue;
+        }
+
         await tx.transaction(async (rowTx) => {
-          if (entityType === "customers") {
-            await importCustomerInTx(rowTx, orgId, run.id, contact, result);
-          } else {
-            await importSupplierInTx(rowTx, orgId, run.id, contact, result);
+          const imported =
+            entityType === "customers"
+              ? await importCustomerInTx(
+                  rowTx,
+                  orgId,
+                  run.id,
+                  contact,
+                  existing as ExistingCustomer | null,
+                  result
+                )
+              : await importSupplierInTx(
+                  rowTx,
+                  orgId,
+                  run.id,
+                  contact,
+                  existing as ExistingSupplier | null,
+                  result
+                );
+
+          if (imported) {
+            addExistingToMaps(imported, existingMaps);
           }
         });
       } catch (error) {
@@ -559,14 +550,10 @@ async function importCustomerInTx(
   orgId: string,
   runId: string,
   contact: Contact,
+  existing: ExistingCustomer | null,
   result: ImportResult
-) {
-  const existing = await findExistingCustomerInTx(tx, contact);
+): Promise<ExistingCustomer | null> {
   const addr = mapCustomerAddresses(contact);
-  if (!existing && !isXeroEntity(contact, "customers")) {
-    result.skipped += 1;
-    return;
-  }
   const nextData = {
     name: cleanString(contact.name) ?? existing?.name ?? "",
     email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
@@ -602,7 +589,7 @@ async function importCustomerInTx(
       previousData: customerSnapshot(existing),
     });
     result.updated += 1;
-    return;
+    return { id: existing.id, ...nextData };
   }
 
   const [created] = await tx
@@ -620,6 +607,7 @@ async function importCustomerInTx(
     previousData: null,
   });
   result.created += 1;
+  return { id: created.id, ...nextData };
 }
 
 async function importSupplierInTx(
@@ -627,14 +615,10 @@ async function importSupplierInTx(
   orgId: string,
   runId: string,
   contact: Contact,
+  existing: ExistingSupplier | null,
   result: ImportResult
-) {
-  const existing = await findExistingSupplierInTx(tx, contact);
+): Promise<ExistingSupplier | null> {
   const addr = mapSupplierAddresses(contact);
-  if (!existing && !isXeroEntity(contact, "suppliers")) {
-    result.skipped += 1;
-    return;
-  }
   const nextData = {
     name: cleanString(contact.name) ?? existing?.name ?? "",
     email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
@@ -664,7 +648,7 @@ async function importSupplierInTx(
       previousData: supplierSnapshot(existing),
     });
     result.updated += 1;
-    return;
+    return { id: existing.id, ...nextData };
   }
 
   const [created] = await tx
@@ -682,6 +666,7 @@ async function importSupplierInTx(
     previousData: null,
   });
   result.created += 1;
+  return { id: created.id, ...nextData };
 }
 
 async function loadUndoPreviewInTx(

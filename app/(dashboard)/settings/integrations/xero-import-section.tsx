@@ -209,7 +209,9 @@ export function XeroImportSection({
       }
 
       setDialogAction(null);
-      router.refresh();
+      if (result.mode === "reset") {
+        router.refresh();
+      }
     },
   });
 
@@ -273,8 +275,7 @@ export function XeroImportSection({
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {run.tenantName} · {formatDateTime(run.createdAt)} ·{" "}
-                      {run.createdCount} created, {run.updatedCount} updated,{" "}
-                      {run.skippedCount} skipped
+                      {run.createdCount} loaded, {run.updatedCount} already existed
                     </div>
                   </div>
                   {canReset ? (
@@ -317,12 +318,11 @@ function ImportSummary({
   return (
     <div className="rounded-md border bg-muted/40 p-3 text-sm">
       <p className="font-medium">
-        {label}: {summary.created} created, {summary.updated} updated,{" "}
-        {summary.skipped} skipped
+        {label}: {summary.created} loaded, {summary.updated} already existed
       </p>
-      {summary.errors.length > 0 ? (
+      {(summary.errors?.length ?? 0) > 0 ? (
         <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
-          {summary.errors.map((error, index) => (
+          {(summary.errors ?? []).map((error, index) => (
             <li key={index}>{error}</li>
           ))}
         </ul>
@@ -417,15 +417,20 @@ function ImportActionDialog({
 }
 
 function ImportPreviewDetails({ preview }: { preview: ContactImportPreview }) {
+  const entityName =
+    preview.entityType === "customers" ? "customers" : "suppliers";
+
   return (
     <div className="space-y-3 text-sm">
-      <div className="grid gap-2 sm:grid-cols-4">
-        <PreviewMetric label="Fetched" value={preview.totalFetched} />
-        <PreviewMetric label="Create" value={preview.toCreate} />
-        <PreviewMetric label="Update" value={preview.toUpdate} />
-        <PreviewMetric label="Skip" value={preview.skipped} />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <PreviewMetric label="Will load" value={preview.toCreate} />
+        <PreviewMetric label="Already exists" value={preview.toUpdate} />
       </div>
       <p className="text-muted-foreground">Xero organisation: {preview.tenantName}</p>
+      <p className="text-muted-foreground">
+        New records are created only from Xero contacts marked as {entityName}.
+        Existing ERP records can still update when matched by Xero ID, email, or name.
+      </p>
       {preview.isDemoCompany ? (
         <p className="text-destructive">
           This is Xero Demo Company. Only continue for a test import.
@@ -475,10 +480,10 @@ function PreviewSamples({
   destructive,
 }: {
   title: string;
-  values: string[];
+  values?: string[];
   destructive?: boolean;
 }) {
-  if (values.length === 0) return null;
+  if (!values?.length) return null;
 
   return (
     <div>
