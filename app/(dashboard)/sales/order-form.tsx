@@ -1391,7 +1391,7 @@ function OrderLineRow({
                 itemToStringLabel={(value) => salesItemSearchLabel(itemMap.get(value))}
               >
                 <ComboboxInput className="w-full min-w-72" placeholder="Search items..." />
-                <ComboboxContent>
+                <ComboboxContent className="w-[min(36rem,calc(100vw-2rem))]">
                   <ComboboxEmpty>No items found</ComboboxEmpty>
                   <ComboboxList>
                     {(value: string) => {
