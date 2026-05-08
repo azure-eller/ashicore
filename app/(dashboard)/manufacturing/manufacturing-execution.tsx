@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useCallback, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -44,6 +44,11 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  SortableDragHandle,
+  SortableReorder,
+  useSortableReorderItem,
+} from "@/components/sortable-reorder";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import {
@@ -98,6 +103,8 @@ type CompleteDialogIngredient = {
   plannedQuantity: string;
   pickedQuantity: string;
 };
+
+type ExecutionIngredient = ManufacturingExecutionDetail["ingredients"][number];
 
 function CompleteDialog({
   open,
@@ -260,6 +267,143 @@ function CompleteDialog({
   );
 }
 
+function moveIngredient(
+  ingredients: ExecutionIngredient[],
+  fromIndex: number,
+  toIndex: number
+) {
+  const next = [...ingredients];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return ingredients;
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
+function ExecutionIngredientCard({
+  ingredient,
+  index,
+  execution,
+  canReorder,
+  canPick,
+  isCompleting,
+  isPickPending,
+  pickingIngredientId,
+  pickError,
+  onPick,
+}: {
+  ingredient: ExecutionIngredient;
+  index: number;
+  execution: ManufacturingExecutionDetail;
+  canReorder: boolean;
+  canPick: boolean;
+  isCompleting: boolean;
+  isPickPending: boolean;
+  pickingIngredientId: string | null;
+  pickError: { id: string; message: string } | null;
+  onPick: (ingredientId: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, style } =
+    useSortableReorderItem(ingredient.id);
+  const isPicked = ingredient.remainingQuantity === "0";
+  const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+  const discreteRequirementMath = getDiscreteRequirementMath(
+    execution,
+    ingredient
+  );
+
+  return (
+    <Card
+      ref={setNodeRef}
+      style={style}
+      size="sm"
+      className="border border-border/80 bg-background"
+    >
+      <CardContent className="flex flex-col gap-2 py-1">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            {canReorder && (
+              <div className="pt-0.5">
+                <SortableDragHandle
+                  attributes={attributes}
+                  listeners={listeners}
+                  label={`Reorder ingredient ${index + 1}`}
+                />
+              </div>
+            )}
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
+                  className="font-medium hover:underline"
+                >
+                  {ingredient.itemSku
+                    ? `${ingredient.itemName} (${ingredient.itemSku})`
+                    : ingredient.itemName}
+                </Link>
+                <Badge variant="outline">{ingredient.itemType}</Badge>
+                {isPicked && <Badge variant="outline">Done</Badge>}
+              </div>
+              {discreteRequirementMath ? (
+                <p className="text-sm text-muted-foreground">
+                  Total required:{" "}
+                  <QuantityWithUnit
+                    value={ingredient.plannedQuantity}
+                    unitName={ingredient.unitName}
+                    muted
+                  />
+                  {" • "}
+                  {discreteRequirementMath}
+                </p>
+              ) : null}
+              <p className="text-sm text-muted-foreground">
+                <QuantityWithUnit
+                  label="Planned"
+                  value={ingredient.plannedQuantity}
+                  unitName={ingredient.unitName}
+                  muted
+                />
+                {" • "}
+                <QuantityWithUnit
+                  label="Done"
+                  value={ingredient.pickedQuantity}
+                  unitName={ingredient.unitName}
+                  muted
+                />
+                {" • "}
+                <QuantityWithUnit
+                  label="Remaining"
+                  value={ingredient.remainingQuantity}
+                  unitName={ingredient.unitName}
+                  muted
+                />
+              </p>
+              {minimumLotAgeDays ? (
+                <p className="text-sm text-muted-foreground">
+                  {formatMinimumLotAgeRequirement(minimumLotAgeDays)}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <Button
+            variant={isPicked ? "outline" : "default"}
+            disabled={isPicked || !canPick || isPickPending || isCompleting}
+            onClick={() => onPick(ingredient.id)}
+          >
+            {isPicked
+              ? "Done"
+              : pickingIngredientId === ingredient.id
+                ? "In Progress"
+                : "Mark Done"}
+          </Button>
+        </div>
+        {pickError?.id === ingredient.id && (
+          <p className="text-sm text-destructive">{pickError.message}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ManufacturingExecution({
   execution,
 }: {
@@ -277,11 +421,35 @@ export function ManufacturingExecution({
   const [optimisticStartedBatchId, setOptimisticStartedBatchId] = useState<string | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [reorderError, setReorderError] = useState<string | null>(null);
+  const [optimisticIngredientIds, setOptimisticIngredientIds] = useState<
+    string[] | null
+  >(null);
+  const orderedIngredients = useMemo(() => {
+    if (!optimisticIngredientIds) {
+      return execution.ingredients;
+    }
+
+    const ingredientById = new Map(
+      execution.ingredients.map((ingredient) => [ingredient.id, ingredient])
+    );
+    const optimisticIngredients = optimisticIngredientIds
+      .map((ingredientId) => ingredientById.get(ingredientId))
+      .filter((ingredient): ingredient is ExecutionIngredient => Boolean(ingredient));
+
+    return optimisticIngredients.length === execution.ingredients.length
+      ? optimisticIngredients
+      : execution.ingredients;
+  }, [execution.ingredients, optimisticIngredientIds]);
+  const orderedIngredientIds = orderedIngredients.map(
+    (ingredient) => ingredient.id
+  );
   const defaultActualQuantity = getDefaultActualQuantity(execution);
   const canPick =
     execution.manufacturingMode === "discrete" ||
     execution.currentBatch?.status === "in_progress" ||
     execution.currentBatchId === optimisticStartedBatchId;
+  const canReorderStatus = execution.status === "released";
 
   const refreshExecutionScreen = useCallback(() => {
     startTransition(() => {
@@ -414,6 +582,50 @@ export function ManufacturingExecution({
       });
     },
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (ingredientIds: string[]) => {
+      const response = await fetch(
+        `/api/manufacturing-orders/${execution.id}/ingredients/reorder`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ingredientIds }),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to reorder ingredients.");
+      }
+    },
+    onMutate: () => {
+      setReorderError(null);
+      return { previousIngredientIds: orderedIngredientIds };
+    },
+    onSuccess: async () => {
+      setOptimisticIngredientIds(null);
+      await queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      refreshExecutionScreen();
+    },
+    onError: (error, _ingredientIds, context) => {
+      if (context?.previousIngredientIds) {
+        setOptimisticIngredientIds(context.previousIngredientIds);
+      }
+      setReorderError(error.message);
+      refreshExecutionScreen();
+    },
+  });
+  const canReorderIngredients = canReorderStatus && !reorderMutation.isPending;
+
+  function handleIngredientMove(fromIndex: number, toIndex: number) {
+    if (!canReorderIngredients) {
+      return;
+    }
+
+    const nextIngredients = moveIngredient(orderedIngredients, fromIndex, toIndex);
+    setOptimisticIngredientIds(nextIngredients.map((ingredient) => ingredient.id));
+    reorderMutation.mutate(nextIngredients.map((ingredient) => ingredient.id));
+  }
 
   const completeOrderMutation = useMutation({
     mutationFn: async (input: {
@@ -651,99 +863,34 @@ export function ManufacturingExecution({
               )}
           </div>
 
-          <div className="grid gap-3">
-            {execution.ingredients.map((ingredient) => {
-              const isPicked = ingredient.remainingQuantity === "0";
-              const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
-              const discreteRequirementMath = getDiscreteRequirementMath(
-                execution,
-                ingredient
-              );
+          {reorderError && (
+            <p className="text-sm text-destructive">{reorderError}</p>
+          )}
 
-              return (
-                <Card key={ingredient.id} size="sm" className="border border-border/80">
-                  <CardContent className="flex flex-col gap-2 py-1">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Link
-                            href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
-                            className="font-medium hover:underline"
-                          >
-                            {ingredient.itemSku
-                              ? `${ingredient.itemName} (${ingredient.itemSku})`
-                              : ingredient.itemName}
-                          </Link>
-                          <Badge variant="outline">{ingredient.itemType}</Badge>
-                          {isPicked && <Badge variant="outline">Done</Badge>}
-                        </div>
-                        {discreteRequirementMath ? (
-                          <p className="text-sm text-muted-foreground">
-                            Total required:{" "}
-                            <QuantityWithUnit
-                              value={ingredient.plannedQuantity}
-                              unitName={ingredient.unitName}
-                              muted
-                            />
-                            {" • "}
-                            {discreteRequirementMath}
-                          </p>
-                        ) : null}
-                        <p className="text-sm text-muted-foreground">
-                          <QuantityWithUnit
-                            label="Planned"
-                            value={ingredient.plannedQuantity}
-                            unitName={ingredient.unitName}
-                            muted
-                          />
-                          {" • "}
-                          <QuantityWithUnit
-                            label="Done"
-                            value={ingredient.pickedQuantity}
-                            unitName={ingredient.unitName}
-                            muted
-                          />
-                          {" • "}
-                          <QuantityWithUnit
-                            label="Remaining"
-                            value={ingredient.remainingQuantity}
-                            unitName={ingredient.unitName}
-                            muted
-                          />
-                        </p>
-                        {minimumLotAgeDays ? (
-                          <p className="text-sm text-muted-foreground">
-                            {formatMinimumLotAgeRequirement(minimumLotAgeDays)}
-                          </p>
-                        ) : null}
-                      </div>
-                      <Button
-                        variant={isPicked ? "outline" : "default"}
-                        disabled={
-                          isPicked ||
-                          !canPick ||
-                          pickMutation.isPending ||
-                          isCompleting
-                        }
-                        onClick={() =>
-                          pickMutation.mutate({ ingredientId: ingredient.id })
-                        }
-                      >
-                        {isPicked
-                          ? "Done"
-                          : pickingIngredientId === ingredient.id
-                            ? "In Progress"
-                            : "Mark Done"}
-                      </Button>
-                    </div>
-                    {pickError?.id === ingredient.id && (
-                      <p className="text-sm text-destructive">{pickError.message}</p>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          <SortableReorder
+            ids={orderedIngredientIds}
+            onMove={handleIngredientMove}
+          >
+            <div className="grid gap-3">
+              {orderedIngredients.map((ingredient, index) => (
+                <ExecutionIngredientCard
+                  key={ingredient.id}
+                  ingredient={ingredient}
+                  index={index}
+                  execution={execution}
+                  canReorder={canReorderIngredients}
+                  canPick={canPick}
+                  isCompleting={isCompleting}
+                  isPickPending={pickMutation.isPending || reorderMutation.isPending}
+                  pickingIngredientId={pickingIngredientId}
+                  pickError={pickError}
+                  onPick={(ingredientId) =>
+                    pickMutation.mutate({ ingredientId })
+                  }
+                />
+              ))}
+            </div>
+          </SortableReorder>
         </div>
 
         <div className="flex justify-end">
@@ -820,7 +967,7 @@ export function ManufacturingExecution({
           }}
           isBatchMode={execution.manufacturingMode === "batch"}
           defaultActualQuantity={defaultActualQuantity}
-          ingredients={execution.ingredients.map((ingredient) => ({
+          ingredients={orderedIngredients.map((ingredient) => ({
             id: ingredient.id,
             itemName: ingredient.itemName,
             itemSku: ingredient.itemSku,

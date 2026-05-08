@@ -80,6 +80,7 @@ import type {
   ManufacturingOrderStatus,
   ManufacturingPickStatus,
   RecordManufacturingOutput,
+  ReorderManufacturingIngredients,
   UpdateManufacturingOrder,
 } from "@/lib/schemas/manufacturing-orders";
 import type {
@@ -400,6 +401,21 @@ async function getLockedManufacturingOrderInTx(
     .for("update");
 
   return order ?? null;
+}
+
+function assertSameStringSet(
+  actual: string[],
+  expected: string[],
+  message: string
+) {
+  if (actual.length !== expected.length) {
+    throw new ManufacturingError(message, 400);
+  }
+
+  const expectedSet = new Set(expected);
+  if (actual.some((value) => !expectedSet.has(value))) {
+    throw new ManufacturingError(message, 400);
+  }
 }
 
 export class ManufacturingError extends DomainError<{
@@ -2651,6 +2667,121 @@ export async function updateManufacturingOrder(
     await insertManufacturingIngredientsInTx(tx, id, ingredients);
 
     return order;
+  });
+}
+
+export async function reorderManufacturingOrderIngredients(
+  id: string,
+  payload: ReorderManufacturingIngredients
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const order = await getLockedManufacturingOrderInTx(tx, id);
+
+    if (!order) {
+      return null;
+    }
+
+    if (order.status !== "released") {
+      throw new ManufacturingError(
+        "Only released manufacturing orders can be reordered.",
+        400
+      );
+    }
+
+    const submittedRows = await tx
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        manufacturingOrderBatchId:
+          manufacturingOrderIngredients.manufacturingOrderBatchId,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(
+        and(
+          eq(manufacturingOrderIngredients.manufacturingOrderId, id),
+          inArray(manufacturingOrderIngredients.id, payload.ingredientIds)
+        )
+      )
+      .for("update");
+
+    assertSameStringSet(
+      submittedRows.map((row) => row.id),
+      payload.ingredientIds,
+      "Ingredient order does not match this manufacturing order."
+    );
+
+    const now = new Date();
+
+    if (order.manufacturingMode === "batch" && order.status === "released") {
+      if (submittedRows.some((row) => row.manufacturingOrderBatchId == null)) {
+        throw new ManufacturingError(
+          "Batch execution order must use batch ingredient rows.",
+          400
+        );
+      }
+
+      const itemIdByIngredientId = new Map(
+        submittedRows.map((row) => [row.id, row.itemId])
+      );
+      const orderedItemIds = payload.ingredientIds.map(
+        (ingredientId) => itemIdByIngredientId.get(ingredientId)!
+      );
+      const allBatchRows = await tx
+        .select({
+          id: manufacturingOrderIngredients.id,
+          itemId: manufacturingOrderIngredients.itemId,
+        })
+        .from(manufacturingOrderIngredients)
+        .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
+        .for("update");
+      const allItemIds = [...new Set(allBatchRows.map((row) => row.itemId))];
+
+      assertSameStringSet(
+        orderedItemIds,
+        allItemIds,
+        "Ingredient order must include every batch ingredient."
+      );
+
+      for (const [sortOrder, itemId] of orderedItemIds.entries()) {
+        await tx
+          .update(manufacturingOrderIngredients)
+          .set({ sortOrder, updatedAt: now })
+          .where(
+            and(
+              eq(manufacturingOrderIngredients.manufacturingOrderId, id),
+              eq(manufacturingOrderIngredients.itemId, itemId)
+            )
+          );
+      }
+
+      return { id };
+    }
+
+    const templateRows = await tx
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(
+        and(
+          eq(manufacturingOrderIngredients.manufacturingOrderId, id),
+          sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
+        )
+      )
+      .for("update");
+
+    assertSameStringSet(
+      payload.ingredientIds,
+      templateRows.map((row) => row.id),
+      "Ingredient order must include every ingredient."
+    );
+
+    for (const [sortOrder, ingredientId] of payload.ingredientIds.entries()) {
+      await tx
+        .update(manufacturingOrderIngredients)
+        .set({ sortOrder, updatedAt: now })
+        .where(eq(manufacturingOrderIngredients.id, ingredientId));
+    }
+
+    return { id };
   });
 }
 

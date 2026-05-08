@@ -23,6 +23,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
+  SortableDragHandle,
+  SortableReorder,
+  useSortableReorderItem,
+} from "@/components/sortable-reorder";
+import {
   insertSalesOrderSchema,
   salesOrderDefaultValues,
 } from "@/lib/schemas/sales-orders";
@@ -212,7 +217,7 @@ function SalesOrderSection({
 }
 
 const SALES_ORDER_LINE_GRID_COLUMNS =
-  "minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem";
+  "2.5rem minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem";
 
 function salesItemSearchLabel(item: SalesOrderItemOption | undefined) {
   if (!item) return "";
@@ -454,9 +459,19 @@ export function OrderForm({
     name: "status",
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, move, remove } = useFieldArray({
     control: form.control,
     name: "lines",
+  });
+  const [initialLineByFieldId] = useState(() => {
+    const lineByFieldId = new Map<string, SalesOrderEditData["lines"][number]>();
+    fields.forEach((field, index) => {
+      const initialLine = initialData?.lines[index];
+      if (initialLine) {
+        lineByFieldId.set(field.id, initialLine);
+      }
+    });
+    return lineByFieldId;
   });
   const [linePricingState, setLinePricingState] = useState<
     Record<string, LinePricingState>
@@ -943,88 +958,94 @@ export function OrderForm({
             >
               <FieldGroup className="gap-4">
                 {fields.length > 0 ? (
-                  <EditableLineGrid
-                    columns={SALES_ORDER_LINE_GRID_COLUMNS}
-                    minWidth="54rem"
-                    headers={[
-                      <TableHeaderLabel key="item" label="Item" required />,
-                      <TableHeaderLabel
-                        key="qty"
-                        label="Qty"
-                        tooltip={SALES_LINE_QTY_TOOLTIP}
-                        required
-                      />,
-                      <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
-                      <TableHeaderLabel
-                        key="unit-price"
-                        label="Unit Price"
-                        tooltip={SALES_UNIT_PRICE_TOOLTIP}
-                        required
-                      />,
-                      <TooltipHeader
-                        key="line-total"
-                        label="Line Total"
-                        tooltip={LINE_TOTAL_TOOLTIP}
-                      />,
-                      <TooltipHeader
-                        key="margin"
-                        label="Margin"
-                        tooltip={ESTIMATED_MARGIN_TOOLTIP}
-                      />,
-                      <span key="actions" />,
-                    ]}
+                  <SortableReorder
+                    ids={fields.map((field) => field.id)}
+                    onMove={(fromIndex, toIndex) => move(fromIndex, toIndex)}
                   >
-                    {fields.map((field, index) => (
-                      <OrderLineRow
-                        key={field.id}
-                        lineKey={field.id}
-                        index={index}
-                        control={form.control}
-                        customerId={customerId}
-                        initialCustomerId={initialData?.customerId}
-                        initialLine={initialData?.lines[index]}
-                        setValue={form.setValue}
-                        itemIds={itemIds}
-                        itemMap={itemMap}
-                        pricingState={getLinePricingState(field.id, index)}
-                        onPricingStateChange={updateLinePricingState}
-                        onItemChange={(itemId) => {
-                          const item = itemMap.get(itemId);
-                          form.setValue(`lines.${index}.itemId`, itemId, {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          });
-                          form.setValue(
-                            `lines.${index}.unitPrice`,
-                            item?.defaultSellingPrice ?? null,
-                            {
+                    <EditableLineGrid
+                      columns={SALES_ORDER_LINE_GRID_COLUMNS}
+                      minWidth="56rem"
+                      headers={[
+                        <span key="reorder" />,
+                        <TableHeaderLabel key="item" label="Item" required />,
+                        <TableHeaderLabel
+                          key="qty"
+                          label="Qty"
+                          tooltip={SALES_LINE_QTY_TOOLTIP}
+                          required
+                        />,
+                        <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
+                        <TableHeaderLabel
+                          key="unit-price"
+                          label="Unit Price"
+                          tooltip={SALES_UNIT_PRICE_TOOLTIP}
+                          required
+                        />,
+                        <TooltipHeader
+                          key="line-total"
+                          label="Line Total"
+                          tooltip={LINE_TOTAL_TOOLTIP}
+                        />,
+                        <TooltipHeader
+                          key="margin"
+                          label="Margin"
+                          tooltip={ESTIMATED_MARGIN_TOOLTIP}
+                        />,
+                        <span key="actions" />,
+                      ]}
+                    >
+                      {fields.map((field, index) => (
+                        <OrderLineRow
+                          key={field.id}
+                          lineKey={field.id}
+                          index={index}
+                          control={form.control}
+                          customerId={customerId}
+                          initialCustomerId={initialData?.customerId}
+                          initialLine={initialLineByFieldId.get(field.id)}
+                          setValue={form.setValue}
+                          itemIds={itemIds}
+                          itemMap={itemMap}
+                          pricingState={getLinePricingState(field.id, index)}
+                          onPricingStateChange={updateLinePricingState}
+                          onItemChange={(itemId) => {
+                            const item = itemMap.get(itemId);
+                            form.setValue(`lines.${index}.itemId`, itemId, {
                               shouldDirty: true,
                               shouldValidate: true,
-                            }
-                          );
-                          updateLinePricingState(field.id, {
-                            ...DEFAULT_LINE_PRICING_STATE,
-                            baseUnitPrice: item?.defaultSellingPrice ?? null,
-                            suggestedUnitPrice: item?.defaultSellingPrice ?? null,
-                            estimatedUnitCost: item?.estimatedUnitCost ?? null,
-                            isPriceOverridden: false,
-                          });
-                        }}
-                        onRemove={() => {
-                          setLinePricingState((currentState) => {
-                            if (!(field.id in currentState)) {
-                              return currentState;
-                            }
+                            });
+                            form.setValue(
+                              `lines.${index}.unitPrice`,
+                              item?.defaultSellingPrice ?? null,
+                              {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                              }
+                            );
+                            updateLinePricingState(field.id, {
+                              ...DEFAULT_LINE_PRICING_STATE,
+                              baseUnitPrice: item?.defaultSellingPrice ?? null,
+                              suggestedUnitPrice: item?.defaultSellingPrice ?? null,
+                              estimatedUnitCost: item?.estimatedUnitCost ?? null,
+                              isPriceOverridden: false,
+                            });
+                          }}
+                          onRemove={() => {
+                            setLinePricingState((currentState) => {
+                              if (!(field.id in currentState)) {
+                                return currentState;
+                              }
 
-                            const nextState = { ...currentState };
-                            delete nextState[field.id];
-                            return nextState;
-                          });
-                          remove(index);
-                        }}
-                      />
-                    ))}
-                  </EditableLineGrid>
+                              const nextState = { ...currentState };
+                              delete nextState[field.id];
+                              return nextState;
+                            });
+                            remove(index);
+                          }}
+                        />
+                      ))}
+                    </EditableLineGrid>
+                  </SortableReorder>
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-8 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -1238,6 +1259,8 @@ function OrderLineRow({
   });
 
   const item = line?.itemId ? itemMap.get(line.itemId) : undefined;
+  const { attributes, listeners, setNodeRef, style } =
+    useSortableReorderItem(lineKey);
   const estimatedUnitCost = pricingState?.estimatedUnitCost ?? item?.estimatedUnitCost ?? null;
   const estimatedMargin = item
     ? calculateUnitMarginMetrics({
@@ -1371,7 +1394,14 @@ function OrderLineRow({
   ]);
 
   return (
-    <EditableLineGridRow>
+    <EditableLineGridRow ref={setNodeRef} style={style}>
+      <EditableLineGridCell align="center">
+        <SortableDragHandle
+          attributes={attributes}
+          listeners={listeners}
+          label={`Reorder line ${index + 1}`}
+        />
+      </EditableLineGridCell>
       <EditableLineGridCell>
         <Controller
           control={control}

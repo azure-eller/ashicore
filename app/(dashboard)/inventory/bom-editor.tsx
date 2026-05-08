@@ -22,6 +22,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import {
+  SortableDragHandle,
+  SortableReorder,
+  useSortableReorderItem,
+} from "@/components/sortable-reorder";
 import type {
   InsertItemFormValues,
   UpdateItemFormValues,
@@ -38,7 +43,7 @@ type AvailableComponent = {
 type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
 
 const BOM_LINE_GRID_COLUMNS =
-  "minmax(16rem, 1fr) 8rem 7rem 6rem 2.5rem";
+  "2.5rem minmax(16rem, 1fr) 8rem 7rem 6rem 2.5rem";
 
 interface BomEditorProps {
   control: Control<ItemFormValues>;
@@ -48,7 +53,7 @@ interface BomEditorProps {
 
 export function BomEditor({ control, availableComponents, manufacturingMode = "discrete" }: BomEditorProps) {
   const isBatch = manufacturingMode === "batch";
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, move, remove } = useFieldArray({
     control,
     name: "bom",
   });
@@ -66,29 +71,35 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
   return (
     <div className="flex w-full flex-col gap-6">
       {fields.length > 0 ? (
-        <EditableLineGrid
-          columns={BOM_LINE_GRID_COLUMNS}
-          minWidth="40rem"
-          headers={[
-            "Component",
-            isBatch ? "Qty / Batch" : "Qty",
-            "Min Age",
-            "Unit",
-            <span key="actions" />,
-          ]}
+        <SortableReorder
+          ids={fields.map((field) => field.id)}
+          onMove={(fromIndex, toIndex) => move(fromIndex, toIndex)}
         >
-          {fields.map((field, index) => (
-            <BomRow
-              key={field.id}
-              lineKey={field.id}
-              index={index}
-              control={control}
-              componentIds={componentIds}
-              componentMap={componentMap}
-              onRemove={() => remove(index)}
-            />
-          ))}
-        </EditableLineGrid>
+          <EditableLineGrid
+            columns={BOM_LINE_GRID_COLUMNS}
+            minWidth="42rem"
+            headers={[
+              <span key="reorder" />,
+              "Component",
+              isBatch ? "Qty / Batch" : "Qty",
+              "Min Age",
+              "Unit",
+              <span key="actions" />,
+            ]}
+          >
+            {fields.map((field, index) => (
+              <BomRow
+                key={field.id}
+                lineKey={field.id}
+                index={index}
+                control={control}
+                componentIds={componentIds}
+                componentMap={componentMap}
+                onRemove={() => remove(index)}
+              />
+            ))}
+          </EditableLineGrid>
+        </SortableReorder>
       ) : (
         <div className="rounded-lg border border-dashed px-4 py-6">
           <p className="text-sm text-muted-foreground">
@@ -144,9 +155,18 @@ function BomRow({
     control,
     name: `bom.${index}.alternates`,
   });
+  const { attributes, listeners, setNodeRef, style } =
+    useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow data-testid="bom-row">
+    <EditableLineGridRow ref={setNodeRef} data-testid="bom-row" style={style}>
+      <EditableLineGridCell align="center">
+        <SortableDragHandle
+          attributes={attributes}
+          listeners={listeners}
+          label={`Reorder ingredient ${index + 1}`}
+        />
+      </EditableLineGridCell>
       <EditableLineGridCell>
         <Controller
           name={`bom.${index}.componentId`}

@@ -55,6 +55,11 @@ import {
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  SortableDragHandle,
+  SortableReorder,
+  useSortableReorderItem,
+} from "@/components/sortable-reorder";
 import { Textarea } from "@/components/ui/textarea";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
@@ -78,7 +83,7 @@ type ApiError = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "minmax(18rem, 1fr) 7rem 8rem 9rem 7rem 2.5rem";
+  "2.5rem minmax(18rem, 1fr) 7rem 8rem 9rem 7rem 2.5rem";
 
 function parseNonNegative(value: string | null | undefined) {
   if (value == null || value.trim() === "") return null;
@@ -148,7 +153,7 @@ export function PurchaseOrderForm({
     name: "supplierId",
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, move, remove } = useFieldArray({
     control: form.control,
     name: "lines",
   });
@@ -346,61 +351,67 @@ export function PurchaseOrderForm({
           >
             <FieldGroup className="gap-4">
               {fields.length > 0 ? (
-                <EditableLineGrid
-                  columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
-                  minWidth="52rem"
-                  headers={[
-                    "Material",
-                    <TooltipHeader
-                      key="ordered-qty"
-                      label="Ordered Qty"
-                      tooltip={PO_ORDERED_QTY_TOOLTIP}
-                    />,
-                    <TooltipHeader
-                      key="purchase-unit"
-                      label="Purchase Unit"
-                      tooltip={PURCHASE_UNIT_TOOLTIP}
-                    />,
-                    <TooltipHeader
-                      key="unit-cost"
-                      label="Unit Cost"
-                      tooltip={PURCHASE_UNIT_COST_TOOLTIP}
-                    />,
-                    <TooltipHeader
-                      key="line-total"
-                      label="Line Total"
-                      tooltip={LINE_TOTAL_TOOLTIP}
-                    />,
-                    <span key="actions" />,
-                  ]}
+                <SortableReorder
+                  ids={fields.map((field) => field.id)}
+                  onMove={(fromIndex, toIndex) => move(fromIndex, toIndex)}
                 >
-                  {fields.map((field, index) => (
-                    <PurchaseOrderLineRow
-                      key={field.id}
-                      lineKey={field.id}
-                      index={index}
-                      control={form.control}
-                      materialIds={materialIds}
-                      materialMap={materialMap}
-                      onMaterialChange={(materialId) => {
-                        const material = materialMap.get(materialId);
-                        form.setValue(`lines.${index}.itemId`, materialId, {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        });
-                        form.setValue(
-                          `lines.${index}.unitCost`,
-                          material?.defaultPurchasePrice ?? "0",
-                          {
+                  <EditableLineGrid
+                    columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
+                    minWidth="54rem"
+                    headers={[
+                      <span key="reorder" />,
+                      "Material",
+                      <TooltipHeader
+                        key="ordered-qty"
+                        label="Ordered Qty"
+                        tooltip={PO_ORDERED_QTY_TOOLTIP}
+                      />,
+                      <TooltipHeader
+                        key="purchase-unit"
+                        label="Purchase Unit"
+                        tooltip={PURCHASE_UNIT_TOOLTIP}
+                      />,
+                      <TooltipHeader
+                        key="unit-cost"
+                        label="Unit Cost"
+                        tooltip={PURCHASE_UNIT_COST_TOOLTIP}
+                      />,
+                      <TooltipHeader
+                        key="line-total"
+                        label="Line Total"
+                        tooltip={LINE_TOTAL_TOOLTIP}
+                      />,
+                      <span key="actions" />,
+                    ]}
+                  >
+                    {fields.map((field, index) => (
+                      <PurchaseOrderLineRow
+                        key={field.id}
+                        lineKey={field.id}
+                        index={index}
+                        control={form.control}
+                        materialIds={materialIds}
+                        materialMap={materialMap}
+                        onMaterialChange={(materialId) => {
+                          const material = materialMap.get(materialId);
+                          form.setValue(`lines.${index}.itemId`, materialId, {
                             shouldDirty: true,
                             shouldValidate: true,
-                          }
-                        );
-                      }}
-                      onRemove={() => remove(index)}
-                    />
-                  ))}
-                </EditableLineGrid>
+                          });
+                          form.setValue(
+                            `lines.${index}.unitCost`,
+                            material?.defaultPurchasePrice ?? "0",
+                            {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            }
+                          );
+                        }}
+                        onRemove={() => remove(index)}
+                      />
+                    ))}
+                  </EditableLineGrid>
+                </SortableReorder>
               ) : (
                 <div className="rounded-lg border border-dashed px-4 py-6">
                   <p className="text-sm text-muted-foreground">
@@ -497,9 +508,18 @@ function PurchaseOrderLineRow({
   });
 
   const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
+  const { attributes, listeners, setNodeRef, style } =
+    useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow>
+    <EditableLineGridRow ref={setNodeRef} style={style}>
+      <EditableLineGridCell align="center">
+        <SortableDragHandle
+          attributes={attributes}
+          listeners={listeners}
+          label={`Reorder line ${index + 1}`}
+        />
+      </EditableLineGridCell>
       <EditableLineGridCell>
         <Controller
           control={control}

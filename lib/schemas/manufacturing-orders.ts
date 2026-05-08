@@ -209,6 +209,29 @@ export type PickManufacturingIngredient = z.infer<
   typeof pickManufacturingIngredientSchema
 >;
 
+export const reorderManufacturingIngredientsSchema = z.object({
+  ingredientIds: z
+    .array(z.string().min(1, "Ingredient is required"))
+    .min(1, "At least one ingredient is required")
+    .superRefine((ids, ctx) => {
+      const seen = new Set<string>();
+
+      ids.forEach((id, index) => {
+        if (seen.has(id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Ingredient appears more than once",
+            path: [index],
+          });
+        }
+        seen.add(id);
+      });
+    }),
+});
+export type ReorderManufacturingIngredients = z.infer<
+  typeof reorderManufacturingIngredientsSchema
+>;
+
 export const recordManufacturingOutputSchema = z.object({
   quantity: positiveDecimalString("Output quantity"),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
