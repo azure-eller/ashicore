@@ -129,11 +129,11 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByPlaceholder("0").first().fill("10");
 
     await page.getByRole("button", { name: "Add Material" }).click();
-    const secondRow = page.locator("tbody tr").nth(1);
-    await secondRow.getByPlaceholder("Search materials...").click();
-    await secondRow.getByPlaceholder("Search materials...").pressSequentially(sandName);
+    const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
+    await secondMaterialInput.click();
+    await secondMaterialInput.pressSequentially(sandName);
     await page.getByRole("option", { name: sandOptionPattern }).click();
-    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
+    await page.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
     const [createOrderResponse] = await Promise.all([
       page.waitForResponse(

@@ -12,7 +12,13 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import { FieldError } from "@/components/ui/field";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import {
+  EditableLineGrid,
+  EditableLineGridCell,
+  EditableLineGridFullWidth,
+  EditableLineGridRow,
+} from "@/components/editable-line-grid";
 import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -30,6 +36,9 @@ type AvailableComponent = {
 };
 
 type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
+
+const BOM_LINE_GRID_COLUMNS =
+  "minmax(16rem, 1fr) 8rem 7rem 6rem 2.5rem";
 
 interface BomEditorProps {
   control: Control<ItemFormValues>;
@@ -57,27 +66,29 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
   return (
     <div className="flex w-full flex-col gap-6">
       {fields.length > 0 ? (
-        <div className="space-y-3 rounded-lg border p-3">
-          <div className="hidden grid-cols-[minmax(0,1fr)_8rem_7rem_6rem_2.5rem] gap-3 px-2 text-xs font-medium text-muted-foreground md:grid">
-            <span>Component</span>
-            <span>{isBatch ? "Qty / Batch" : "Qty"}</span>
-            <span>Min Age</span>
-            <span>Unit</span>
-            <span />
-          </div>
-          <div className="space-y-3">
-            {fields.map((field, index) => (
-              <BomRow
-                key={field.id}
-                index={index}
-                control={control}
-                componentIds={componentIds}
-                componentMap={componentMap}
-                onRemove={() => remove(index)}
-              />
-            ))}
-          </div>
-        </div>
+        <EditableLineGrid
+          columns={BOM_LINE_GRID_COLUMNS}
+          minWidth="40rem"
+          headers={[
+            "Component",
+            isBatch ? "Qty / Batch" : "Qty",
+            "Min Age",
+            "Unit",
+            <span key="actions" />,
+          ]}
+        >
+          {fields.map((field, index) => (
+            <BomRow
+              key={field.id}
+              lineKey={field.id}
+              index={index}
+              control={control}
+              componentIds={componentIds}
+              componentMap={componentMap}
+              onRemove={() => remove(index)}
+            />
+          ))}
+        </EditableLineGrid>
       ) : (
         <div className="rounded-lg border border-dashed px-4 py-6">
           <p className="text-sm text-muted-foreground">
@@ -109,12 +120,14 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
 
 /** Extracted sub-component so useWatch can be called at the top level (Rules of Hooks). */
 function BomRow({
+  lineKey,
   index,
   control,
   componentIds,
   componentMap,
   onRemove,
 }: {
+  lineKey: string;
   index: number;
   control: Control<ItemFormValues>;
   componentIds: string[];
@@ -133,25 +146,29 @@ function BomRow({
   });
 
   return (
-    <div
-      data-testid="bom-row"
-      className="grid gap-3 rounded-lg border border-dashed p-3 md:grid-cols-[minmax(0,1fr)_8rem_7rem_6rem_2.5rem] md:items-start"
-    >
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground md:hidden">Component</p>
+    <EditableLineGridRow data-testid="bom-row">
+      <EditableLineGridCell>
         <Controller
           name={`bom.${index}.componentId`}
           control={control}
           render={({ field: f, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-component`}>
+                Component
+              </FieldLabel>
               <Combobox
                 items={componentIds}
                 value={f.value ?? ""}
                 onValueChange={(id) => f.onChange(id ?? "")}
                 itemToStringLabel={(id) => componentMap.get(id)?.displayName ?? ""}
               >
-                <ComboboxInput className="w-full" placeholder="Search items..." />
-                <ComboboxContent>
+                <ComboboxInput
+                  id={`${lineKey}-component`}
+                  aria-invalid={fieldState.invalid}
+                  className="w-full min-w-0"
+                  placeholder="Search items..."
+                />
+                <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))]">
                   <ComboboxEmpty>No items found</ComboboxEmpty>
                   <ComboboxList>
                     {(id: string) => {
@@ -173,65 +190,68 @@ function BomRow({
               {fieldState.invalid && (
                 <FieldError errors={[fieldState.error]} />
               )}
-            </div>
+            </Field>
           )}
         />
-      </div>
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground md:hidden">Qty</p>
+      </EditableLineGridCell>
+      <EditableLineGridCell>
         <Controller
           name={`bom.${index}.quantity`}
           control={control}
           render={({ field: f, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-quantity`}>
+                Quantity
+              </FieldLabel>
               <Input
                 {...f}
+                id={`${lineKey}-quantity`}
                 value={f.value ?? ""}
                 aria-invalid={fieldState.invalid}
                 placeholder="0"
                 inputMode="decimal"
                 autoComplete="off"
-                className="w-full"
+                className="w-full min-w-0"
               />
               {fieldState.invalid && (
                 <FieldError errors={[fieldState.error]} />
               )}
-            </div>
+            </Field>
           )}
         />
-      </div>
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground md:hidden">
-          Min Age
-        </p>
+      </EditableLineGridCell>
+      <EditableLineGridCell>
         <Controller
           name={`bom.${index}.minimumLotAgeDays`}
           control={control}
           render={({ field: f, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-min-age`}>
+                Min Age
+              </FieldLabel>
               <Input
                 {...f}
+                id={`${lineKey}-min-age`}
                 value={f.value ?? ""}
                 aria-invalid={fieldState.invalid}
                 placeholder="0"
                 inputMode="numeric"
                 autoComplete="off"
-                className="w-full"
+                className="w-full min-w-0"
               />
               {fieldState.invalid && (
                 <FieldError errors={[fieldState.error]} />
               )}
-            </div>
+            </Field>
           )}
         />
-      </div>
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground md:hidden">Unit</p>
+      </EditableLineGridCell>
+      <EditableLineGridCell>
         <div className="flex h-8 items-center text-sm text-muted-foreground">
           {selectedComponent?.unit ?? "\u2014"}
         </div>
-      </div>
-      <div className="flex items-start justify-end md:pt-0">
+      </EditableLineGridCell>
+      <EditableLineGridCell>
         <Button
           type="button"
           variant="ghost"
@@ -241,8 +261,8 @@ function BomRow({
         >
           <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
         </Button>
-      </div>
-      <div className="flex flex-col gap-2 md:col-span-5">
+      </EditableLineGridCell>
+      <EditableLineGridFullWidth className="flex flex-col gap-2 px-[var(--table-cell-px)] pb-[var(--table-cell-py)]">
         {alternateFields.length > 0 && (
           <div className="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
             {alternateFields.map((alternateField, alternateIndex) => (
@@ -269,8 +289,8 @@ function BomRow({
             + Alternate
           </Button>
         </div>
-      </div>
-    </div>
+      </EditableLineGridFullWidth>
+    </EditableLineGridRow>
   );
 }
 
@@ -307,15 +327,26 @@ function BomAlternateRow({
         name={`bom.${rowIndex}.alternates.${alternateIndex}.itemId`}
         control={control}
         render={({ field: f, fieldState }) => (
-          <div>
+          <Field data-invalid={fieldState.invalid}>
+            <FieldLabel
+              className="sr-only"
+              htmlFor={`bom-${rowIndex}-alternate-${alternateIndex}`}
+            >
+              Alternate item
+            </FieldLabel>
             <Combobox
               items={selectableIds}
               value={f.value ?? ""}
               onValueChange={(id) => f.onChange(id ?? "")}
               itemToStringLabel={(id) => componentMap.get(id)?.displayName ?? ""}
             >
-              <ComboboxInput className="w-full" placeholder="Alternate item..." />
-              <ComboboxContent>
+              <ComboboxInput
+                id={`bom-${rowIndex}-alternate-${alternateIndex}`}
+                aria-invalid={fieldState.invalid}
+                className="w-full min-w-0"
+                placeholder="Alternate item..."
+              />
+              <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))]">
                 <ComboboxEmpty>No items found</ComboboxEmpty>
                 <ComboboxList>
                   {(id: string) => {
@@ -335,7 +366,7 @@ function BomAlternateRow({
               </ComboboxContent>
             </Combobox>
             {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-          </div>
+          </Field>
         )}
       />
       <div className="flex h-8 items-center text-sm text-muted-foreground">

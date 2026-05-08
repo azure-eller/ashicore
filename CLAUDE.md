@@ -439,6 +439,10 @@ Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` mu
 
 Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell` — never raw `<table>` / `<tr>` / `<td>`. Raw HTML tables bypass theme tokens and won't pick up future Table component changes.
 
+### Editable line-item forms
+
+Multi-control line rows use `EditableLineGrid` from `components/editable-line-grid.tsx`. Keep each input in a shadcn `Field`, give every column an explicit track, and use horizontal overflow when the total minimum width exceeds the card.
+
 ### Shared dashboard tables
 
 List pages with search + add + optional bulk delete should use `DashboardDataTable` from `components/dashboard-data-table.tsx`. Keep route table files to columns + config only.

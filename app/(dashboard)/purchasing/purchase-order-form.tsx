@@ -47,17 +47,14 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  EditableLineGrid,
+  EditableLineGridCell,
+  EditableLineGridRow,
+} from "@/components/editable-line-grid";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { TooltipHeader } from "@/components/tooltip-header";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
@@ -79,6 +76,9 @@ type ApiError = {
   error?: string;
   errors?: Record<string, string[]>;
 };
+
+const PURCHASE_ORDER_LINE_GRID_COLUMNS =
+  "minmax(18rem, 1fr) 7rem 8rem 9rem 7rem 2.5rem";
 
 function parseNonNegative(value: string | null | undefined) {
   if (value == null || value.trim() === "") return null;
@@ -346,55 +346,61 @@ export function PurchaseOrderForm({
           >
             <FieldGroup className="gap-4">
               {fields.length > 0 ? (
-                <div className="overflow-x-auto rounded-lg border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Material</TableHead>
-                        <TableHead className="w-32">
-                          <TooltipHeader label="Ordered Qty" tooltip={PO_ORDERED_QTY_TOOLTIP} />
-                        </TableHead>
-                        <TableHead className="w-32">
-                          <TooltipHeader label="Purchase Unit" tooltip={PURCHASE_UNIT_TOOLTIP} />
-                        </TableHead>
-                        <TableHead className="w-40">
-                          <TooltipHeader label="Unit Cost" tooltip={PURCHASE_UNIT_COST_TOOLTIP} />
-                        </TableHead>
-                        <TableHead className="w-32 text-right">
-                          <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
-                        </TableHead>
-                        <TableHead className="w-12" />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {fields.map((field, index) => (
-                        <PurchaseOrderLineRow
-                          key={field.id}
-                          index={index}
-                          control={form.control}
-                          materialIds={materialIds}
-                          materialMap={materialMap}
-                          onMaterialChange={(materialId) => {
-                            const material = materialMap.get(materialId);
-                            form.setValue(`lines.${index}.itemId`, materialId, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                            form.setValue(
-                              `lines.${index}.unitCost`,
-                              material?.defaultPurchasePrice ?? "0",
-                              {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              }
-                            );
-                          }}
-                          onRemove={() => remove(index)}
-                        />
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                <EditableLineGrid
+                  columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
+                  minWidth="52rem"
+                  headers={[
+                    "Material",
+                    <TooltipHeader
+                      key="ordered-qty"
+                      label="Ordered Qty"
+                      tooltip={PO_ORDERED_QTY_TOOLTIP}
+                    />,
+                    <TooltipHeader
+                      key="purchase-unit"
+                      label="Purchase Unit"
+                      tooltip={PURCHASE_UNIT_TOOLTIP}
+                    />,
+                    <TooltipHeader
+                      key="unit-cost"
+                      label="Unit Cost"
+                      tooltip={PURCHASE_UNIT_COST_TOOLTIP}
+                    />,
+                    <TooltipHeader
+                      key="line-total"
+                      label="Line Total"
+                      tooltip={LINE_TOTAL_TOOLTIP}
+                    />,
+                    <span key="actions" />,
+                  ]}
+                >
+                  {fields.map((field, index) => (
+                    <PurchaseOrderLineRow
+                      key={field.id}
+                      lineKey={field.id}
+                      index={index}
+                      control={form.control}
+                      materialIds={materialIds}
+                      materialMap={materialMap}
+                      onMaterialChange={(materialId) => {
+                        const material = materialMap.get(materialId);
+                        form.setValue(`lines.${index}.itemId`, materialId, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        });
+                        form.setValue(
+                          `lines.${index}.unitCost`,
+                          material?.defaultPurchasePrice ?? "0",
+                          {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          }
+                        );
+                      }}
+                      onRemove={() => remove(index)}
+                    />
+                  ))}
+                </EditableLineGrid>
               ) : (
                 <div className="rounded-lg border border-dashed px-4 py-6">
                   <p className="text-sm text-muted-foreground">
@@ -469,6 +475,7 @@ export function PurchaseOrderForm({
 }
 
 function PurchaseOrderLineRow({
+  lineKey,
   index,
   control,
   materialIds,
@@ -476,6 +483,7 @@ function PurchaseOrderLineRow({
   onMaterialChange,
   onRemove,
 }: {
+  lineKey: string;
   index: number;
   control: Control<PurchaseOrderFormValues>;
   materialIds: string[];
@@ -491,21 +499,29 @@ function PurchaseOrderLineRow({
   const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
 
   return (
-    <TableRow>
-      <TableCell>
+    <EditableLineGridRow>
+      <EditableLineGridCell>
         <Controller
           control={control}
           name={`lines.${index}.itemId`}
           render={({ field, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-material`}>
+                Material
+              </FieldLabel>
               <Combobox
                 items={materialIds}
                 value={field.value ?? ""}
                 onValueChange={(value) => onMaterialChange(value ?? "")}
                 itemToStringLabel={(value) => materialMap.get(value)?.name ?? ""}
               >
-                <ComboboxInput placeholder="Search materials..." />
-                <ComboboxContent className="bg-popover text-popover-foreground">
+                <ComboboxInput
+                  id={`${lineKey}-material`}
+                  aria-invalid={fieldState.invalid}
+                  className="w-full min-w-0"
+                  placeholder="Search materials..."
+                />
+                <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
                   <ComboboxEmpty>No materials found</ComboboxEmpty>
                   <ComboboxList>
                     {(value: string) => {
@@ -525,19 +541,23 @@ function PurchaseOrderLineRow({
                 </ComboboxContent>
               </Combobox>
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </div>
+            </Field>
           )}
         />
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell>
+      <EditableLineGridCell>
         <Controller
           control={control}
           name={`lines.${index}.quantityOrdered`}
           render={({ field, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-quantity`}>
+                Ordered Qty
+              </FieldLabel>
               <Input
                 {...field}
+                id={`${lineKey}-quantity`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 aria-invalid={fieldState.invalid}
@@ -546,12 +566,12 @@ function PurchaseOrderLineRow({
                 autoComplete="off"
               />
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </div>
+            </Field>
           )}
         />
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="text-sm text-muted-foreground">
+      <EditableLineGridCell className="text-sm text-muted-foreground">
         <div className="space-y-1">
           <div>{material?.purchaseUnitName ?? material?.stockingUnitName ?? "\u2014"}</div>
           {material?.purchaseUnitName ? (
@@ -560,16 +580,20 @@ function PurchaseOrderLineRow({
             </p>
           ) : null}
         </div>
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell>
+      <EditableLineGridCell>
         <Controller
           control={control}
           name={`lines.${index}.unitCost`}
           render={({ field, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-unit-cost`}>
+                Unit Cost
+              </FieldLabel>
               <Input
                 {...field}
+                id={`${lineKey}-unit-cost`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 aria-invalid={fieldState.invalid}
@@ -584,16 +608,16 @@ function PurchaseOrderLineRow({
                   No default purchase price. Enter one manually.
                 </p>
               ) : null}
-            </div>
+            </Field>
           )}
         />
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="text-right text-sm font-medium">
+      <EditableLineGridCell align="right" className="text-sm font-medium">
         {lineTotalLabel(line?.quantityOrdered, line?.unitCost)}
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell>
+      <EditableLineGridCell>
         <Button
           type="button"
           variant="ghost"
@@ -604,7 +628,7 @@ function PurchaseOrderLineRow({
         >
           <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
         </Button>
-      </TableCell>
-    </TableRow>
+      </EditableLineGridCell>
+    </EditableLineGridRow>
   );
 }

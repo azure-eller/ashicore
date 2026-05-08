@@ -181,6 +181,48 @@ For standard dashboard list pages, use the shared `DashboardDataTable` shell ins
 />
 ```
 
+## Editable Line Items
+
+Use `EditableLineGrid` from `components/editable-line-grid.tsx` for repeated multi-control rows such as sales order lines, PO lines, BOM ingredients, and manufacturing ingredients. shadcn `Table` can hold simple fixed-width controls, but dense form arrays need explicit grid tracks so long item labels do not shrink sibling inputs.
+
+- Define explicit grid tracks for every column, e.g. `minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem`.
+- Give numeric inputs stable columns (`6rem` or wider for quantity, `10rem` or wider for money).
+- Do not put a control `min-w-*` inside a padded cell unless the column track includes that padding.
+- Put the row group in horizontal overflow when the total minimum width exceeds the card.
+- Keep combobox result popups readable; long item/customer labels may use a width wider than the trigger.
+- Keep each editable control wrapped in shadcn `Field`, with a label relationship and `aria-invalid` state.
+- Keep array validation under the grid, using `FieldError` or the existing field-array error helper.
+
+```tsx
+<EditableLineGrid
+  columns="minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem"
+  minWidth="54rem"
+  headers={[itemHeader, qtyHeader, unitHeader, priceHeader, totalHeader, marginHeader, null]}
+>
+  {fields.map((field, index) => (
+    <EditableLineGridRow key={field.id}>
+      <EditableLineGridCell>
+        <Field>
+          <FieldLabel className="sr-only" htmlFor={`${field.id}-item`}>
+            Item
+          </FieldLabel>
+          {/* item combobox */}
+        </Field>
+      </EditableLineGridCell>
+      <EditableLineGridCell align="right">
+        <Field>
+          <FieldLabel className="sr-only" htmlFor={`${field.id}-quantity`}>
+            Quantity
+          </FieldLabel>
+          {/* quantity input */}
+        </Field>
+      </EditableLineGridCell>
+      <EditableLineGridCell>{/* unit */}</EditableLineGridCell>
+    </EditableLineGridRow>
+  ))}
+</EditableLineGrid>
+```
+
 ## Portal Components (Dialogs, Dropdowns, Popovers, Tooltips)
 
 Use semantic surface and text tokens on portal content. Do not hardcode `dark` on individual dialogs, menus, or popovers.

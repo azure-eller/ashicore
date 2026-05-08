@@ -42,6 +42,11 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  EditableLineGrid,
+  EditableLineGridCell,
+  EditableLineGridRow,
+} from "@/components/editable-line-grid";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -104,6 +109,9 @@ type ManufacturingProductTemplate = ManufacturingProductOption & {
 };
 
 type ManufacturingOrderFormValues = ManufacturingOrderCreateFormValues;
+
+const MANUFACTURING_INGREDIENT_GRID_COLUMNS =
+  "minmax(18rem, 1fr) 9rem 9rem 6rem";
 
 type ApiError = {
   error?: string;
@@ -971,188 +979,199 @@ export function ManufacturingOrderForm({
             >
               <FieldGroup>
                 {fields.length > 0 ? (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Ingredient</TableHead>
-                          <TableHead className="w-40">
-                            <TooltipHeader
-                              label={isBatchMode ? "Qty / Batch" : "Qty / Unit"}
-                              tooltip={
-                                isBatchMode
-                                  ? BOM_QTY_PER_BATCH_TOOLTIP
-                                  : BOM_QTY_PER_UNIT_TOOLTIP
-                              }
-                            />
-                          </TableHead>
-                          <TableHead className="w-40">
-                            <TooltipHeader
-                              label="Planned Total"
-                              tooltip={MANUFACTURING_PLANNED_TOTAL_TOOLTIP}
-                            />
-                          </TableHead>
-                          <TableHead className="w-28">
-                            <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {fields.map((field, index) => {
-                          const templateIngredient = isEditing
-                            ? initialData?.ingredients[index]
-                            : selectedProduct?.bom[index];
-                          const selectedIngredientId =
-                            watchedIngredients?.[index]?.itemId ?? field.itemId;
-                          const materialOptions = templateIngredient
-                            ? [
-                                {
-                                  itemId:
-                                    templateIngredient.defaultItemId ??
-                                    templateIngredient.itemId,
-                                  itemName:
-                                    templateIngredient.defaultItemName ??
-                                    templateIngredient.itemName,
-                                  itemSku:
-                                    templateIngredient.defaultItemSku ??
-                                    templateIngredient.itemSku,
-                                  itemType: templateIngredient.itemType,
-                                  unitName:
-                                    templateIngredient.defaultUnitName ??
-                                    templateIngredient.unitName,
-                                  quantityFactor: "1",
-                                },
-                                ...templateIngredient.alternates,
-                              ]
-                            : [];
-                          const selectedMaterial =
-                            materialOptions.find(
-                              (option) => option.itemId === selectedIngredientId
-                            ) ?? materialOptions[0];
-                          const quantityPerUnit =
-                            watchedIngredients?.[index]?.quantityPerUnit ?? "";
-                          const perUnit = parsePositive(quantityPerUnit);
-                          // For batch products, multiply per-batch qty by number of batches
-                          const multiplier = isBatchMode && batchCalc
-                            ? batchCalc.numberOfBatches
-                            : parsePositive(watchedPlannedQuantity);
-                          const plannedTotal =
-                            multiplier != null && perUnit != null
-                              ? (multiplier * perUnit)
-                                  .toFixed(4)
-                                  .replace(/\.?0+$/, "")
-                              : "\u2014";
+                  <EditableLineGrid
+                    columns={MANUFACTURING_INGREDIENT_GRID_COLUMNS}
+                    minWidth="42rem"
+                    headers={[
+                      "Ingredient",
+                      <TooltipHeader
+                        key="quantity"
+                        label={isBatchMode ? "Qty / Batch" : "Qty / Unit"}
+                        tooltip={
+                          isBatchMode
+                            ? BOM_QTY_PER_BATCH_TOOLTIP
+                            : BOM_QTY_PER_UNIT_TOOLTIP
+                        }
+                      />,
+                      <TooltipHeader
+                        key="planned-total"
+                        label="Planned Total"
+                        tooltip={MANUFACTURING_PLANNED_TOTAL_TOOLTIP}
+                      />,
+                      <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
+                    ]}
+                  >
+                    {fields.map((field, index) => {
+                      const templateIngredient = isEditing
+                        ? initialData?.ingredients[index]
+                        : selectedProduct?.bom[index];
+                      const selectedIngredientId =
+                        watchedIngredients?.[index]?.itemId ?? field.itemId;
+                      const materialOptions = templateIngredient
+                        ? [
+                            {
+                              itemId:
+                                templateIngredient.defaultItemId ??
+                                templateIngredient.itemId,
+                              itemName:
+                                templateIngredient.defaultItemName ??
+                                templateIngredient.itemName,
+                              itemSku:
+                                templateIngredient.defaultItemSku ??
+                                templateIngredient.itemSku,
+                              itemType: templateIngredient.itemType,
+                              unitName:
+                                templateIngredient.defaultUnitName ??
+                                templateIngredient.unitName,
+                              quantityFactor: "1",
+                            },
+                            ...templateIngredient.alternates,
+                          ]
+                        : [];
+                      const selectedMaterial =
+                        materialOptions.find(
+                          (option) => option.itemId === selectedIngredientId
+                        ) ?? materialOptions[0];
+                      const quantityPerUnit =
+                        watchedIngredients?.[index]?.quantityPerUnit ?? "";
+                      const perUnit = parsePositive(quantityPerUnit);
+                      const multiplier = isBatchMode && batchCalc
+                        ? batchCalc.numberOfBatches
+                        : parsePositive(watchedPlannedQuantity);
+                      const plannedTotal =
+                        multiplier != null && perUnit != null
+                          ? (multiplier * perUnit)
+                              .toFixed(4)
+                              .replace(/\.?0+$/, "")
+                          : "\u2014";
 
-                          return (
-                            <TableRow key={field.id}>
-                              <TableCell>
-                                <div className="space-y-1">
-                                  {materialOptions.length > 1 ? (
-                                    <Combobox
-                                      items={materialOptions.map((option) => option.itemId)}
-                                      value={selectedIngredientId}
-                                      onValueChange={(value) => {
-                                        const option = materialOptions.find(
-                                          (candidate) => candidate.itemId === value
-                                        );
-                                        if (!option || !templateIngredient) return;
+                      return (
+                        <EditableLineGridRow key={field.id}>
+                          <EditableLineGridCell>
+                            <div className="space-y-1">
+                              {materialOptions.length > 1 ? (
+                                <Field>
+                                  <FieldLabel
+                                    className="sr-only"
+                                    htmlFor={`${field.id}-ingredient`}
+                                  >
+                                    Ingredient
+                                  </FieldLabel>
+                                  <Combobox
+                                    items={materialOptions.map((option) => option.itemId)}
+                                    value={selectedIngredientId}
+                                    onValueChange={(value) => {
+                                      const option = materialOptions.find(
+                                        (candidate) => candidate.itemId === value
+                                      );
+                                      if (!option || !templateIngredient) return;
 
-                                        form.setValue(
-                                          `ingredients.${index}.itemId`,
-                                          option.itemId,
-                                          { shouldValidate: true, shouldDirty: true }
-                                        );
-                                        form.setValue(
-                                          `ingredients.${index}.quantityPerUnit`,
-                                          multiplyQuantityString(
-                                            templateIngredient.defaultQuantityPerUnit,
-                                            option.quantityFactor
-                                          ),
-                                          { shouldValidate: true, shouldDirty: true }
-                                        );
-                                      }}
-                                      itemToStringLabel={(value) =>
-                                        materialOptions.find(
-                                          (option) => option.itemId === value
-                                        )?.itemName ?? ""
-                                      }
-                                    >
-                                      <ComboboxInput placeholder="Select material..." />
-                                      <ComboboxContent className="bg-popover text-popover-foreground">
-                                        <ComboboxEmpty>No materials found</ComboboxEmpty>
-                                        <ComboboxList>
-                                          {(id: string) => {
-                                            const option = materialOptions.find(
-                                              (candidate) => candidate.itemId === id
-                                            );
-                                            return (
-                                              <ComboboxItem key={id} value={id}>
-                                                <div className="flex min-w-0 flex-1 items-center gap-2">
-                                                  <span className="truncate">
-                                                    {option?.itemName}
-                                                  </span>
-                                                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                                                    {option?.unitName}
-                                                  </span>
-                                                </div>
-                                              </ComboboxItem>
-                                            );
-                                          }}
-                                        </ComboboxList>
-                                      </ComboboxContent>
-                                    </Combobox>
-                                  ) : (
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-medium">
-                                        {selectedMaterial?.itemName ?? field.itemId}
-                                      </span>
-                                      <Badge variant="outline">
-                                        {selectedMaterial?.itemType ?? "item"}
-                                      </Badge>
-                                    </div>
-                                  )}
-                                  {selectedMaterial?.itemSku && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {selectedMaterial.itemSku}
-                                    </p>
-                                  )}
+                                      form.setValue(
+                                        `ingredients.${index}.itemId`,
+                                        option.itemId,
+                                        { shouldValidate: true, shouldDirty: true }
+                                      );
+                                      form.setValue(
+                                        `ingredients.${index}.quantityPerUnit`,
+                                        multiplyQuantityString(
+                                          templateIngredient.defaultQuantityPerUnit,
+                                          option.quantityFactor
+                                        ),
+                                        { shouldValidate: true, shouldDirty: true }
+                                      );
+                                    }}
+                                    itemToStringLabel={(value) =>
+                                      materialOptions.find(
+                                        (option) => option.itemId === value
+                                      )?.itemName ?? ""
+                                    }
+                                  >
+                                    <ComboboxInput
+                                      id={`${field.id}-ingredient`}
+                                      className="w-full min-w-0"
+                                      placeholder="Select material..."
+                                    />
+                                    <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+                                      <ComboboxEmpty>No materials found</ComboboxEmpty>
+                                      <ComboboxList>
+                                        {(id: string) => {
+                                          const option = materialOptions.find(
+                                            (candidate) => candidate.itemId === id
+                                          );
+                                          return (
+                                            <ComboboxItem key={id} value={id}>
+                                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                                                <span className="truncate">
+                                                  {option?.itemName}
+                                                </span>
+                                                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                                                  {option?.unitName}
+                                                </span>
+                                              </div>
+                                            </ComboboxItem>
+                                          );
+                                        }}
+                                      </ComboboxList>
+                                    </ComboboxContent>
+                                  </Combobox>
+                                </Field>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {selectedMaterial?.itemName ?? field.itemId}
+                                  </span>
+                                  <Badge variant="outline">
+                                    {selectedMaterial?.itemType ?? "item"}
+                                  </Badge>
                                 </div>
-                              </TableCell>
-                              <TableCell>
-                                <Controller
-                                  control={form.control}
-                                  name={`ingredients.${index}.quantityPerUnit`}
-                                  render={({ field: quantityField, fieldState }) => (
-                                    <div>
-                                      <Input
-                                        {...quantityField}
-                                        aria-invalid={fieldState.invalid}
-                                        inputMode="decimal"
-                                        autoComplete="off"
-                                        className="w-full"
-                                      />
-                                      {fieldState.invalid && (
-                                        <FieldError errors={[fieldState.error]} />
-                                      )}
-                                    </div>
+                              )}
+                              {selectedMaterial?.itemSku && (
+                                <p className="text-xs text-muted-foreground">
+                                  {selectedMaterial.itemSku}
+                                </p>
+                              )}
+                            </div>
+                          </EditableLineGridCell>
+                          <EditableLineGridCell>
+                            <Controller
+                              control={form.control}
+                              name={`ingredients.${index}.quantityPerUnit`}
+                              render={({ field: quantityField, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                  <FieldLabel
+                                    className="sr-only"
+                                    htmlFor={`${field.id}-quantity-per-unit`}
+                                  >
+                                    {isBatchMode ? "Qty / Batch" : "Qty / Unit"}
+                                  </FieldLabel>
+                                  <Input
+                                    {...quantityField}
+                                    id={`${field.id}-quantity-per-unit`}
+                                    aria-invalid={fieldState.invalid}
+                                    inputMode="decimal"
+                                    autoComplete="off"
+                                    className="w-full min-w-0"
+                                  />
+                                  {fieldState.invalid && (
+                                    <FieldError errors={[fieldState.error]} />
                                   )}
-                                />
-                                <input
-                                  type="hidden"
-                                  value={selectedIngredientId}
-                                  {...form.register(`ingredients.${index}.itemId`)}
-                                />
-                              </TableCell>
-                              <TableCell>{plannedTotal}</TableCell>
-                              <TableCell>
-                                {selectedMaterial?.unitName ?? "\u2014"}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
+                                </Field>
+                              )}
+                            />
+                            <input
+                              type="hidden"
+                              value={selectedIngredientId}
+                              {...form.register(`ingredients.${index}.itemId`)}
+                            />
+                          </EditableLineGridCell>
+                          <EditableLineGridCell>{plannedTotal}</EditableLineGridCell>
+                          <EditableLineGridCell>
+                            {selectedMaterial?.unitName ?? "\u2014"}
+                          </EditableLineGridCell>
+                        </EditableLineGridRow>
+                      );
+                    })}
+                  </EditableLineGrid>
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">

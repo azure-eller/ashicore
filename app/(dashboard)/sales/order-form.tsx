@@ -69,6 +69,11 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  EditableLineGrid,
+  EditableLineGridCell,
+  EditableLineGridRow,
+} from "@/components/editable-line-grid";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -79,14 +84,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import {
@@ -213,6 +210,9 @@ function SalesOrderSection({
     </Card>
   );
 }
+
+const SALES_ORDER_LINE_GRID_COLUMNS =
+  "minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem";
 
 function salesItemSearchLabel(item: SalesOrderItemOption | undefined) {
   if (!item) return "";
@@ -943,94 +943,88 @@ export function OrderForm({
             >
               <FieldGroup className="gap-4">
                 {fields.length > 0 ? (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <Table>
-                      <TableHeader className="bg-muted/50">
-                        <TableRow>
-                          <TableHead className="min-w-80">
-                            <TableHeaderLabel label="Item" required />
-                          </TableHead>
-                          <TableHead className="w-24 text-right">
-                            <TableHeaderLabel
-                              label="Qty"
-                              tooltip={SALES_LINE_QTY_TOOLTIP}
-                              required
-                            />
-                          </TableHead>
-                          <TableHead className="w-24">
-                            <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
-                          </TableHead>
-                          <TableHead className="w-36 text-right">
-                            <TableHeaderLabel
-                              label="Unit Price"
-                              tooltip={SALES_UNIT_PRICE_TOOLTIP}
-                              required
-                            />
-                          </TableHead>
-                          <TableHead className="w-32 text-right">
-                            <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
-                          </TableHead>
-                          <TableHead className="w-32 text-right">
-                            <TooltipHeader label="Margin" tooltip={ESTIMATED_MARGIN_TOOLTIP} />
-                          </TableHead>
-                          <TableHead className="w-10" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {fields.map((field, index) => (
-                          <OrderLineRow
-                            key={field.id}
-                            lineKey={field.id}
-                            index={index}
-                            control={form.control}
-                            customerId={customerId}
-                            initialCustomerId={initialData?.customerId}
-                            initialLine={initialData?.lines[index]}
-                            setValue={form.setValue}
-                            itemIds={itemIds}
-                            itemMap={itemMap}
-                            pricingState={getLinePricingState(field.id, index)}
-                            onPricingStateChange={updateLinePricingState}
-                            onItemChange={(itemId) => {
-                              const item = itemMap.get(itemId);
-                              form.setValue(`lines.${index}.itemId`, itemId, {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              });
-                              form.setValue(
-                                `lines.${index}.unitPrice`,
-                                item?.defaultSellingPrice ?? null,
-                                {
-                                  shouldDirty: true,
-                                  shouldValidate: true,
-                                }
-                              );
-                              updateLinePricingState(field.id, {
-                                ...DEFAULT_LINE_PRICING_STATE,
-                                baseUnitPrice: item?.defaultSellingPrice ?? null,
-                                suggestedUnitPrice:
-                                  item?.defaultSellingPrice ?? null,
-                                estimatedUnitCost: item?.estimatedUnitCost ?? null,
-                                isPriceOverridden: false,
-                              });
-                            }}
-                            onRemove={() => {
-                              setLinePricingState((currentState) => {
-                                if (!(field.id in currentState)) {
-                                  return currentState;
-                                }
+                  <EditableLineGrid
+                    columns={SALES_ORDER_LINE_GRID_COLUMNS}
+                    minWidth="54rem"
+                    headers={[
+                      <TableHeaderLabel key="item" label="Item" required />,
+                      <TableHeaderLabel
+                        key="qty"
+                        label="Qty"
+                        tooltip={SALES_LINE_QTY_TOOLTIP}
+                        required
+                      />,
+                      <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
+                      <TableHeaderLabel
+                        key="unit-price"
+                        label="Unit Price"
+                        tooltip={SALES_UNIT_PRICE_TOOLTIP}
+                        required
+                      />,
+                      <TooltipHeader
+                        key="line-total"
+                        label="Line Total"
+                        tooltip={LINE_TOTAL_TOOLTIP}
+                      />,
+                      <TooltipHeader
+                        key="margin"
+                        label="Margin"
+                        tooltip={ESTIMATED_MARGIN_TOOLTIP}
+                      />,
+                      <span key="actions" />,
+                    ]}
+                  >
+                    {fields.map((field, index) => (
+                      <OrderLineRow
+                        key={field.id}
+                        lineKey={field.id}
+                        index={index}
+                        control={form.control}
+                        customerId={customerId}
+                        initialCustomerId={initialData?.customerId}
+                        initialLine={initialData?.lines[index]}
+                        setValue={form.setValue}
+                        itemIds={itemIds}
+                        itemMap={itemMap}
+                        pricingState={getLinePricingState(field.id, index)}
+                        onPricingStateChange={updateLinePricingState}
+                        onItemChange={(itemId) => {
+                          const item = itemMap.get(itemId);
+                          form.setValue(`lines.${index}.itemId`, itemId, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          form.setValue(
+                            `lines.${index}.unitPrice`,
+                            item?.defaultSellingPrice ?? null,
+                            {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            }
+                          );
+                          updateLinePricingState(field.id, {
+                            ...DEFAULT_LINE_PRICING_STATE,
+                            baseUnitPrice: item?.defaultSellingPrice ?? null,
+                            suggestedUnitPrice: item?.defaultSellingPrice ?? null,
+                            estimatedUnitCost: item?.estimatedUnitCost ?? null,
+                            isPriceOverridden: false,
+                          });
+                        }}
+                        onRemove={() => {
+                          setLinePricingState((currentState) => {
+                            if (!(field.id in currentState)) {
+                              return currentState;
+                            }
 
-                                const nextState = { ...currentState };
-                                delete nextState[field.id];
-                                return nextState;
-                              });
-                              remove(index);
-                            }}
-                          />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                            const nextState = { ...currentState };
+                            delete nextState[field.id];
+                            return nextState;
+                          });
+                          remove(index);
+                        }}
+                      />
+                    ))}
+                  </EditableLineGrid>
                 ) : (
                   <div className="rounded-lg border border-dashed px-4 py-8 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -1377,20 +1371,28 @@ function OrderLineRow({
   ]);
 
   return (
-    <TableRow>
-      <TableCell className="min-w-80">
+    <EditableLineGridRow>
+      <EditableLineGridCell>
         <Controller
           control={control}
           name={`lines.${index}.itemId`}
           render={({ field, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-item`}>
+                Item
+              </FieldLabel>
               <Combobox
                 items={itemIds}
                 value={field.value ?? ""}
                 onValueChange={(value) => onItemChange(value ?? "")}
                 itemToStringLabel={(value) => salesItemSearchLabel(itemMap.get(value))}
               >
-                <ComboboxInput className="w-full min-w-72" placeholder="Search items..." />
+                <ComboboxInput
+                  id={`${lineKey}-item`}
+                  aria-invalid={fieldState.invalid}
+                  className="w-full min-w-0"
+                  placeholder="Search items..."
+                />
                 <ComboboxContent className="w-[min(36rem,calc(100vw-2rem))]">
                   <ComboboxEmpty>No items found</ComboboxEmpty>
                   <ComboboxList>
@@ -1438,19 +1440,23 @@ function OrderLineRow({
                 </p>
               ) : null}
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </div>
+            </Field>
           )}
         />
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="text-right">
+      <EditableLineGridCell align="right">
         <Controller
           control={control}
           name={`lines.${index}.quantity`}
           render={({ field, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-quantity`}>
+                Quantity
+              </FieldLabel>
               <Input
                 {...field}
+                id={`${lineKey}-quantity`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 aria-invalid={fieldState.invalid}
@@ -1460,23 +1466,27 @@ function OrderLineRow({
                 className="text-right tabular-nums"
               />
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </div>
+            </Field>
           )}
         />
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="font-mono text-sm text-muted-foreground">
+      <EditableLineGridCell className="font-mono text-sm text-muted-foreground">
         {item?.unitName ?? "\u2014"}
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="text-right">
+      <EditableLineGridCell align="right">
         <Controller
           control={control}
           name={`lines.${index}.unitPrice`}
           render={({ field, fieldState }) => (
-            <div>
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-unit-price`}>
+                Unit Price
+              </FieldLabel>
               <Input
                 {...field}
+                id={`${lineKey}-unit-price`}
                 value={field.value ?? ""}
                 onChange={(event) => {
                   const nextValue = event.target.value;
@@ -1537,16 +1547,16 @@ function OrderLineRow({
                   ) : null}
                 </>
               )}
-            </div>
+            </Field>
           )}
         />
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="text-right font-mono text-sm font-medium tabular-nums">
+      <EditableLineGridCell align="right" className="font-mono text-sm font-medium tabular-nums">
         {lineTotalLabel(line?.quantity, line?.unitPrice)}
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell className="text-right text-sm">
+      <EditableLineGridCell align="right" className="text-sm">
         <div className={`font-medium ${marginToneClass(estimatedMargin?.marginPercent)}`}>
           {marginPercentLabel(estimatedMargin?.marginPercent)}
         </div>
@@ -1555,9 +1565,9 @@ function OrderLineRow({
             {formatPrice(estimatedMargin.grossProfit) ?? "\u2014"} profit
           </div>
         ) : null}
-      </TableCell>
+      </EditableLineGridCell>
 
-      <TableCell>
+      <EditableLineGridCell>
         <Button
           type="button"
           variant="destructive"
@@ -1567,7 +1577,7 @@ function OrderLineRow({
         >
           <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
         </Button>
-      </TableCell>
-    </TableRow>
+      </EditableLineGridCell>
+    </EditableLineGridRow>
   );
 }
