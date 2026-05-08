@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
+import { multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { DataTableStatusFilter } from "@/components/data-table-status-filter";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/format";
@@ -21,6 +22,13 @@ import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
+
+const MANUFACTURING_STATUS_FILTER_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "released", label: "Released" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+] as const;
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -157,7 +165,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
     accessorKey: "status",
     header: ({ column }) => (
-      <FilterableHeader
+      <SortableHeader
         column={column}
         label="Status"
         tooltip={MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP}
@@ -203,6 +211,13 @@ export function OrdersTable({
       addHref="/manufacturing/orders/new"
       addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
+      toolbarContent={({ table }) => (
+        <DataTableStatusFilter
+          table={table}
+          options={MANUFACTURING_STATUS_FILTER_OPTIONS}
+          ariaLabel="Filter manufacturing orders by status"
+        />
+      )}
       initialSorting={[{ id: "orderNumber", desc: true }]}
       deleteAction={{
         endpoint: "/api/manufacturing-orders",

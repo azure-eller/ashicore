@@ -1,5 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { customers } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
@@ -50,12 +51,12 @@ export const customerDefaultValues: InsertCustomer = {
   billingCity: null,
   billingRegion: null,
   billingPostcode: null,
-  billingCountry: null,
+  billingCountry: DEFAULT_COUNTRY,
   shipLine1: null,
   shipLine2: null,
   shipCity: null,
   shipRegion: null,
   shipPostcode: null,
-  shipCountry: null,
+  shipCountry: DEFAULT_COUNTRY,
   notes: null,
 };

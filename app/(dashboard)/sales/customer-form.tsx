@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -47,6 +46,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { PRICING_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
+import { normalizeAddressFields } from "@/lib/format";
 
 type CustomerFormValues = z.input<typeof insertCustomerSchema>;
 const EVERYONE_CATEGORY_VALUE = "__everyone__";
@@ -71,6 +71,22 @@ export function CustomerForm({
   const [categoryName, setCategoryName] = useState("");
   const [categoryDescription, setCategoryDescription] = useState("");
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const initialBillingAddress = normalizeAddressFields({
+    line1: initialData?.billingLine1,
+    line2: initialData?.billingLine2,
+    city: initialData?.billingCity,
+    region: initialData?.billingRegion,
+    postcode: initialData?.billingPostcode,
+    country: initialData?.billingCountry,
+  });
+  const initialShippingAddress = normalizeAddressFields({
+    line1: initialData?.shipLine1,
+    line2: initialData?.shipLine2,
+    city: initialData?.shipCity,
+    region: initialData?.shipRegion,
+    postcode: initialData?.shipPostcode,
+    country: initialData?.shipCountry,
+  });
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(initialData ? updateCustomerSchema : insertCustomerSchema),
@@ -81,18 +97,18 @@ export function CustomerForm({
           customerCategoryId: initialData.customerCategoryId,
           email: initialData.email,
           phone: initialData.phone,
-          billingLine1: initialData.billingLine1,
-          billingLine2: initialData.billingLine2,
-          billingCity: initialData.billingCity,
-          billingRegion: initialData.billingRegion,
-          billingPostcode: initialData.billingPostcode,
-          billingCountry: initialData.billingCountry,
-          shipLine1: initialData.shipLine1,
-          shipLine2: initialData.shipLine2,
-          shipCity: initialData.shipCity,
-          shipRegion: initialData.shipRegion,
-          shipPostcode: initialData.shipPostcode,
-          shipCountry: initialData.shipCountry,
+          billingLine1: initialBillingAddress.line1,
+          billingLine2: initialBillingAddress.line2,
+          billingCity: initialBillingAddress.city,
+          billingRegion: initialBillingAddress.region,
+          billingPostcode: initialBillingAddress.postcode,
+          billingCountry: initialBillingAddress.country,
+          shipLine1: initialShippingAddress.line1,
+          shipLine2: initialShippingAddress.line2,
+          shipCity: initialShippingAddress.city,
+          shipRegion: initialShippingAddress.region,
+          shipPostcode: initialShippingAddress.postcode,
+          shipCountry: initialShippingAddress.country,
           notes: initialData.notes,
         }
       : customerDefaultValues,
@@ -101,20 +117,20 @@ export function CustomerForm({
   const [shippingSameAsBilling, setShippingSameAsBilling] = useState(() => {
     if (!initialData) return true;
     const billing = [
-      initialData.billingLine1,
-      initialData.billingLine2,
-      initialData.billingCity,
-      initialData.billingRegion,
-      initialData.billingPostcode,
-      initialData.billingCountry,
+      initialBillingAddress.line1,
+      initialBillingAddress.line2,
+      initialBillingAddress.city,
+      initialBillingAddress.region,
+      initialBillingAddress.postcode,
+      initialBillingAddress.country,
     ];
     const shipping = [
-      initialData.shipLine1,
-      initialData.shipLine2,
-      initialData.shipCity,
-      initialData.shipRegion,
-      initialData.shipPostcode,
-      initialData.shipCountry,
+      initialShippingAddress.line1,
+      initialShippingAddress.line2,
+      initialShippingAddress.city,
+      initialShippingAddress.region,
+      initialShippingAddress.postcode,
+      initialShippingAddress.country,
     ];
     const allShippingBlank = shipping.every((value) => value == null || value === "");
     if (allShippingBlank) return true;
@@ -267,7 +283,7 @@ export function CustomerForm({
   const handleCancel = useSmartBack(fallbackPath);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8">
+    <div className="w-full space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
@@ -301,7 +317,7 @@ export function CustomerForm({
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
         <FieldGroup className="gap-8">
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Basics</FieldLegend>
             <FieldGroup>
               <Controller
@@ -422,11 +438,8 @@ export function CustomerForm({
 
           <FieldSeparator />
 
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Billing Address</FieldLegend>
-            <FieldDescription>
-              Used for invoices and accounting sync.
-            </FieldDescription>
             <AddressFields
               control={form.control}
               idPrefix="customer-billing"
@@ -443,11 +456,8 @@ export function CustomerForm({
 
           <FieldSeparator />
 
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Shipping Address</FieldLegend>
-            <FieldDescription>
-              Default for sales orders; editable per order.
-            </FieldDescription>
             <FieldGroup>
               <Field>
                 <label className="flex items-center gap-2 text-sm">
@@ -479,7 +489,7 @@ export function CustomerForm({
 
           <FieldSeparator />
 
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Notes</FieldLegend>
             <FieldGroup>
               <Controller

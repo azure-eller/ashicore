@@ -6,7 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { FilterableHeader } from "@/components/filterable-header";
+import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -58,6 +58,12 @@ const categoryFilter: FilterFn<ItemRow> = (row, columnId, filterValue) => {
     subRow.category != null && selected.includes(subRow.category)
   ) ?? false;
 };
+
+const REPLENISHMENT_FILTER_OPTIONS = [
+  { value: "order-now", label: "Order now" },
+  { value: "order-soon", label: "Order soon" },
+  { value: "stocked", label: "Stocked" },
+] as const;
 
 function getInventoryAttention(row: ItemRow): InventoryAttention | null {
   const shortage = parseFloat(row.shortageQty);
@@ -112,7 +118,7 @@ function ProjectedSafetyCell({ row }: { row: ItemRow }) {
     status === "order-now"
       ? "bg-destructive"
       : status === "order-soon"
-        ? "bg-warning"
+        ? "bg-replenishment-soon"
         : "bg-success";
 
   return (
@@ -298,15 +304,30 @@ export function getColumns(
     ...(!isProduct
       ? [
           {
-            accessorFn: (row) => calcProjectedStock(row),
+            accessorKey: "unit",
+            header: () => (
+              <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+            ),
+            cell: ({ row }) => row.original.unit ?? "—",
+          } satisfies ColumnDef<ItemRow>,
+        ]
+      : []),
+    ...(!isProduct
+      ? [
+          {
+            accessorFn: (row) => getReplenishmentStatus(row),
             id: "projectedSafety",
             meta: { className: "w-[28%] min-w-0" },
             sortDescFirst: false,
+            filterFn: multiValueFilter,
+            sortingFn: (rowA, rowB) =>
+              calcProjectedStock(rowA.original) - calcProjectedStock(rowB.original),
             header: ({ column }) => (
-              <SortableHeader
+              <FilterableHeader
                 column={column}
                 label="Projected vs safety"
                 tooltip={PROJECTED_VS_SAFETY_TOOLTIP}
+                options={REPLENISHMENT_FILTER_OPTIONS}
               />
             ),
             cell: ({ row }) => <ProjectedSafetyCell row={row.original} />,
@@ -360,13 +381,17 @@ export function getColumns(
           } satisfies ColumnDef<ItemRow>,
         ]
       : []),
-    {
-      accessorKey: "unit",
-      header: () => (
-        <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
-      ),
-      cell: ({ row }) => row.original.unit ?? "—",
-    },
+    ...(isProduct
+      ? [
+          {
+            accessorKey: "unit",
+            header: () => (
+              <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
+            ),
+            cell: ({ row }) => row.original.unit ?? "—",
+          } satisfies ColumnDef<ItemRow>,
+        ]
+      : []),
     {
       accessorKey: "sku",
       header: () => <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />,

@@ -120,7 +120,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
   const handleCancel = useSmartBack(fallbackPath);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8">
+    <div className="w-full space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
@@ -153,7 +153,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
         })}
       >
         <FieldGroup className="gap-8">
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Variant Identity</FieldLegend>
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
@@ -298,7 +298,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
 
           <FieldSeparator />
 
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Pricing & Stock</FieldLegend>
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">

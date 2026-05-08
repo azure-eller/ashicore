@@ -1,5 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { suppliers } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
@@ -47,7 +48,7 @@ export const supplierDefaultValues: InsertSupplier = {
   billingCity: null,
   billingRegion: null,
   billingPostcode: null,
-  billingCountry: null,
+  billingCountry: DEFAULT_COUNTRY,
   paymentTerms: null,
   notes: null,
 };

@@ -1,5 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { salesOrders } from "@/lib/db/schema";
 import {
   isValidIsoDate,
@@ -187,6 +188,18 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
         path: ["shipDate"],
       });
     }
+
+    if (
+      values.shipDate &&
+      values.requestedDate &&
+      values.requestedDate < values.shipDate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Delivery date cannot be before ship date",
+        path: ["requestedDate"],
+      });
+    }
   });
 
 export const insertSalesOrderSchema = baseSalesOrderSchema;
@@ -287,7 +300,6 @@ export type SalesFulfillmentPlanInput = z.infer<
 
 export const shipSalesShipmentSchema = z.object({
   syncAccounting: z.boolean().optional(),
-  sendEmail: z.boolean().optional(),
 });
 export type ShipSalesShipment = z.infer<typeof shipSalesShipmentSchema>;
 
@@ -324,7 +336,7 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   shipCity: null,
   shipRegion: null,
   shipPostcode: null,
-  shipCountry: null,
+  shipCountry: DEFAULT_COUNTRY,
   lines: [
     {
       itemId: "",

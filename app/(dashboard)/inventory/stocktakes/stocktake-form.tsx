@@ -110,7 +110,7 @@ export function StocktakeForm({
   const handleCancel = useSmartBack("/inventory/stocktakes");
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8">
+    <div className="w-full space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">New Stocktake</h1>
@@ -136,7 +136,7 @@ export function StocktakeForm({
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
         <FieldGroup className="gap-8">
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Basics</FieldLegend>
             <FieldGroup>
               <Controller
@@ -225,7 +225,7 @@ export function StocktakeForm({
 
           <FieldSeparator />
 
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>How It Works</FieldLegend>
             <FieldDescription>
               Snapshot available stock; completion applies counted totals.

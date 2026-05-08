@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { normalizeAddressFields } from "@/lib/format";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 
@@ -139,35 +140,49 @@ function addressByType(
   return addresses?.find((a) => a.addressType === type);
 }
 
+function normalizeXeroAddress(address: Address | undefined) {
+  return normalizeAddressFields({
+    line1: address?.addressLine1 ?? null,
+    line2: address?.addressLine2 ?? null,
+    city: address?.city ?? null,
+    region: address?.region ?? null,
+    postcode: address?.postalCode ?? null,
+    country: address?.country ?? null,
+  });
+}
+
 function mapCustomerAddresses(contact: Contact): CustomerAddressFields {
   const billing = addressByType(contact.addresses, Address.AddressTypeEnum.POBOX);
   const shipping = addressByType(contact.addresses, Address.AddressTypeEnum.STREET);
+  const billingAddress = normalizeXeroAddress(billing);
+  const shippingAddress = normalizeXeroAddress(shipping);
 
   return {
-    billingLine1: billing?.addressLine1 ?? null,
-    billingLine2: billing?.addressLine2 ?? null,
-    billingCity: billing?.city ?? null,
-    billingRegion: billing?.region ?? null,
-    billingPostcode: billing?.postalCode ?? null,
-    billingCountry: billing?.country ?? null,
-    shipLine1: shipping?.addressLine1 ?? null,
-    shipLine2: shipping?.addressLine2 ?? null,
-    shipCity: shipping?.city ?? null,
-    shipRegion: shipping?.region ?? null,
-    shipPostcode: shipping?.postalCode ?? null,
-    shipCountry: shipping?.country ?? null,
+    billingLine1: billingAddress.line1,
+    billingLine2: billingAddress.line2,
+    billingCity: billingAddress.city,
+    billingRegion: billingAddress.region,
+    billingPostcode: billingAddress.postcode,
+    billingCountry: billingAddress.country,
+    shipLine1: shippingAddress.line1,
+    shipLine2: shippingAddress.line2,
+    shipCity: shippingAddress.city,
+    shipRegion: shippingAddress.region,
+    shipPostcode: shippingAddress.postcode,
+    shipCountry: shippingAddress.country,
   };
 }
 
 function mapSupplierAddresses(contact: Contact): SupplierAddressFields {
   const billing = addressByType(contact.addresses, Address.AddressTypeEnum.POBOX);
+  const billingAddress = normalizeXeroAddress(billing);
   return {
-    billingLine1: billing?.addressLine1 ?? null,
-    billingLine2: billing?.addressLine2 ?? null,
-    billingCity: billing?.city ?? null,
-    billingRegion: billing?.region ?? null,
-    billingPostcode: billing?.postalCode ?? null,
-    billingCountry: billing?.country ?? null,
+    billingLine1: billingAddress.line1,
+    billingLine2: billingAddress.line2,
+    billingCity: billingAddress.city,
+    billingRegion: billingAddress.region,
+    billingPostcode: billingAddress.postcode,
+    billingCountry: billingAddress.country,
   };
 }
 

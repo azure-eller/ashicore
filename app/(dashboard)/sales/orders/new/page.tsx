@@ -13,7 +13,7 @@ export default async function NewOrderPage() {
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl py-8">
+    <div className="mx-auto w-full max-w-7xl py-8">
       <OrderForm
         customers={customerRows.map((customer) => ({
           id: customer.id,

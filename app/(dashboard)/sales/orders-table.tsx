@@ -11,7 +11,8 @@ import {
   ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
+import { DataTableStatusFilter } from "@/components/data-table-status-filter";
+import { multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -54,6 +55,14 @@ type ConfirmMutationInput = {
   confirmOversell: boolean;
   idempotencyKey: string;
 };
+
+const SALES_STATUS_FILTER_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "partially_shipped", label: "Partially Shipped" },
+  { value: "shipped", label: "Shipped" },
+  { value: "cancelled", label: "Cancelled" },
+] as const;
 
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
@@ -116,7 +125,7 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   {
     accessorKey: "status",
     header: ({ column }) => (
-      <FilterableHeader
+      <SortableHeader
         column={column}
         label="Status"
         tooltip={SALES_ORDER_STATUS_COLUMN_TOOLTIP}
@@ -263,6 +272,13 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         addHref="/sales/orders/new"
         addAriaLabel="New Order"
         emptyMessage="No sales orders yet."
+        toolbarContent={({ table }) => (
+          <DataTableStatusFilter
+            table={table}
+            options={SALES_STATUS_FILTER_OPTIONS}
+            ariaLabel="Filter sales orders by status"
+          />
+        )}
         errorMessage={formError}
         initialSorting={[{ id: "shipDate", desc: false }]}
         getRowCanExpand={() => true}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -18,6 +18,7 @@ import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  ArrowLeft01Icon,
   Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -25,8 +26,14 @@ import {
   insertSalesOrderSchema,
   salesOrderDefaultValues,
 } from "@/lib/schemas/sales-orders";
-import { formatPrice, getFieldArrayError, parsePositive } from "@/lib/format";
-import { calculateUnitMarginMetrics } from "@/lib/margin";
+import {
+  formatPrice,
+  getFieldArrayError,
+  normalizeAddressFields,
+  parsePositive,
+} from "@/lib/format";
+import { DEFAULT_COUNTRY } from "@/lib/address-options";
+import { calculateMarginMetrics, calculateUnitMarginMetrics } from "@/lib/margin";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +44,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Combobox,
   ComboboxContent,
@@ -48,13 +65,9 @@ import {
 } from "@/components/ui/combobox";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -109,6 +122,98 @@ function marginPercentLabel(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
 }
 
+function RequiredMarker() {
+  return (
+    <span className="text-destructive" aria-label="required">
+      *
+    </span>
+  );
+}
+
+function FieldLabelWithMarker({
+  children,
+  required,
+}: {
+  children: ReactNode;
+  required?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      {children}
+      {required ? <RequiredMarker /> : null}
+    </span>
+  );
+}
+
+function TableHeaderLabel({
+  label,
+  required = false,
+  tooltip,
+}: {
+  label: string;
+  required?: boolean;
+  tooltip?: string;
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      {tooltip ? <TooltipHeader label={label} tooltip={tooltip} /> : label}
+      {required ? <RequiredMarker /> : null}
+    </span>
+  );
+}
+
+function marginToneClass(value: string | null | undefined) {
+  if (value == null) return "text-muted-foreground";
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "text-muted-foreground";
+  if (parsed < 20) return "text-destructive";
+  if (parsed >= 40) return "text-success";
+  return "text-foreground";
+}
+
+function statusLabel(value: string | null | undefined) {
+  return value === "confirmed" ? "Confirmed" : "Draft";
+}
+
+function statusBadgeVariant(value: string | null | undefined) {
+  return value === "confirmed" ? "default" : "secondary";
+}
+
+function SalesOrderSection({
+  title,
+  description,
+  action,
+  children,
+  footer,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  return (
+    <Card className="rounded-lg border shadow-sm ring-0">
+      <CardHeader className="border-b bg-muted/20 px-5 pb-4">
+        <div>
+          <CardTitle className="text-[15px] font-semibold tracking-normal">
+            {title}
+          </CardTitle>
+          {description ? (
+            <CardDescription className="text-[13px]">
+              {description}
+            </CardDescription>
+          ) : null}
+        </div>
+        {action ? <CardAction>{action}</CardAction> : null}
+      </CardHeader>
+      <CardContent className="px-5">{children}</CardContent>
+      {footer ? <CardFooter className="bg-muted/25 px-5">{footer}</CardFooter> : null}
+    </Card>
+  );
+}
+
 function salesItemSearchLabel(item: SalesOrderItemOption | undefined) {
   if (!item) return "";
 
@@ -159,32 +264,27 @@ type ShipAddress = {
 function getShipAddressFromCustomer(customer: CustomerOption | undefined): ShipAddress | null {
   if (!customer) return null;
 
-  const hasShippingAddress = Boolean(
-    customer.shipLine1 ||
-      customer.shipLine2 ||
-      customer.shipCity ||
-      customer.shipRegion ||
-      customer.shipPostcode ||
-      customer.shipCountry
-  );
+  const shippingAddress = normalizeAddressFields({
+    line1: customer.shipLine1,
+    line2: customer.shipLine2,
+    city: customer.shipCity,
+    region: customer.shipRegion,
+    postcode: customer.shipPostcode,
+    country: customer.shipCountry,
+  });
 
-  return hasShippingAddress
-    ? {
-        line1: customer.shipLine1,
-        line2: customer.shipLine2,
-        city: customer.shipCity,
-        region: customer.shipRegion,
-        postcode: customer.shipPostcode,
-        country: customer.shipCountry,
-      }
-    : {
-        line1: customer.billingLine1,
-        line2: customer.billingLine2,
-        city: customer.billingCity,
-        region: customer.billingRegion,
-        postcode: customer.billingPostcode,
-        country: customer.billingCountry,
-      };
+  if (!isShipAddressBlank(shippingAddress) && !isShipAddressDefaultOnly(shippingAddress)) {
+    return shippingAddress;
+  }
+
+  return normalizeAddressFields({
+    line1: customer.billingLine1,
+    line2: customer.billingLine2,
+    city: customer.billingCity,
+    region: customer.billingRegion,
+    postcode: customer.billingPostcode,
+    country: customer.billingCountry,
+  });
 }
 
 function getShipAddressFromValues(values: {
@@ -195,14 +295,14 @@ function getShipAddressFromValues(values: {
   shipPostcode?: string | null;
   shipCountry?: string | null;
 }): ShipAddress {
-  return {
+  return normalizeAddressFields({
     line1: values.shipLine1 ?? null,
     line2: values.shipLine2 ?? null,
     city: values.shipCity ?? null,
     region: values.shipRegion ?? null,
     postcode: values.shipPostcode ?? null,
     country: values.shipCountry ?? null,
-  };
+  });
 }
 
 function isShipAddressBlank(address: ShipAddress | null) {
@@ -214,6 +314,17 @@ function isShipAddressBlank(address: ShipAddress | null) {
     !address.region &&
     !address.postcode &&
     !address.country;
+}
+
+function isShipAddressDefaultOnly(address: ShipAddress | null) {
+  if (!address) return false;
+
+  return !address.line1 &&
+    !address.line2 &&
+    !address.city &&
+    !address.region &&
+    !address.postcode &&
+    address.country === DEFAULT_COUNTRY;
 }
 
 function shipAddressesEqual(left: ShipAddress | null, right: ShipAddress | null) {
@@ -309,7 +420,7 @@ export function OrderForm({
     defaultValues: initialData
       ? {
           customerId: initialData.customerId,
-          status: "draft",
+          status: initialData.status,
           orderDate: initialData.orderDate,
           shipDate: initialData.shipDate,
           requestedDate: initialData.requestedDate,
@@ -337,6 +448,10 @@ export function OrderForm({
   const customerId = useWatch({
     control: form.control,
     name: "customerId",
+  });
+  const status = useWatch({
+    control: form.control,
+    name: "status",
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -426,6 +541,45 @@ export function OrderForm({
     }, 0);
   }, [watchedLines]);
 
+  const orderSummary = useMemo(() => {
+    let cogs = 0;
+    let resolvedLineCount = 0;
+
+    (watchedLines ?? []).forEach((line, index) => {
+      const qty = parsePositive(line?.quantity);
+      if (qty == null) return;
+
+      if (line?.itemId) {
+        resolvedLineCount += 1;
+      }
+
+      const lineKey = fields[index]?.id;
+      const item = line?.itemId ? itemMap.get(line.itemId) : undefined;
+      const unitCost = lineKey
+        ? linePricingState[lineKey]?.estimatedUnitCost ?? item?.estimatedUnitCost
+        : item?.estimatedUnitCost;
+      const parsedCost = parsePositive(unitCost ?? null);
+
+      if (parsedCost != null) {
+        cogs += qty * parsedCost;
+      }
+    });
+
+    const marginMetrics =
+      orderTotal > 0 && cogs > 0
+        ? calculateMarginMetrics({
+            revenue: orderTotal,
+            cogs,
+          })
+        : null;
+
+    return {
+      cogs,
+      marginMetrics,
+      resolvedLineCount,
+    };
+  }, [fields, itemMap, linePricingState, orderTotal, watchedLines]);
+
   const mutation = useMutation({
     mutationFn: async (values: OrderFormValues) => {
       const response = await fetch(
@@ -485,12 +639,28 @@ export function OrderForm({
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const primaryActionLabel = mutation.isPending
+    ? isEditing
+      ? "Saving..."
+      : "Creating..."
+    : isEditing
+      ? "Save Changes"
+      : "Create Order";
+  const submitOrder = form.handleSubmit((values) => mutation.mutate(values));
+
+  const handleSaveDraft = () => {
+    form.setValue("status", "draft", {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    void submitOrder();
+  };
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
 
   if (!isHydrated) {
     return (
-      <div className="mx-auto w-full max-w-5xl space-y-8">
+      <div className="w-full space-y-8">
         <div className="space-y-1.5">
           <div className="h-9 w-56 rounded-md bg-muted" />
           <div className="h-4 w-80 rounded-md bg-muted" />
@@ -507,49 +677,73 @@ export function OrderForm({
 
   return (
     <>
-      <div className="mx-auto w-full max-w-5xl space-y-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-1.5">
-            <h1 className="text-3xl font-semibold tracking-tight">
-              {isEditing ? "Edit Sales Order" : "Add Sales Order"}
-            </h1>
-          </div>
+      <div className="w-full space-y-6">
+        <div className="sticky top-0 z-10 border-b bg-background/90 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleCancel}
+                aria-label="Back to sales orders"
+              >
+                <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
+              </Button>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-[22px] font-bold leading-tight tracking-tight">
+                    {isEditing ? "Edit Sales Order" : "Add Sales Order"}
+                  </h1>
+                  <Badge variant={statusBadgeVariant(status)}>
+                    {statusLabel(status)}
+                  </Badge>
+                </div>
+              </div>
+            </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button type="button" variant="outline" onClick={handleCancel}>
-              Cancel
-            </Button>
-            <Button type="submit" form="sales-order-form" disabled={mutation.isPending}>
-              {mutation.isPending
-                ? isEditing
-                  ? "Saving..."
-                  : "Creating..."
-                : isEditing
-                  ? "Save Changes"
-                  : "Create Order"}
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {!isEditing && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSaveDraft}
+                  disabled={mutation.isPending}
+                >
+                  Save Draft
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={handleCancel}>
+                Cancel
+              </Button>
+              <Button type="submit" form="sales-order-form" disabled={mutation.isPending}>
+                {primaryActionLabel}
+              </Button>
+            </div>
           </div>
         </div>
 
-        <Separator />
-
         {formError && <FieldError>{formError}</FieldError>}
 
-        <form
-          id="sales-order-form"
-          className="space-y-0"
-          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
-        >
-          <FieldGroup className="gap-8">
-            <FieldSet className="max-w-4xl gap-5">
-              <FieldLegend>Order</FieldLegend>
-              <FieldGroup>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <form
+            id="sales-order-form"
+            className="space-y-5"
+            onSubmit={submitOrder}
+          >
+            <SalesOrderSection title="Order details">
+              <FieldGroup className="gap-5">
                 <Controller
                   control={form.control}
                   name="customerId"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Customer</FieldLabel>
+                      <FieldLabel className="w-full">
+                        <FieldLabelWithMarker required>
+                          Customer
+                        </FieldLabelWithMarker>
+                      </FieldLabel>
                       <Combobox
                         items={customerIds}
                         value={field.value ?? ""}
@@ -561,13 +755,20 @@ export function OrderForm({
                           const nextShipAddress = getShipAddressFromCustomer(
                             customerMap.get(nextValue)
                           );
-                          if (!nextShipAddress) return;
+                          if (
+                            !nextShipAddress ||
+                            isShipAddressBlank(nextShipAddress) ||
+                            isShipAddressDefaultOnly(nextShipAddress)
+                          ) {
+                            return;
+                          }
 
                           const currentShipAddress = getShipAddressFromValues(
                             form.getValues()
                           );
                           const canReplaceShipAddress =
                             isShipAddressBlank(currentShipAddress) ||
+                            isShipAddressDefaultOnly(currentShipAddress) ||
                             shipAddressesEqual(
                               currentShipAddress,
                               lastAutoFilledShipAddressRef.current
@@ -599,13 +800,17 @@ export function OrderForm({
                   )}
                 />
 
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Controller
                     control={form.control}
                     name="status"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel>Status</FieldLabel>
+                        <FieldLabel className="w-full">
+                          <FieldLabelWithMarker required>
+                            Status
+                          </FieldLabelWithMarker>
+                        </FieldLabel>
                         <Select
                           name={field.name}
                           value={field.value}
@@ -629,8 +834,10 @@ export function OrderForm({
                     name="orderDate"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
-                          <TooltipHeader label="Order Date" tooltip={SALES_ORDER_DATE_TOOLTIP} />
+                        <FieldLabel htmlFor={field.name} className="w-full">
+                          <FieldLabelWithMarker required>
+                            <TooltipHeader label="Order Date" tooltip={SALES_ORDER_DATE_TOOLTIP} />
+                          </FieldLabelWithMarker>
                         </FieldLabel>
                         <DatePicker
                           id={field.name}
@@ -646,10 +853,35 @@ export function OrderForm({
 
                   <Controller
                     control={form.control}
+                    name="shipDate"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name} className="w-full">
+                          <FieldLabelWithMarker required={status === "confirmed"}>
+                            <TooltipHeader
+                              label="Ship Date"
+                              tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
+                            />
+                          </FieldLabelWithMarker>
+                        </FieldLabel>
+                        <DatePicker
+                          id={field.name}
+                          value={field.value ?? ""}
+                          onChange={(value) => field.onChange(value || null)}
+                          onBlur={field.onBlur}
+                          aria-invalid={fieldState.invalid}
+                        />
+                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      </Field>
+                    )}
+                  />
+
+                  <Controller
+                    control={form.control}
                     name="requestedDate"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
+                        <FieldLabel htmlFor={field.name} className="w-full">
                           <TooltipHeader
                             label="Delivery Date"
                             tooltip={REQUESTED_DATE_TOOLTIP}
@@ -666,81 +898,82 @@ export function OrderForm({
                       </Field>
                     )}
                   />
-
-                  <Controller
-                    control={form.control}
-                    name="shipDate"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
-                          <TooltipHeader
-                            label="Ship Date"
-                            tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
-                          />
-                        </FieldLabel>
-                        <DatePicker
-                          id={field.name}
-                          value={field.value ?? ""}
-                          onChange={(value) => field.onChange(value || null)}
-                          onBlur={field.onBlur}
-                          aria-invalid={fieldState.invalid}
-                        />
-                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                      </Field>
-                    )}
-                  />
                 </div>
               </FieldGroup>
-            </FieldSet>
+            </SalesOrderSection>
 
-            <FieldSeparator />
+            <SalesOrderSection
+              title="Items"
+              action={
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {fields.length} {fields.length === 1 ? "item" : "items"}
+                </span>
+              }
+              footer={
+                <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      append({
+                        itemId: "",
+                        quantity: null,
+                        unitPrice: null,
+                      })
+                    }
+                  >
+                    Add Item
+                    <HugeiconsIcon
+                      icon={Add01Icon}
+                      className="h-4 w-4"
+                      data-icon="inline-end"
+                      aria-hidden
+                    />
+                  </Button>
 
-            <FieldSet className="max-w-4xl gap-5">
-              <FieldLegend>Ship To</FieldLegend>
-              <FieldDescription>
-                Defaults from the customer; editable per order.
-              </FieldDescription>
-              <AddressFields
-                control={form.control}
-                idPrefix="order-ship"
-                names={{
-                  line1: "shipLine1",
-                  line2: "shipLine2",
-                  city: "shipCity",
-                  region: "shipRegion",
-                  postcode: "shipPostcode",
-                  country: "shipCountry",
-                }}
-              />
-            </FieldSet>
-
-            <FieldSeparator />
-
-            <FieldSet className="gap-5">
-              <FieldLegend>Items</FieldLegend>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Subtotal</span>{" "}
+                    <span className="font-mono font-medium tabular-nums">
+                      {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
+                    </span>
+                  </div>
+                </div>
+              }
+            >
               <FieldGroup className="gap-4">
                 {fields.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="bg-muted/50">
                         <TableRow>
-                          <TableHead>Item</TableHead>
-                          <TableHead className="w-32">
-                            <TooltipHeader label="Qty" tooltip={SALES_LINE_QTY_TOOLTIP} />
+                          <TableHead>
+                            <TableHeaderLabel label="Item" required />
                           </TableHead>
-                          <TableHead className="w-28">
+                          <TableHead className="w-24 text-right">
+                            <TableHeaderLabel
+                              label="Qty"
+                              tooltip={SALES_LINE_QTY_TOOLTIP}
+                              required
+                            />
+                          </TableHead>
+                          <TableHead className="w-24">
                             <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
                           </TableHead>
-                          <TableHead className="w-40">
-                            <TooltipHeader label="Unit Price" tooltip={SALES_UNIT_PRICE_TOOLTIP} />
+                          <TableHead className="w-36 text-right">
+                            <TableHeaderLabel
+                              label="Unit Price"
+                              tooltip={SALES_UNIT_PRICE_TOOLTIP}
+                              required
+                            />
                           </TableHead>
                           <TableHead className="w-32 text-right">
                             <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
                           </TableHead>
-                          <TableHead className="w-36 text-right">
-                            <TooltipHeader label="Est. Margin" tooltip={ESTIMATED_MARGIN_TOOLTIP} />
+                          <TableHead className="w-32 text-right">
+                            <TooltipHeader label="Margin" tooltip={ESTIMATED_MARGIN_TOOLTIP} />
                           </TableHead>
-                          <TableHead className="w-12" />
+                          <TableHead className="w-10" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -799,9 +1032,9 @@ export function OrderForm({
                     </Table>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-dashed px-4 py-6">
+                  <div className="rounded-lg border border-dashed px-4 py-8 text-center">
                     <p className="text-sm text-muted-foreground">
-                      No items added.
+                      No items yet.
                     </p>
                   </div>
                 )}
@@ -809,67 +1042,123 @@ export function OrderForm({
                 {linesError && (
                   <p className="text-sm text-destructive">{linesError}</p>
                 )}
-
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      append({
-                        itemId: "",
-                        quantity: null,
-                        unitPrice: null,
-                      })
-                    }
-                  >
-                    Add Item
-                    <HugeiconsIcon
-                      icon={Add01Icon}
-                      className="h-4 w-4"
-                      data-icon="inline-end"
-                      aria-hidden
-                    />
-                  </Button>
-
-                  <div className="rounded-md border px-4 py-2 text-sm">
-                    <span className="text-muted-foreground">Order Total</span>
-                    <div className="font-medium">
-                      {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
-                    </div>
-                  </div>
-                </div>
               </FieldGroup>
-            </FieldSet>
+            </SalesOrderSection>
 
-            <FieldSeparator />
+            <SalesOrderSection title="Shipping address">
+              <AddressFields
+                control={form.control}
+                idPrefix="order-ship"
+                names={{
+                  line1: "shipLine1",
+                  line2: "shipLine2",
+                  city: "shipCity",
+                  region: "shipRegion",
+                  postcode: "shipPostcode",
+                  country: "shipCountry",
+                }}
+              />
+            </SalesOrderSection>
 
-            <FieldSet className="max-w-4xl gap-5">
-              <FieldLegend>Notes</FieldLegend>
+            <SalesOrderSection title="Notes">
               <FieldGroup>
                 <Controller
                   control={form.control}
                   name="notes"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Notes</FieldLabel>
+                      <FieldLabel htmlFor={field.name} className="w-full">
+                        Notes
+                      </FieldLabel>
                       <Textarea
                         {...field}
                         id={field.name}
                         value={field.value ?? ""}
                         onChange={(event) => field.onChange(event.target.value)}
                         aria-invalid={fieldState.invalid}
-                        rows={6}
+                        rows={5}
                       />
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}
                 />
               </FieldGroup>
-            </FieldSet>
-          </FieldGroup>
-        </form>
+            </SalesOrderSection>
+          </form>
 
+          <aside className="space-y-4 lg:sticky lg:top-20">
+            <Card className="rounded-lg border shadow-sm ring-0">
+              <CardHeader className="border-b bg-muted/20 px-5 pb-4">
+                <CardTitle className="text-[15px] font-semibold tracking-normal">
+                  Order summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 px-5 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">
+                    Subtotal ({orderSummary.resolvedLineCount}{" "}
+                    {orderSummary.resolvedLineCount === 1 ? "item" : "items"})
+                  </span>
+                  <span className="font-mono font-medium tabular-nums">
+                    {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">Status</span>
+                  <Badge variant={statusBadgeVariant(status)}>
+                    {statusLabel(status)}
+                  </Badge>
+                </div>
+              </CardContent>
+              <CardFooter className="justify-between bg-muted/25 px-5">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Total
+                  </div>
+                  <div className="text-xs text-muted-foreground">USD</div>
+                </div>
+                <div className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
+                  {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
+                </div>
+              </CardFooter>
+            </Card>
+
+            <Card className="rounded-lg border shadow-sm ring-0" size="sm">
+              <CardContent className="grid grid-cols-2 gap-4 px-5">
+                <div>
+                  <div className="text-xs text-muted-foreground">Estimated margin</div>
+                  <div
+                    className={`text-lg font-semibold ${marginToneClass(
+                      orderSummary.marginMetrics?.marginPercent
+                    )}`}
+                  >
+                    {marginPercentLabel(orderSummary.marginMetrics?.marginPercent)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">COGS</div>
+                  <div className="font-mono text-sm font-medium tabular-nums">
+                    {formatPrice(orderSummary.cogs.toFixed(2)) ?? "$0.00"}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" variant="outline" onClick={handleCancel}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="sales-order-form"
+                disabled={mutation.isPending}
+                aria-label={isEditing ? "Submit changes from summary" : "Submit order from summary"}
+              >
+                {primaryActionLabel}
+              </Button>
+            </div>
+          </aside>
+        </div>
       </div>
 
       <AlertDialog
@@ -1147,7 +1436,7 @@ function OrderLineRow({
         />
       </TableCell>
 
-      <TableCell>
+      <TableCell className="text-right">
         <Controller
           control={control}
           name={`lines.${index}.quantity`}
@@ -1161,6 +1450,7 @@ function OrderLineRow({
                 inputMode="decimal"
                 placeholder="0"
                 autoComplete="off"
+                className="text-right tabular-nums"
               />
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
             </div>
@@ -1168,11 +1458,11 @@ function OrderLineRow({
         />
       </TableCell>
 
-      <TableCell className="text-sm text-muted-foreground">
+      <TableCell className="font-mono text-sm text-muted-foreground">
         {item?.unitName ?? "\u2014"}
       </TableCell>
 
-      <TableCell>
+      <TableCell className="text-right">
         <Controller
           control={control}
           name={`lines.${index}.unitPrice`}
@@ -1204,6 +1494,7 @@ function OrderLineRow({
                 inputMode="decimal"
                 placeholder="0.00"
                 autoComplete="off"
+                className="text-right tabular-nums"
               />
               {fieldState.invalid ? (
                 <FieldError errors={[fieldState.error]} />
@@ -1244,12 +1535,12 @@ function OrderLineRow({
         />
       </TableCell>
 
-      <TableCell className="text-right text-sm font-medium">
+      <TableCell className="text-right font-mono text-sm font-medium tabular-nums">
         {lineTotalLabel(line?.quantity, line?.unitPrice)}
       </TableCell>
 
       <TableCell className="text-right text-sm">
-        <div className="font-medium">
+        <div className={`font-medium ${marginToneClass(estimatedMargin?.marginPercent)}`}>
           {marginPercentLabel(estimatedMargin?.marginPercent)}
         </div>
         {estimatedMargin ? (
@@ -1262,10 +1553,9 @@ function OrderLineRow({
       <TableCell>
         <Button
           type="button"
-          variant="ghost"
+          variant="destructive"
           size="icon-sm"
           onClick={onRemove}
-          className="text-muted-foreground"
           aria-label={`Remove line ${index + 1}`}
         >
           <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />

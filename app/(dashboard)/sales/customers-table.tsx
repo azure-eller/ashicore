@@ -7,8 +7,30 @@ import { SortableHeader } from "@/components/sortable-header";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatDate } from "@/lib/format";
+import { formatAddressLines, formatDate } from "@/lib/format";
 import type { CustomerRow } from "./types";
+
+function customerListAddress(customer: CustomerRow) {
+  const billingAddress = formatAddressLines({
+    line1: customer.billingLine1,
+    line2: customer.billingLine2,
+    city: customer.billingCity,
+    region: customer.billingRegion,
+    postcode: customer.billingPostcode,
+    country: customer.billingCountry,
+  }).join(", ");
+
+  if (billingAddress) return billingAddress;
+
+  return formatAddressLines({
+    line1: customer.shipLine1,
+    line2: customer.shipLine2,
+    city: customer.shipCity,
+    region: customer.shipRegion,
+    postcode: customer.shipPostcode,
+    country: customer.shipCountry,
+  }).join(", ");
+}
 
 const columns: ColumnDef<CustomerRow>[] = [
   {
@@ -52,6 +74,21 @@ const columns: ColumnDef<CustomerRow>[] = [
     ),
     filterFn: multiValueFilter,
     cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
+  },
+  {
+    id: "address",
+    accessorFn: customerListAddress,
+    header: ({ column }) => <SortableHeader column={column} label="Address" />,
+    cell: ({ row }) => {
+      const address = customerListAddress(row.original);
+      return address ? (
+        <span className="block max-w-80 truncate" title={address}>
+          {address}
+        </span>
+      ) : (
+        "\u2014"
+      );
+    },
   },
   {
     accessorKey: "email",

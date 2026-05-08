@@ -4515,9 +4515,7 @@ export async function shipSalesShipment(
   const { XeroError } = await import("@/lib/xero/errors");
 
   try {
-    await pushSalesOrderToXero(result.orgId, orderId, {
-      sendEmail: payload.sendEmail,
-    });
+    await pushSalesOrderToXero(result.orgId, orderId);
   } catch (error) {
     if (
       error instanceof XeroError &&
@@ -4641,7 +4639,6 @@ export async function shipSalesOrder(
   options?: {
     idempotencyKey?: string;
     syncAccounting?: boolean;
-    sendEmail?: boolean;
   }
 ) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
@@ -4652,7 +4649,6 @@ export async function shipSalesOrder(
       payload: {
         id,
         syncAccounting: options?.syncAccounting ?? true,
-        sendEmail: options?.sendEmail ?? false,
       },
     });
 
@@ -4850,9 +4846,7 @@ export async function shipSalesOrder(
   const { XeroError } = await import("@/lib/xero/errors");
 
   try {
-    await pushSalesOrderToXero(result.orgId, id, {
-      sendEmail: options?.sendEmail,
-    });
+    await pushSalesOrderToXero(result.orgId, id);
   } catch (error) {
     if (
       error instanceof XeroError &&
@@ -4898,16 +4892,6 @@ export async function retryXeroPushForSalesOrder(id: string) {
       await markXeroPushFailed(orgId, id, error);
       throw error;
     }
-  });
-}
-
-export async function retryXeroEmailForSalesOrder(id: string) {
-  return withAuthedOrgContext(async (_tx, orgId) => {
-    const { emailSalesInvoiceForOrder } = await import(
-      "@/lib/xero/push-invoice"
-    );
-    const result = await emailSalesInvoiceForOrder(orgId, id);
-    return { ok: true as const, result };
   });
 }
 

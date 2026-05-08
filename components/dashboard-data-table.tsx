@@ -18,6 +18,7 @@ import {
   type Row,
   type RowSelectionState,
   type SortingState,
+  type Table as TanStackTable,
   flexRender,
   getCoreRowModel,
   getExpandedRowModel,
@@ -98,6 +99,10 @@ type DashboardColumnMeta = {
   className?: string;
 };
 
+type ToolbarRenderContext<TData extends { id: string }> = {
+  table: TanStackTable<TData>;
+};
+
 type DashboardDataTableProps<TData extends { id: string }> = {
   columns: ColumnDef<TData>[];
   data?: TData[];
@@ -111,7 +116,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   emptyMessage: string;
   deleteAction?: DeleteActionConfig;
   selectedActions?: SelectedAction<TData>[];
-  toolbarContent?: ReactNode;
+  toolbarContent?: ReactNode | ((context: ToolbarRenderContext<TData>) => ReactNode);
   addActions?: AddAction[];
   tableClassName?: string;
   getRowCanExpand?: (row: Row<TData>) => boolean;
@@ -296,7 +301,9 @@ export function DashboardDataTable<TData extends { id: string }>({
               onChange={(event) => setGlobalFilter(event.target.value)}
               className="w-72 max-w-sm"
             />
-            {toolbarContent}
+            {typeof toolbarContent === "function"
+              ? toolbarContent({ table })
+              : toolbarContent}
           </div>
           <div className="flex items-center gap-2">
             {hasSelectionMenu && (

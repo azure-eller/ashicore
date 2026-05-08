@@ -118,7 +118,7 @@ export function getReplenishmentStatus(
     return "order-now";
   }
 
-  if (safetyStock > 0 && projectedStock <= safetyStock * 1.2) {
+  if (safetyStock > 0 && projectedStock <= safetyStock * 1.4) {
     return "order-soon";
   }
 

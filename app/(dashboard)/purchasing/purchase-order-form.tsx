@@ -204,7 +204,7 @@ export function PurchaseOrderForm({
   const linesError = getFieldArrayError(form.formState.errors.lines);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8">
+    <div className="w-full space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
@@ -242,7 +242,7 @@ export function PurchaseOrderForm({
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
         <FieldGroup className="gap-8">
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Order</FieldLegend>
             <FieldGroup>
               <Controller
@@ -385,7 +385,7 @@ export function PurchaseOrderForm({
 
           <FieldSeparator />
 
-          <FieldSet className="max-w-4xl gap-5">
+          <FieldSet className="gap-5">
             <FieldLegend>Notes</FieldLegend>
             <FieldGroup>
               <Controller

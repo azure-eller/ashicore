@@ -31,7 +31,7 @@ export function SupplierFieldGroups({
 }) {
   return (
     <FieldGroup className="gap-8">
-      <FieldSet className="max-w-4xl gap-5">
+      <FieldSet className="gap-5">
         <FieldLegend>Basics</FieldLegend>
         <FieldGroup>
           <div className="grid gap-4 md:grid-cols-2">
@@ -162,7 +162,7 @@ export function SupplierFieldGroups({
 
       <FieldSeparator />
 
-      <FieldSet className="max-w-4xl gap-5">
+      <FieldSet className="gap-5">
         <FieldLegend>Billing Address</FieldLegend>
         <FieldDescription>
           Used for purchase orders and invoices.
@@ -183,7 +183,7 @@ export function SupplierFieldGroups({
 
       <FieldSeparator />
 
-      <FieldSet className="max-w-4xl gap-5">
+      <FieldSet className="gap-5">
         <FieldLegend>Notes</FieldLegend>
         <FieldGroup>
           <Controller

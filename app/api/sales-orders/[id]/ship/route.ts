@@ -10,7 +10,6 @@ import {
 const shipOptionsSchema = z
   .object({
     syncAccounting: z.boolean().optional(),
-    sendEmail: z.boolean().optional(),
   })
   .optional();
 

@@ -2,6 +2,7 @@
 
 import {
   Controller,
+  useWatch,
   type Control,
   type FieldPath,
   type FieldValues,
@@ -13,6 +14,21 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import {
+  COUNTRY_OPTIONS,
+  DEFAULT_COUNTRY,
+  getRegionOptions,
+  normalizeCountry,
+  normalizeRegion,
+} from "@/lib/address-options";
 
 export type AddressFieldNames<Prefix extends string> = {
   line1: `${Prefix}Line1`;
@@ -54,6 +70,15 @@ export function AddressFields<TFieldValues extends FieldValues>({
   names,
   idPrefix,
 }: AddressFieldsProps<TFieldValues>) {
+  const watchedCountry = useWatch({ control, name: names.country }) as
+    | string
+    | null
+    | undefined;
+  const selectedCountry = normalizeCountry(watchedCountry) ?? DEFAULT_COUNTRY;
+  const regionOptions = getRegionOptions(selectedCountry);
+  const regionValues = regionOptions.map((option) => option.value);
+  const countryValues = COUNTRY_OPTIONS.map((option) => option.value);
+
   return (
     <FieldGroup>
       <Controller
@@ -61,7 +86,7 @@ export function AddressFields<TFieldValues extends FieldValues>({
         name={names.line1}
         render={({ field, fieldState }) => (
           <Field data-invalid={fieldState.invalid}>
-            <FieldLabel htmlFor={`${idPrefix}-line1`}>Address line 1</FieldLabel>
+            <FieldLabel htmlFor={`${idPrefix}-line1`}>Street Address</FieldLabel>
             <Input
               {...field}
               id={`${idPrefix}-line1`}
@@ -80,7 +105,9 @@ export function AddressFields<TFieldValues extends FieldValues>({
         name={names.line2}
         render={({ field, fieldState }) => (
           <Field data-invalid={fieldState.invalid}>
-            <FieldLabel htmlFor={`${idPrefix}-line2`}>Address line 2</FieldLabel>
+            <FieldLabel htmlFor={`${idPrefix}-line2`}>
+              Apartment, Suite, Unit
+            </FieldLabel>
             <Input
               {...field}
               id={`${idPrefix}-line2`}
@@ -94,7 +121,7 @@ export function AddressFields<TFieldValues extends FieldValues>({
         )}
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <FieldGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_7rem_9rem_10rem]">
         <Controller
           control={control}
           name={names.city}
@@ -119,28 +146,50 @@ export function AddressFields<TFieldValues extends FieldValues>({
           name={names.region}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor={`${idPrefix}-region`}>State / region</FieldLabel>
-              <Input
-                {...field}
-                id={`${idPrefix}-region`}
-                value={(field.value as string | null) ?? ""}
-                onChange={(event) => field.onChange(event.target.value || null)}
-                aria-invalid={fieldState.invalid}
-                autoComplete="address-level1"
-              />
+              <FieldLabel htmlFor={`${idPrefix}-region`}>
+                {selectedCountry === DEFAULT_COUNTRY ? "State" : "State / Province"}
+              </FieldLabel>
+              <Combobox
+                items={regionValues}
+                value={normalizeRegion(selectedCountry, field.value as string | null) ?? ""}
+                onValueChange={(value) =>
+                  field.onChange(normalizeRegion(selectedCountry, value))
+                }
+                itemToStringLabel={(value) => {
+                  const option = regionOptions.find((region) => region.value === value);
+                  return option?.label ?? value;
+                }}
+              >
+                <ComboboxInput
+                  id={`${idPrefix}-region`}
+                  placeholder="State"
+                  aria-invalid={fieldState.invalid}
+                />
+                <ComboboxContent>
+                  <ComboboxEmpty>No states found</ComboboxEmpty>
+                  <ComboboxList>
+                    {(value: string) => {
+                      const option = regionOptions.find((region) => region.value === value);
+                      return (
+                        <ComboboxItem key={value} value={value}>
+                          {option?.label ?? value}
+                        </ComboboxItem>
+                      );
+                    }}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
             </Field>
           )}
         />
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
         <Controller
           control={control}
           name={names.postcode}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor={`${idPrefix}-postcode`}>Postcode</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-postcode`}>Postal Code</FieldLabel>
               <Input
                 {...field}
                 id={`${idPrefix}-postcode`}
@@ -160,19 +209,33 @@ export function AddressFields<TFieldValues extends FieldValues>({
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
               <FieldLabel htmlFor={`${idPrefix}-country`}>Country</FieldLabel>
-              <Input
-                {...field}
-                id={`${idPrefix}-country`}
-                value={(field.value as string | null) ?? ""}
-                onChange={(event) => field.onChange(event.target.value || null)}
-                aria-invalid={fieldState.invalid}
-                autoComplete="country-name"
-              />
+              <Combobox
+                items={countryValues}
+                value={normalizeCountry(field.value as string | null) ?? ""}
+                onValueChange={(value) => field.onChange(normalizeCountry(value))}
+                itemToStringLabel={(value) => value}
+              >
+                <ComboboxInput
+                  id={`${idPrefix}-country`}
+                  placeholder="Country"
+                  aria-invalid={fieldState.invalid}
+                />
+                <ComboboxContent>
+                  <ComboboxEmpty>No countries found</ComboboxEmpty>
+                  <ComboboxList>
+                    {(value: string) => (
+                      <ComboboxItem key={value} value={value}>
+                        {value}
+                      </ComboboxItem>
+                    )}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
             </Field>
           )}
         />
-      </div>
+      </FieldGroup>
     </FieldGroup>
   );
 }

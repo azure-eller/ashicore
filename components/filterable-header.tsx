@@ -18,6 +18,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
 /**
  * Multi-select column filter using DropdownMenuCheckboxItem.
  * Use with `filterFn: multiValueFilter` on the column definition.
@@ -27,19 +32,27 @@ export function FilterableHeader<T>({
   column,
   label,
   tooltip,
+  options,
 }: {
   column: Column<T>;
   label: string;
   tooltip?: string;
+  options?: readonly FilterOption[];
 }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isTooltipOpen, setIsTooltipOpen] = useState(false);
   const selected = (column.getFilterValue() as string[] | undefined) ?? [];
   const faceted = column.getFacetedUniqueValues();
 
-  const options = Array.from(faceted.keys())
-    .filter((v): v is string => v != null && v !== "")
-    .sort();
+  const filterOptions =
+    options ??
+    Array.from(faceted.keys())
+      .filter((v): v is string => v != null && v !== "")
+      .sort()
+      .map((value) => ({
+        value,
+        label: value.charAt(0).toUpperCase() + value.slice(1),
+      }));
 
   function toggle(value: string) {
     const next = selected.includes(value)
@@ -77,14 +90,14 @@ export function FilterableHeader<T>({
 
   const content = (
     <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
-      {options.map((value) => (
+      {filterOptions.map((option) => (
         <DropdownMenuCheckboxItem
-          key={value}
-          checked={selected.includes(value)}
-          onCheckedChange={() => toggle(value)}
+          key={option.value}
+          checked={selected.includes(option.value)}
+          onCheckedChange={() => toggle(option.value)}
           onSelect={(e) => e.preventDefault()}
         >
-          {value.charAt(0).toUpperCase() + value.slice(1)}
+          {option.label}
         </DropdownMenuCheckboxItem>
       ))}
       {selected.length > 0 && (

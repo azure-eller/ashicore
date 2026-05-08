@@ -287,9 +287,9 @@ function salesOrderAccountingDocument(
     pushError: order.xeroPushError,
     pushedAt: order.xeroPushedAt,
     retryCount: order.xeroRetryCount,
-    emailStatus: order.xeroEmailStatus,
-    emailError: order.xeroEmailError,
-    emailedAt: order.xeroEmailedAt,
+    emailStatus: null,
+    emailError: null,
+    emailedAt: null,
     emailProviderName: "Resend",
     recipientLabel: order.customerName,
     recipientEmail: order.customerEmail,
@@ -1149,7 +1149,7 @@ export function OrderDetail({
     description,
     localActionLabel,
     includeAccounting = true,
-    includeEmail = true,
+    includeEmail = false,
     activeStage = "push",
   }: {
     title: string;
@@ -1182,7 +1182,7 @@ export function OrderDetail({
     description,
     localActionLabel,
     includeAccounting = true,
-    includeEmail = true,
+    includeEmail = false,
   }: {
     title: string;
     description: string;
@@ -1403,10 +1403,8 @@ export function OrderDetail({
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey,
           },
-          body: JSON.stringify({ sendEmail: false }),
         }
       );
       const body = await response.json().catch(() => null);
@@ -1552,6 +1550,7 @@ export function OrderDetail({
         title: "Syncing Invoice",
         description: "The invoice will be created or retried in Xero.",
         localActionLabel: "Start retry",
+        includeEmail: false,
       });
     },
     onSuccess: async () => {
@@ -1561,8 +1560,9 @@ export function OrderDetail({
       ]);
       await finishSyncDialog({
         title: "Invoice Sync Complete",
-        description: "The latest Xero and email results are shown below.",
+        description: "The latest Xero invoice result is shown below.",
         localActionLabel: "Start retry",
+        includeEmail: false,
       });
       router.refresh();
     },
@@ -1572,46 +1572,6 @@ export function OrderDetail({
         title: "Invoice Sync Failed",
         description: "The retry did not complete.",
         localActionLabel: "Start retry",
-        message: error.message,
-      });
-    },
-  });
-
-  const xeroEmailMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(
-        `/api/sales-orders/${order.id}/xero-email`,
-        { method: "POST" }
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to email invoice.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-      openSyncDialog({
-        title: "Emailing Invoice",
-        description: "Sending the existing invoice to the customer.",
-        localActionLabel: "Prepare email",
-        activeStage: "email",
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-      await finishSyncDialog({
-        title: "Invoice Email Complete",
-        description: "The latest email result is shown below.",
-        localActionLabel: "Prepare email",
-      });
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-      failSyncDialog({
-        title: "Invoice Email Failed",
-        description: "The email retry did not complete.",
-        localActionLabel: "Prepare email",
         message: error.message,
       });
     },
@@ -1657,12 +1617,6 @@ export function OrderDetail({
     order.status === "shipped" &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
   const canCreateXeroInvoice = order.status === "shipped" && !order.xeroPushStatus;
-  const canSendXeroEmail =
-    order.status === "shipped" &&
-    order.xeroPushStatus === "pushed" &&
-    order.xeroEmailStatus !== "sent";
-  const xeroEmailActionLabel =
-    order.xeroEmailStatus === "failed" ? "Retry Xero email" : "Email invoice";
   const canCreateShipment =
     !isDeleted &&
     (order.status === "confirmed" || order.status === "partially_shipped");
@@ -1699,8 +1653,6 @@ export function OrderDetail({
       document={accountingDocument}
       onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
       retryPushPending={xeroPushMutation.isPending}
-      onRetryEmail={canSendXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
-      retryEmailPending={xeroEmailMutation.isPending}
       providerAction={
         order.xeroPushStatus === "pushed"
           ? {
@@ -1811,15 +1763,6 @@ export function OrderDetail({
                         label: "Create invoice",
                         onSelect: () => xeroPushMutation.mutate(),
                         disabled: xeroPushMutation.isPending,
-                      },
-                    ]
-                  : []),
-                ...(canSendXeroEmail
-                  ? [
-                      {
-                        label: xeroEmailActionLabel,
-                        onSelect: () => xeroEmailMutation.mutate(),
-                        disabled: xeroEmailMutation.isPending,
                       },
                     ]
                   : []),
