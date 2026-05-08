@@ -17,6 +17,11 @@ import { AddressFields } from "@/components/address-fields";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+} from "@/components/create-page";
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -29,9 +34,6 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,7 +44,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { PRICING_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
@@ -283,15 +284,12 @@ export function CustomerForm({
   const handleCancel = useSmartBack(fallbackPath);
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? "Edit Customer" : "Add Customer"}
-          </h1>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell className="max-w-4xl">
+      <CreatePageHeader
+        eyebrow="Sales · Customers"
+        title={isEditing ? "Edit Customer" : "Add Customer"}
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
@@ -304,10 +302,9 @@ export function CustomerForm({
                 ? "Save Changes"
                 : "Create Customer"}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
@@ -316,9 +313,8 @@ export function CustomerForm({
         className="space-y-0"
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Basics</FieldLegend>
+        <FieldGroup className="gap-6">
+          <CreateSection title="Basics">
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -434,12 +430,11 @@ export function CustomerForm({
               </div>
 
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Billing Address</FieldLegend>
+          <CreateSection
+            title="Billing address"
+          >
             <AddressFields
               control={form.control}
               idPrefix="customer-billing"
@@ -452,25 +447,28 @@ export function CustomerForm({
                 country: "billingCountry",
               }}
             />
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Shipping Address</FieldLegend>
+          <CreateSection
+            title="Shipping address"
+            action={
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={shippingSameAsBilling}
+                  onCheckedChange={(checked) => {
+                    setShippingSameAsBilling(checked === true);
+                  }}
+                />
+                Same as billing
+              </label>
+            }
+          >
             <FieldGroup>
-              <Field>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={shippingSameAsBilling}
-                    onCheckedChange={(checked) => {
-                      setShippingSameAsBilling(checked === true);
-                    }}
-                  />
-                  Same as billing address
-                </label>
-              </Field>
-              {!shippingSameAsBilling && (
+              {shippingSameAsBilling ? (
+                <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                  Shipping address mirrors the billing address above.
+                </p>
+              ) : (
                 <AddressFields
                   control={form.control}
                   idPrefix="customer-shipping"
@@ -485,12 +483,9 @@ export function CustomerForm({
                 />
               )}
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Notes</FieldLegend>
+          <CreateSection title="Notes">
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -511,7 +506,7 @@ export function CustomerForm({
                 )}
               />
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
         </FieldGroup>
       </form>
 
@@ -567,6 +562,6 @@ export function CustomerForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </CreatePageShell>
   );
 }

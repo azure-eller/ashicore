@@ -17,14 +17,12 @@ export default async function NewProductPage() {
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl py-8">
-      <ItemForm
-        itemType="product"
-        units={units}
-        categories={categories}
-        availableComponents={components}
-        canManageBomLock={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
-      />
-    </div>
+    <ItemForm
+      itemType="product"
+      units={units}
+      categories={categories}
+      availableComponents={components}
+      canManageBomLock={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
+    />
   );
 }

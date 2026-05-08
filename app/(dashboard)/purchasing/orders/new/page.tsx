@@ -47,16 +47,14 @@ export default async function NewPurchaseOrderPage({
       : undefined;
 
   return (
-    <div className="mx-auto w-full max-w-5xl py-8">
-      <PurchaseOrderForm
-        suppliers={supplierRows.map((supplier) => ({
-          id: supplier.id,
-          name: supplier.name,
-          code: supplier.code,
-        }))}
-        materials={materials}
-        defaultValues={defaultValues}
-      />
-    </div>
+    <PurchaseOrderForm
+      suppliers={supplierRows.map((supplier) => ({
+        id: supplier.id,
+        name: supplier.name,
+        code: supplier.code,
+      }))}
+      materials={materials}
+      defaultValues={defaultValues}
+    />
   );
 }

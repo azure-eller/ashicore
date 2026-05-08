@@ -12,6 +12,11 @@ import {
 } from "@/lib/schemas/items";
 import { formatVariantDisplay } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import {
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+} from "@/components/create-page";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,11 +32,7 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
-import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   ITEM_SKU_TOOLTIP,
@@ -120,14 +121,16 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
   const handleCancel = useSmartBack(fallbackPath);
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Add Variant <span className="text-muted-foreground">— {masterName}</span>
-          </h1>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell className="max-w-4xl">
+      <CreatePageHeader
+        eyebrow="Inventory · Products · Variant"
+        title={
+          <>
+            Add Variant <span className="text-muted-foreground">· {masterName}</span>
+          </>
+        }
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
@@ -138,10 +141,9 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
           >
             {mutation.isPending ? "Creating..." : "Create Variant"}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
@@ -152,9 +154,10 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
           if (!mutation.isPending) mutation.mutate(data);
         })}
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Variant Identity</FieldLegend>
+        <FieldGroup className="gap-6">
+          <CreateSection
+            title="Variant identity"
+          >
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field>
@@ -294,12 +297,11 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                 )}
               />
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Pricing & Stock</FieldLegend>
+          <CreateSection
+            title="Pricing & stock"
+          >
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Controller
@@ -366,9 +368,9 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                 />
               </div>
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
         </FieldGroup>
       </form>
-    </div>
+    </CreatePageShell>
   );
 }

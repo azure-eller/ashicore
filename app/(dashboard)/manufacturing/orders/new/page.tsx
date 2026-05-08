@@ -20,13 +20,11 @@ export default async function NewManufacturingOrderPage({
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl py-8">
-      <ManufacturingOrderForm
-        productTemplates={products}
-        salesOrderOptions={salesOrders}
-        initialSalesOrderId={salesOrderId ?? null}
-        initialSalesOrderPreview={initialPreview}
-      />
-    </div>
+    <ManufacturingOrderForm
+      productTemplates={products}
+      salesOrderOptions={salesOrders}
+      initialSalesOrderId={salesOrderId ?? null}
+      initialSalesOrderPreview={initialPreview}
+    />
   );
 }

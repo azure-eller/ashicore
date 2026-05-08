@@ -20,6 +20,14 @@ import {
 } from "@/lib/schemas/manufacturing-orders";
 import { Button } from "@/components/ui/button";
 import {
+  CreatePageGrid,
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+  CreateSidebarCard,
+  SummaryRows,
+} from "@/components/create-page";
+import {
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -33,13 +41,9 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -525,17 +529,20 @@ export function ManufacturingOrderForm({
       : mutation.isPending
         ? "Creating..."
         : "Create Order";
+  const runOutputQuantity = batchCalc
+    ? formatQuantity(String(batchCalc.plannedOutput))
+    : formatQuantity(watchedPlannedQuantity);
+  const runIngredientCount = isSalesOrderMode
+    ? salesOrderPreview?.manufacturableLineCount ?? 0
+    : fields.length;
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? "Edit Manufacturing Order" : "Add Manufacturing Order"}
-          </h1>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell>
+      <CreatePageHeader
+        eyebrow="Manufacturing · Orders"
+        title={isEditing ? "Edit Manufacturing Order" : "Add Manufacturing Order"}
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
@@ -546,21 +553,51 @@ export function ManufacturingOrderForm({
           >
             {createButtonLabel}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
+      <CreatePageGrid
+        sidebar={
+          <CreateSidebarCard
+            title="Run summary"
+            footer={
+              <div className="w-full rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+                {watchedProductId || isSalesOrderMode
+                  ? "Review ingredients before creating the order."
+                  : "Pick a product to check the run."}
+              </div>
+            }
+          >
+            <SummaryRows
+              rows={[
+                {
+                  label: "Output",
+                  value: runOutputQuantity,
+                },
+                {
+                  label: isSalesOrderMode ? "Orders" : "Ingredients",
+                  value: runIngredientCount,
+                },
+                {
+                  label: "Mode",
+                  value: isBatchMode ? "Batch" : "Discrete",
+                },
+              ]}
+            />
+          </CreateSidebarCard>
+        }
+      >
       <form
         id="manufacturing-order-form"
-        className="space-y-0"
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Order Basics</FieldLegend>
+        <FieldGroup className="gap-6">
+          <CreateSection
+            title="Order basics"
+          >
             <FieldGroup>
               {!isEditing && (
                 <Controller
@@ -810,13 +847,12 @@ export function ManufacturingOrderForm({
                 />
               </div>
             </FieldGroup>
-          </FieldSet>
-
-          <FieldSeparator />
+          </CreateSection>
 
           {isSalesOrderMode ? (
-            <FieldSet className="gap-5">
-              <FieldLegend>Sales Order Preview</FieldLegend>
+            <CreateSection
+              title="Sales order preview"
+            >
               <FieldGroup>
                 {previewQuery.isLoading ? (
                   <div className="rounded-lg border border-dashed px-4 py-6">
@@ -923,13 +959,16 @@ export function ManufacturingOrderForm({
                   </div>
                 )}
               </FieldGroup>
-            </FieldSet>
+            </CreateSection>
           ) : (
-            <FieldSet className="gap-5">
-              <FieldLegend>Ingredients</FieldLegend>
-              <FieldDescription>
-                Draft orders can adjust quantities only.
-              </FieldDescription>
+            <CreateSection
+              title="Ingredients"
+              action={
+                <Badge variant={fields.length > 0 ? "secondary" : "outline"}>
+                  {fields.length > 0 ? "BOM loaded" : "No product"}
+                </Badge>
+              }
+            >
               <FieldGroup>
                 {fields.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border">
@@ -1126,13 +1165,12 @@ export function ManufacturingOrderForm({
 
                 {ingredientsError && <FieldError>{ingredientsError}</FieldError>}
               </FieldGroup>
-            </FieldSet>
+            </CreateSection>
           )}
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Notes</FieldLegend>
+          <CreateSection
+            title="Notes"
+          >
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -1153,9 +1191,10 @@ export function ManufacturingOrderForm({
                 )}
               />
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
         </FieldGroup>
       </form>
-    </div>
+      </CreatePageGrid>
+    </CreatePageShell>
   );
 }

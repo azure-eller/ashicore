@@ -9,14 +9,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
+  CreatePageGrid,
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+  CreateSidebarCard,
+} from "@/components/create-page";
+import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldSet,
-  FieldSeparator,
-  FieldLegend,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,7 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -110,34 +112,68 @@ export function StocktakeForm({
   const handleCancel = useSmartBack("/inventory/stocktakes");
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">New Stocktake</h1>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell>
+      <CreatePageHeader
+        eyebrow="Inventory · Stocktakes"
+        title="New Stocktake"
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
           <Button type="submit" form="stocktake-form" disabled={mutation.isPending}>
             {mutation.isPending ? "Creating..." : "Create Stocktake"}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
-      <form
-        id="stocktake-form"
-        className="space-y-0"
-        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+      <CreatePageGrid
+        sidebar={
+          <CreateSidebarCard title="How it works">
+            <div className="space-y-4">
+              {[
+                {
+                  title: "Snapshot",
+                  description:
+                    "Available stock is captured the moment you create the stocktake.",
+                },
+                {
+                  title: "Count",
+                  description:
+                    "Walk the floor and enter counted quantities row by row.",
+                },
+                {
+                  title: "Apply",
+                  description:
+                    "Completing it writes counted totals to live stock.",
+                },
+              ].map((step, index) => (
+                <div key={step.title} className="flex gap-3">
+                  <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                    {index + 1}
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium">{step.title}</div>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {step.description}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CreateSidebarCard>
+        }
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Basics</FieldLegend>
+        <form
+          id="stocktake-form"
+          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        >
+          <CreateSection
+            title="Basics"
+          >
             <FieldGroup>
               <Controller
                 name="name"
@@ -221,18 +257,9 @@ export function StocktakeForm({
                 )}
               />
             </FieldGroup>
-          </FieldSet>
-
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>How It Works</FieldLegend>
-            <FieldDescription>
-              Snapshot available stock; completion applies counted totals.
-            </FieldDescription>
-          </FieldSet>
-        </FieldGroup>
-      </form>
-    </div>
+          </CreateSection>
+        </form>
+      </CreatePageGrid>
+    </CreatePageShell>
   );
 }

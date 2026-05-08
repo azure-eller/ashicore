@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -16,13 +16,21 @@ import {
   insertPricingScheduleSchema,
   pricingScheduleDefaultValues,
 } from "@/lib/schemas/pricing-schedules";
-import { getFieldArrayError } from "@/lib/format";
+import { formatPrice, getFieldArrayError } from "@/lib/format";
 import type {
   CustomerCategoryOption,
   PricingScheduleEditData,
   PricingUnitOption,
 } from "./types";
 import { Button } from "@/components/ui/button";
+import {
+  AffixedInput,
+  CreatePageGrid,
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+  CreateSidebarCard,
+} from "@/components/create-page";
 import {
   Dialog,
   DialogClose,
@@ -33,13 +41,9 @@ import {
 } from "@/components/ui/dialog";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -50,7 +54,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -85,6 +88,7 @@ export function PricingScheduleForm({
   const [categoryName, setCategoryName] = useState("");
   const [categoryDescription, setCategoryDescription] = useState("");
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [previewBasePrice, setPreviewBasePrice] = useState("100");
 
   const form = useForm<PricingScheduleFormValues>({
     resolver: zodResolver(insertPricingScheduleSchema),
@@ -101,6 +105,10 @@ export function PricingScheduleForm({
   });
 
   const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "breaks",
+  });
+  const watchedBreaks = useWatch({
     control: form.control,
     name: "breaks",
   });
@@ -190,17 +198,15 @@ export function PricingScheduleForm({
 
   const handleCancel = useSmartBack(fallbackPath);
   const breaksError = getFieldArrayError(form.formState.errors.breaks);
+  const basePreview = Number(previewBasePrice);
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? "Edit Pricing Schedule" : "Add Pricing Schedule"}
-          </h1>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell>
+      <CreatePageHeader
+        eyebrow="Sales · Pricing"
+        title={isEditing ? "Edit Pricing Schedule" : "Add Pricing Schedule"}
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
@@ -213,21 +219,73 @@ export function PricingScheduleForm({
                 ? "Save Changes"
                 : "Create Schedule"}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
-      <form
-        id="pricing-schedule-form"
-        className="space-y-0"
-        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+      <CreatePageGrid
+        sidebar={
+          <CreateSidebarCard
+            title="Live preview"
+          >
+            <FieldGroup className="gap-4">
+              <Field>
+                <FieldLabel htmlFor="pricing-preview-base">
+                  Base selling price
+                </FieldLabel>
+                <AffixedInput
+                  id="pricing-preview-base"
+                  prefix="$"
+                  value={previewBasePrice}
+                  onChange={(event) => setPreviewBasePrice(event.target.value)}
+                  inputMode="decimal"
+                />
+              </Field>
+              <div className="space-y-3">
+                {(watchedBreaks ?? []).map((row, index) => {
+                  const discount = Number(row?.discountPercent ?? 0);
+                  const effective =
+                    Number.isFinite(basePreview) && Number.isFinite(discount)
+                      ? basePreview * (1 - discount / 100)
+                      : null;
+                  const range =
+                    row?.maxQuantity && row.maxQuantity.trim() !== ""
+                      ? `${row?.minQuantity || "0"}-${row.maxQuantity} units`
+                      : `${row?.minQuantity || "0"}+ units`;
+                  return (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
+                    >
+                      <div>
+                        <div className="font-medium">{range}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {Number.isFinite(discount) ? discount : 0}% discount
+                        </div>
+                      </div>
+                      <div className="font-mono font-medium tabular-nums">
+                        {effective == null
+                          ? "\u2014"
+                          : formatPrice(effective.toFixed(2)) ?? "\u2014"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </FieldGroup>
+          </CreateSidebarCard>
+        }
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Schedule</FieldLegend>
+        <form
+          id="pricing-schedule-form"
+          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        >
+        <FieldGroup className="gap-6">
+          <CreateSection
+            title="Schedule"
+          >
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -346,15 +404,16 @@ export function PricingScheduleForm({
                 )}
               />
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Quantity Breaks</FieldLegend>
-            <FieldDescription>
-              Discounts apply to base selling price.
-            </FieldDescription>
+          <CreateSection
+            title="Quantity breaks"
+            action={
+              <span className="text-xs text-muted-foreground">
+                {fields.length} break{fields.length === 1 ? "" : "s"}
+              </span>
+            }
+          >
             <FieldGroup className="gap-4">
               {fields.map((field, index) => (
                 <div key={field.id} className="rounded-lg border p-4">
@@ -478,9 +537,10 @@ export function PricingScheduleForm({
                 </Button>
               </div>
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
         </FieldGroup>
       </form>
+      </CreatePageGrid>
 
       <Dialog
         open={isCategoryDialogOpen}
@@ -534,6 +594,6 @@ export function PricingScheduleForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </CreatePageShell>
   );
 }

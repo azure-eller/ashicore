@@ -26,6 +26,14 @@ import {
 import { formatPrice, getFieldArrayError, parsePositive } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
+  CreatePageGrid,
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+  CreateSidebarCard,
+  SummaryRows,
+} from "@/components/create-page";
+import {
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -38,13 +46,9 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Table,
@@ -139,6 +143,10 @@ export function PurchaseOrderForm({
     control: form.control,
     name: "lines",
   });
+  const watchedSupplierId = useWatch({
+    control: form.control,
+    name: "supplierId",
+  });
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -202,17 +210,17 @@ export function PurchaseOrderForm({
   const handleCancel = useSmartBack(fallbackPath);
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
+  const selectedSupplier = supplierOptionsSorted.find(
+    (supplier) => supplier.id === watchedSupplierId
+  );
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? "Edit Purchase Order" : "Add Purchase Order"}
-          </h1>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell>
+      <CreatePageHeader
+        eyebrow="Purchasing · Orders"
+        title={isEditing ? "Edit Purchase Order" : "Add Purchase Order"}
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
@@ -229,21 +237,63 @@ export function PurchaseOrderForm({
                 ? "Save Changes"
                 : "Create Order"}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
+      <CreatePageGrid
+        sidebar={
+          <>
+            <CreateSidebarCard
+              title="Order summary"
+              footer={
+                <div className="flex w-full items-end justify-between gap-4">
+                  <div>
+                    <div className="text-xs uppercase text-muted-foreground">
+                      Order total
+                    </div>
+                    <div className="text-xs text-muted-foreground">USD</div>
+                  </div>
+                  <div className="font-mono text-xl font-semibold tabular-nums">
+                    {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
+                  </div>
+                </div>
+              }
+            >
+              <SummaryRows
+                rows={[
+                  {
+                    label: `Subtotal (${watchedLines?.length ?? 0} item${
+                      (watchedLines?.length ?? 0) === 1 ? "" : "s"
+                    })`,
+                    value: formatPrice(orderTotal.toFixed(4)) ?? "$0.00",
+                  },
+                ]}
+              />
+            </CreateSidebarCard>
+            {selectedSupplier ? (
+              <CreateSidebarCard title="Selected supplier">
+                <div className="space-y-1">
+                  <div className="font-medium">{selectedSupplier.name}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {selectedSupplier.code ?? "No supplier code"}
+                  </div>
+                </div>
+              </CreateSidebarCard>
+            ) : null}
+          </>
+        }
+      >
       <form
         id="purchase-order-form"
-        className="space-y-0"
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Order</FieldLegend>
+        <FieldGroup className="gap-6">
+          <CreateSection
+            title="Order"
+          >
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -284,12 +334,16 @@ export function PurchaseOrderForm({
                 )}
               />
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Materials</FieldLegend>
+          <CreateSection
+            title="Materials"
+            action={
+              <span className="text-xs text-muted-foreground">
+                {fields.length} item{fields.length === 1 ? "" : "s"}
+              </span>
+            }
+          >
             <FieldGroup className="gap-4">
               {fields.length > 0 ? (
                 <div className="overflow-x-auto rounded-lg border">
@@ -381,12 +435,11 @@ export function PurchaseOrderForm({
                 </div>
               </div>
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Notes</FieldLegend>
+          <CreateSection
+            title="Notes"
+          >
             <FieldGroup>
               <Controller
                 control={form.control}
@@ -407,10 +460,11 @@ export function PurchaseOrderForm({
                 )}
               />
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
         </FieldGroup>
       </form>
-    </div>
+      </CreatePageGrid>
+    </CreatePageShell>
   );
 }
 

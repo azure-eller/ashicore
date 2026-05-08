@@ -10,9 +10,5 @@ export default async function NewPricingSchedulePage() {
     getPricingUnitOptions(),
   ]);
 
-  return (
-    <div className="mx-auto w-full max-w-5xl py-8">
-      <PricingScheduleForm customerCategories={customerCategories} units={units} />
-    </div>
-  );
+  return <PricingScheduleForm customerCategories={customerCategories} units={units} />;
 }

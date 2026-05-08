@@ -220,7 +220,7 @@ const title = formatVariantDisplay(masterName, variantAttrs, variantAxes)
 ```
 ### Standalone form pages
 
-Single-page create/edit forms use a centered page shell (`max-w-4xl py-8`) with header-row actions and stacked `FieldSet` sections separated by `FieldSeparator` — not one Card wrapping the whole form. Full markup in `docs/ui-patterns.md`.
+Create/edit pages use `CreatePageShell`, `CreatePageHeader`, `CreatePageGrid`, `CreateSection`, and optional `CreateSidebarCard` from `components/create-page.tsx`. Sections are card panels with `shadow-sm`; do not add repetitive section descriptions. Full markup in `docs/ui-patterns.md`.
 
 ### Cancel button navigation
 

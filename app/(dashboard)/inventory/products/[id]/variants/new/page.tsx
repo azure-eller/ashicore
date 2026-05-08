@@ -17,13 +17,11 @@ export default async function NewVariantPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl py-8">
-      <VariantForm
-        masterId={item.id}
-        masterName={item.name}
-        masterAxes={(item.variantAxes as string[] | null) ?? []}
-        units={units}
-      />
-    </div>
+    <VariantForm
+      masterId={item.id}
+      masterName={item.name}
+      masterAxes={(item.variantAxes as string[] | null) ?? []}
+      units={units}
+    />
   );
 }

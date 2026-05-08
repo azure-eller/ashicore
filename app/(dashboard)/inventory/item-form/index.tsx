@@ -8,6 +8,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CircleLock01Icon, CircleUnlock01Icon } from "@hugeicons/core-free-icons";
+import { formatPrice, parsePositive } from "@/lib/format";
+import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
 import {
   insertItemSchema,
   insertMasterItemSchema,
@@ -21,6 +23,14 @@ import type { getItem } from "@/app/(dashboard)/inventory/queries";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import { Button } from "@/components/ui/button";
+import {
+  CreatePageGrid,
+  CreatePageHeader,
+  CreatePageShell,
+  CreateSection,
+  CreateSidebarCard,
+  SummaryRows,
+} from "@/components/create-page";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,14 +56,11 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
-import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Badge } from "@/components/ui/badge";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 import { BomLockConfirmDialog } from "./dialogs/bom-lock-confirm-dialog";
 import { CreateUnitDialog } from "./dialogs/create-unit-dialog";
@@ -238,6 +245,30 @@ export function ItemForm({
     control: form.control,
     name: "purchaseUnitDefinitionId",
   });
+  const watchedDefaultPurchasePrice = useWatch({
+    control: form.control,
+    name: "defaultPurchasePrice",
+  });
+  const watchedPurchaseToStockFactor = useWatch({
+    control: form.control,
+    name: "purchaseToStockFactor",
+  });
+  const watchedCurrentStockUnitCost = useWatch({
+    control: form.control,
+    name: "currentStockUnitCost",
+  });
+  const watchedDefaultSellingPrice = useWatch({
+    control: form.control,
+    name: "defaultSellingPrice",
+  });
+  const watchedStock = useWatch({
+    control: form.control,
+    name: "stock",
+  });
+  const watchedSafetyStock = useWatch({
+    control: form.control,
+    name: "safetyStock",
+  });
 
   const stockingUnit = useMemo(() => {
     const unitId = isEditing ? initialData?.unitDefinitionId : selectedStockingUnitId;
@@ -415,25 +446,139 @@ export function ItemForm({
     : "Members with inventory view or operate access will be able to view and edit this BOM once it is unlocked.";
 
   const handleCancel = useSmartBack(fallbackPath);
+  const currentStockUnitCost = parsePositive(
+    (watchedCurrentStockUnitCost as string | null | undefined) ?? null
+  );
+  const defaultStockUnitCost = resolveStockUnitCostFromDefaultPurchasePrice({
+    defaultPurchasePrice:
+      (watchedDefaultPurchasePrice as string | null | undefined) ?? null,
+    purchaseToStockFactor:
+      (watchedPurchaseToStockFactor as string | null | undefined) ?? null,
+  });
+  const materialCost =
+    currentStockUnitCost ??
+    (defaultStockUnitCost != null ? Number.parseFloat(defaultStockUnitCost) : null);
+  const sellingPrice =
+    parsePositive((watchedDefaultSellingPrice as string | null | undefined) ?? null) ?? 0;
+  const stockOnHand =
+    parsePositive((watchedStock as string | null | undefined) ?? null) ?? 0;
+  const safetyStock =
+    parsePositive((watchedSafetyStock as string | null | undefined) ?? null) ?? 0;
+  const marginPercent =
+    sellingPrice > 0 && materialCost != null
+      ? ((sellingPrice - materialCost) / sellingPrice) * 100
+      : null;
+  const unitProfit = materialCost != null ? Math.max(0, sellingPrice - materialCost) : null;
+  const marginClass =
+    marginPercent == null
+      ? "text-muted-foreground"
+      : marginPercent >= 30
+        ? "text-success"
+        : marginPercent >= 15
+          ? "text-warning"
+          : "text-destructive";
+  const stockUnitLabel = stockingUnit?.name ?? "units";
+  const itemSidebar =
+    isMaster || isVariant ? null : itemType === "material" ? (
+      <CreateSidebarCard
+        title="Live preview"
+        footer={
+          safetyStock > 0 && stockOnHand < safetyStock ? (
+            <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+              Stock is below safety level. Plan a purchase order.
+            </div>
+          ) : null
+        }
+      >
+        <SummaryRows
+          rows={[
+            {
+              label: "Margin",
+              value: marginPercent == null ? "\u2014" : `${marginPercent.toFixed(1)}%`,
+              valueClassName: marginClass,
+            },
+            {
+              label: "Markup over cost",
+              value:
+                unitProfit == null
+                  ? "\u2014"
+                  : (formatPrice(unitProfit.toFixed(2)) ?? "$0.00"),
+            },
+            {
+              label: "Stock on hand",
+              value: `${stockOnHand} ${stockUnitLabel}`,
+            },
+            {
+              label: "Stock value",
+              value:
+                materialCost == null
+                  ? "\u2014"
+                  : (formatPrice((stockOnHand * materialCost).toFixed(2)) ?? "$0.00"),
+            },
+          ]}
+        />
+      </CreateSidebarCard>
+    ) : (
+      <CreateSidebarCard
+        title="Cost & margin"
+        footer={
+          <div className="flex w-full items-center justify-between gap-4">
+            <span className="text-sm text-muted-foreground">Profit / unit</span>
+            <span className="font-mono text-lg font-semibold tabular-nums">
+              {unitProfit == null
+                ? "\u2014"
+                : (formatPrice(unitProfit.toFixed(2)) ?? "$0.00")}
+            </span>
+          </div>
+        }
+      >
+        <SummaryRows
+          rows={[
+            {
+              label: "Estimated cost",
+              value:
+                materialCost == null
+                  ? "\u2014"
+                  : (formatPrice(materialCost.toFixed(2)) ?? "$0.00"),
+            },
+            {
+              label: "Selling price",
+              value: formatPrice(sellingPrice.toFixed(2)) ?? "$0.00",
+            },
+            {
+              label: "Margin",
+              value: marginPercent == null ? "\u2014" : `${marginPercent.toFixed(1)}%`,
+              valueClassName: marginClass,
+            },
+          ]}
+        />
+      </CreateSidebarCard>
+    );
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing
-              ? isMaster
-                ? "Edit Variant Master"
-                : isVariant
-                ? "Edit Variant"
-                : `Edit ${typeLabel}`
-              : isMaster
-                ? "Add Variant Master"
-                : `Add ${typeLabel}`}
-          </h1>
-        </div>
-
-        <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+    <CreatePageShell>
+      <CreatePageHeader
+        eyebrow={`Inventory · ${itemType === "product" ? "Products" : "Materials"}`}
+        title={
+          isEditing
+            ? isMaster
+              ? "Edit Variant Master"
+              : isVariant
+              ? "Edit Variant"
+              : `Edit ${typeLabel}`
+            : isMaster
+              ? "Add Variant Master"
+              : `Add ${typeLabel}`
+        }
+        badge={
+          itemType === "product" && !isEditing ? (
+            <Badge variant="secondary">
+              {isMaster ? "Variant master" : "Standard product"}
+            </Badge>
+          ) : null
+        }
+        actions={
+          <>
           {showMasterToggle && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -464,21 +609,19 @@ export function ItemForm({
           >
             {submitLabel}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
+      <CreatePageGrid sidebar={itemSidebar}>
       <form
         id="item-form"
-        className="space-y-0"
         onSubmit={form.handleSubmit((data) => { if (!mutation.isPending) mutation.mutate(data); })}
       >
-        <FieldGroup className="gap-8">
-          <FieldSet className="gap-5">
-            <FieldLegend>Basics</FieldLegend>
+        <FieldGroup className="gap-6">
+          <CreateSection title="Basics">
             <FieldGroup>
               {isVariant ? (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -569,7 +712,7 @@ export function ItemForm({
                           id={field.name}
                           value={field.value ?? ""}
                           aria-invalid={fieldState.invalid}
-                          placeholder="MAT-001"
+                          placeholder={itemType === "product" ? "PRD-001" : "MAT-001"}
                           autoComplete="off"
                         />
                         {fieldState.invalid && (
@@ -781,13 +924,12 @@ export function ItemForm({
                 />
               ) : null}
             </FieldGroup>
-          </FieldSet>
+          </CreateSection>
 
           {isMaster && (
-            <>
-              <FieldSeparator />
-              <FieldSet className="gap-5">
-                <FieldLegend>Variant Axes</FieldLegend>
+            <CreateSection
+              title="Variant axes"
+            >
                 <FieldGroup>
                   <Controller
                     name="variantAxes"
@@ -806,16 +948,13 @@ export function ItemForm({
                     )}
                   />
                 </FieldGroup>
-              </FieldSet>
-            </>
+            </CreateSection>
           )}
 
           {!isMaster && (
-          <>
-          <FieldSeparator />
-
-          <FieldSet className="gap-5">
-            <FieldLegend>Pricing & Stock</FieldLegend>
+          <CreateSection
+            title="Pricing & stock"
+          >
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 {itemType === "material" && (
@@ -976,24 +1115,14 @@ export function ItemForm({
                 />
               </div>
             </FieldGroup>
-          </FieldSet>
-          </>
+          </CreateSection>
           )}
 
           {itemType === "product" && availableComponents && !isMaster && (
-            <>
-              <FieldSeparator />
-              <FieldSet className="gap-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <FieldLegend>Recipe / Bill of Materials</FieldLegend>
-                    <FieldDescription>
-                      {watchedManufacturingMode === "batch"
-                        ? "Ingredients per batch."
-                        : "Ingredients per unit."}
-                    </FieldDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
+            <CreateSection
+              title="Recipe / Bill of Materials"
+              action={
+                <div className="flex items-center gap-2">
                     <Controller
                       control={form.control}
                       name="manufacturingMode"
@@ -1049,7 +1178,8 @@ export function ItemForm({
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                </div>
+              }
+            >
                 {watchedManufacturingMode === "batch" && (
                   <Controller
                     control={form.control}
@@ -1130,8 +1260,7 @@ export function ItemForm({
                     />
                   </FieldGroup>
                 ) : null}
-              </FieldSet>
-            </>
+            </CreateSection>
           )}
         </FieldGroup>
       </form>
@@ -1201,6 +1330,7 @@ export function ItemForm({
         }
         onSubmit={() => unitMutation.mutate()}
       />
-    </div>
+      </CreatePageGrid>
+    </CreatePageShell>
   );
 }

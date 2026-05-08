@@ -13,8 +13,11 @@ import {
 } from "@/lib/schemas/suppliers";
 import type { SupplierRow } from "./types";
 import { Button } from "@/components/ui/button";
+import {
+  CreatePageHeader,
+  CreatePageShell,
+} from "@/components/create-page";
 import { FieldError } from "@/components/ui/field";
-import { Separator } from "@/components/ui/separator";
 import { SupplierFieldGroups, type SupplierFormValues } from "./supplier-fields";
 
 type ApiError = {
@@ -101,15 +104,12 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
   const handleCancel = useSmartBack(fallbackPath);
 
   return (
-    <div className="w-full space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {isEditing ? "Edit Supplier" : "Add Supplier"}
-          </h1>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
+    <CreatePageShell className="max-w-4xl">
+      <CreatePageHeader
+        eyebrow="Purchasing · Suppliers"
+        title={isEditing ? "Edit Supplier" : "Add Supplier"}
+        actions={
+          <>
           <Button type="button" variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
@@ -122,10 +122,9 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
                 ? "Save Changes"
                 : "Create Supplier"}
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+          </>
+        }
+      />
 
       {formError && <FieldError>{formError}</FieldError>}
 
@@ -136,6 +135,6 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
       >
         <SupplierFieldGroups control={form.control} />
       </form>
-    </div>
+    </CreatePageShell>
   );
 }

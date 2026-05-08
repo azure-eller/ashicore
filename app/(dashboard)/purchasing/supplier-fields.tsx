@@ -4,15 +4,12 @@ import { Controller, type Control } from "react-hook-form";
 import { z } from "zod";
 import { insertSupplierSchema } from "@/lib/schemas/suppliers";
 import { AddressFields } from "@/components/address-fields";
+import { CreateSection } from "@/components/create-page";
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,9 +27,10 @@ export function SupplierFieldGroups({
   control: Control<SupplierFormValues>;
 }) {
   return (
-    <FieldGroup className="gap-8">
-      <FieldSet className="gap-5">
-        <FieldLegend>Basics</FieldLegend>
+    <FieldGroup className="gap-6">
+      <CreateSection
+        title="Basics"
+      >
         <FieldGroup>
           <div className="grid gap-4 md:grid-cols-2">
             <Controller
@@ -158,15 +156,11 @@ export function SupplierFieldGroups({
             />
           </div>
         </FieldGroup>
-      </FieldSet>
+      </CreateSection>
 
-      <FieldSeparator />
-
-      <FieldSet className="gap-5">
-        <FieldLegend>Billing Address</FieldLegend>
-        <FieldDescription>
-          Used for purchase orders and invoices.
-        </FieldDescription>
+      <CreateSection
+        title="Billing address"
+      >
         <AddressFields
           control={control}
           idPrefix="supplier-billing"
@@ -179,12 +173,9 @@ export function SupplierFieldGroups({
             country: "billingCountry",
           }}
         />
-      </FieldSet>
+      </CreateSection>
 
-      <FieldSeparator />
-
-      <FieldSet className="gap-5">
-        <FieldLegend>Notes</FieldLegend>
+      <CreateSection title="Notes">
         <FieldGroup>
           <Controller
             control={control}
@@ -205,7 +196,7 @@ export function SupplierFieldGroups({
             )}
           />
         </FieldGroup>
-      </FieldSet>
+      </CreateSection>
     </FieldGroup>
   );
 }

@@ -9,9 +9,5 @@ export default async function NewMaterialPage() {
     getCategories(),
   ]);
 
-  return (
-    <div className="mx-auto w-full max-w-5xl py-8">
-      <ItemForm itemType="material" units={units} categories={categories} />
-    </div>
-  );
+  return <ItemForm itemType="material" units={units} categories={categories} />;
 }

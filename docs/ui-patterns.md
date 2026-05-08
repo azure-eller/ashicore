@@ -54,59 +54,43 @@ Canonical reference: `app/(dashboard)/inventory/materials/material-form.tsx`
 
 ## Standalone Form Pages
 
-Use a dedicated page layout for create/edit routes. Do not center the entire form in a single card.
+Use the shared create-page components for create/edit routes. Do not wrap the entire form in one card.
 
-- Use a centered page shell such as `mx-auto w-full max-w-5xl py-8` or `max-w-6xl` for wider product/BOM flows
-- Put the page title, description, and primary actions in the page header
-- Use stacked `FieldSet` sections and place `FieldSeparator` only between sections, not between a section title and its own fields
-- Keep text fields in a readable column inside each section, e.g. `FieldSet className="max-w-4xl"`
-- Use wider/full-width sections only where the content needs it, such as tables or BOM editors
+- Use `CreatePageShell` with `CreatePageHeader` for the title and actions
+- Use `CreatePageGrid` when the form has live summaries or secondary controls
+- Use stacked `CreateSection` panels for form groups; they already provide card borders and `shadow-sm`
+- Use `CreateSidebarCard` for compact previews, totals, or live summaries
+- Keep visible section text minimal: section titles, field labels, and button labels are usually enough
 
 ```tsx
-<div className="mx-auto w-full max-w-4xl py-8">
-  <div className="space-y-8">
-    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-      <div className="space-y-1.5">
-        <h1 className="text-3xl font-semibold tracking-tight">Add Product</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Create a new product in your inventory.
-        </p>
-      </div>
-      <div className="flex flex-col gap-3 sm:flex-row">
+<CreatePageShell>
+  <CreatePageHeader
+    eyebrow="Inventory · Products"
+    title="Add Product"
+    actions={
+      <>
         <Button variant="outline" onClick={handleCancel}>
           Cancel
         </Button>
         <Button type="submit" form="item-form">
           Create Product
         </Button>
-      </div>
-    </div>
+      </>
+    }
+  />
 
-    <Separator />
+  <CreatePageGrid sidebar={<CreateSidebarCard title="Live preview">{/* summary */}</CreateSidebarCard>}>
+    <form id="item-form">
+      <CreateSection title="Basics">
+        <FieldGroup>{/* fields */}</FieldGroup>
+      </CreateSection>
 
-    <form id="item-form" className="space-y-0">
-      <FieldGroup className="gap-8">
-        <FieldSet className="max-w-4xl gap-5">
-          <FieldLegend>Basics</FieldLegend>
-          <FieldDescription>
-            Name, category, and unit details for this product.
-          </FieldDescription>
-          <FieldGroup>{/* fields */}</FieldGroup>
-        </FieldSet>
-
-        <FieldSeparator />
-
-        <FieldSet className="max-w-4xl gap-5">
-          <FieldLegend>Pricing & Stock</FieldLegend>
-          <FieldDescription>
-            Set the default pricing and starting inventory.
-          </FieldDescription>
-          <FieldGroup>{/* fields */}</FieldGroup>
-        </FieldSet>
-      </FieldGroup>
+      <CreateSection title="Pricing & Stock">
+        <FieldGroup>{/* fields */}</FieldGroup>
+      </CreateSection>
     </form>
-  </div>
-</div>
+  </CreatePageGrid>
+</CreatePageShell>
 ```
 
 ## Error Display
