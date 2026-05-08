@@ -26,6 +26,8 @@ read_when:
 - **Contact import** — `lib/xero/import-contacts.ts`. Customer/supplier
   imports preview counts before writing, record `xero_import_runs`, and
   can reset a completed run when imported rows are not referenced by orders.
+  Fetch active contacts, update matching ERP rows by Xero ID/email/name, but
+  only create new rows for Xero contacts flagged as customers or suppliers.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
   beyond that, idempotency comes from reconcile-by-reference, not

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { Address, type Contact } from "xero-node";
+import { Address, type Contact, Phone } from "xero-node";
 import {
   customers,
   purchaseOrders,
@@ -87,12 +87,14 @@ type SupplierAddressFields = {
 type CustomerSnapshot = CustomerAddressFields & {
   name: string;
   email: string | null;
+  phone: string | null;
   xeroContactId: string | null;
 };
 
 type SupplierSnapshot = SupplierAddressFields & {
   name: string;
   email: string | null;
+  phone: string | null;
   xeroContactId: string | null;
 };
 
@@ -103,6 +105,7 @@ function customerSnapshot(row: ExistingCustomer): CustomerSnapshot {
   return {
     name: row.name,
     email: row.email,
+    phone: row.phone,
     xeroContactId: row.xeroContactId,
     billingLine1: row.billingLine1,
     billingLine2: row.billingLine2,
@@ -123,6 +126,7 @@ function supplierSnapshot(row: ExistingSupplier): SupplierSnapshot {
   return {
     name: row.name,
     email: row.email,
+    phone: row.phone,
     xeroContactId: row.xeroContactId,
     billingLine1: row.billingLine1,
     billingLine2: row.billingLine2,
@@ -149,6 +153,33 @@ function normalizeXeroAddress(address: Address | undefined) {
     postcode: address?.postalCode ?? null,
     country: address?.country ?? null,
   });
+}
+
+function cleanString(value: string | null | undefined, maxLength = 255) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLength);
+}
+
+function phoneValue(phone: Phone | undefined) {
+  if (!phone) return null;
+  return cleanString(
+    [phone.phoneCountryCode, phone.phoneAreaCode, phone.phoneNumber]
+      .map((part) => cleanString(part))
+      .filter(Boolean)
+      .join(" "),
+    50
+  );
+}
+
+function mapPhone(contact: Contact) {
+  const phones = contact.phones ?? [];
+  return (
+    phoneValue(
+      phones.find((phone) => phone.phoneType === Phone.PhoneTypeEnum.DEFAULT)
+    ) ??
+    phoneValue(phones.find((phone) => phoneValue(phone) != null))
+  );
 }
 
 function mapCustomerAddresses(contact: Contact): CustomerAddressFields {
@@ -190,14 +221,17 @@ function isDemoCompanyTenant(tenantName: string) {
   return tenantName.toLowerCase().startsWith("demo company");
 }
 
-function whereForEntity(entityType: ContactImportEntity) {
-  return entityType === "customers" ? "IsCustomer==true" : "IsSupplier==true";
+function isXeroEntity(contact: Contact, entityType: ContactImportEntity) {
+  return entityType === "customers"
+    ? contact.isCustomer === true
+    : contact.isSupplier === true;
 }
 
-async function fetchAllContacts(
-  orgId: string,
-  entityType: ContactImportEntity
-): Promise<{
+function whereForImport() {
+  return 'ContactStatus=="ACTIVE"';
+}
+
+async function fetchAllContacts(orgId: string): Promise<{
   tenantId: string;
   tenantName: string;
   contacts: Contact[];
@@ -212,7 +246,7 @@ async function fetchAllContacts(
       const response = await authed.client.accountingApi.getContacts(
         authed.tenantId,
         undefined,
-        whereForEntity(entityType),
+        whereForImport(),
         undefined,
         undefined,
         page,
@@ -246,6 +280,7 @@ function customerSelect() {
     id: customers.id,
     name: customers.name,
     email: customers.email,
+    phone: customers.phone,
     xeroContactId: customers.xeroContactId,
     billingLine1: customers.billingLine1,
     billingLine2: customers.billingLine2,
@@ -267,6 +302,7 @@ function supplierSelect() {
     id: suppliers.id,
     name: suppliers.name,
     email: suppliers.email,
+    phone: suppliers.phone,
     xeroContactId: suppliers.xeroContactId,
     billingLine1: suppliers.billingLine1,
     billingLine2: suppliers.billingLine2,
@@ -383,7 +419,7 @@ export async function previewXeroContactImport(
   orgId: string,
   entityType: ContactImportEntity
 ): Promise<ContactImportPreview> {
-  const fetched = await fetchAllContacts(orgId, entityType);
+  const fetched = await fetchAllContacts(orgId);
 
   return withOrgContext(orgId, async (tx) => {
     const preview: ContactImportPreview = {
@@ -401,7 +437,8 @@ export async function previewXeroContactImport(
     };
 
     for (const contact of fetched.contacts) {
-      if (!contact.name) {
+      const contactName = cleanString(contact.name);
+      if (!contactName) {
         preview.skipped += 1;
         preview.sampleSkipped.push("(unnamed)");
         continue;
@@ -411,14 +448,17 @@ export async function previewXeroContactImport(
         const existing = await findExistingInTx(tx, entityType, contact);
         if (existing) {
           preview.toUpdate += 1;
-          preview.sampleUpdates.push(contact.name);
+          preview.sampleUpdates.push(contactName);
+        } else if (!isXeroEntity(contact, entityType)) {
+          preview.skipped += 1;
+          preview.sampleSkipped.push(contactName);
         } else {
           preview.toCreate += 1;
-          preview.sampleCreates.push(contact.name);
+          preview.sampleCreates.push(contactName);
         }
       } catch (error) {
         preview.errors.push(
-          `${contact.name}: ${extractXeroMessage(error)}`
+          `${contactName}: ${extractXeroMessage(error)}`
         );
         preview.skipped += 1;
       }
@@ -449,7 +489,7 @@ export async function importContactsFromXero(
   entityType: ContactImportEntity,
   options?: { allowDemoCompany?: boolean }
 ): Promise<ImportResult> {
-  const fetched = await fetchAllContacts(orgId, entityType);
+  const fetched = await fetchAllContacts(orgId);
   assertDemoImportAllowed(
     fetched.tenantName,
     options?.allowDemoCompany ?? false
@@ -476,7 +516,8 @@ export async function importContactsFromXero(
     };
 
     for (const contact of fetched.contacts) {
-      if (!contact.name) {
+      const contactName = cleanString(contact.name);
+      if (!contactName) {
         result.skipped += 1;
         continue;
       }
@@ -492,7 +533,7 @@ export async function importContactsFromXero(
       } catch (error) {
         console.error("Xero contact import row failed:", redactXeroError(error));
         result.errors.push(
-          `${contact.name ?? "(unnamed)"}: ${extractXeroMessage(error)}`
+          `${contactName}: ${extractXeroMessage(error)}`
         );
         result.skipped += 1;
       }
@@ -522,11 +563,27 @@ async function importCustomerInTx(
 ) {
   const existing = await findExistingCustomerInTx(tx, contact);
   const addr = mapCustomerAddresses(contact);
+  if (!existing && !isXeroEntity(contact, "customers")) {
+    result.skipped += 1;
+    return;
+  }
   const nextData = {
-    name: contact.name!,
-    email: contact.emailAddress ?? null,
-    xeroContactId: contact.contactID ?? null,
-    ...addr,
+    name: cleanString(contact.name) ?? existing?.name ?? "",
+    email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
+    phone: mapPhone(contact) ?? existing?.phone ?? null,
+    xeroContactId: cleanString(contact.contactID) ?? existing?.xeroContactId ?? null,
+    billingLine1: addr.billingLine1 ?? existing?.billingLine1 ?? null,
+    billingLine2: addr.billingLine2 ?? existing?.billingLine2 ?? null,
+    billingCity: addr.billingCity ?? existing?.billingCity ?? null,
+    billingRegion: addr.billingRegion ?? existing?.billingRegion ?? null,
+    billingPostcode: addr.billingPostcode ?? existing?.billingPostcode ?? null,
+    billingCountry: addr.billingCountry ?? existing?.billingCountry ?? null,
+    shipLine1: addr.shipLine1 ?? existing?.shipLine1 ?? null,
+    shipLine2: addr.shipLine2 ?? existing?.shipLine2 ?? null,
+    shipCity: addr.shipCity ?? existing?.shipCity ?? null,
+    shipRegion: addr.shipRegion ?? existing?.shipRegion ?? null,
+    shipPostcode: addr.shipPostcode ?? existing?.shipPostcode ?? null,
+    shipCountry: addr.shipCountry ?? existing?.shipCountry ?? null,
   };
 
   if (existing) {
@@ -541,7 +598,7 @@ async function importCustomerInTx(
       action: "updated",
       localRecordId: existing.id,
       xeroContactId: contact.contactID ?? null,
-      localName: contact.name!,
+      localName: nextData.name,
       previousData: customerSnapshot(existing),
     });
     result.updated += 1;
@@ -559,7 +616,7 @@ async function importCustomerInTx(
     action: "created",
     localRecordId: created.id,
     xeroContactId: contact.contactID ?? null,
-    localName: contact.name!,
+    localName: nextData.name,
     previousData: null,
   });
   result.created += 1;
@@ -574,11 +631,21 @@ async function importSupplierInTx(
 ) {
   const existing = await findExistingSupplierInTx(tx, contact);
   const addr = mapSupplierAddresses(contact);
+  if (!existing && !isXeroEntity(contact, "suppliers")) {
+    result.skipped += 1;
+    return;
+  }
   const nextData = {
-    name: contact.name!,
-    email: contact.emailAddress ?? null,
-    xeroContactId: contact.contactID ?? null,
-    ...addr,
+    name: cleanString(contact.name) ?? existing?.name ?? "",
+    email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
+    phone: mapPhone(contact) ?? existing?.phone ?? null,
+    xeroContactId: cleanString(contact.contactID) ?? existing?.xeroContactId ?? null,
+    billingLine1: addr.billingLine1 ?? existing?.billingLine1 ?? null,
+    billingLine2: addr.billingLine2 ?? existing?.billingLine2 ?? null,
+    billingCity: addr.billingCity ?? existing?.billingCity ?? null,
+    billingRegion: addr.billingRegion ?? existing?.billingRegion ?? null,
+    billingPostcode: addr.billingPostcode ?? existing?.billingPostcode ?? null,
+    billingCountry: addr.billingCountry ?? existing?.billingCountry ?? null,
   };
 
   if (existing) {
@@ -593,7 +660,7 @@ async function importSupplierInTx(
       action: "updated",
       localRecordId: existing.id,
       xeroContactId: contact.contactID ?? null,
-      localName: contact.name!,
+      localName: nextData.name,
       previousData: supplierSnapshot(existing),
     });
     result.updated += 1;
@@ -611,7 +678,7 @@ async function importSupplierInTx(
     action: "created",
     localRecordId: created.id,
     xeroContactId: contact.contactID ?? null,
-    localName: contact.name!,
+    localName: nextData.name,
     previousData: null,
   });
   result.created += 1;
