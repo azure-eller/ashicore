@@ -947,7 +947,7 @@ export function OrderForm({
                     <Table>
                       <TableHeader className="bg-muted/50">
                         <TableRow>
-                          <TableHead>
+                          <TableHead className="min-w-80">
                             <TableHeaderLabel label="Item" required />
                           </TableHead>
                           <TableHead className="w-24 text-right">
@@ -1378,7 +1378,7 @@ function OrderLineRow({
 
   return (
     <TableRow>
-      <TableCell>
+      <TableCell className="min-w-80">
         <Controller
           control={control}
           name={`lines.${index}.itemId`}
@@ -1390,7 +1390,7 @@ function OrderLineRow({
                 onValueChange={(value) => onItemChange(value ?? "")}
                 itemToStringLabel={(value) => salesItemSearchLabel(itemMap.get(value))}
               >
-                <ComboboxInput placeholder="Search items..." />
+                <ComboboxInput className="w-full min-w-72" placeholder="Search items..." />
                 <ComboboxContent>
                   <ComboboxEmpty>No items found</ComboboxEmpty>
                   <ComboboxList>
@@ -1430,6 +1430,13 @@ function OrderLineRow({
                   </ComboboxList>
                 </ComboboxContent>
               </Combobox>
+              {item ? (
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {item.sku ? `${item.sku} · ` : ""}
+                  {item.itemType === "material" ? "Material" : "Product"} · Available{" "}
+                  {item.availableQty}
+                </p>
+              ) : null}
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
             </div>
           )}
