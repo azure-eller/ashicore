@@ -253,6 +253,10 @@ const assignedRoles = buildPresetAssignedRoles("sales_operator")
 const presetKey = getDerivedAccessPresetKey(moduleAccess)
 ```
 
+### Team invite acceptance
+
+Invite-page sign-in is not done until the pending invite is accepted and the invited org is active. Existing users must join through `joinInviteIfNeeded()` after sign-in or matching-session Continue.
+
 ### Portal theming
 
 Portal components should use semantic background/text tokens on the portal content itself. Do not hardcode `dark` on individual dialogs or menus.

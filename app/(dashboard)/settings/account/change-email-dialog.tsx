@@ -15,7 +15,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { changeEmailSchema, type ChangeEmailInput } from "@/lib/schemas/account";
 
@@ -42,6 +47,7 @@ export function ChangeEmailDialog({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const form = useForm<ChangeEmailInput>({
     resolver: zodResolver(changeEmailSchema),
@@ -62,12 +68,15 @@ export function ChangeEmailDialog({
         body: JSON.stringify(values),
       });
       await parseError(response, "Failed to update email.");
+      return values.newEmail;
     },
-    onSuccess: () => {
-      setOpen(false);
+    onSuccess: (newEmail) => {
+      form.reset({ newEmail: "" });
+      setSuccessMessage(`Verification email sent to ${newEmail}.`);
       router.refresh();
     },
     onError: (error) => {
+      setSuccessMessage(null);
       form.setError("newEmail", {
         message: error instanceof Error ? error.message : "Failed to update email.",
       });
@@ -75,7 +84,15 @@ export function ChangeEmailDialog({
   });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          setSuccessMessage(null);
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent size="md">
         <DialogHeader>
@@ -86,6 +103,12 @@ export function ChangeEmailDialog({
           className="flex flex-col gap-6"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
+          {successMessage ? (
+            <Field>
+              <FieldDescription>{successMessage}</FieldDescription>
+            </Field>
+          ) : null}
+
           <Field data-invalid={form.formState.errors.newEmail != null}>
             <FieldLabel htmlFor="change-email-input">New email</FieldLabel>
             <Input

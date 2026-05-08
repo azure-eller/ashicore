@@ -85,7 +85,7 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 - Use the app invite page at `/accept-invitation?id=<invitationId>`
 - New invited users create an account and join the org in one submit
 - There is no separate visible accept-invitation confirmation step
-- Existing accounts should sign in to their existing workspace; invite-page sign-in does not join another org
+- Existing invited accounts sign in on the invite page, then the page accepts the pending invite and activates the invited org
 - Public sign-up remains for first-time org owners creating a new org
 - `/org-setup` remains the fallback resolver for owner onboarding and no-active-org recovery
 

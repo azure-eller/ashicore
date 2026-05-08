@@ -65,6 +65,23 @@ async function signInAsExistingUser(
   return { context, page };
 }
 
+async function createStandaloneAccount(
+  browser: Browser,
+  email: string,
+  name: string,
+  password: string
+) {
+  const { context, page } = await createFreshPage(browser);
+  await page.goto("/sign-up");
+  await page.getByLabel("Full Name").fill(name);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel(/^Password$/).fill(password);
+  await page.getByLabel(/^Confirm Password$/).fill(password);
+  await page.getByRole("button", { name: "Create Account" }).click();
+  await page.waitForURL("**/org-setup", { timeout: 15_000 });
+  return { context, page };
+}
+
 async function acceptInviteAsNewUser(
   browser: Browser,
   invitationId: string,
@@ -155,6 +172,7 @@ test.describe("Team management and invite flow", () => {
   const opsOperatorEmail = `ops-operator-${run}@example.com`;
   const memberPassword = "MemberPassword123!";
   const adminPassword = "AdminPassword123!";
+  const existingPassword = "ExistingPassword123!";
   const memberName = `Member ${run}`;
   const adminName = `Admin ${run}`;
   const orgOwnerEmail = `owner-${run}@example.com`;
@@ -347,6 +365,131 @@ test.describe("Team management and invite flow", () => {
     await expect(page.locator("form").getByRole("button", { name: "Sign In" })).toBeEnabled();
 
     await context.close();
+  });
+
+  test("existing account can sign in from an invite and join", async ({
+    browser,
+    db,
+    page,
+  }) => {
+    const existingEmail = `existing-invite-${run}@example.com`;
+    const existingName = `Existing Invite ${run}`;
+    const existing = await createStandaloneAccount(
+      browser,
+      existingEmail,
+      existingName,
+      existingPassword
+    );
+    await existing.context.close();
+
+    await page.goto("/settings");
+    const response = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
+      method: "POST",
+      body: { email: existingEmail, presetKey: "view_only" },
+    });
+    expect(response.status).toBe(200);
+
+    const [invite] = await db
+      .select()
+      .from(invitation)
+      .where(and(eq(invitation.organizationId, TEST_ORG_ID), eq(invitation.email, existingEmail)));
+    expect(invite).toBeTruthy();
+
+    const invited = await createFreshPage(browser);
+    await invited.page.goto(`/accept-invitation?id=${invite.id}`);
+    await expect(invited.page.getByLabel("Email")).toHaveValue(existingEmail);
+    await invited.page.getByLabel("Full Name").fill(existingName);
+    await invited.page.getByLabel(/^Password$/).fill(existingPassword);
+    await invited.page.getByLabel(/^Confirm Password$/).fill(existingPassword);
+    await invited.page.locator("form").getByRole("button", { name: "Create Account" }).click();
+
+    await expect(
+      invited.page.getByText("This email already has an account. Sign in to accept the invite.")
+    ).toBeVisible();
+    await invited.page.locator("form").getByRole("button", { name: "Sign In" }).click();
+    await invited.page.waitForURL("**/settings", { timeout: 15_000 });
+
+    const [existingUser] = await db.select().from(user).where(eq(user.email, existingEmail));
+    expect(existingUser).toBeTruthy();
+
+    const [existingMember] = await db
+      .select()
+      .from(member)
+      .where(and(eq(member.organizationId, TEST_ORG_ID), eq(member.userId, existingUser.id)));
+    expectRoleIncludes(existingMember.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:read",
+      "manufacturing:read",
+      "purchasing:read",
+    ]);
+
+    const [acceptedInvite] = await db
+      .select()
+      .from(invitation)
+      .where(eq(invitation.id, invite.id));
+    expect(acceptedInvite.status).toBe("accepted");
+
+    await invited.context.close();
+  });
+
+  test("already signed-in invited account can accept from the invite page", async ({
+    browser,
+    db,
+    page,
+  }) => {
+    const existingEmail = `signed-in-invite-${run}@example.com`;
+    const existingName = `Signed In Invite ${run}`;
+    const existing = await createStandaloneAccount(
+      browser,
+      existingEmail,
+      existingName,
+      existingPassword
+    );
+    await existing.context.close();
+
+    await page.goto("/settings");
+    const response = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
+      method: "POST",
+      body: { email: existingEmail, presetKey: "view_only" },
+    });
+    expect(response.status).toBe(200);
+
+    const [invite] = await db
+      .select()
+      .from(invitation)
+      .where(and(eq(invitation.organizationId, TEST_ORG_ID), eq(invitation.email, existingEmail)));
+    expect(invite).toBeTruthy();
+
+    const signedIn = await signInAsExistingUser(
+      browser,
+      existingEmail,
+      existingPassword,
+      "/org-setup"
+    );
+    await signedIn.page.goto(`/accept-invitation?id=${invite.id}`);
+    await expect(signedIn.page.getByText(`Signed in as ${existingEmail}.`)).toBeVisible();
+    await signedIn.page.getByRole("button", { name: "Join workspace" }).click();
+    await signedIn.page.waitForURL("**/settings", { timeout: 15_000 });
+
+    const [existingUser] = await db.select().from(user).where(eq(user.email, existingEmail));
+    expect(existingUser).toBeTruthy();
+
+    const [existingMember] = await db
+      .select()
+      .from(member)
+      .where(and(eq(member.organizationId, TEST_ORG_ID), eq(member.userId, existingUser.id)));
+    expectRoleIncludes(existingMember.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:read",
+      "manufacturing:read",
+      "purchasing:read",
+    ]);
+
+    await signedIn.context.close();
   });
 
   test("sales operator invite applies the preset access on join", async ({ browser, db }) => {

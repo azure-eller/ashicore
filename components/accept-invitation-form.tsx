@@ -140,7 +140,7 @@ export function AcceptInvitationForm({
         const message = signUpError.message ?? "Failed to create account";
         if (message.toLowerCase().includes("already")) {
           setMode("sign-in");
-          setError("Account already exists. Please sign in.");
+          setError("This email already has an account. Sign in to accept the invite.");
         } else {
           setError(message);
         }
@@ -174,16 +174,26 @@ export function AcceptInvitationForm({
       return;
     }
 
-    router.push("/");
+    const hasSession = await waitForSession(activeInvitation.email);
+
+    if (!hasSession) {
+      setError("Signed in, but your session was not ready to join the invitation. Try again.");
+      setLoading(false);
+      return;
+    }
+
+    const accepted = await joinInviteIfNeeded();
+    if (!accepted) {
+      setLoading(false);
+    }
   }
 
   async function handleContinue() {
     setError(null);
     setLoading(true);
 
-    try {
-      router.push("/");
-    } finally {
+    const accepted = await joinInviteIfNeeded();
+    if (!accepted) {
       setLoading(false);
     }
   }
@@ -230,7 +240,7 @@ export function AcceptInvitationForm({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Account already exists</CardTitle>
+          <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
           <CardDescription>
             Signed in as {activeInvitation.email}.
           </CardDescription>
@@ -238,7 +248,7 @@ export function AcceptInvitationForm({
         <CardContent className="space-y-4">
           {error ? <FieldError>{error}</FieldError> : null}
           <Button onClick={handleContinue} disabled={loading}>
-            {loading ? "Opening workspace..." : "Continue"}
+            {loading ? "Opening workspace..." : "Join workspace"}
           </Button>
         </CardContent>
       </Card>
