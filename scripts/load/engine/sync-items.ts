@@ -54,6 +54,7 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       defaultSellingPrice: items.defaultSellingPrice,
       manufacturingMode: items.manufacturingMode,
       expectedBatchYield: items.expectedBatchYield,
+      allowPartialManufacturingOutput: items.allowPartialManufacturingOutput,
       bomLocked: items.bomLocked,
       safetyStock: items.safetyStock,
       isMaster: items.isMaster,
@@ -137,6 +138,8 @@ export function planItemsSync(
         existing.manufacturingMode !== seed.manufacturingMode) ||
       (seed.expectedBatchYield !== undefined &&
         !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+      (seed.allowPartialManufacturingOutput !== undefined &&
+        existing.allowPartialManufacturingOutput !== seed.allowPartialManufacturingOutput) ||
       (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
       (seed.safetyStock !== undefined &&
         !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
@@ -209,6 +212,7 @@ export async function applyItemsSyncInTx(
           purchaseToStockFactor: seed.purchaseToStockFactor ?? null,
           manufacturingMode: seed.manufacturingMode ?? "discrete",
           expectedBatchYield: seed.expectedBatchYield ?? null,
+          allowPartialManufacturingOutput: seed.allowPartialManufacturingOutput ?? false,
           bomLocked: seed.bomLocked ?? false,
           isMaster: seed.isMaster ?? false,
           parentId: resolvedParentId,
@@ -258,6 +262,10 @@ export async function applyItemsSyncInTx(
       if (seed.expectedBatchYield !== undefined) {
         nextValues.expectedBatchYield = seed.expectedBatchYield;
       }
+      if (seed.allowPartialManufacturingOutput !== undefined) {
+        nextValues.allowPartialManufacturingOutput =
+          seed.allowPartialManufacturingOutput;
+      }
       if (seed.bomLocked !== undefined) {
         nextValues.bomLocked = seed.bomLocked;
       }
@@ -287,6 +295,8 @@ export async function applyItemsSyncInTx(
           existing.manufacturingMode !== seed.manufacturingMode) ||
         (seed.expectedBatchYield !== undefined &&
           !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+        (seed.allowPartialManufacturingOutput !== undefined &&
+          existing.allowPartialManufacturingOutput !== seed.allowPartialManufacturingOutput) ||
         (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
         (seed.safetyStock !== undefined &&
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||

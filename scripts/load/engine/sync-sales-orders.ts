@@ -1,12 +1,18 @@
 import { eq, isNull, sql } from "drizzle-orm";
 import {
   items,
+  salesShipmentLines,
+  salesShipments,
   salesOrderLines,
   salesOrders,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  releaseReservationForSalesLineInTx,
+  reserveForSalesInTx,
+} from "@/lib/inventory/kernel/operations/sales";
 import { buildExistingItemsByName, findExistingItem } from "./seeds";
 import {
   assertNoDuplicateCustomerNames,
@@ -23,6 +29,7 @@ import type {
   ExistingSalesOrder,
   ItemSeed,
   PreparedSalesImportLine,
+  ReadySalesImportOrder,
   SalesImportConfig,
   SalesImportEvaluation,
   SalesImportReport,
@@ -81,8 +88,11 @@ function buildLineSignature(line: {
   itemSku: string | null;
   quantity: string;
   unitPrice: string;
+  allocated?: boolean;
 }) {
-  return `${line.itemSku ?? ""}:${line.quantity}:${line.unitPrice}`;
+  return `${line.itemSku ?? ""}:${line.quantity}:${line.unitPrice}:${
+    line.allocated ? "1" : "0"
+  }`;
 }
 
 function buildOrderSignature(input: {
@@ -94,6 +104,7 @@ function buildOrderSignature(input: {
     itemSku: string | null;
     quantity: string;
     unitPrice: string;
+    allocated?: boolean;
   }>;
 }) {
   const lineSignature = [...input.lines]
@@ -158,7 +169,10 @@ function addPreparedLine(
   nextLine: Omit<PreparedSalesImportLine, "sortOrder">
 ) {
   const existingLine = preparedLines.find(
-    (line) => line.itemId === nextLine.itemId && line.unitPrice === nextLine.unitPrice
+    (line) =>
+      line.itemId === nextLine.itemId &&
+      line.unitPrice === nextLine.unitPrice &&
+      line.allocated === nextLine.allocated
   );
 
   if (!existingLine) {
@@ -225,6 +239,116 @@ function buildCustomerSeedsFromOrders(
   return customerByKey;
 }
 
+function toSalesOrderLineInsert(
+  salesOrderId: string,
+  line: PreparedSalesImportLine
+) {
+  return {
+    salesOrderId,
+    itemId: line.itemId,
+    itemName: line.itemName,
+    itemSku: line.itemSku,
+    unitName: line.unitName,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    lineTotal: line.lineTotal,
+    sortOrder: line.sortOrder,
+  };
+}
+
+async function reserveConfirmedImportLinesInTx(
+  tx: Tx,
+  orgId: string,
+  order: ReadySalesImportOrder,
+  salesOrderId: string,
+  lineRows: Array<{
+    salesOrderLineId: string;
+    itemId: string;
+    quantity: string;
+  }>
+) {
+  if (order.status !== "confirmed") return;
+
+  const linesToReserve = lineRows
+    .map((line) => ({
+      salesOrderLineId: line.salesOrderLineId,
+      itemId: line.itemId,
+      quantity: parseFloat(line.quantity),
+    }))
+    .filter((line) => Number.isFinite(line.quantity) && line.quantity > 0);
+
+  if (linesToReserve.length === 0) return;
+
+  await reserveForSalesInTx(tx, {
+    organizationId: orgId,
+    salesOrderId,
+    actorUserId: null,
+    lines: linesToReserve,
+  });
+}
+
+async function createImportDraftShipmentInTx(
+  tx: Tx,
+  orgId: string,
+  order: ReadySalesImportOrder,
+  salesOrderId: string,
+  lineRows: Array<{
+    salesOrderLineId: string;
+    line: PreparedSalesImportLine;
+  }>
+) {
+  const allocatedLineRows = lineRows.filter(({ line }) => line.allocated);
+
+  if (
+    order.status !== "confirmed" ||
+    !order.shipDate ||
+    allocatedLineRows.length === 0
+  ) {
+    return;
+  }
+
+  const existingShipment = await tx
+    .select({ id: salesShipments.id })
+    .from(salesShipments)
+    .where(eq(salesShipments.salesOrderId, salesOrderId))
+    .limit(1);
+  if (existingShipment.length > 0) return;
+
+  const sequence = 1;
+  const shipmentNumber = `${order.existingOrderNumber ?? "SO"}-S${sequence}`;
+  const now = new Date();
+  const [shipment] = await tx
+    .insert(salesShipments)
+    .values({
+      organizationId: orgId,
+      salesOrderId,
+      shipmentNumber,
+      sequence,
+      status: "draft",
+      fulfillmentType: "delivery",
+      scheduledDate: order.shipDate,
+      notes: null,
+      orderNumber: order.existingOrderNumber ?? shipmentNumber.replace(/-S1$/, ""),
+      customerName: order.customerName,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: salesShipments.id });
+
+  await tx.insert(salesShipmentLines).values(
+    allocatedLineRows.map(({ salesOrderLineId, line }) => ({
+      salesShipmentId: shipment.id,
+      salesOrderLineId,
+      itemId: line.itemId,
+      itemName: line.itemName,
+      itemSku: line.itemSku,
+      unitName: line.unitName,
+      quantity: line.quantity,
+      sortOrder: line.sortOrder,
+    }))
+  );
+}
+
 function buildProvisionalCustomerSeedsByKey(config: SalesImportConfig) {
   return new Map(
     (config.provisionalCustomers ?? []).map((customer) => [
@@ -261,6 +385,13 @@ export async function evaluateSalesImportInTx(
       itemSku: items.sku,
       quantity: salesOrderLines.quantity,
       unitPrice: salesOrderLines.unitPrice,
+      allocated: sql<boolean>`EXISTS (
+        SELECT 1
+        FROM sales.sales_shipment_lines ssl
+        JOIN sales.sales_shipments ss ON ss.id = ssl.sales_shipment_id
+        WHERE ssl.sales_order_line_id = ${salesOrderLines.id}
+          AND ss.status <> 'cancelled'
+      )`,
     })
     .from(salesOrders)
     .leftJoin(salesOrderLines, eq(salesOrderLines.salesOrderId, salesOrders.id))
@@ -274,6 +405,7 @@ export async function evaluateSalesImportInTx(
         itemSku: string | null;
         quantity: string;
         unitPrice: string;
+        allocated?: boolean;
       }>;
     }
   >();
@@ -299,6 +431,7 @@ export async function evaluateSalesImportInTx(
         itemSku: row.itemSku,
         quantity: normalizeNumeric(Number(row.quantity)),
         unitPrice: normalizeMoney(Number(row.unitPrice)),
+        allocated: row.allocated === true,
       });
     }
 
@@ -385,6 +518,7 @@ export async function evaluateSalesImportInTx(
       order.requestedDate ?? config.requestedDateBySourceRow?.[order.sourceRows[0]] ?? null;
     const orderDate = order.orderDate ?? requestedDate ?? new Date().toISOString().slice(0, 10);
     const shipDate = order.shipDate ?? requestedDate;
+    const status = order.status ?? "draft";
     const customerKey = resolveOrderCustomerKey(
       order,
       customerAliasByKey,
@@ -450,6 +584,7 @@ export async function evaluateSalesImportInTx(
         quantity: normalizeNumeric(quantity),
         unitPrice: normalizeMoney(unitPriceNumber),
         lineTotal: normalizeMoney(quantity * unitPriceNumber),
+        allocated: line.allocated === true,
       });
     }
 
@@ -512,6 +647,26 @@ export async function evaluateSalesImportInTx(
       existingOrdersByMarker.get(marker) ?? existingOrdersBySignature.get(signature) ?? null;
 
     if (existingOrder && existingOrder.status !== "draft") {
+      if (existingOrder.status === status && existingOrder.lineSignature === signature) {
+        orders.push({
+          kind: "ready",
+          label: readyLabel,
+          sourceRows: order.sourceRows,
+          existingId: existingOrder.id,
+          existingOrderNumber: existingOrder.orderNumber,
+          status,
+          customerKey,
+          customerName: resolvedCustomerName,
+          notes: buildOrderNotes(config.orderMarkerPrefix, order.sourceRows, order),
+          totalAmount,
+          lines: preparedLines,
+          orderDate,
+          shipDate,
+          requestedDate,
+        });
+        continue;
+      }
+
       orders.push({
         kind: "skipped",
         label,
@@ -529,6 +684,7 @@ export async function evaluateSalesImportInTx(
       sourceRows: order.sourceRows,
       existingId: existingOrder?.id ?? null,
       existingOrderNumber: existingOrder?.orderNumber ?? null,
+      status,
       customerKey,
       customerName: resolvedCustomerName,
       notes: buildOrderNotes(config.orderMarkerPrefix, order.sourceRows, order),
@@ -598,6 +754,13 @@ export async function applySalesImportOrdersInTx(
           .for("update");
 
         if (!lockedOrder || lockedOrder.status !== "draft") {
+          if (lockedOrder?.status === order.status) {
+            report.existingOrders.push(
+              `${order.existingOrderNumber ?? order.existingId} - ${order.label}`
+            );
+            continue;
+          }
+
           report.skippedOrders.push({
             label: order.label,
             sourceRows: order.sourceRows,
@@ -620,19 +783,57 @@ export async function applySalesImportOrdersInTx(
             requestedDate: order.requestedDate,
             notes: order.notes,
             totalAmount: order.totalAmount,
+            status: order.status,
             updatedAt: new Date(),
           })
           .where(eq(salesOrders.id, order.existingId));
+
+        const existingLineIds = await tx
+          .select({ id: salesOrderLines.id })
+          .from(salesOrderLines)
+          .where(eq(salesOrderLines.salesOrderId, order.existingId));
+        if (existingLineIds.length > 0) {
+          await releaseReservationForSalesLineInTx(tx, {
+            organizationId: orgId,
+            salesOrderId: order.existingId,
+            actorUserId: null,
+            reason: "edited",
+            salesOrderLineIds: existingLineIds.map((line) => line.id),
+          });
+        }
 
         await tx
           .delete(salesOrderLines)
           .where(eq(salesOrderLines.salesOrderId, order.existingId));
 
-        await tx.insert(salesOrderLines).values(
-          order.lines.map((line) => ({
-            salesOrderId: order.existingId!,
-            ...line,
-          }))
+        const createdLines = await tx
+          .insert(salesOrderLines)
+          .values(order.lines.map((line) => toSalesOrderLineInsert(order.existingId!, line)))
+          .returning({
+            salesOrderLineId: salesOrderLines.id,
+            itemId: salesOrderLines.itemId,
+            quantity: salesOrderLines.quantity,
+          });
+
+        await reserveConfirmedImportLinesInTx(
+          tx,
+          orgId,
+          order,
+          order.existingId,
+          createdLines
+        );
+
+        await createImportDraftShipmentInTx(
+          tx,
+          orgId,
+          order,
+          order.existingId,
+          createdLines
+            .map((line, index) => ({
+              salesOrderLineId: line.salesOrderLineId,
+              line: order.lines[index]!,
+            }))
+            .filter(({ line }) => line.allocated)
         );
 
         report.existingOrders.push(
@@ -647,7 +848,7 @@ export async function applySalesImportOrdersInTx(
             orderNumber,
             customerId: customerId!,
             customerName: order.customerName,
-            status: "draft",
+            status: order.status,
             orderDate: order.orderDate,
             shipDate: order.shipDate,
             requestedDate: order.requestedDate,
@@ -657,11 +858,40 @@ export async function applySalesImportOrdersInTx(
           .returning({ id: salesOrders.id });
 
         if (order.lines.length > 0) {
-          await tx.insert(salesOrderLines).values(
-            order.lines.map((line) => ({
-              salesOrderId: createdOrder.id,
-              ...line,
-            }))
+          const createdLines = await tx
+            .insert(salesOrderLines)
+            .values(order.lines.map((line) => toSalesOrderLineInsert(createdOrder.id, line)))
+            .returning({
+              salesOrderLineId: salesOrderLines.id,
+              itemId: salesOrderLines.itemId,
+              quantity: salesOrderLines.quantity,
+            });
+
+          await reserveConfirmedImportLinesInTx(
+            tx,
+            orgId,
+            {
+              ...order,
+              existingOrderNumber: orderNumber,
+            },
+            createdOrder.id,
+            createdLines
+          );
+
+          await createImportDraftShipmentInTx(
+            tx,
+            orgId,
+            {
+              ...order,
+              existingOrderNumber: orderNumber,
+            },
+            createdOrder.id,
+            createdLines
+              .map((line, index) => ({
+                salesOrderLineId: line.salesOrderLineId,
+                line: order.lines[index]!,
+              }))
+              .filter(({ line }) => line.allocated)
           );
         }
 

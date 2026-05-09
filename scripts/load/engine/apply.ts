@@ -22,6 +22,7 @@ export async function applyChanges(
   actorUserId: string,
   idempotencyKeyPrefix: string
 ): Promise<Report> {
+  const logProgress = config.onProgress ?? (() => {});
   const seedByKey = new Map(config.seeds.map((seed) => [seed.key, seed]));
   const managedUnitSignatures = new Set(
     config.units.map((unit) => getUnitSignature(unit.name, unit.size, unit.uom))
@@ -35,6 +36,7 @@ export async function applyChanges(
   return withOrgContext(orgId, async (tx) => {
     const report = createEmptyReport();
 
+    logProgress("loading units");
     const existingUnits = await loadExistingUnitsInTx(tx);
     assertNoDuplicateUnits(existingUnits, managedUnitSignatures);
 
@@ -45,6 +47,7 @@ export async function applyChanges(
 
     await applyUnitsSyncInTx(tx, config.units, orgId, unitsBySignature, unitIdByKey, report);
 
+    logProgress("loading items");
     const existingItems = await loadExistingItemsInTx(tx);
     assertNoDuplicateSkus(existingItems, managedItemSkus);
 
@@ -68,6 +71,7 @@ export async function applyChanges(
       config.internalOnlyProductCategories
     );
 
+    logProgress("loading BOMs");
     await applyBomsSyncInTx(
       tx,
       config.seeds,
@@ -78,6 +82,7 @@ export async function applyChanges(
       config.bomRevisionNote ?? "Managed by data loader"
     );
 
+    logProgress("loading opening stock");
     await applyStockSyncInTx(
       tx,
       seedByKey,
@@ -90,8 +95,10 @@ export async function applyChanges(
       idempotencyKeyPrefix
     );
 
+    logProgress("loading suppliers");
     await applySuppliersSyncInTx(tx, config.suppliers, orgId, report);
 
+    logProgress("repairing sales order snapshots");
     // Repair historical SO line snapshots for variant items.
     // Snapshots used to be "Raised Bed Mix 2 Cubic Foot Bag" (old format).
     // New format is "Raised Bed Mix / 2 Cubic Foot Bag" — master name + attrs via formatVariantDisplay.
@@ -127,6 +134,7 @@ export async function applyChanges(
       }
     }
 
+    logProgress("catalog load transaction complete");
     return report;
   });
 }

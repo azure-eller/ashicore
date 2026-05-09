@@ -35,6 +35,7 @@ export type ItemSeed = {
   purchaseToStockFactor?: string;
   manufacturingMode?: "discrete" | "batch";
   expectedBatchYield?: string | null;
+  allowPartialManufacturingOutput?: boolean;
   bomLocked?: boolean;
   bom?: Array<{
     componentKey: string;
@@ -76,6 +77,7 @@ export type ExistingItem = {
   defaultSellingPrice: string | null;
   manufacturingMode: string;
   expectedBatchYield: string | null;
+  allowPartialManufacturingOutput: boolean;
   bomLocked: boolean;
   safetyStock: string;
   isMaster: boolean;
@@ -163,6 +165,7 @@ export type PreparedSalesImportLine = {
   quantity: string;
   unitPrice: string;
   lineTotal: string;
+  allocated: boolean;
   sortOrder: number;
 };
 
@@ -172,6 +175,7 @@ export type ReadySalesImportOrder = {
   sourceRows: number[];
   existingId: string | null;
   existingOrderNumber: string | null;
+  status: "draft" | "confirmed";
   customerKey: string;
   customerName: string;
   notes: string | null;
@@ -278,6 +282,7 @@ export type OrderSeedLine =
       quantity: string;
       raw: string;
       priceOverride?: string;
+      allocated?: boolean;
     }
   | {
       kind: "unmapped";
@@ -292,6 +297,7 @@ export type OrderSeed = {
   orderDate?: string | null;
   shipDate?: string | null;
   requestedDate?: string | null;
+  status?: "draft" | "confirmed";
   requestedWindow?: string | null;
   address: string | null;
   contact: string | null;
@@ -323,4 +329,5 @@ export type LoaderConfig = {
   internalOnlyProductCategories?: Set<string>;
   bomRevisionNote?: string;
   salesImport?: SalesImportConfig;
+  onProgress?: (message: string) => void;
 };
