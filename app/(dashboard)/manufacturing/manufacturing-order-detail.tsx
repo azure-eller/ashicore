@@ -9,8 +9,15 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { DetailPageActions } from "@/components/detail-page-actions";
+import { Input } from "@/components/ui/input";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
+import {
+  SortableDragHandle,
+  SortableReorder,
+  useSortableReorderItem,
+} from "@/components/sortable-reorder";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,6 +64,297 @@ import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from "./types";
 
+type ManufacturingIngredient =
+  ManufacturingOrderDetailType["ingredients"][number];
+
+function moveIngredient(
+  ingredients: ManufacturingIngredient[],
+  fromIndex: number,
+  toIndex: number
+) {
+  const next = [...ingredients];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return ingredients;
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
+function hasSameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function PriorityRankEditor({
+  order,
+  onUpdated,
+}: {
+  order: ManufacturingOrderDetailType;
+  onUpdated: () => Promise<void>;
+}) {
+  const [value, setValue] = useState(order.priorityRank?.toString() ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const canEdit = order.status === "draft" || order.status === "released";
+
+  const mutation = useMutation({
+    mutationFn: async (priorityRank: number | null) => {
+      const response = await fetch(`/api/manufacturing-orders/${order.id}/priority`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priorityRank }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to update priority rank.");
+      }
+    },
+    onSuccess: async () => {
+      setError(null);
+      await onUpdated();
+    },
+    onError: (updateError) => {
+      setError(updateError.message);
+    },
+  });
+
+  const commit = () => {
+    const trimmed = value.trim();
+    const nextRank = trimmed ? Number(trimmed) : null;
+
+    if (
+      trimmed &&
+      (typeof nextRank !== "number" || !Number.isInteger(nextRank) || nextRank <= 0)
+    ) {
+      setError("Enter a positive whole number.");
+      return;
+    }
+
+    if (
+      nextRank === order.priorityRank ||
+      (nextRank == null && order.priorityRank == null)
+    ) {
+      return;
+    }
+
+    mutation.mutate(nextRank);
+  };
+
+  if (!canEdit) {
+    return <>{order.priorityRank == null ? "\u2014" : `#${order.priorityRank}`}</>;
+  }
+
+  return (
+    <div className="max-w-24">
+      <Input
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+        disabled={mutation.isPending}
+        inputMode="numeric"
+        aria-label={`Priority rank for ${order.orderNumber}`}
+        placeholder="None"
+        className="h-8 px-2 font-mono text-sm"
+      />
+      {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+function IngredientTableRow({
+  ingredient,
+  canReorder,
+}: {
+  ingredient: ManufacturingIngredient;
+  canReorder: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, style } = useSortableReorderItem(
+    ingredient.id
+  );
+  const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+
+  return (
+    <TableRow ref={canReorder ? setNodeRef : undefined} style={style}>
+      {canReorder && (
+        <TableCell className="w-10">
+          <SortableDragHandle
+            attributes={attributes}
+            listeners={listeners}
+            label={`Reorder ${ingredient.itemName}`}
+          />
+        </TableCell>
+      )}
+      <TableCell>
+        <Link
+          href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
+          className="hover:underline"
+        >
+          {ingredient.itemSku
+            ? `${ingredient.itemName} (${ingredient.itemSku})`
+            : ingredient.itemName}
+        </Link>
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline">{ingredient.itemType}</Badge>
+      </TableCell>
+      <TableCell className="text-right">{ingredient.quantityPerUnit}</TableCell>
+      <TableCell className="text-right">{ingredient.plannedQuantity}</TableCell>
+      <TableCell className="text-right">{ingredient.pickedQuantity}</TableCell>
+      <TableCell className="text-right">{ingredient.remainingQuantity}</TableCell>
+      <TableCell className="text-right">
+        {ingredient.actualQuantity != null ? ingredient.actualQuantity : "\u2014"}
+      </TableCell>
+      <TableCell className="text-right">
+        {formatPrice(ingredient.actualCostTotal) ?? "\u2014"}
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">
+        {minimumLotAgeDays
+          ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
+          : "\u2014"}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function IngredientsTable({
+  order,
+  onUpdated,
+}: {
+  order: ManufacturingOrderDetailType;
+  onUpdated: () => Promise<void>;
+}) {
+  const initialIngredientIds = order.ingredients.map((ingredient) => ingredient.id);
+  const [savedIngredientIds, setSavedIngredientIds] = useState(initialIngredientIds);
+  const [ingredients, setIngredients] = useState(order.ingredients);
+  const [error, setError] = useState<string | null>(null);
+  const canReorder =
+    order.status === "draft" ||
+    (order.status === "released" && order.manufacturingMode !== "batch");
+  const isDirty = !hasSameOrder(
+    ingredients.map((ingredient) => ingredient.id),
+    savedIngredientIds
+  );
+
+  const mutation = useMutation({
+    mutationFn: async (ingredientIds: string[]) => {
+      const response = await fetch(
+        `/api/manufacturing-orders/${order.id}/ingredients/reorder`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ingredientIds }),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to save ingredient order.");
+      }
+    },
+    onMutate: () => {
+      setError(null);
+    },
+    onSuccess: async (_data, ingredientIds) => {
+      setSavedIngredientIds(ingredientIds);
+      await onUpdated();
+    },
+    onError: (saveError) => {
+      setError(saveError.message);
+    },
+  });
+
+  function handleMove(fromIndex: number, toIndex: number) {
+    if (!canReorder || mutation.isPending) return;
+    setIngredients((current) => moveIngredient(current, fromIndex, toIndex));
+  }
+
+  function saveOrder() {
+    mutation.mutate(ingredients.map((ingredient) => ingredient.id));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold tracking-tight">Ingredients</h2>
+        {canReorder && isDirty && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={saveOrder}
+            disabled={mutation.isPending}
+          >
+            {mutation.isPending ? "Saving..." : "Save Order"}
+          </Button>
+        )}
+      </div>
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {canReorder && <TableHead className="w-10" />}
+              <TableHead>Ingredient</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader
+                  label={order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
+                  tooltip={
+                    order.manufacturingMode === "batch"
+                      ? BOM_QTY_PER_BATCH_TOOLTIP
+                      : BOM_QTY_PER_UNIT_TOOLTIP
+                  }
+                />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Planned" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Picked" tooltip={MANUFACTURING_PICKED_QTY_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Remaining" tooltip={MANUFACTURING_REMAINING_QTY_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+              </TableHead>
+              <TableHead className="text-right">
+                <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
+              </TableHead>
+              <TableHead>Requirements</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {canReorder ? (
+              <SortableReorder
+                ids={ingredients.map((ingredient) => ingredient.id)}
+                onMove={handleMove}
+              >
+                {ingredients.map((ingredient) => (
+                  <IngredientTableRow
+                    key={ingredient.id}
+                    ingredient={ingredient}
+                    canReorder
+                  />
+                ))}
+              </SortableReorder>
+            ) : (
+              ingredients.map((ingredient) => (
+                <IngredientTableRow
+                  key={ingredient.id}
+                  ingredient={ingredient}
+                  canReorder={false}
+                />
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
 export function ManufacturingOrderDetail({
   order,
   canViewLedger = false,
@@ -75,6 +373,7 @@ export function ManufacturingOrderDetail({
       queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
       queryClient.invalidateQueries({ queryKey: ["items"] }),
     ]);
+    router.refresh();
   };
 
   const deleteMutation = useMutation({
@@ -212,6 +511,16 @@ export function ManufacturingOrderDetail({
             <dt className="text-sm font-medium text-muted-foreground">Status</dt>
             <dd className="mt-1 text-sm">
               <ManufacturingOrderStatusBadge status={order.status} />
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">Priority Rank</dt>
+            <dd className="mt-1 text-sm">
+              <PriorityRankEditor
+                key={`${order.id}-${order.priorityRank ?? "none"}`}
+                order={order}
+                onUpdated={refreshQueries}
+              />
             </dd>
           </div>
           <div>
@@ -373,93 +682,11 @@ export function ManufacturingOrderDetail({
           </>
         )}
 
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold tracking-tight">Ingredients</h2>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ingredient</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader
-                      label={order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
-                      tooltip={
-                        order.manufacturingMode === "batch"
-                          ? BOM_QTY_PER_BATCH_TOOLTIP
-                          : BOM_QTY_PER_UNIT_TOOLTIP
-                      }
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Planned" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Picked" tooltip={MANUFACTURING_PICKED_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Remaining" tooltip={MANUFACTURING_REMAINING_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>Requirements</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {order.ingredients.map((ingredient) => {
-                  const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
-
-                  return (
-                    <TableRow key={ingredient.id}>
-                      <TableCell>
-                        <Link
-                          href={itemDetailHref(ingredient.itemType, ingredient.itemId)}
-                          className="hover:underline"
-                        >
-                          {ingredient.itemSku
-                            ? `${ingredient.itemName} (${ingredient.itemSku})`
-                            : ingredient.itemName}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{ingredient.itemType}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {ingredient.quantityPerUnit}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {ingredient.plannedQuantity}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {ingredient.pickedQuantity}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {ingredient.remainingQuantity}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {ingredient.actualQuantity != null
-                          ? ingredient.actualQuantity
-                          : "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPrice(ingredient.actualCostTotal) ?? "\u2014"}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {minimumLotAgeDays
-                          ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
-                          : "\u2014"}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
+        <IngredientsTable
+          key={`${order.id}-${order.ingredients.map((ingredient) => ingredient.id).join(":")}`}
+          order={order}
+          onUpdated={refreshQueries}
+        />
 
         <Separator />
 

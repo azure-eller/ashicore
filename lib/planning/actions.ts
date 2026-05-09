@@ -420,6 +420,7 @@ export async function createManufacturingOrderDraftFromPlanning(
       salesOrderId: null,
       salesOrderLineId: null,
       plannedQuantity: payload.quantity,
+      priorityRank: null,
       plannedDate: payload.requiredDate,
       notes: planningNotes(payload.recommendationId, recommendation.explanation),
       ingredients: payload.ingredients,

@@ -55,6 +55,7 @@ export const manufacturingOrders = manufacturingSchema
       requestedQuantity: numeric("requested_quantity", { precision: 12, scale: 4 })
         .notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
+      priorityRank: integer("priority_rank"),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
       actualQuantity: numeric("actual_quantity", { precision: 12, scale: 4 }),
@@ -81,6 +82,14 @@ export const manufacturingOrders = manufacturingSchema
         .on(table.organizationId)
         .where(sql`deleted_at IS NULL`),
       index("manufacturing_orders_status_idx").on(table.status),
+      index("manufacturing_orders_priority_rank_idx")
+        .on(table.organizationId, table.status, table.priorityRank)
+        .where(sql`deleted_at IS NULL AND priority_rank IS NOT NULL`),
+      uniqueIndex("manufacturing_orders_active_priority_rank_uidx")
+        .on(table.organizationId, table.priorityRank)
+        .where(
+          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status IN ('draft', 'released')`
+        ),
       index("manufacturing_orders_product_id_idx").on(table.productId),
       index("manufacturing_orders_bom_revision_id_idx").on(table.bomRevisionId),
       index("manufacturing_orders_sales_order_id_idx").on(table.salesOrderId),
@@ -90,6 +99,7 @@ export const manufacturingOrders = manufacturingSchema
         table.organizationId,
         table.orderNumber
       ),
+      check("manufacturing_orders_priority_rank_positive_check", sql`${table.priorityRank} > 0`),
       pgPolicy("manufacturing_orders_org_isolation", {
         for: "all",
         to: "public",

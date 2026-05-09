@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +55,7 @@ export function CreateManufacturingOrdersDialog({
     undefined
   );
   const [selectedLineIds, setSelectedLineIds] = useState<string[] | null>(null);
+  const [priorityRank, setPriorityRank] = useState("");
 
   const orderQuery = useQuery<SalesOrderDetail>({
     queryKey: ["sales-order", salesOrderId],
@@ -104,6 +106,7 @@ export function CreateManufacturingOrdersDialog({
         body: {
           plannedDate: effectivePlannedDate || null,
           salesOrderLineIds: effectiveSelectedLineIds,
+          priorityRank: priorityRank.trim() || null,
           notes: null,
         },
         fallbackError: "Failed to create manufacturing orders.",
@@ -127,6 +130,7 @@ export function CreateManufacturingOrdersDialog({
   const resetForm = () => {
     setPlannedDate(undefined);
     setSelectedLineIds(null);
+    setPriorityRank("");
     mutation.reset();
   };
 
@@ -182,15 +186,30 @@ export function CreateManufacturingOrdersDialog({
           <p className="text-sm text-destructive">{orderQuery.error.message}</p>
         ) : order ? (
           <div className="flex flex-col gap-5">
-            <div className="max-w-xs space-y-2">
-              <label className="text-sm font-medium" htmlFor="mo-planned-date">
-                Planned Date
-              </label>
-              <DatePicker
-                id="mo-planned-date"
-                value={effectivePlannedDate}
-                onChange={(value) => setPlannedDate(value || null)}
-              />
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="mo-planned-date">
+                  Planned Date
+                </label>
+                <DatePicker
+                  id="mo-planned-date"
+                  value={effectivePlannedDate}
+                  onChange={(value) => setPlannedDate(value || null)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="mo-priority-rank">
+                  Priority Rank
+                </label>
+                <Input
+                  id="mo-priority-rank"
+                  value={priorityRank}
+                  onChange={(event) => setPriorityRank(event.target.value)}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="None"
+                />
+              </div>
             </div>
 
             <div className="flex flex-col gap-2">

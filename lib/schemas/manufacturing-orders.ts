@@ -36,6 +36,20 @@ const ingredientRowSchema = z.object({
   quantityPerUnit: positiveDecimalString("Quantity per unit"),
 });
 
+const priorityRankSchema = z
+  .union([
+    z.number().int("Priority rank must be a whole number").positive("Priority rank must be positive"),
+    z
+      .string()
+      .trim()
+      .regex(/^\d+$/, "Priority rank must be a whole number")
+      .transform((value) => Number(value)),
+  ])
+  .nullable()
+  .optional()
+  .transform((value) => value ?? null)
+  .refine((value) => value == null || value > 0, "Priority rank must be positive");
+
 const ingredientsSchema = z
   .array(ingredientRowSchema)
   .min(1, "At least one ingredient is required")
@@ -58,6 +72,7 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   productId: z.string().min(1, "Product is required"),
   salesOrderId: nullableString,
   salesOrderLineId: nullableString,
+  priorityRank: priorityRankSchema,
   plannedDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),
     "Planned date must be a real date in YYYY-MM-DD format"
@@ -103,6 +118,7 @@ export const manufacturingOrderCreateFormSchema = z
     salesOrderLineId: nullableString,
     productId: nullableString,
     plannedQuantity: nullableString,
+    priorityRank: priorityRankSchema,
     plannedDate: nullableString.refine(
       (value) => value == null || isValidIsoDate(value),
       "Planned date must be a real date in YYYY-MM-DD format"
@@ -232,6 +248,36 @@ export type ReorderManufacturingIngredients = z.infer<
   typeof reorderManufacturingIngredientsSchema
 >;
 
+export const updateManufacturingOrderPrioritySchema = z.object({
+  priorityRank: priorityRankSchema,
+});
+export type UpdateManufacturingOrderPriority = z.infer<
+  typeof updateManufacturingOrderPrioritySchema
+>;
+
+export const reorderManufacturingOrderPriorityRanksSchema = z.object({
+  orderIds: z
+    .array(z.string().uuid("Manufacturing order is required"))
+    .min(1, "At least one manufacturing order is required")
+    .superRefine((ids, ctx) => {
+      const seen = new Set<string>();
+
+      ids.forEach((id, index) => {
+        if (seen.has(id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Manufacturing order appears more than once",
+            path: [index],
+          });
+        }
+        seen.add(id);
+      });
+    }),
+});
+export type ReorderManufacturingOrderPriorityRanks = z.infer<
+  typeof reorderManufacturingOrderPriorityRanksSchema
+>;
+
 export const recordManufacturingOutputSchema = z.object({
   quantity: positiveDecimalString("Output quantity"),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
@@ -249,6 +295,7 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
   salesOrderLineIds: z
     .array(z.string().uuid("Sales order line is required"))
     .min(1, "Select at least one manufacturing order to create"),
+  priorityRank: priorityRankSchema,
   notes: nullableString,
 });
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<
@@ -258,6 +305,7 @@ export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
   productId: "",
   salesOrderId: null,
   salesOrderLineId: null,
+  priorityRank: null,
   plannedQuantity: "",
   plannedDate: null,
   notes: null,

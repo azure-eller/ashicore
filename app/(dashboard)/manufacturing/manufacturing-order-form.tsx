@@ -137,16 +137,6 @@ function formatSalesLineLabel(
   return `${line.salesOrderNumber} - ${line.customerName} - ${line.quantity} ${line.unitName}`;
 }
 
-function multiplyQuantityString(quantity: string, factor: string) {
-  const quantityNumber = Number(quantity);
-  const factorNumber = Number(factor);
-  if (!Number.isFinite(quantityNumber) || !Number.isFinite(factorNumber)) {
-    return quantity;
-  }
-
-  return normalizeNumeric(quantityNumber * factorNumber);
-}
-
 function getTodayDateString() {
   const today = new Date();
   const year = today.getFullYear();
@@ -191,6 +181,7 @@ export function ManufacturingOrderForm({
           salesOrderId: initialData.salesOrderId,
           salesOrderLineId: initialData.salesOrderLineId,
           plannedQuantity: initialData.requestedQuantity,
+          priorityRank: initialData.priorityRank,
           plannedDate: initialData.plannedDate,
           notes: initialData.notes,
           ingredients: initialData.ingredients.map((ingredient) => ({
@@ -325,6 +316,7 @@ export function ManufacturingOrderForm({
                 salesOrderPreview?.lines
                   .filter((line) => line.status === "will_create")
                   .map((line) => line.salesOrderLineId) ?? [],
+              priorityRank: values.priorityRank,
               notes: values.notes,
             }),
           }
@@ -374,6 +366,7 @@ export function ManufacturingOrderForm({
             salesOrderId: values.salesOrderId,
             salesOrderLineId: values.salesOrderLineId,
             plannedQuantity,
+            priorityRank: values.priorityRank,
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
@@ -384,6 +377,7 @@ export function ManufacturingOrderForm({
             salesOrderLineId: null,
             plannedQuantity,
             numberOfBatches: manualBatchCount,
+            priorityRank: values.priorityRank,
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
@@ -831,6 +825,27 @@ export function ManufacturingOrderForm({
 
                 <Controller
                   control={form.control}
+                  name="priorityRank"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Priority Rank</FieldLabel>
+                      <Input
+                        id={field.name}
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value || null)}
+                        onBlur={field.onBlur}
+                        aria-invalid={fieldState.invalid}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="None"
+                      />
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+
+                <Controller
+                  control={form.control}
                   name="plannedDate"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
@@ -1010,22 +1025,13 @@ export function ManufacturingOrderForm({
                       const materialOptions = templateIngredient
                         ? [
                             {
-                              itemId:
-                                templateIngredient.defaultItemId ??
-                                templateIngredient.itemId,
-                              itemName:
-                                templateIngredient.defaultItemName ??
-                                templateIngredient.itemName,
-                              itemSku:
-                                templateIngredient.defaultItemSku ??
-                                templateIngredient.itemSku,
+                              itemId: templateIngredient.itemId,
+                              itemName: templateIngredient.itemName,
+                              itemSku: templateIngredient.itemSku,
                               itemType: templateIngredient.itemType,
-                              unitName:
-                                templateIngredient.defaultUnitName ??
-                                templateIngredient.unitName,
+                              unitName: templateIngredient.unitName,
                               quantityFactor: "1",
                             },
-                            ...templateIngredient.alternates,
                           ]
                         : [];
                       const selectedMaterial =
@@ -1049,82 +1055,14 @@ export function ManufacturingOrderForm({
                         <EditableLineGridRow key={field.id}>
                           <EditableLineGridCell>
                             <div className="space-y-1">
-                              {materialOptions.length > 1 ? (
-                                <Field>
-                                  <FieldLabel
-                                    className="sr-only"
-                                    htmlFor={`${field.id}-ingredient`}
-                                  >
-                                    Ingredient
-                                  </FieldLabel>
-                                  <Combobox
-                                    items={materialOptions.map((option) => option.itemId)}
-                                    value={selectedIngredientId}
-                                    onValueChange={(value) => {
-                                      const option = materialOptions.find(
-                                        (candidate) => candidate.itemId === value
-                                      );
-                                      if (!option || !templateIngredient) return;
-
-                                      form.setValue(
-                                        `ingredients.${index}.itemId`,
-                                        option.itemId,
-                                        { shouldValidate: true, shouldDirty: true }
-                                      );
-                                      form.setValue(
-                                        `ingredients.${index}.quantityPerUnit`,
-                                        multiplyQuantityString(
-                                          templateIngredient.defaultQuantityPerUnit,
-                                          option.quantityFactor
-                                        ),
-                                        { shouldValidate: true, shouldDirty: true }
-                                      );
-                                    }}
-                                    itemToStringLabel={(value) =>
-                                      materialOptions.find(
-                                        (option) => option.itemId === value
-                                      )?.itemName ?? ""
-                                    }
-                                  >
-                                    <ComboboxInput
-                                      id={`${field.id}-ingredient`}
-                                      className="w-full min-w-0"
-                                      placeholder="Select material..."
-                                    />
-                                    <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
-                                      <ComboboxEmpty>No materials found</ComboboxEmpty>
-                                      <ComboboxList>
-                                        {(id: string) => {
-                                          const option = materialOptions.find(
-                                            (candidate) => candidate.itemId === id
-                                          );
-                                          return (
-                                            <ComboboxItem key={id} value={id}>
-                                              <div className="flex min-w-0 flex-1 items-center gap-2">
-                                                <span className="truncate">
-                                                  {option?.itemName}
-                                                </span>
-                                                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                                                  {option?.unitName}
-                                                </span>
-                                              </div>
-                                            </ComboboxItem>
-                                          );
-                                        }}
-                                      </ComboboxList>
-                                    </ComboboxContent>
-                                  </Combobox>
-                                </Field>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">
-                                    {selectedMaterial?.itemName ?? field.itemId}
-                                  </span>
-                                  <Badge variant="outline">
-                                    {selectedMaterial?.itemType ?? "item"}
-                                  </Badge>
-                                </div>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">
+                                  {selectedMaterial?.itemName ?? field.itemId}
+                                </span>
+                                <Badge variant="outline">
+                                  {selectedMaterial?.itemType ?? "item"}
+                                </Badge>
+                              </div>
                               {selectedMaterial?.itemSku && (
                                 <p className="text-xs text-muted-foreground">
                                   {selectedMaterial.itemSku}

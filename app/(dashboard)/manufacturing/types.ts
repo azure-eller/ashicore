@@ -116,6 +116,7 @@ export type ManufacturingOrderListRow = {
   productAttrs: string[];
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
+  priorityRank: number | null;
   requestedQuantity: string;
   plannedQuantity: string;
   actualQuantity: string | null;
@@ -143,6 +144,7 @@ export type ManufacturingExecutionQueueRow = {
   actualQuantity: string | null;
   unitName: string;
   plannedDate: string | null;
+  priorityRank: number | null;
   manufacturingMode: string;
   pickProgressStatus: ManufacturingPickProgressStatus;
   nextBatchId: string | null;
@@ -222,6 +224,7 @@ export type ManufacturingOrderDetail = {
   numberOfBatches: number | null;
   expectedBatchYield: string | null;
   allowPartialManufacturingOutput: boolean;
+  priorityRank: number | null;
   requestedQuantity: string;
   plannedQuantity: string;
   actualQuantity: string | null;
@@ -273,6 +276,7 @@ export type ManufacturingExecutionDetail = {
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   plannedDate: string | null;
+  priorityRank: number | null;
   notes: string | null;
   canComplete: boolean;
   currentBatchId: string | null;
@@ -296,6 +300,7 @@ export type ManufacturingOrderEditData = {
   salesCustomerName: string | null;
   requestedQuantity: string;
   plannedQuantity: string;
+  priorityRank: number | null;
   plannedDate: string | null;
   notes: string | null;
   ingredients: Array<{

@@ -6,7 +6,9 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
+  ne,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -80,7 +82,9 @@ import type {
   ManufacturingOrderStatus,
   ManufacturingPickStatus,
   RecordManufacturingOutput,
+  ReorderManufacturingOrderPriorityRanks,
   ReorderManufacturingIngredients,
+  UpdateManufacturingOrderPriority,
   UpdateManufacturingOrder,
 } from "@/lib/schemas/manufacturing-orders";
 import type {
@@ -415,6 +419,41 @@ function assertSameStringSet(
   const expectedSet = new Set(expected);
   if (actual.some((value) => !expectedSet.has(value))) {
     throw new ManufacturingError(message, 400);
+  }
+}
+
+async function assertPriorityRankAvailableInTx(
+  tx: Tx,
+  orgId: string,
+  priorityRank: number | null,
+  excludeId?: string
+) {
+  if (priorityRank == null) {
+    return;
+  }
+
+  const filters = [
+    eq(manufacturingOrders.organizationId, orgId),
+    eq(manufacturingOrders.priorityRank, priorityRank),
+    inArray(manufacturingOrders.status, ["draft", "released"]),
+    isNull(manufacturingOrders.deletedAt),
+  ];
+
+  if (excludeId) {
+    filters.push(ne(manufacturingOrders.id, excludeId));
+  }
+
+  const [conflict] = await tx
+    .select({ id: manufacturingOrders.id })
+    .from(manufacturingOrders)
+    .where(and(...filters))
+    .for("update");
+
+  if (conflict) {
+    throw new ManufacturingError(
+      `Priority rank ${priorityRank} is already assigned to another active order.`,
+      409
+    );
   }
 }
 
@@ -778,6 +817,7 @@ async function insertManufacturingOrderInTx(
     requestedQuantity: string;
     plannedQuantity: number;
     numberOfBatches: number | null;
+    priorityRank: number | null;
     plannedDate: string | null;
     notes: string | null;
     ingredients: ValidatedIngredient[];
@@ -804,6 +844,7 @@ async function insertManufacturingOrderInTx(
       salesOrderNumber: values.salesLink?.salesOrderNumber ?? null,
       salesCustomerName: values.salesLink?.customerName ?? null,
       status: "draft",
+      priorityRank: values.priorityRank,
       plannedQuantity: normalizeNumeric(values.plannedQuantity),
       plannedDate: values.plannedDate,
       notes: values.notes,
@@ -1707,6 +1748,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             masterVariantAxes: masterItems.variantAxes,
             salesOrderNumber: manufacturingOrders.salesOrderNumber,
             salesCustomerName: manufacturingOrders.salesCustomerName,
+            priorityRank: manufacturingOrders.priorityRank,
             requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
               "requestedQuantity"
             ),
@@ -1733,7 +1775,9 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           .leftJoin(masterItems, eq(items.parentId, masterItems.id))
           .where(isNull(manufacturingOrders.deletedAt))
           .orderBy(
-            desc(manufacturingOrders.createdAt),
+            sql`${manufacturingOrders.priorityRank} IS NULL`,
+            asc(manufacturingOrders.priorityRank),
+            asc(manufacturingOrders.plannedDate),
             asc(manufacturingOrders.orderNumber),
             asc(manufacturingOrders.id)
           )) as Array<
@@ -1887,6 +1931,7 @@ export async function getManufacturingExecutionQueue(): Promise<
         orderNumber: order.orderNumber,
         productName: order.productName,
         productSku: order.productSku,
+        priorityRank: order.priorityRank,
         plannedQuantity: order.plannedQuantity,
         actualQuantity: order.actualQuantity,
         unitName: order.unitName,
@@ -2149,6 +2194,7 @@ export async function getManufacturingOrder(
         actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
           "actualQuantity"
         ),
+        priorityRank: manufacturingOrders.priorityRank,
         plannedDate: manufacturingOrders.plannedDate,
         actualMaterialCost: trimScaleNullable(manufacturingOrders.actualMaterialCost).as(
           "actualMaterialCost"
@@ -2350,6 +2396,7 @@ export async function getManufacturingOrderEditData(
         plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
           "plannedQuantity"
         ),
+        priorityRank: manufacturingOrders.priorityRank,
         plannedDate: manufacturingOrders.plannedDate,
         notes: manufacturingOrders.notes,
       })
@@ -2454,6 +2501,8 @@ export async function createManufacturingOrderInTx(
     ingredientMultiplier,
     payload.ingredients
   );
+  await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank);
+
   const order = await insertManufacturingOrderInTx(tx, orgId, {
     product,
     bomRevisionId,
@@ -2461,6 +2510,7 @@ export async function createManufacturingOrderInTx(
     requestedQuantity: payload.plannedQuantity,
     plannedQuantity,
     numberOfBatches,
+    priorityRank: payload.priorityRank,
     plannedDate: payload.plannedDate ?? null,
     notes: payload.notes ?? null,
     ingredients,
@@ -2558,6 +2608,10 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       line.itemId,
       ingredientMultiplier
     );
+    const priorityRank =
+      payload.priorityRank != null ? payload.priorityRank + created.length : null;
+    await assertPriorityRankAvailableInTx(tx, orgId, priorityRank);
+
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
       product,
       bomRevisionId,
@@ -2570,6 +2624,7 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       requestedQuantity: line.quantity,
       plannedQuantity,
       numberOfBatches,
+      priorityRank,
       plannedDate,
       notes: payload.notes ?? null,
       ingredients,
@@ -2598,7 +2653,7 @@ export async function updateManufacturingOrder(
   id: string,
   payload: UpdateManufacturingOrder
 ): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const existing = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!existing) {
@@ -2642,6 +2697,7 @@ export async function updateManufacturingOrder(
       ingredientMultiplier,
       payload.ingredients
     );
+    await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank, id);
 
     const [order] = await tx
       .update(manufacturingOrders)
@@ -2653,6 +2709,7 @@ export async function updateManufacturingOrder(
         requestedQuantity: normalizeNumeric(Number(payload.plannedQuantity)),
         plannedQuantity: normalizeNumeric(plannedQuantity),
         numberOfBatches,
+        priorityRank: payload.priorityRank,
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
         updatedAt: new Date(),
@@ -2670,6 +2727,111 @@ export async function updateManufacturingOrder(
   });
 }
 
+export async function updateManufacturingOrderPriority(
+  id: string,
+  payload: UpdateManufacturingOrderPriority
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const order = await getLockedManufacturingOrderInTx(tx, id);
+
+    if (!order) {
+      return null;
+    }
+
+    if (order.status !== "draft" && order.status !== "released") {
+      throw new ManufacturingError(
+        "Only draft or released manufacturing orders can be ranked.",
+        400
+      );
+    }
+
+    await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank, id);
+
+    const [updated] = await tx
+      .update(manufacturingOrders)
+      .set({
+        priorityRank: payload.priorityRank,
+        updatedAt: new Date(),
+      })
+      .where(eq(manufacturingOrders.id, id))
+      .returning({ id: manufacturingOrders.id });
+
+    return updated;
+  });
+}
+
+export async function reorderManufacturingOrderPriorityRanks(
+  payload: ReorderManufacturingOrderPriorityRanks
+): Promise<{ updated: number }> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const orders = await tx
+      .select({
+        id: manufacturingOrders.id,
+        status: manufacturingOrders.status,
+        priorityRank: manufacturingOrders.priorityRank,
+      })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          inArray(manufacturingOrders.id, payload.orderIds),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    const allRankedOrders = await tx
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.organizationId, orgId),
+          isNotNull(manufacturingOrders.priorityRank),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    assertSameStringSet(
+      allRankedOrders.map((order) => order.id),
+      payload.orderIds,
+      "Payload must include all currently ranked manufacturing orders."
+    );
+
+    assertSameStringSet(
+      orders.map((order) => order.id),
+      payload.orderIds,
+      "Manufacturing order ranking does not match active orders."
+    );
+
+    const invalidOrder = orders.find(
+      (order) =>
+        (order.status !== "draft" && order.status !== "released") ||
+        order.priorityRank == null
+    );
+
+    if (invalidOrder) {
+      throw new ManufacturingError(
+        "Only ranked draft or released manufacturing orders can be reordered.",
+        400
+      );
+    }
+
+    const now = new Date();
+    for (const [index, id] of payload.orderIds.entries()) {
+      await tx
+        .update(manufacturingOrders)
+        .set({
+          priorityRank: index + 1,
+          updatedAt: now,
+        })
+        .where(eq(manufacturingOrders.id, id));
+    }
+
+    return { updated: payload.orderIds.length };
+  });
+}
+
 export async function reorderManufacturingOrderIngredients(
   id: string,
   payload: ReorderManufacturingIngredients
@@ -2681,9 +2843,9 @@ export async function reorderManufacturingOrderIngredients(
       return null;
     }
 
-    if (order.status !== "released") {
+    if (order.status !== "draft" && order.status !== "released") {
       throw new ManufacturingError(
-        "Only released manufacturing orders can be reordered.",
+        "Only draft or released manufacturing orders can be reordered.",
         400
       );
     }
@@ -4121,6 +4283,7 @@ export async function getManufacturingExecutionDetail(
         salesOrderId: manufacturingOrders.salesOrderId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
+        priorityRank: manufacturingOrders.priorityRank,
         plannedDate: manufacturingOrders.plannedDate,
         notes: manufacturingOrders.notes,
       })

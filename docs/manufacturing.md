@@ -50,6 +50,18 @@ Allowed transitions:
 
 No revert-to-draft in v1.
 
+## Priority Ranking
+
+Manufacturing orders may have an optional `priorityRank`:
+
+- `1` is the highest priority
+- only positive whole numbers are valid
+- unranked orders stay unranked and sort after ranked work
+- draft and released orders may be ranked or reprioritized
+- completed and cancelled orders keep their historical rank but cannot be changed
+
+Ranking only changes queue order. It does not affect inventory, reservations, costing, Xero, shipments, or status transitions.
+
 ## Execution Surfaces
 
 There are now two manufacturing experiences:
@@ -145,11 +157,9 @@ Batch picking rules:
 
 ## Material Alternates
 
-BOM component rows may define approved material alternates. Alternates are draft-planning choices for the same finished product; they do not create alternate BOM outputs or separate finished products.
+Material alternates may exist in historical BOM data, but the current planning UI does not expose alternate selection. Planners adjust the manufacturing order's actual ingredient rows when a job needs a different material.
 
-Draft manufacturing order ingredient rows may use the default BOM material or one of the approved alternates for that BOM line. The draft form converts the quantity from the BOM line's alternate factor, and release reserves whichever material is on the ingredient row.
-
-Released execution does not change materials. Picking consumes the selected ingredient through the normal inventory kernel flow, and completion still requires all ingredients to be picked first.
+Released execution does not change materials. Picking consumes the ingredient on the order row through the normal inventory kernel flow, and completion still requires all ingredients to be picked first.
 
 ## Completion Behavior
 
