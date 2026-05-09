@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { CustomerDetail } from "@/app/(dashboard)/sales/customer-detail";
-import { getCustomer } from "@/app/(dashboard)/sales/queries";
+import { getCustomerDetail } from "@/app/(dashboard)/sales/queries";
 
 export default async function CustomerDetailPage({
   params,
@@ -8,7 +8,7 @@ export default async function CustomerDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const customer = await getCustomer(id, { includeDeleted: true });
+  const customer = await getCustomerDetail(id, { includeDeleted: true });
 
   if (!customer) {
     redirect("/sales/customers");

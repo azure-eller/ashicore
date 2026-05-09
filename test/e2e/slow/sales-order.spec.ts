@@ -340,7 +340,11 @@ test.describe("Sales order flow", () => {
     await expect(
       page.getByRole("heading", { name: "Edit Customer" })
     ).toBeVisible({ timeout: 30000 });
-    await page.getByRole("combobox").click();
+    await page
+      .getByRole("group")
+      .filter({ hasText: "Pricing Category" })
+      .getByRole("combobox")
+      .click();
     await page.getByRole("option", { name: `Wholesale ${run}` }).click();
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/sales/customers/${customerId}`);
@@ -410,9 +414,10 @@ test.describe("Sales order flow", () => {
     await page.locator('input[placeholder="0"]').first().fill("3");
 
     await page.getByRole("button", { name: "Add Item" }).click();
-    const row2 = page.locator("tbody tr").last();
-    await row2.getByPlaceholder("Search items...").click();
-    await row2.getByPlaceholder("Search items...").pressSequentially(secondaryProductName);
+    const row2 = page.getByRole("row", { name: /Reorder line 2/ });
+    const row2ItemInput = row2.getByRole("combobox").first();
+    await row2ItemInput.click();
+    await page.keyboard.type(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
     await row2.locator('input[placeholder="0"]').first().fill("5");
     await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.8");

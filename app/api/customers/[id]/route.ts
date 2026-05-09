@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { del } from "@vercel/blob";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateCustomerSchema } from "@/lib/schemas/customers";
@@ -32,6 +33,12 @@ export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
 
     if (!result.deleted) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    if (process.env.BLOB_READ_WRITE_TOKEN && result.blobUrls.length > 0) {
+      await Promise.all(
+        result.blobUrls.map((blobUrl) => del(blobUrl).catch(() => undefined))
+      );
     }
 
     return NextResponse.json({ success: true });

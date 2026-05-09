@@ -164,6 +164,9 @@ export function AddressFields<TFieldValues extends FieldValues>({
                   id={`${idPrefix}-region`}
                   placeholder="State"
                   aria-invalid={fieldState.invalid}
+                  onBlur={(event) =>
+                    field.onChange(normalizeRegion(selectedCountry, event.currentTarget.value))
+                  }
                 />
                 <ComboboxContent>
                   <ComboboxEmpty>No states found</ComboboxEmpty>
@@ -219,6 +222,9 @@ export function AddressFields<TFieldValues extends FieldValues>({
                   id={`${idPrefix}-country`}
                   placeholder="Country"
                   aria-invalid={fieldState.invalid}
+                  onBlur={(event) =>
+                    field.onChange(normalizeCountry(event.currentTarget.value))
+                  }
                 />
                 <ComboboxContent>
                   <ComboboxEmpty>No countries found</ComboboxEmpty>

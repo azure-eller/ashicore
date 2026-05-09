@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { del } from "@vercel/blob";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
@@ -32,6 +33,12 @@ export const DELETE = apiHandler(async (request) => {
 
   try {
     const result = await deleteCustomers(data.ids);
+    if (process.env.BLOB_READ_WRITE_TOKEN && result.blobUrls.length > 0) {
+      await Promise.all(
+        result.blobUrls.map((blobUrl) => del(blobUrl).catch(() => undefined))
+      );
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();

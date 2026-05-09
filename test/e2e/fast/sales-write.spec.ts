@@ -3,6 +3,11 @@ import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures"
 import {
   inventoryItemBalances,
   inventoryLotBalances,
+  customerContacts,
+  customerCorrespondence,
+  customerCorrespondenceAttendees,
+  customerProjectFiles,
+  customerProjects,
   lots,
   manufacturingOrders,
   purchaseOrderLines,
@@ -42,6 +47,7 @@ test.describe("Sales write-path smoke", () => {
   let customerId = "";
   let productId = "";
   let orderId = "";
+  let crmProjectId = "";
 
   test("creates and edits a customer through the browser form", async ({ page, db }) => {
     await page.goto("/sales/customers/new");
@@ -94,6 +100,159 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesCustomers.id, customerId));
     expect(updatedCustomer.phone).toBe("555-0310");
     expect(updatedCustomer.notes).toBe("Fast customer updated");
+  });
+
+  test("adds customer contacts, correspondence, and projects from detail", async ({
+    page,
+    db,
+  }) => {
+    await page.goto(`/sales/customers/${customerId}`);
+    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
+
+    await page.getByRole("button", { name: /^Contacts/ }).click();
+    await page.getByRole("button", { name: "Add contact" }).click();
+    await expect(page.getByRole("dialog", { name: "Add contact" })).toBeVisible();
+    await page.getByLabel("Full name").fill(`Spencer CRM ${ts}`);
+    await page.getByLabel("Title").fill("Project lead");
+    await page.getByLabel("Email").fill(`spencer-crm-${ts}@example.com`);
+    await page.getByLabel("Phone").fill("555-0440");
+    await page.getByText("Primary").click();
+    await page.getByText("Shipping").click();
+    await page.getByLabel("Notes").fill("Prefers shipping updates.");
+
+    const [contactResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/customers/${customerId}/contacts`)
+      ),
+      page.getByRole("button", { name: "Save contact" }).click(),
+    ]);
+    expect(contactResponse.status()).toBe(201);
+    await expect(page.getByText(`Spencer CRM ${ts}`)).toBeVisible();
+
+    const [contact] = await db
+      .select()
+      .from(customerContacts)
+      .where(eq(customerContacts.customerId, customerId));
+    expect(contact.name).toBe(`Spencer CRM ${ts}`);
+    expect(contact.isPrimary).toBe(true);
+    expect(contact.receivesShipping).toBe(true);
+
+    await page.getByRole("button", { name: /^Activity/ }).click();
+    await page.getByPlaceholder("Optional title").fill("Group install call");
+    await page.getByPlaceholder("Jot it down.").fill("Discussed soil test and delivery timing.");
+    await page.getByRole("button", { name: new RegExp(`Spencer`) }).click();
+
+    const [activityResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/customers/${customerId}/correspondence`)
+      ),
+      page.getByRole("button", { name: "Log note" }).click(),
+    ]);
+    expect(activityResponse.status()).toBe(201);
+    await expect(page.getByText("Group install call")).toBeVisible();
+
+    const [activity] = await db
+      .select()
+      .from(customerCorrespondence)
+      .where(eq(customerCorrespondence.customerId, customerId));
+    expect(activity.title).toBe("Group install call");
+    expect(activity.body).toBe("Discussed soil test and delivery timing.");
+
+    const [attendee] = await db
+      .select()
+      .from(customerCorrespondenceAttendees)
+      .where(eq(customerCorrespondenceAttendees.correspondenceId, activity.id));
+    expect(attendee.contactId).toBe(contact.id);
+    expect(attendee.contactName).toBe(contact.name);
+
+    await page.getByRole("button", { name: /^Projects/ }).click();
+    await page.getByRole("button", { name: "New project" }).click();
+    await expect(page.getByRole("dialog", { name: "New project" })).toBeVisible();
+    await page.getByLabel("Project name").fill(`Example Construction ${ts}`);
+    await page.getByLabel("Summary").fill("Drop specs, soil tests, and blueprint notes here.");
+
+    const [projectResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/customers/${customerId}/projects`)
+      ),
+      page.getByRole("button", { name: "Save project" }).click(),
+    ]);
+    expect(projectResponse.status()).toBe(201);
+    await expect(
+      page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) })
+    ).toBeVisible();
+
+    const [project] = await db
+      .select()
+      .from(customerProjects)
+      .where(eq(customerProjects.customerId, customerId));
+    expect(project.name).toBe(`Example Construction ${ts}`);
+    expect(project.status).toBe("planning");
+    expect(project.summary).toBe("Drop specs, soil tests, and blueprint notes here.");
+    crmProjectId = project.id;
+  });
+
+  test("uploads, downloads, and deletes a customer project file", async ({
+    page,
+    db,
+  }) => {
+    test.skip(
+      !process.env.BLOB_READ_WRITE_TOKEN,
+      "Live Vercel Blob credentials are required for the upload smoke."
+    );
+
+    await page.goto(`/sales/customers/${customerId}`);
+    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
+
+    await page.getByRole("button", { name: /^Projects/ }).click();
+    await page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) }).click();
+
+    const filename = `soil-test-${ts}.txt`;
+    const content = `Soil test upload smoke ${ts}`;
+    const uploadResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/customers/${customerId}/projects/${crmProjectId}/files`)
+    );
+    await page.locator('input[type="file"]').setInputFiles({
+      name: filename,
+      mimeType: "text/plain",
+      buffer: Buffer.from(content),
+    });
+
+    expect((await uploadResponsePromise).status()).toBe(201);
+    await expect(page.getByText(filename)).toBeVisible();
+
+    const [file] = await db
+      .select()
+      .from(customerProjectFiles)
+      .where(eq(customerProjectFiles.projectId, crmProjectId));
+    expect(file.filename).toBe(filename);
+    expect(file.contentType).toBe("text/plain");
+    expect(Number(file.sizeBytes)).toBe(content.length);
+
+    const downloadResponse = await page.request.get(
+      `/api/customers/${customerId}/projects/${crmProjectId}/files/${file.id}`
+    );
+    expect(downloadResponse.status()).toBe(200);
+    expect(await downloadResponse.text()).toBe(content);
+
+    const deleteResponse = await page.request.delete(
+      `/api/customers/${customerId}/projects/${crmProjectId}/files/${file.id}`
+    );
+    expect(deleteResponse.status()).toBe(200);
+
+    const [deletedFile] = await db
+      .select()
+      .from(customerProjectFiles)
+      .where(eq(customerProjectFiles.id, file.id));
+    expect(deletedFile.deletedAt).not.toBeNull();
   });
 
   test("creates a draft sales order through the browser form", async ({ page, db }) => {

@@ -3,6 +3,11 @@ import type {
   SalesShipmentCostStatus,
   SalesShipmentCostType,
 } from "@/lib/schemas/sales-orders";
+import type {
+  CUSTOMER_CONTACT_ROLE_KEYS,
+  CUSTOMER_CORRESPONDENCE_TYPES,
+  CUSTOMER_PROJECT_STATUSES,
+} from "@/lib/schemas/customer-crm";
 
 export type PricingSourceType = "base_price" | "schedule_break";
 
@@ -30,6 +35,72 @@ export type CustomerRow = {
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type CustomerContactRole = (typeof CUSTOMER_CONTACT_ROLE_KEYS)[number];
+export type CustomerCorrespondenceType =
+  (typeof CUSTOMER_CORRESPONDENCE_TYPES)[number];
+export type CustomerProjectStatus =
+  (typeof CUSTOMER_PROJECT_STATUSES)[number];
+
+export type CustomerContactRow = {
+  id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  roles: CustomerContactRole[];
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CustomerCorrespondenceAttendeeRow = {
+  id: string;
+  contactId: string | null;
+  contactName: string;
+};
+
+export type CustomerCorrespondenceRow = {
+  id: string;
+  type: CustomerCorrespondenceType;
+  occurredAt: Date;
+  title: string | null;
+  body: string;
+  createdByUserId: string;
+  createdByName: string | null;
+  attendees: CustomerCorrespondenceAttendeeRow[];
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CustomerProjectFileRow = {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedByUserId: string;
+  uploadedByName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CustomerProjectRow = {
+  id: string;
+  name: string;
+  status: CustomerProjectStatus;
+  startDate: string | null;
+  targetEndDate: string | null;
+  summary: string | null;
+  files: CustomerProjectFileRow[];
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CustomerDetailData = CustomerRow & {
+  contacts: CustomerContactRow[];
+  correspondence: CustomerCorrespondenceRow[];
+  projects: CustomerProjectRow[];
 };
 
 export type CustomerOption = {
