@@ -120,6 +120,11 @@ test.describe("Purchasing flow", () => {
     await expect(page.getByText(`purchasing-${ts}@example.com`)).toBeVisible();
     await expect(page.getByText("Jordan Mesa")).toBeVisible();
 
+    await page.reload();
+    await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
+    await expect(page.getByText(`purchasing-${ts}@example.com`)).toBeVisible();
+    await expect(page.getByText("Jordan Mesa")).toBeVisible();
+
     const [supplier] = await db
       .select()
       .from(purchasingSuppliers)
@@ -147,7 +152,7 @@ test.describe("Purchasing flow", () => {
     await selectDate(page, page.locator("#expectedDate"), expectedCreateDate);
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
-    const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
+    const firstMaterialInput = page.getByRole("combobox", { name: "Material" }).first();
     await firstMaterialInput.click();
     await firstMaterialInput.pressSequentially(barkName);
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
@@ -155,10 +160,10 @@ test.describe("Purchasing flow", () => {
 
     await page.getByRole("button", { name: "Add Material" }).click();
 
-    const secondRow = page.locator("tbody tr").nth(1);
-    const secondMaterialInput = secondRow.getByPlaceholder("Search materials...");
+    const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
+    const secondMaterialInput = secondRow.getByRole("combobox").first();
     await secondMaterialInput.click();
-    await secondMaterialInput.pressSequentially(sandName);
+    await page.keyboard.type(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
     await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
@@ -184,6 +189,12 @@ test.describe("Purchasing flow", () => {
     await expect(detailLinesTable).toContainText("5");
     await expect(detailLinesTable).toContainText("$20.00");
     await expect(detailLinesTable).toContainText("$7.50");
+
+    await page.reload();
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(supplierName)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(barkName);
+    await expect(page.locator("table").first()).toContainText(sandName);
 
     const [order] = await db
       .select()
@@ -229,14 +240,19 @@ test.describe("Purchasing flow", () => {
     await selectDate(page, page.locator("#expectedDate"), expectedEditDate);
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
-    const secondRow = page.locator("tbody tr").nth(1);
-    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("6");
+    const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
+    await secondRow.getByRole("textbox", { name: "Ordered Qty" }).fill("6");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);
     await expect(page.getByText("Updated delivery window after supplier confirmation.")).toBeVisible();
     await expect(page.locator("dl").getByText("$29.00", { exact: true })).toBeVisible();
     await expect(page.getByText(expectedEditDateLabel)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("6");
+
+    await page.reload();
+    await expect(page.getByText("Updated delivery window after supplier confirmation.")).toBeVisible();
+    await expect(page.locator("dl").getByText("$29.00", { exact: true })).toBeVisible();
     await expect(page.locator("table").first()).toContainText("6");
 
     const [order] = await db
@@ -282,6 +298,13 @@ test.describe("Purchasing flow", () => {
     await expect(page.locator("table").first()).toContainText("10");
     await expect(page.locator("table").first()).toContainText("6");
 
+    await page.reload();
+    await expect(
+      page.locator("main").getByText("Ordered", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("table").first()).toContainText("10");
+    await expect(page.locator("table").first()).toContainText("6");
+
     const [order] = await db
       .select()
       .from(purchaseOrders)
@@ -313,6 +336,38 @@ test.describe("Purchasing flow", () => {
     const barkDelete = await deleteItem(barkId);
     expect(barkDelete.status).toBe(400);
     expect(barkDelete.body?.error).toContain("purchase orders");
+
+    const editOrderedResponse = await testFetch(`/api/purchase-orders/${purchaseOrderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: expectedEditDate,
+        notes: "This edit should not apply after the PO is ordered.",
+        lines: [
+          {
+            itemId: barkId,
+            quantityOrdered: "11",
+            unitCost: "2.00",
+          },
+          {
+            itemId: sandId,
+            quantityOrdered: "6",
+            unitCost: "1.50",
+          },
+        ],
+      }),
+    });
+    const editOrderedBody = await editOrderedResponse.json().catch(() => null);
+    expect(editOrderedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(editOrderedBody?.error ?? "").toMatch(/draft|ordered|status|cannot/i);
+
+    const unchangedLines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+    expect(unchangedLines[0].quantityOrdered).toBe("10.0000");
+    expect(unchangedLines[1].quantityOrdered).toBe("6.0000");
 
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);
@@ -348,6 +403,13 @@ test.describe("Purchasing flow", () => {
     await expect(partialLinesTable).toContainText("4");
     await expect(partialLinesTable).toContainText("6");
     await expect(partialLinesTable).toContainText(sandName);
+
+    await page.reload();
+    await expect(
+      page.locator("main").getByText("Partially Received", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("table").first()).toContainText(barkName);
+    await expect(page.locator("table").first()).toContainText("4");
 
     const [order] = await db
       .select()
@@ -399,6 +461,53 @@ test.describe("Purchasing flow", () => {
     expect(barkItem.expectedQty).toBe("6.0000");
     expect(sandItem.expectedQty).toBe("6.0000");
 
+    const overReceiveResponse = await testFetch(
+      `/api/purchase-orders/${purchaseOrderId}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [
+            {
+              lineId: lines[0].id,
+              quantityReceived: "7",
+              disposition: "available",
+            },
+          ],
+        }),
+      }
+    );
+    const overReceiveBody = await overReceiveResponse.json().catch(() => null);
+    expect(overReceiveResponse.status).toBeGreaterThanOrEqual(400);
+    expect(
+      JSON.stringify(overReceiveBody?.error ?? overReceiveBody?.errors ?? {})
+    ).toMatch(/remaining|ordered|receive|quantity|positive/i);
+
+    const linesAfterRejectedOverReceive = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+    expect(linesAfterRejectedOverReceive[0].quantityReceived).toBe("4.0000");
+    expect(linesAfterRejectedOverReceive[1].quantityReceived).toBe("0.0000");
+
+    const barkLotsAfterRejectedOverReceive = await db
+      .select()
+      .from(lots)
+      .where(eq(lots.itemId, barkId));
+    expect(barkLotsAfterRejectedOverReceive).toHaveLength(1);
+
+    const barkMovementsAfterRejectedOverReceive = await db
+      .select()
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, barkId),
+          eq(inventoryEvents.referenceId, purchaseOrderId),
+          eq(inventoryEvents.eventType, "purchase_receipt")
+        )
+      );
+    expect(barkMovementsAfterRejectedOverReceive).toHaveLength(1);
+
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);
     const partialRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
@@ -432,6 +541,13 @@ test.describe("Purchasing flow", () => {
     await expect(receivedLinesTable).toContainText("10");
     await expect(receivedLinesTable).toContainText("6");
     await expect(receivedLinesTable).toContainText("0");
+
+    await page.reload();
+    await expect(
+      page.locator("main").getByText("Received", { exact: true }).first()
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("table").first()).toContainText("10");
+    await expect(page.locator("table").first()).toContainText("6");
 
     const [order] = await db
       .select()
@@ -479,6 +595,36 @@ test.describe("Purchasing flow", () => {
 
     expect(barkItem.expectedQty).toBe("0.0000");
     expect(sandItem.expectedQty).toBe("0.0000");
+
+    const receiveAfterClosedResponse = await testFetch(
+      `/api/purchase-orders/${purchaseOrderId}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [
+            {
+              lineId: lines[0].id,
+              quantityReceived: "1",
+              disposition: "available",
+            },
+          ],
+        }),
+      }
+    );
+    const receiveAfterClosedBody = await receiveAfterClosedResponse.json().catch(() => null);
+    expect(receiveAfterClosedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(receiveAfterClosedBody?.error ?? "").toMatch(/received|closed|remaining|status/i);
+
+    const receiveMovementsAfterClosedAttempt = await db
+      .select()
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceId, purchaseOrderId),
+          eq(inventoryEvents.eventType, "purchase_receipt")
+        )
+      );
+    expect(receiveMovementsAfterClosedAttempt).toHaveLength(3);
 
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);

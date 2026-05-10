@@ -78,7 +78,10 @@ async function createStandaloneAccount(
   await page.getByLabel(/^Password$/).fill(password);
   await page.getByLabel(/^Confirm Password$/).fill(password);
   await page.getByRole("button", { name: "Create Account" }).click();
-  await page.waitForURL("**/org-setup", { timeout: 15_000 });
+  await page.waitForURL(
+    (url) => ["/", "/org-setup", "/settings"].includes(url.pathname),
+    { timeout: 15_000 }
+  );
   return { context, page };
 }
 

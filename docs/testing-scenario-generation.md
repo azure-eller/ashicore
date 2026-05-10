@@ -12,6 +12,7 @@ read_when:
 - `test/e2e/fast/`: browser write-path smoke tests
 - `test/e2e/slow/`: serial operational stories
 - `test/e2e/auth-security.spec.ts`: focused auth/security regressions
+- `e2e` means Playwright in this repo; `fast` and `slow` are the lanes.
 
 ## Fast lane rules
 
@@ -19,7 +20,7 @@ read_when:
 - Stop after submit, one success signal, and DB assertions.
 - Use API helpers for setup that is not the subject of the test.
 - Do not spend fast time on list pages, detail rendering breadth, toasts, sorting, or tooltip checks.
-- Run fast specs with higher Playwright worker counts; local default is `PLAYWRIGHT_FAST_WORKERS=8`, CI overrides lower.
+- Fast specs may use multiple workers; local default is `PLAYWRIGHT_FAST_WORKERS=2`, CI overrides to 4.
 
 ## Slow lane rules
 
@@ -27,21 +28,37 @@ read_when:
 - Write the file as a business story, not a bag of isolated guards.
 - Prefer flows like create, edit, submit, receive, confirm, ship, release, complete.
 - Include error or guard checks only when they naturally occur in the operational sequence.
+- Use `test/e2e/slow/customer-crm.spec.ts` as the breadth model: UI actions first, API response assertions on important mutations, reload/persistence checks, DB assertions through the `db` fixture, and storage assertions when the workflow owns files.
+- Avoid pure API-only slow stories unless the contract is intentionally headless or mobile-facing; otherwise anchor the story in the UI and use API/DB checks as evidence.
 
 ## Local defaults
 
-- Default local command after normal feature work: `pnpm test`
+- Narrow domain changes: run `pnpm build`, `pnpm lint`, and the relevant `pnpm test:fast:<domain>` locally.
+- Shared or cross-domain changes: run `pnpm build`, `pnpm lint`, and `pnpm test:fast` locally.
+- Local fast lanes default to 2 Playwright workers so multiple agents are less likely to saturate a workstation. CI overrides this with `PLAYWRIGHT_FAST_WORKERS=4`.
 - ERP agent tests are archived with the parked agent. See `docs/erp-agent.md` before restoring live provider coverage.
 - If the change is isolated to one domain, add that domain's slow spec locally instead of the whole slow lane
-- Use `pnpm test:e2e:auth` when touching auth, invites, sessions, team access, or permission gates
+- Use `pnpm test:slow:auth` when touching auth, invites, sessions, team access, or permission gates
   This lane includes both `auth-security.spec.ts` and `team-management.spec.ts`.
-- Avoid `pnpm test:e2e:slow` locally unless the change is cross-domain or explicitly needs broader workflow confidence
+- Avoid `pnpm test:slow` locally unless the change is cross-domain or explicitly needs broader workflow confidence
 - Do not add ad hoc story suites outside the fast, slow, and auth buckets
 
 ## CI cadence
 
-- `pnpm test`: default fast lane for day-to-day pushes
-- `pnpm test:e2e:slow`: local full slow lane
-- Ready-for-review CI runs the slow lane as a matrix, one serial domain file per job
-- `pnpm test:e2e:auth`: run in parallel with the slow lane when a PR is marked ready for review
-  This covers auth plus team-management/invite regressions.
+- PR CI always runs `pnpm build`, `pnpm lint`, and `pnpm test:fast`.
+- PR slow CI is label-selected. Every PR needs one of:
+  `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`,
+  `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`,
+  `ci:slow:all`, or `ci:slow:none`.
+- Missing `ci:slow:*` labels fail the selector job. `ci:slow:none` is for docs-only or CI-only changes and must not be combined with other slow labels.
+- Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes.
+- Nightly CI runs `pnpm test:slow` plus `pnpm test:slow:auth`. Manual dispatch can run `all`, one domain, `stocktake`, `auth`, or `none`.
+
+## Script aliases
+
+- `pnpm test:fast`: all fast Playwright specs
+- `pnpm test:fast:sales`, `pnpm test:fast:inventory`, `pnpm test:fast:purchasing`, `pnpm test:fast:manufacturing`, `pnpm test:fast:stocktake`: domain fast lanes
+- `pnpm test:slow`: all slow Playwright specs
+- `pnpm test:slow:sales`, `pnpm test:slow:inventory`, `pnpm test:slow:purchasing`, `pnpm test:slow:manufacturing`, `pnpm test:slow:stocktake`, `pnpm test:slow:auth`: selected slow lanes
+- Domain slow lanes may include multiple story files. Sales includes order, CRM, and partial-shipment stories; inventory includes item-form, cost-basis, and visibility stories.
+- Existing `test:e2e:*`, `test:inventory`, and `test:sales` aliases remain for compatibility.

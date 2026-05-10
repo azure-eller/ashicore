@@ -1,0 +1,228 @@
+name: Playwright Slow
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - labeled
+      - unlabeled
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Slow suite to run"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - sales
+          - inventory
+          - purchasing
+          - manufacturing
+          - stocktake
+          - auth
+          - none
+
+concurrency:
+  group: e2e-slow-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'auto' }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+  DATABASE_URL_APP: postgresql://app_user:postgres@localhost:5432/postgres
+  BETTER_AUTH_URL: http://127.0.0.1:3000
+  NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+  BETTER_AUTH_SECRET: ci-test-secret-not-for-production
+  TEST_BASE_URL: http://127.0.0.1:3000
+  EMAIL_OUTBOX_ONLY: "1"
+  BETTER_AUTH_RATE_LIMIT_DISABLED: "1"
+  RESEND_API_KEY: ci-outbox-only
+  EMAIL_FROM: ERP CI <ci@example.com>
+
+jobs:
+  select-suites:
+    name: Select slow suites
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    outputs:
+      has_suites: ${{ steps.select.outputs.has_suites }}
+      matrix: ${{ steps.select.outputs.matrix }}
+      selected: ${{ steps.select.outputs.selected }}
+    steps:
+      - name: Select suites
+        id: select
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const domainSuites = [
+              { name: "sales", command: "pnpm test:slow:sales" },
+              { name: "inventory", command: "pnpm test:slow:inventory" },
+              { name: "purchasing", command: "pnpm test:slow:purchasing" },
+              { name: "manufacturing", command: "pnpm test:slow:manufacturing" },
+              { name: "stocktake", command: "pnpm test:slow:stocktake" },
+            ];
+            const authSuite = { name: "auth", command: "pnpm test:slow:auth" };
+            const fullSlowSuite = { name: "full", command: "pnpm test:slow" };
+            const allSuites = [...domainSuites, authSuite];
+            const fullCoverageSuites = [fullSlowSuite, authSuite];
+
+            const byName = new Map(
+              [fullSlowSuite, ...allSuites].map((suite) => [suite.name, suite])
+            );
+            const labelToSuite = new Map([
+              ["ci:slow:sales", "sales"],
+              ["ci:slow:inventory", "inventory"],
+              ["ci:slow:purchasing", "purchasing"],
+              ["ci:slow:manufacturing", "manufacturing"],
+              ["ci:slow:stocktake", "stocktake"],
+              ["ci:slow:auth", "auth"],
+            ]);
+            const allowedLabels = new Set([
+              ...labelToSuite.keys(),
+              "ci:slow:all",
+              "ci:slow:none",
+            ]);
+
+            let selected = [];
+            let reason = "";
+
+            if (context.eventName === "schedule") {
+              selected = fullCoverageSuites;
+              reason = "nightly schedule selected the full slow suite plus auth regressions";
+            } else if (context.eventName === "workflow_dispatch") {
+              const suite = context.payload.inputs?.suite ?? "all";
+              if (suite === "all") {
+                selected = fullCoverageSuites;
+              } else if (suite === "none") {
+                selected = [];
+              } else {
+                selected = [byName.get(suite)];
+              }
+              reason = `manual dispatch selected ${suite}`;
+            } else if (context.eventName === "pull_request") {
+              const labels = (context.payload.pull_request.labels ?? []).map((label) => label.name);
+              const slowLabels = labels.filter((label) => label.startsWith("ci:slow:"));
+              const unknownLabels = slowLabels.filter((label) => !allowedLabels.has(label));
+
+              if (unknownLabels.length > 0) {
+                core.setFailed(`Unknown ci:slow label(s): ${unknownLabels.join(", ")}.`);
+              } else if (slowLabels.length === 0) {
+                core.setFailed(
+                  [
+                    "No ci:slow:* label found.",
+                    "Add one or more labels: ci:slow:sales, ci:slow:inventory, ci:slow:purchasing, ci:slow:manufacturing, ci:slow:stocktake, ci:slow:auth, ci:slow:all, or ci:slow:none.",
+                  ].join(" ")
+                );
+              } else if (slowLabels.includes("ci:slow:none") && slowLabels.length > 1) {
+                core.setFailed("ci:slow:none must not be combined with other ci:slow:* labels.");
+              } else if (slowLabels.includes("ci:slow:all")) {
+                selected = fullCoverageSuites;
+                reason = "PR label ci:slow:all selected the full slow suite plus auth regressions";
+              } else if (slowLabels.includes("ci:slow:none")) {
+                selected = [];
+                reason = "PR label ci:slow:none selected no slow suites";
+              } else {
+                const names = [...new Set(slowLabels.map((label) => labelToSuite.get(label)))];
+                selected = names.map((name) => byName.get(name));
+                reason = `PR labels selected: ${slowLabels.join(", ")}`;
+              }
+            }
+
+            selected = selected.filter(Boolean);
+            const selectedNames = selected.map((suite) => suite.name);
+
+            core.setOutput("has_suites", selected.length > 0 ? "true" : "false");
+            core.setOutput("matrix", JSON.stringify({ include: selected }));
+            core.setOutput("selected", selectedNames.length > 0 ? selectedNames.join(", ") : "none");
+
+            await core.summary
+              .addHeading("Slow suite selection")
+              .addRaw(`Reason: ${reason || "no selection reason available"}\n\n`)
+              .addRaw(`Selected suites: ${selectedNames.length > 0 ? selectedNames.join(", ") : "none"}\n`)
+              .write();
+
+  slow:
+    name: Slow Playwright (${{ matrix.name }})
+    needs: select-suites
+    if: ${{ needs.select-suites.outputs.has_suites == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.select-suites.outputs.matrix) }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Create app_user role
+        run: psql "$DATABASE_URL" -c "CREATE ROLE app_user WITH LOGIN PASSWORD 'postgres';"
+
+      - name: Run migrations
+        run: pnpm drizzle-kit migrate
+
+      - name: Build app
+        run: pnpm build
+
+      - name: Start app
+        run: pnpm start > /tmp/erp-slow-${{ matrix.name }}.log 2>&1 &
+
+      - name: Wait for app
+        run: |
+          for attempt in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/api/auth/ok > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "App did not become ready in time."
+          cat /tmp/erp-slow-${{ matrix.name }}.log
+          exit 1
+
+      - name: Run ${{ matrix.name }} slow suite
+        run: ${{ matrix.command }}
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-slow-artifacts-${{ matrix.name }}
+          path: |
+            playwright-report
+            test-results
+            /tmp/erp-slow-${{ matrix.name }}.log
+          if-no-files-found: ignore

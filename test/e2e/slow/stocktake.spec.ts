@@ -237,12 +237,19 @@ test.describe("Stocktake flow", () => {
     await page.locator("#notes").pressSequentially("Initial all-items reconciliation.", {
       delay: 20,
     });
-    await nameInput.pressSequentially(`Full Count ${ts}`, { delay: 20 });
+    await nameInput.fill(`Full Count ${ts}`);
     await expect(nameInput).toHaveValue(`Full Count ${ts}`);
 
     await page.getByRole("button", { name: "Create Stocktake" }).click();
     await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
     stocktakeId = getIdFromUrl(page.url());
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("All Items")).toBeVisible();
+    await expect(page.getByText("Initial all-items reconciliation.")).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(materialName);
+    await expect(page.locator("table").first()).toContainText(productName);
+
+    await page.reload();
     await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("All Items")).toBeVisible();
     await expect(page.getByText("Initial all-items reconciliation.")).toBeVisible();
@@ -338,9 +345,20 @@ test.describe("Stocktake flow", () => {
     await expect(
       page.getByRole("row", { name: new RegExp(`Product Category Count ${ts}`) })
     ).toContainText(`Products: ${productCategory}`);
+
+    await page.goto(`/inventory/stocktakes/${materialCategoryStocktakeId}`);
+    await expect(page.getByRole("heading", { name: `Material Category Count ${ts}` })).toBeVisible();
+    await expect(page.getByText(`Materials: ${materialCategory}`)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(materialName);
+
+    await page.goto(`/inventory/stocktakes/${productCategoryStocktakeId}`);
+    await expect(page.getByRole("heading", { name: `Product Category Count ${ts}` })).toBeVisible();
+    await expect(page.getByText(`Products: ${productCategory}`)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(productName);
   });
 
   test("saves draft counts sparsely, supports clearing counts, and leaves blank lines unchanged", async ({
+    page,
     db,
   }) => {
     const lines = await db
@@ -483,6 +501,16 @@ test.describe("Stocktake flow", () => {
         productCountedQty: null,
         productVarianceQty: null,
       });
+
+    await page.goto(`/inventory/stocktakes/${stocktakeId}`);
+    const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
+    const productRow = page.locator("tbody tr").filter({ hasText: productName });
+    await expect(materialRow.getByRole("textbox")).toHaveValue("4");
+    await expect(productRow.getByRole("textbox")).toHaveValue("");
+
+    await page.reload();
+    await expect(materialRow.getByRole("textbox")).toHaveValue("4");
+    await expect(productRow.getByRole("textbox")).toHaveValue("");
   });
 
   test("completes dirty counts with a sparse save and no movement when live stock already matches", async ({

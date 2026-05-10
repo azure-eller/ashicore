@@ -205,10 +205,16 @@ test.describe("Sales order flow", () => {
     await page.locator("#customer-billing-postcode").fill("81428");
     await page.getByLabel("Notes").fill("Primary landscaping account");
 
+    const createCustomerResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/customers")
+    );
     await Promise.all([
       page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/),
       page.getByRole("button", { name: "Create Customer" }).click(),
     ]);
+    expect((await createCustomerResponsePromise).status()).toBe(201);
 
     // UI — verify the detail page
     await expect(
@@ -219,6 +225,11 @@ test.describe("Sales order flow", () => {
     await expect(page.locator("main")).toContainText("123 Market Street");
     await expect(page.getByText("Primary landscaping account")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
+    await expect(page.getByText(`sales-${run}@example.com`)).toBeVisible();
+    await expect(page.getByText("Primary landscaping account")).toBeVisible();
 
     // DB
     const rows = await db
@@ -258,7 +269,13 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Phone").fill("555-0200");
     await page.getByLabel("Notes").fill("Updated account notes");
 
+    const editCustomerResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/customers/${customerId}`)
+    );
     await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await editCustomerResponsePromise).status()).toBe(200);
     await page.waitForURL(`**/sales/customers/${customerId}`);
 
     // UI — verify detail page reflects the edits
@@ -267,6 +284,11 @@ test.describe("Sales order flow", () => {
       timeout: 30000,
     });
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
+    await expect(page.getByText("555-0200")).toBeVisible();
+    await expect(page.getByText("Updated account notes")).toBeVisible();
 
     // DB
     const [updated] = await db.select().from(salesCustomers).where(eq(salesCustomers.id, customerId));
@@ -285,10 +307,16 @@ test.describe("Sales order flow", () => {
 
     await nameInput.fill(extraCustomerName);
 
+    const createMinimalCustomerResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/customers")
+    );
     await Promise.all([
       page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/),
       page.getByRole("button", { name: "Create Customer" }).click(),
     ]);
+    expect((await createMinimalCustomerResponsePromise).status()).toBe(201);
 
     // UI — verify the detail page
     await expect(
@@ -442,6 +470,14 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
+    await page.reload();
+    await expect(
+      page.locator("main").getByText("Draft", { exact: true }).first()
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(customerName)).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(primaryProductName);
+    await expect(page.locator("table").first()).toContainText(secondaryProductName);
+
     // DB
     const orderRows = await db
       .select()
@@ -543,6 +579,11 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
     await expect(page.locator("table").first()).toContainText("$11.25");
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
+    await expect(page.getByText("Updated to 5 units")).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("$11.25");
 
     // DB
     const orderRows = await db
@@ -743,6 +784,11 @@ test.describe("Sales order flow", () => {
 
     await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Create MOs", exact: true })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
+    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create MOs", exact: true })).toBeVisible();
   });
 
   test("confirmed orders are read-only from detail", async ({ page }) => {
@@ -753,6 +799,96 @@ test.describe("Sales order flow", () => {
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Cancel order" })).toBeVisible();
     await page.keyboard.press("Escape");
+  });
+
+  test("confirmed order stale-client edits and deletes are rejected without changing reservations", async ({
+    page,
+    db,
+  }) => {
+    await page.goto(`/sales/orders/${fullOrderId}`);
+    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
+    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Ship" }).first()).toBeVisible();
+
+    const [beforeOrder] = await db
+      .select({
+        status: salesOrders.status,
+        notes: salesOrders.notes,
+        totalAmount: salesOrders.totalAmount,
+        deletedAt: salesOrders.deletedAt,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fullOrderId));
+    const beforeLines = await db
+      .select({
+        itemId: salesOrderLines.itemId,
+        quantity: salesOrderLines.quantity,
+        unitPrice: salesOrderLines.unitPrice,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
+    const [beforePrimaryBalance] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
+
+    expect(beforeOrder.status).toBe("confirmed");
+
+    const editConfirmedResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        customerId,
+        status: "draft",
+        requestedDate: expectedRequestedDate,
+        shipDate: expectedShipDate,
+        notes: "This confirmed order edit should not apply.",
+        lines: [
+          {
+            itemId: primaryProductId,
+            quantity: "1",
+            unitPrice: "1.00",
+          },
+        ],
+        confirmOversell: false,
+      }),
+    });
+    const editConfirmedBody = await editConfirmedResponse.json().catch(() => null);
+    expect(editConfirmedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(editConfirmedBody?.error ?? "").toMatch(/confirmed|edit|cannot/i);
+
+    const deleteConfirmedResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
+      method: "DELETE",
+    });
+    const deleteConfirmedBody = await deleteConfirmedResponse.json().catch(() => null);
+    expect(deleteConfirmedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(deleteConfirmedBody?.error ?? "").toMatch(/draft|cancelled|delete/i);
+
+    const [afterOrder] = await db
+      .select({
+        status: salesOrders.status,
+        notes: salesOrders.notes,
+        totalAmount: salesOrders.totalAmount,
+        deletedAt: salesOrders.deletedAt,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fullOrderId));
+    const afterLines = await db
+      .select({
+        itemId: salesOrderLines.itemId,
+        quantity: salesOrderLines.quantity,
+        unitPrice: salesOrderLines.unitPrice,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
+    const [afterPrimaryBalance] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, primaryProductId));
+
+    expect(afterOrder).toEqual(beforeOrder);
+    expect(afterLines).toEqual(beforeLines);
+    expect(afterPrimaryBalance.committedQty).toBe(beforePrimaryBalance.committedQty);
   });
 
   test("confirmed manufacturable orders show Create MOs from detail and the orders table", async ({
@@ -780,8 +916,13 @@ test.describe("Sales order flow", () => {
       confirmedRow.getByRole("button", { name: "Create MOs" })
     ).toBeVisible();
     await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
-    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
-    await expect(page.getByText(fullOrderNumber)).toBeVisible();
+    const createMoDialog = page.getByRole("dialog", {
+      name: "Create Manufacturing Orders",
+    });
+    await expect(createMoDialog).toBeVisible();
+    await expect(
+      createMoDialog.getByText(new RegExp(`^${fullOrderNumber} -`))
+    ).toBeVisible();
   });
 
   test("confirmed non-manufacturable orders do not show production actions", async ({
@@ -1043,6 +1184,64 @@ test.describe("Sales order flow", () => {
         (movement) => movement.referenceType === "sales_shipment"
       )
     ).toBe(true);
+
+    const duplicateShipResponse = await testFetch(
+      `/api/sales-orders/${shipOrderId}/shipments/${activeShipmentId}/ship`,
+      {
+        method: "POST",
+        body: JSON.stringify({ syncAccounting: false, sendEmail: false }),
+      }
+    );
+    const duplicateShipBody = await duplicateShipResponse.json().catch(() => null);
+    expect(duplicateShipResponse.status).toBeGreaterThanOrEqual(400);
+    expect(duplicateShipBody?.error ?? "").toMatch(/shipped|already|status|cannot/i);
+
+    const lotsAfterDuplicateShip = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.itemId, primaryProductId));
+    const stockAfterDuplicateShip = lotsAfterDuplicateShip.reduce(
+      (sum, lot) => sum + parseFloat(lot.quantity),
+      0
+    );
+    expect(stockAfterDuplicateShip).toBeCloseTo(stockAfter, 2);
+
+    const movementsAfterDuplicateShip = await db
+      .select()
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceId, activeShipmentId),
+          eq(inventoryEvents.eventType, "sales_consumption")
+        )
+      );
+    expect(movementsAfterDuplicateShip).toHaveLength(shipMovements.length);
+
+    const deleteShippedResponse = await testFetch(`/api/sales-orders/${shipOrderId}`, {
+      method: "DELETE",
+    });
+    const deleteShippedBody = await deleteShippedResponse.json().catch(() => null);
+    expect(deleteShippedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(deleteShippedBody?.error ?? "").toMatch(/shipped|delete|cancelled|draft/i);
+
+    const [afterRejectedDeleteOrder] = await db
+      .select({
+        status: salesOrders.status,
+        deletedAt: salesOrders.deletedAt,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, shipOrderId));
+    const [afterRejectedDeleteShipment] = await db
+      .select({
+        status: salesShipments.status,
+        shippedAt: salesShipments.shippedAt,
+      })
+      .from(salesShipments)
+      .where(eq(salesShipments.id, activeShipmentId));
+    expect(afterRejectedDeleteOrder.status).toBe("shipped");
+    expect(afterRejectedDeleteOrder.deletedAt).toBeNull();
+    expect(afterRejectedDeleteShipment.status).toBe("shipped");
+    expect(afterRejectedDeleteShipment.shippedAt).not.toBeNull();
 
     await page.goto(`/sales/orders/${shipOrderId}`);
     await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();

@@ -495,6 +495,12 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.locator("table").first()).toContainText("10");
     await expect(page.locator("table").first()).toContainText("5");
 
+    await page.reload();
+    await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(sandName);
+    await expect(page.locator("table").first()).toContainText(compostName);
+
     const [order] = await db
       .select()
       .from(manufacturingOrders)
@@ -553,6 +559,10 @@ test.describe("Manufacturing order flow", () => {
     expect(linkedOrder.salesCustomerName).toBe(customerName);
 
     await expect(page.getByText(`${salesOrderNumber} - ${customerName}`)).toBeVisible();
+    await page.reload();
+    await expect(page.getByText(`${salesOrderNumber} - ${customerName}`)).toBeVisible();
+    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
+
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", linkedOrder.orderNumber);
     const draftRow = page.getByRole("row", { name: new RegExp(linkedOrder.orderNumber) });
@@ -814,10 +824,8 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.getByText("Edit Manufacturing Order")).toBeVisible();
 
     await page.getByLabel("Planned Quantity").fill("6");
-    const sandRow = page
-      .locator("tbody tr")
-      .filter({ hasText: sandName });
-    const sandQuantityInput = sandRow.locator('input[inputmode="decimal"]');
+    const sandRow = page.getByRole("row", { name: new RegExp(sandName) });
+    const sandQuantityInput = sandRow.getByRole("textbox", { name: "Qty / Unit" });
     await sandQuantityInput.fill("3.5");
     await expect(sandQuantityInput).toHaveValue("3.5");
     await page.getByLabel("Notes").fill("Edited draft before release");
@@ -884,6 +892,40 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(inventoryItemBalances.itemId, productId));
 
     expect(productRow.expectedQty).toBe("6.0000");
+
+    const editReleasedResponse = await testFetch(
+      `/api/manufacturing-orders/${releasedOrderId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          plannedQuantity: "7",
+          plannedDate: "2026-04-25",
+          notes: "This released order edit should not apply.",
+          ingredients: [
+            { itemId: sandId, quantityPerUnit: "3.5" },
+            { itemId: compostId, quantityPerUnit: "1" },
+          ],
+        }),
+      }
+    );
+    const editReleasedBody = await editReleasedResponse.json().catch(() => null);
+    expect(editReleasedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(editReleasedBody?.error ?? "").toMatch(/draft|released|status|cannot/i);
+
+    const [releasedOrderAfterRejectedEdit] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, releasedOrderId));
+    expect(releasedOrderAfterRejectedEdit.status).toBe("released");
+    expect(releasedOrderAfterRejectedEdit.plannedQuantity).toBe("6.0000");
+
+    const [productRowAfterRejectedEdit] = await db
+      .select({
+        expectedQty: inventoryItemBalances.expectedQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
+    expect(productRowAfterRejectedEdit.expectedQty).toBe("6.0000");
 
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", releasedOrder.orderNumber);
@@ -1024,6 +1066,12 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.locator("table").first()).toContainText("4");
     await expect(page.locator("table").nth(1)).toContainText("6");
 
+    await page.reload();
+    await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("dl").getByText("$22.00", { exact: true })).toBeVisible();
+    await expect(page.locator("table").first()).toContainText("8");
+    await expect(page.locator("table").nth(1)).toContainText("6");
+
     const [completedOrder] = await db
       .select()
       .from(manufacturingOrders)
@@ -1127,6 +1175,27 @@ test.describe("Manufacturing order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(completedProduct.expectedQty).toBe("0.0000");
+
+    const cancelCompletedResponse = await testFetch(
+      `/api/manufacturing-orders/${completionOrderId}/cancel`,
+      { method: "POST" }
+    );
+    const cancelCompletedBody = await cancelCompletedResponse.json().catch(() => null);
+    expect(cancelCompletedResponse.status).toBeGreaterThanOrEqual(400);
+    expect(cancelCompletedBody?.error ?? "").toMatch(/completed|draft|released|status|cannot/i);
+
+    const [orderAfterRejectedCancel] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, completionOrderId));
+    expect(orderAfterRejectedCancel.status).toBe("completed");
+    expect(orderAfterRejectedCancel.cancelledAt).toBeNull();
+
+    const movementsAfterRejectedCancel = await db
+      .select()
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, completionOrderId));
+    expect(movementsAfterRejectedCancel).toHaveLength(movements.length);
 
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", completedOrder.orderNumber);

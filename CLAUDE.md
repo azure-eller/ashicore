@@ -12,10 +12,12 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm dev` — start dev server
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
-- `pnpm test` — run fast Playwright write-path smoke tests with parallel workers (dev server must be running)
+- `pnpm test` / `pnpm test:fast` — run all fast Playwright write-path smoke tests (dev server must be running)
+- `pnpm test:fast:<domain>` — run one domain fast lane: `sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`
+- `pnpm test:slow:<domain>` — run one slow lane: `sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`, `auth`
 - `pnpm test:e2e:agent:live` — run the opt-in live Anthropic agent smoke on `claude-haiku-4-5` by default
-- `pnpm test:e2e:slow` — run slow serial operational Playwright stories
-- `pnpm test:e2e:auth` — run auth, invite, and team-access regressions
+- `pnpm test:slow` / `pnpm test:e2e:slow` — run all slow serial operational Playwright stories
+- `pnpm test:e2e:auth` — legacy alias for auth, invite, and team-access regressions
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
 - `pnpm test:sales` — run the fast sales write-path smoke flow
 - `pnpm test:reconciliation` — run inventory reconciliation Playwright specs
@@ -605,26 +607,32 @@ await tx.insert(salesOrderLines).values(
 
 ## Testing
 
-**Playwright e2e only** — no Vitest, no unit tests, no mocks. `pnpm test` runs Playwright.
+**Playwright e2e only** — no Vitest, no unit tests, no mocks. `e2e` means Playwright; `fast` and `slow` are the lanes.
 
 Fast vs slow:
 - Fast specs live in `test/e2e/fast/` and cover browser write paths only: fill form, submit, minimal success UI, DB assertions.
-- Slow specs live in `test/e2e/slow/` and stay serial, operational stories: create, edit, transition, and verify real user workflows.
+- Slow specs live in `test/e2e/slow/` and stay serial, operational stories: create, edit, transition, reload, and verify UI/API/DB/storage effects where relevant.
 - Auth regressions live in `test/e2e/auth-security.spec.ts` and run separately from the fast/slow domain split.
 - Keep slow specs rooted in normal operations. Only include guards/errors when they arise inside a realistic workflow.
+- Use `test/e2e/slow/customer-crm.spec.ts` as the breadth model for slow stories.
 
 Tests follow **serial domain stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
 
 ### Key rules
 
-- Default local test after normal changes: `pnpm test`
+- Narrow domain changes: run `pnpm build`, `pnpm lint`, and the relevant `pnpm test:fast:<domain>` locally.
+- Shared or cross-domain changes: run `pnpm build`, `pnpm lint`, and `pnpm test:fast` locally.
+- Local fast lanes default to 2 Playwright workers. CI overrides this with `PLAYWRIGHT_FAST_WORKERS=4`.
 - Live Anthropic agent coverage is opt-in: `pnpm test:e2e:agent:live`
-- If you touch one domain deeply, run that domain's slow spec too: `pnpm test:e2e:<domain>:slow`
-- If you touch auth, invites, or team access, run `pnpm test:e2e:auth`
+- If you touch one domain deeply, run that domain's slow spec too: `pnpm test:slow:<domain>`
+  Domain slow lanes may include multiple story files: sales includes order, CRM, and partial-shipment stories; inventory includes item-form, cost-basis, and visibility stories.
+- If you touch auth, invites, or team access, run `pnpm test:slow:auth`
   This command includes both `auth-security.spec.ts` and `team-management.spec.ts`.
 - If you touch stock mutations, reservations, expected supply, inventory projections, or inventory-affecting API routes, run the affected slow spec(s) and then `pnpm verify:inventory`
 - `pnpm verify:inventory` is the standard inventory integrity workflow: grep guards + projection diff for the current Playwright test org
 - Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification
+- PRs must have exactly the needed slow labels: `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`, `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`, `ci:slow:all`, or `ci:slow:none`. Missing labels fail CI; `ci:slow:none` is only for docs/CI-only changes and cannot be combined with other slow labels.
+- Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes; it runs the full slow directory plus auth regressions.
 - Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`
 - `test.describe.configure({ mode: "serial" })` for tests that depend on each other
 - Share data between tests via variables at the describe level, not helper functions
@@ -649,11 +657,12 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 A change is "done" when:
 
 1. `pnpm build` passes (no type errors)
-2. `pnpm test` passes (no regressions)
-3. `pnpm lint` passes
+2. `pnpm lint` passes
+3. Relevant local fast/slow Playwright commands pass per the Testing rules
 4. Inventory-affecting changes also pass `pnpm verify:inventory`
-5. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
-6. For UI changes: screenshot or description of what changed visually
+5. PR has the correct `ci:slow:*` label(s)
+6. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
+7. For UI changes: screenshot or description of what changed visually
 
 ## Multi-Agent Safety
 

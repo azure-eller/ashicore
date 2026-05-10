@@ -112,6 +112,11 @@ test.describe("Inventory creation flow", () => {
     await expect(page.locator("dl").getByText("25", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
+    await page.reload();
+    await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
+    await expect(page.getByText("Fine grain river sand")).toBeVisible();
+    await expect(page.getByText(`200 Bag ${ts}`, { exact: true }).first()).toBeVisible();
+
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(fullMaterialName);
     const materialRow = page.getByRole("row", { name: new RegExp(fullMaterialName) });
@@ -170,6 +175,11 @@ test.describe("Inventory creation flow", () => {
     await expect(page.locator("dl").getByText("30", { exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
+    await page.reload();
+    await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
+    await expect(page.getByText("Coarse river sand — updated")).toBeVisible();
+    await expect(page.locator("dl").getByText("30", { exact: true })).toBeVisible();
+
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(fullMaterialName);
     const updatedRow = page.getByRole("row", { name: new RegExp(fullMaterialName) });
@@ -214,6 +224,10 @@ test.describe("Inventory creation flow", () => {
     await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
     await expect(page.getByRole("button", { name: "Lots 0" })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: minimalMaterialName })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Lots 0" })).toBeVisible();
 
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(minimalMaterialName);
@@ -362,6 +376,11 @@ test.describe("Inventory creation flow", () => {
     await expect(page.getByRole("button", { name: "Lots 0" })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
+    await page.reload();
+    await expect(page.getByRole("heading", { name: simpleProductName })).toBeVisible();
+    await expect(page.getByText("Simple base product")).toBeVisible();
+    await expect(page.locator("dl").getByText("$12.00", { exact: true })).toBeVisible();
+
     await page.goto("/inventory/products");
     await page.getByLabel("Search items").fill(simpleProductName);
     const simpleProductRow = page.getByRole("row", { name: new RegExp(simpleProductName) });
@@ -464,6 +483,13 @@ test.describe("Inventory creation flow", () => {
     await expect(bomTable).toContainText("2");
     await expect(page.locator("body")).not.toContainText("Invalid");
 
+    await page.reload();
+    await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
+    await page.getByRole("button", { name: /^Recipe/ }).click();
+    await expect(page.locator("table").first()).toContainText(fullMaterialName);
+    await expect(page.locator("table").first()).toContainText(minimalMaterialName);
+    await expect(page.locator("table").first()).toContainText(simpleProductName);
+
     await page.goto("/inventory/products");
     await page.getByLabel("Search items").fill(sellableProductName);
     const sellableRow = page.getByRole("row", { name: new RegExp(sellableProductName) });
@@ -541,6 +567,12 @@ test.describe("Inventory creation flow", () => {
     await expect(updatedBomTable).toContainText(fullMaterialName);
     await expect(updatedBomTable).toContainText(minimalMaterialName);
     await expect(updatedBomTable).toContainText(simpleProductName);
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
+    await expect(page.getByText("Premium blend — updated recipe")).toBeVisible();
+    await page.getByRole("button", { name: /^Recipe/ }).click();
+    await expect(page.locator("table").first()).toContainText(fullMaterialName);
 
     // DB
     const [updated] = await db.select().from(items).where(eq(items.id, sellableProductId));

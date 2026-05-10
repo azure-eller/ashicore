@@ -5938,6 +5938,10 @@ export async function deleteSalesOrder(
       return result;
     }
 
+    if (order.status !== "draft" && order.status !== "cancelled") {
+      throw new SalesError("Only draft or cancelled sales orders can be deleted.", 400);
+    }
+
     const existingLines = await getOrderLinesInTx(tx, id);
     const deletedAt = new Date();
 
@@ -5992,7 +5996,11 @@ export async function deleteSalesOrders(
     const uniqueIds = [...new Set(ids)];
 
     const orders = await tx
-      .select({ id: salesOrders.id })
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        status: salesOrders.status,
+      })
       .from(salesOrders)
       .where(
         and(
@@ -6013,6 +6021,16 @@ export async function deleteSalesOrders(
     }
 
     const orderIds = orders.map((o) => o.id);
+    const blockedOrder = orders.find(
+      (order) => order.status !== "draft" && order.status !== "cancelled"
+    );
+
+    if (blockedOrder) {
+      throw new SalesError(
+        `${blockedOrder.orderNumber} is ${blockedOrder.status.replace("_", " ")}. Only draft or cancelled sales orders can be deleted.`,
+        400
+      );
+    }
 
     const lines = await tx
       .select({ id: salesOrderLines.id })

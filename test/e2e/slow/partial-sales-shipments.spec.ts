@@ -112,9 +112,13 @@ async function getDemandTotal(db: TestDb, itemId: string) {
 }
 
 test.describe("Partial sales shipments", () => {
-  test("consume and release only shipped quantities", async ({ db }) => {
-    const customerId = await createCustomerFixture(uniqueName("Partial shipment customer"));
-    const itemId = await createMaterial(uniqueName("Partial shipment material"), "10");
+  test.describe.configure({ mode: "serial" });
+
+  test("consume and release only shipped quantities", async ({ page, db }) => {
+    const customerName = uniqueName("Partial shipment customer");
+    const itemName = uniqueName("Partial shipment material");
+    const customerId = await createCustomerFixture(customerName);
+    const itemId = await createMaterial(itemName, "10");
     const orderId = await createDraftSalesOrder({
       customerId,
       itemId,
@@ -122,6 +126,17 @@ test.describe("Partial sales shipments", () => {
     });
 
     expect((await confirmSalesOrder(orderId)).status).toBe(200);
+
+    const [orderHeader] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, orderId));
+
+    await page.goto(`/sales/orders/${orderId}`);
+    await expect(page.getByRole("heading", { name: orderHeader.orderNumber })).toBeVisible();
+    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("table").first()).toContainText(itemName);
+    await expect(page.locator("table").first()).toContainText("10");
 
     const [line] = await db
       .select({ id: salesOrderLines.id })
@@ -181,6 +196,11 @@ test.describe("Partial sales shipments", () => {
       .where(eq(salesOrders.id, orderId));
     expect(partialOrder.status).toBe("partially_shipped");
     expect(partialOrder.shippedAt).toBeNull();
+
+    await page.goto(`/sales/orders/${orderId}`);
+    await expect(page.locator("main").getByText("Partially Shipped", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main")).toContainText("1 of 1 shipped");
+    await expect(page.locator("main")).toContainText("Shipped");
 
     let balance = await getItemBalance(db, itemId);
     expect(balance.onHandQty).toBe("6.0000");
@@ -315,6 +335,11 @@ test.describe("Partial sales shipments", () => {
       .where(eq(salesOrders.id, orderId));
     expect(shippedOrder.status).toBe("shipped");
     expect(shippedOrder.shippedAt).not.toBeNull();
+
+    await page.goto(`/sales/orders/${orderId}`);
+    await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main")).toContainText("2 of 2 shipped");
+    await expect(page.locator("main")).toContainText("Shipped");
 
     balance = await getItemBalance(db, itemId);
     expect(balance.onHandQty).toBe("0.0000");

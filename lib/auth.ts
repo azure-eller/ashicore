@@ -158,6 +158,10 @@ export const auth = betterAuth({
     allowedHosts: authAllowedHosts,
     fallback: authFallbackUrl,
   },
+  rateLimit:
+    process.env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
+      ? { enabled: false }
+      : undefined,
   advanced: {
     useSecureCookies: authFallbackUrl.startsWith("https://"),
   },

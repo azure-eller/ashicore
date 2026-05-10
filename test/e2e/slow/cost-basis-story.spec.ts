@@ -68,6 +68,10 @@ test.describe("Material current stock unit cost story", () => {
     await expect(page.getByRole("heading", { name: explicitMaterialName })).toBeVisible();
     await expect(page.getByText("$1.23", { exact: true })).toBeVisible();
 
+    await page.reload();
+    await expect(page.getByRole("heading", { name: explicitMaterialName })).toBeVisible();
+    await expect(page.getByText("$1.23", { exact: true })).toBeVisible();
+
     const [material] = await db
       .select({
         currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
@@ -102,6 +106,9 @@ test.describe("Material current stock unit cost story", () => {
     await page.getByRole("button", { name: "Confirm Override" }).click();
     expect((await overrideResponsePromise).status()).toBe(200);
 
+    await expect(page.locator("#currentStockUnitCost")).toHaveValue("2.5");
+
+    await page.reload();
     await expect(page.locator("#currentStockUnitCost")).toHaveValue("2.5");
 
     const [material] = await db
