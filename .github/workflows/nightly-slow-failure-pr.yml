@@ -1,0 +1,156 @@
+name: Nightly Slow Failure PR
+
+on:
+  workflow_run:
+    workflows: ["Playwright Slow"]
+    types: [completed]
+
+concurrency:
+  group: nightly-slow-failure-pr
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  open-investigation-pr:
+    name: Open investigation PR
+    if: ${{ github.event.workflow_run.event == 'schedule' && (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') }}
+    runs-on: ubuntu-latest
+    env:
+      FAILURE_BRANCH: codex/nightly-slow-failure
+      FAILURE_LABEL: ci:slow:none
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Open or update failure PR
+        run: |
+          set -euo pipefail
+
+          repo="${GITHUB_REPOSITORY}"
+          branch="${FAILURE_BRANCH}"
+          label="${FAILURE_LABEL}"
+
+          failed_jobs="$(
+            gh run view "${RUN_ID}" \
+              --repo "${repo}" \
+              --json jobs \
+              --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "- " + .name + ": " + (.conclusion // .status) + " (" + .url + ")"' \
+              || true
+          )"
+
+          if [ -z "${failed_jobs}" ]; then
+            failed_jobs="- No failed job details were available from the run API."
+          fi
+
+          artifacts="$(
+            gh api "repos/${repo}/actions/runs/${RUN_ID}/artifacts" \
+              --jq '.artifacts[] | "- " + .name + ": " + .archive_download_url' \
+              || true
+          )"
+
+          if [ -z "${artifacts}" ]; then
+            artifacts="- No artifacts were listed yet. Check the failed run page."
+          fi
+
+          {
+            echo "Claude Code should investigate this failed scheduled Playwright slow run and push a fix to this PR branch if the failure is caused by the app or tests."
+            echo
+            echo "This PR was opened automatically from the latest \`main\` branch so the existing PR agent workflow has somewhere to investigate, commit fixes, and rerun CI."
+            echo
+            echo "## Failed run"
+            echo
+            echo "- Workflow: Playwright Slow"
+            echo "- Run: ${RUN_URL}"
+            echo "- Run id: ${RUN_ID}"
+            echo "- Conclusion: ${RUN_CONCLUSION}"
+            echo "- Main commit under test: ${RUN_HEAD_SHA}"
+            echo "- Display title: ${RUN_DISPLAY_TITLE}"
+            echo
+            echo "## Failed jobs"
+            echo
+            printf '%s\n' "${failed_jobs}"
+            echo
+            echo "## Artifacts"
+            echo
+            printf '%s\n' "${artifacts}"
+            echo
+            echo "## Expected agent outcome"
+            echo
+            echo "- Inspect the failed run logs and Playwright artifacts."
+            echo "- Decide whether this is a product bug, test bug, data/setup problem, or infrastructure flake."
+            echo "- Push code/test fixes to this branch when there is a real fix."
+            echo "- Update this PR with validation performed."
+            echo "- Do not merge a report-only PR without an actual fix or explicit human approval."
+          } > /tmp/nightly-slow-failure.md
+
+          existing_pr="$(
+            gh pr list \
+              --repo "${repo}" \
+              --state open \
+              --head "${branch}" \
+              --json number \
+              --jq '.[0].number // ""'
+          )"
+
+          if [ -n "${existing_pr}" ]; then
+            pr_url="$(gh pr view "${existing_pr}" --repo "${repo}" --json url --jq '.url')"
+            gh pr comment "${existing_pr}" --repo "${repo}" --body-file /tmp/nightly-slow-failure.md
+            jq -n \
+              --arg branch "${branch}" \
+              --arg pr_url "${pr_url}" \
+              --arg prompt "Nightly failure PR: ${pr_url}
+
+          $(cat /tmp/nightly-slow-failure.md)" \
+              '{event_type: "nightly-slow-failure", client_payload: {branch: $branch, pr_url: $pr_url, prompt: $prompt}}' \
+              > /tmp/nightly-slow-failure-dispatch.json
+            gh api "repos/${repo}/dispatches" --method POST --input /tmp/nightly-slow-failure-dispatch.json
+            echo "Updated existing nightly slow failure PR #${existing_pr}."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${branch}" origin/main
+          git commit --allow-empty -m "Open nightly slow failure investigation for run ${RUN_ID}"
+          git push --force origin "HEAD:${branch}"
+
+          gh label create "${label}" \
+            --repo "${repo}" \
+            --description "Skip slow suites for docs, CI-only, or report-only changes" \
+            --color "d4c5f9" \
+            || true
+
+          pr_url="$(
+            gh pr create \
+              --repo "${repo}" \
+              --base main \
+              --head "${branch}" \
+              --title "Investigate nightly slow Playwright failure" \
+              --body-file /tmp/nightly-slow-failure.md \
+              --label "${label}"
+          )"
+
+          jq -n \
+            --arg branch "${branch}" \
+            --arg pr_url "${pr_url}" \
+            --arg prompt "Nightly failure PR: ${pr_url}
+
+          $(cat /tmp/nightly-slow-failure.md)" \
+            '{event_type: "nightly-slow-failure", client_payload: {branch: $branch, pr_url: $pr_url, prompt: $prompt}}' \
+            > /tmp/nightly-slow-failure-dispatch.json
+          gh api "repos/${repo}/dispatches" --method POST --input /tmp/nightly-slow-failure-dispatch.json
+          echo "Opened ${pr_url}."

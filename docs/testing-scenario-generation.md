@@ -53,6 +53,8 @@ read_when:
 - Missing `ci:slow:*` labels fail the selector job. `ci:slow:none` is for docs-only or CI-only changes and must not be combined with other slow labels.
 - Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes.
 - Nightly CI runs `pnpm test:slow` plus `pnpm test:slow:auth`. Manual dispatch can run `all`, one domain, `stocktake`, `auth`, or `none`.
+- Failed scheduled slow runs open or update a report-only investigation PR from `main`, comment with the run link, failed jobs, and artifact links, then dispatch the Claude Code workflow with the same prompt. The bot reuses `codex/nightly-slow-failure` while it is open to avoid PR spam.
+- The generated investigation PR is a branch for fixes, not an automatic merge candidate. The agent should inspect logs/artifacts, push real code or test fixes when appropriate, and document validation before merge.
 
 ## Script aliases
 

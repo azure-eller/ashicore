@@ -633,6 +633,7 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification
 - PRs must have exactly the needed slow labels: `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`, `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`, `ci:slow:all`, or `ci:slow:none`. Missing labels fail CI; `ci:slow:none` is only for docs/CI-only changes and cannot be combined with other slow labels.
 - Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes; it runs the full slow directory plus auth regressions.
+- Failed scheduled slow runs open/update an investigation PR, comment with run details, and dispatch Claude Code with the run and artifact links. Treat those PRs as fix branches, not merge-ready reports.
 - Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`
 - `test.describe.configure({ mode: "serial" })` for tests that depend on each other
 - Share data between tests via variables at the describe level, not helper functions
