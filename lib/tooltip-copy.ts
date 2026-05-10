@@ -305,9 +305,6 @@ export const MAX_QTY_TOOLTIP =
 export const LEDGER_OCCURRED_TOOLTIP =
   "Timestamp when the inventory event posted.";
 
-export const LEDGER_EVENT_TOOLTIP =
-  "Inventory event posted to the ledger.";
-
 export const LEDGER_SOURCE_TOOLTIP =
   "Business document that caused the event.";
 
@@ -326,14 +323,13 @@ export const LEDGER_SCOPE_TOOLTIP =
 export const LEDGER_EVENT_TYPE_TOOLTIP =
   "Specific inventory ledger event type.";
 
-export const LEDGER_DOCUMENT_TYPE_TOOLTIP =
-  "Business document type linked to ledger events.";
-
 export const LEDGER_CHANGE_TOOLTIP =
   "Signed quantity posted by the event.";
 
 export const LEDGER_ON_HAND_AFTER_TOOLTIP =
   "On-hand stock after the event posted.";
+export const LEDGER_ON_HAND_BEFORE_TOOLTIP =
+  "On-hand stock before the event posted.";
 
 export const LEDGER_VALUE_CHANGE_TOOLTIP =
   "Signed inventory value change for the event.";

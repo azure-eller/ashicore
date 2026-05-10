@@ -297,6 +297,7 @@ export function buildInventoryLedgerHref(filters: {
 
   if (filters.documentType) {
     searchParams.set("documentType", filters.documentType);
+    searchParams.set("scope", "all");
   }
 
   if (filters.documentId) {

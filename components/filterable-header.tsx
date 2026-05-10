@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { type Column, type FilterFn } from "@tanstack/react-table";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -22,6 +23,40 @@ type FilterOption = {
   value: string;
   label: string;
 };
+
+type FilterHeaderButtonProps = ComponentProps<typeof Button> & {
+  label: string;
+  selectedCount: number;
+};
+
+export function FilterHeaderButton({
+  className,
+  label,
+  selectedCount,
+  ...props
+}: FilterHeaderButtonProps) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className={cn("-ml-3", className)}
+      aria-label={`Filter by ${label}${selectedCount > 0 ? `, ${selectedCount} selected` : ""}`}
+      {...props}
+    >
+      {label}
+      {selectedCount > 0 && (
+        <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+          {selectedCount}
+        </span>
+      )}
+      <HugeiconsIcon
+        icon={ArrowDown01Icon}
+        className="ml-1 h-3.5 w-3.5"
+        aria-hidden
+      />
+    </Button>
+  );
+}
 
 /**
  * Multi-select column filter using DropdownMenuCheckboxItem.
@@ -69,23 +104,7 @@ export function FilterableHeader<T>({
   }
 
   const button = (
-    <Button
-      variant="ghost"
-      className="-ml-3"
-      aria-label={`Filter by ${label}${selected.length > 0 ? `, ${selected.length} selected` : ""}`}
-    >
-      {label}
-      {selected.length > 0 && (
-        <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
-          {selected.length}
-        </span>
-      )}
-      <HugeiconsIcon
-        icon={ArrowDown01Icon}
-        className="ml-1 h-3.5 w-3.5"
-        aria-hidden
-      />
-    </Button>
+    <FilterHeaderButton label={label} selectedCount={selected.length} />
   );
 
   const content = (
@@ -106,6 +125,84 @@ export function FilterableHeader<T>({
           <DropdownMenuCheckboxItem
             checked={false}
             onCheckedChange={() => column.setFilterValue(undefined)}
+          >
+            Clear filter
+          </DropdownMenuCheckboxItem>
+        </>
+      )}
+    </DropdownMenuContent>
+  );
+
+  if (!tooltip) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        {content}
+      </DropdownMenu>
+    );
+  }
+
+  return (
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        {content}
+      </DropdownMenu>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+export function ServerFilterableHeader({
+  label,
+  tooltip,
+  options,
+  value,
+  defaultValue,
+  onValueChange,
+}: {
+  label: string;
+  tooltip?: string;
+  options: readonly FilterOption[];
+  value?: string;
+  defaultValue?: string;
+  onValueChange: (value: string | undefined) => void;
+}) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const selectedCount = value == null || value === defaultValue ? 0 : 1;
+
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+    }
+  }
+
+  const button = <FilterHeaderButton label={label} selectedCount={selectedCount} />;
+
+  const content = (
+    <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
+      {options.map((option) => (
+        <DropdownMenuCheckboxItem
+          key={option.value}
+          checked={value === option.value}
+          onSelect={() => onValueChange(value === option.value ? undefined : option.value)}
+        >
+          {option.label}
+        </DropdownMenuCheckboxItem>
+      ))}
+      {value != null && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={false}
+            onSelect={() => onValueChange(undefined)}
           >
             Clear filter
           </DropdownMenuCheckboxItem>

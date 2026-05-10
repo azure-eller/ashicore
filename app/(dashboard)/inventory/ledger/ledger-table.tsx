@@ -1,29 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
-  FilterHorizontalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  FilterHeaderButton,
+  ServerFilterableHeader,
+} from "@/components/filterable-header";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -36,6 +41,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   INVENTORY_EVENT_TYPES,
 } from "@/lib/db/schema";
@@ -50,35 +60,53 @@ import {
   formatInventoryLedgerMovementCategory,
   formatInventoryLedgerSourceType,
   INVENTORY_LEDGER_EVENT_CLASSES,
-  INVENTORY_LEDGER_SCOPE_VALUES,
   INVENTORY_LEDGER_SOURCE_TYPES,
 } from "@/lib/inventory/ledger";
 import {
   LEDGER_ACTOR_TOOLTIP,
   LEDGER_CHANGE_TOOLTIP,
-  LEDGER_DOCUMENT_TYPE_TOOLTIP,
-  LEDGER_EVENT_TOOLTIP,
   LEDGER_EVENT_TYPE_TOOLTIP,
   LEDGER_LOT_TOOLTIP,
   LEDGER_MOVEMENT_TOOLTIP,
   LEDGER_ON_HAND_AFTER_TOOLTIP,
+  LEDGER_ON_HAND_BEFORE_TOOLTIP,
   LEDGER_OCCURRED_TOOLTIP,
-  LEDGER_SCOPE_TOOLTIP,
   LEDGER_SOURCE_TOOLTIP,
   LEDGER_VALUE_CHANGE_TOOLTIP,
-  ITEM_TYPE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
-import { ITEM_TYPES } from "../types";
 import { buildInventoryLedgerSearchParams } from "./filters";
 import type { InventoryLedgerPageProps, InventoryLedgerRow } from "./types";
 
-const ALL_VALUE = "__all__";
+type FilterOption = {
+  value: string;
+  label: string;
+  description?: string;
+  searchLabel?: string;
+};
 
-type DraftFilters = InventoryLedgerFilters;
+const EVENT_TYPE_FILTER_OPTIONS: FilterOption[] = INVENTORY_EVENT_TYPES.map(
+  (eventType) => ({
+    value: eventType,
+    label: formatInventoryLedgerEventLabel(eventType),
+  })
+);
+
+const DOCUMENT_TYPE_FILTER_OPTIONS: FilterOption[] =
+  INVENTORY_LEDGER_SOURCE_TYPES.map((documentType) => ({
+    value: documentType,
+    label: formatInventoryLedgerSourceType(documentType),
+  }));
+
+const MOVEMENT_FILTER_OPTIONS: FilterOption[] = INVENTORY_LEDGER_EVENT_CLASSES.map(
+  (eventClass) => ({
+    value: eventClass,
+    label: formatInventoryLedgerMovementCategory(eventClass),
+  })
+);
 
 function normalizeOptionalValue(value: string) {
-  return value === ALL_VALUE || value === "" ? undefined : value;
+  return value === "" ? undefined : value;
 }
 
 function getBrowserTimeZone() {
@@ -103,6 +131,10 @@ function formatOnHandAfter(row: InventoryLedgerRow) {
   return row.onHandAfter == null ? "—" : formatQuantity(row.onHandAfter);
 }
 
+function formatOnHandBefore(row: InventoryLedgerRow) {
+  return row.onHandBefore == null ? "—" : formatQuantity(row.onHandBefore);
+}
+
 function formatValueChange(row: InventoryLedgerRow) {
   if (!row.extendedCost) {
     return null;
@@ -123,20 +155,422 @@ function formatValueChange(row: InventoryLedgerRow) {
   return formatPrice(String(signedValue));
 }
 
+function OccurredFilterHeader({
+  dateFrom,
+  dateTo,
+  onDateFromChange,
+  onDateToChange,
+  onClear,
+}: {
+  dateFrom?: string;
+  dateTo?: string;
+  onDateFromChange: (value: string | undefined) => void;
+  onDateToChange: (value: string | undefined) => void;
+  onClear: () => void;
+}) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const selectedCount = Number(dateFrom != null) + Number(dateTo != null);
+  const button = (
+    <FilterHeaderButton label="Occurred" selectedCount={selectedCount} />
+  );
+
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+    }
+  }
+
+  return (
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="w-72 bg-popover text-popover-foreground"
+        >
+          <div className="grid gap-3 p-1">
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs text-muted-foreground">From</FieldLabel>
+              <DatePicker
+                value={dateFrom ?? ""}
+                onChange={(value) => onDateFromChange(normalizeOptionalValue(value))}
+                aria-label="Filter from date"
+                placeholder="Start date"
+              />
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs text-muted-foreground">To</FieldLabel>
+              <DatePicker
+                value={dateTo ?? ""}
+                onChange={(value) => onDateToChange(normalizeOptionalValue(value))}
+                aria-label="Filter to date"
+                placeholder="End date"
+              />
+            </Field>
+          </div>
+          {selectedCount > 0 ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onClear}>
+                Clear filter
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <TooltipContent side="top">{LEDGER_OCCURRED_TOOLTIP}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function TextFilterHeader({
+  label,
+  tooltip,
+  value,
+  inputLabel,
+  placeholder,
+  debounceRef,
+  onInputChange,
+  onValueChange,
+}: {
+  label: string;
+  tooltip?: string;
+  value?: string;
+  inputLabel: string;
+  placeholder: string;
+  debounceRef: { current: ReturnType<typeof setTimeout> | null };
+  onInputChange: (value: string) => void;
+  onValueChange: (value: string | undefined) => void;
+}) {
+  const initialValue = value ?? "";
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const [state, setState] = useState({
+    urlValue: initialValue,
+    value: initialValue,
+  });
+  const displayValue =
+    state.urlValue === initialValue ? state.value : initialValue;
+  const button = (
+    <FilterHeaderButton
+      label={label}
+      selectedCount={value == null ? 0 : 1}
+    />
+  );
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [debounceRef]);
+
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+    }
+  }
+
+  function handleChange(nextValue: string) {
+    onInputChange(nextValue);
+    setState({
+      urlValue: initialValue,
+      value: nextValue,
+    });
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      onValueChange(normalizeOptionalValue(nextValue));
+    }, 300);
+  }
+
+  function handleClear() {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    onInputChange("");
+    setState({
+      urlValue: initialValue,
+      value: "",
+    });
+    onValueChange(undefined);
+  }
+
+  return (
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="w-72 bg-popover text-popover-foreground"
+        >
+          <div className="p-1">
+            <Input
+              aria-label={inputLabel}
+              placeholder={placeholder}
+              value={displayValue}
+              onChange={(event) => handleChange(event.target.value)}
+              onKeyDown={(event) => event.stopPropagation()}
+            />
+          </div>
+          {value != null ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleClear}>
+                Clear filter
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {tooltip ? <TooltipContent side="top">{tooltip}</TooltipContent> : null}
+    </Tooltip>
+  );
+}
+
+function SearchableFilterHeader({
+  label,
+  tooltip,
+  value,
+  options,
+  inputLabel,
+  placeholder,
+  emptyMessage,
+  onValueChange,
+}: {
+  label: string;
+  tooltip?: string;
+  value?: string;
+  options: readonly FilterOption[];
+  inputLabel: string;
+  placeholder: string;
+  emptyMessage: string;
+  onValueChange: (value: string | undefined) => void;
+}) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selectedCount = value == null ? 0 : 1;
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleOptions =
+    normalizedQuery.length === 0
+      ? options
+      : options.filter((option) =>
+          [option.label, option.description, option.searchLabel]
+            .filter((part): part is string => part != null)
+            .some((part) => part.toLowerCase().includes(normalizedQuery))
+        );
+  const button = (
+    <FilterHeaderButton label={label} selectedCount={selectedCount} />
+  );
+
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+      return;
+    }
+    setQuery("");
+  }
+
+  return (
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="w-80 bg-popover text-popover-foreground"
+        >
+          <div className="p-1">
+            <Input
+              aria-label={inputLabel}
+              placeholder={placeholder}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => event.stopPropagation()}
+            />
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1">
+            {visibleOptions.length === 0 ? (
+              <div className="px-2 py-2 text-sm text-muted-foreground">
+                {emptyMessage}
+              </div>
+            ) : (
+              visibleOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onSelect={() =>
+                    onValueChange(value === option.value ? undefined : option.value)
+                  }
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate">{option.label}</span>
+                    {option.description ? (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </span>
+                </DropdownMenuItem>
+              ))
+            )}
+          </div>
+          {value != null ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onValueChange(undefined)}>
+                Clear filter
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {tooltip ? <TooltipContent side="top">{tooltip}</TooltipContent> : null}
+    </Tooltip>
+  );
+}
+
+function MultiSelectFilterHeader({
+  label,
+  tooltip,
+  values,
+  defaultValues,
+  options,
+  onValuesChange,
+}: {
+  label: string;
+  tooltip?: string;
+  values?: readonly string[];
+  defaultValues?: readonly string[];
+  options: readonly FilterOption[];
+  onValuesChange: (values: string[] | undefined) => void;
+}) {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const selected = values ?? [];
+  const defaultSelected = defaultValues ?? [];
+  const selectedCount =
+    selected.length === defaultSelected.length &&
+    selected.every((value) => defaultSelected.includes(value))
+      ? 0
+      : selected.length;
+  const button = (
+    <FilterHeaderButton label={label} selectedCount={selectedCount} />
+  );
+
+  function handleDropdownOpenChange(open: boolean) {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+    }
+  }
+
+  function toggle(value: string) {
+    const next = selected.includes(value)
+      ? selected.filter((selectedValue) => selectedValue !== value)
+      : [...selected, value];
+    onValuesChange(next.length > 0 ? next : undefined);
+  }
+
+  return (
+    <Tooltip
+      open={!isDropdownOpen && isTooltipOpen}
+      onOpenChange={setIsTooltipOpen}
+    >
+      <DropdownMenu open={isDropdownOpen} onOpenChange={handleDropdownOpenChange}>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="w-60 bg-popover text-popover-foreground"
+        >
+          {options.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={option.value}
+              checked={selected.includes(option.value)}
+              onCheckedChange={() => toggle(option.value)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              {option.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          {selectedCount > 0 ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onValuesChange(undefined)}>
+                Clear filter
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {tooltip ? <TooltipContent side="top">{tooltip}</TooltipContent> : null}
+    </Tooltip>
+  );
+}
+
 export function LedgerTable({
   initialData,
   initialFilters,
   actorOptions,
+  itemOptions,
 }: InventoryLedgerPageProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
-  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
-  const [draftFilters, setDraftFilters] = useState<DraftFilters>(initialFilters);
+  const initialSearchValue = initialFilters.q ?? "";
+  const [searchState, setSearchState] = useState({
+    urlValue: initialSearchValue,
+    value: initialSearchValue,
+  });
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLotValue = initialFilters.lot ?? "";
+  const [lotState, setLotState] = useState({
+    urlValue: initialLotValue,
+    value: initialLotValue,
+  });
+  const lotDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchValue =
+    searchState.urlValue === initialSearchValue
+      ? searchState.value
+      : initialSearchValue;
+  const lotValue =
+    lotState.urlValue === initialLotValue ? lotState.value : initialLotValue;
 
   useEffect(() => {
-    setDraftFilters(initialFilters);
-  }, [initialFilters]);
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+      if (lotDebounceRef.current) {
+        clearTimeout(lotDebounceRef.current);
+      }
+    };
+  }, []);
 
   const totalPages = initialData.totalPages;
   const currentPage = initialData.page;
@@ -166,6 +600,23 @@ export function LedgerTable({
     return badges;
   }, [initialData.resolvedFilters, initialFilters.documentType]);
 
+  const cancelPendingFilterNavigation = () => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+    if (lotDebounceRef.current) {
+      clearTimeout(lotDebounceRef.current);
+      lotDebounceRef.current = null;
+    }
+  };
+
+  const getDraftFilters = () => ({
+    ...initialFilters,
+    q: normalizeOptionalValue(searchValue),
+    lot: normalizeOptionalValue(lotValue),
+  });
+
   const navigate = (filters: InventoryLedgerFilters) => {
     startTransition(() => {
       const searchParams = buildInventoryLedgerSearchParams(filters);
@@ -174,46 +625,65 @@ export function LedgerTable({
     });
   };
 
-  const updateDraftFilters = (patch: Partial<DraftFilters>) => {
-    setDraftFilters((current) => ({
-      ...current,
+  const goToPage = (page: number) => {
+    cancelPendingFilterNavigation();
+    navigate(withDateFilterTimeZone({
+      ...getDraftFilters(),
+      page,
+    }));
+  };
+
+  const updateColumnFilter = (patch: Partial<InventoryLedgerFilters>) => {
+    cancelPendingFilterNavigation();
+    navigate(withDateFilterTimeZone({
+      ...getDraftFilters(),
       ...patch,
       page: 1,
     }));
   };
 
-  const handleApply = () => {
+  const updatePageSize = (pageSize: number) => {
+    cancelPendingFilterNavigation();
     navigate(withDateFilterTimeZone({
-      ...draftFilters,
+      ...getDraftFilters(),
       page: 1,
+      pageSize,
     }));
   };
 
-  const handleClear = () => {
-    navigate({
-      q: undefined,
-      lot: undefined,
-      itemId: undefined,
-      itemType: undefined,
-      scope: "stock",
-      eventClass: undefined,
-      eventType: undefined,
-      documentType: undefined,
-      documentId: undefined,
-      actorUserId: undefined,
-      dateFrom: undefined,
-      dateTo: undefined,
-      timeZone: undefined,
-      page: 1,
-      pageSize: initialFilters.pageSize,
+  const actorFilterOptions = actorOptions.map((actor) => ({
+    value: actor.id,
+    label: actor.email ? `${actor.name} (${actor.email})` : actor.name,
+  }));
+  const itemFilterOptions = itemOptions.map((item) => ({
+    value: item.id,
+    label: item.displayName,
+    description: [
+      item.sku,
+      item.itemType === "material" ? "Material" : "Product",
+    ]
+      .filter((part): part is string => part != null)
+      .join(" · "),
+    searchLabel: `${item.displayName} ${item.sku ?? ""}`,
+  }));
+
+  const handleSearchChange = (value: string) => {
+    setSearchState({
+      urlValue: initialSearchValue,
+      value,
     });
-  };
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
 
-  const goToPage = (page: number) => {
-    navigate(withDateFilterTimeZone({
-      ...initialFilters,
-      page,
-    }));
+    searchDebounceRef.current = setTimeout(() => {
+      searchDebounceRef.current = null;
+      navigate(withDateFilterTimeZone({
+        ...getDraftFilters(),
+        q: normalizeOptionalValue(value),
+        page: 1,
+      }));
+    }, 300);
   };
 
   return (
@@ -239,284 +709,17 @@ export function LedgerTable({
       </div>
 
       <div className="flex flex-col gap-3">
-        <FieldGroup className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1.4fr)_minmax(9rem,0.75fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)_minmax(10rem,0.8fr)_auto]">
-          <Field className="gap-1.5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <Field className="max-w-sm gap-1.5">
             <FieldLabel className="text-xs text-muted-foreground">Search</FieldLabel>
             <Input
               aria-label="Search ledger"
               placeholder="Item, lot, order, actor..."
-              value={draftFilters.q ?? ""}
-              onChange={(event) =>
-                updateDraftFilters({ q: normalizeOptionalValue(event.target.value) })
-              }
+              value={searchValue}
+              onChange={(event) => handleSearchChange(event.target.value)}
             />
           </Field>
-
-          <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">
-              <TooltipHeader label="From" tooltip="Start date for occurred timestamps." />
-            </FieldLabel>
-            <DatePicker
-              value={draftFilters.dateFrom ?? ""}
-              onChange={(value) =>
-                updateDraftFilters({
-                  dateFrom: normalizeOptionalValue(value),
-                })
-              }
-              aria-label="Filter from date"
-              placeholder="Start date"
-            />
-          </Field>
-
-          <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">
-              <TooltipHeader label="To" tooltip="End date for occurred timestamps." />
-            </FieldLabel>
-            <DatePicker
-              value={draftFilters.dateTo ?? ""}
-              onChange={(value) =>
-                updateDraftFilters({
-                  dateTo: normalizeOptionalValue(value),
-                })
-              }
-              aria-label="Filter to date"
-              placeholder="End date"
-            />
-          </Field>
-
-          <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">
-              <TooltipHeader label="Movement" tooltip={LEDGER_MOVEMENT_TOOLTIP} />
-            </FieldLabel>
-            <Select
-              value={draftFilters.eventClass ?? ALL_VALUE}
-              onValueChange={(value) =>
-                updateDraftFilters({
-                  eventClass: normalizeOptionalValue(
-                    value
-                  ) as InventoryLedgerFilters["eventClass"],
-                  scope:
-                    value !== ALL_VALUE && value !== "stock" ? "all" : draftFilters.scope,
-                })
-              }
-            >
-              <SelectTrigger aria-label="Filter by movement category">
-                <SelectValue placeholder="All categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value={ALL_VALUE}>All categories</SelectItem>
-                  {INVENTORY_LEDGER_EVENT_CLASSES.map((eventClass) => (
-                    <SelectItem key={eventClass} value={eventClass}>
-                      {formatInventoryLedgerMovementCategory(eventClass)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field className="gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">
-              <TooltipHeader label="Item Type" tooltip={ITEM_TYPE_TOOLTIP} />
-            </FieldLabel>
-            <Select
-              value={draftFilters.itemType ?? ALL_VALUE}
-              onValueChange={(value) =>
-                updateDraftFilters({
-                  itemType: normalizeOptionalValue(value) as InventoryLedgerFilters["itemType"],
-                })
-              }
-            >
-              <SelectTrigger aria-label="Filter by item type">
-                <SelectValue placeholder="All item types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value={ALL_VALUE}>All item types</SelectItem>
-                  {ITEM_TYPES.map((itemType) => (
-                    <SelectItem key={itemType} value={itemType}>
-                      {itemType === "material" ? "Materials" : "Products"}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <div className="flex items-end gap-2">
-            <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  aria-label="More filters"
-                >
-                  <HugeiconsIcon
-                    icon={FilterHorizontalIcon}
-                    data-icon="inline-start"
-                    aria-hidden
-                  />
-                  More
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-80">
-                <FieldGroup className="gap-3">
-                  <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">
-                      <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
-                    </FieldLabel>
-                    <Input
-                      aria-label="Filter by lot"
-                      placeholder="Lot number"
-                      value={draftFilters.lot ?? ""}
-                      onChange={(event) =>
-                        updateDraftFilters({ lot: normalizeOptionalValue(event.target.value) })
-                      }
-                    />
-                  </Field>
-
-                  <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">
-                      <TooltipHeader label="Scope" tooltip={LEDGER_SCOPE_TOOLTIP} />
-                    </FieldLabel>
-                    <Select
-                      value={draftFilters.scope ?? "stock"}
-                      onValueChange={(value) =>
-                        updateDraftFilters({
-                          scope: value as InventoryLedgerFilters["scope"],
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Filter by scope">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {INVENTORY_LEDGER_SCOPE_VALUES.map((scope) => (
-                            <SelectItem key={scope} value={scope}>
-                              {scope === "stock" ? "Stock events" : "All events"}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-
-                  <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">
-                      <TooltipHeader label="Event Type" tooltip={LEDGER_EVENT_TYPE_TOOLTIP} />
-                    </FieldLabel>
-                    <Select
-                      value={draftFilters.eventType ?? ALL_VALUE}
-                      onValueChange={(value) =>
-                        updateDraftFilters({
-                          eventType: normalizeOptionalValue(
-                            value
-                          ) as InventoryLedgerFilters["eventType"],
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Filter by event type">
-                        <SelectValue placeholder="All event types" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value={ALL_VALUE}>All event types</SelectItem>
-                          {INVENTORY_EVENT_TYPES.map((eventType) => (
-                            <SelectItem key={eventType} value={eventType}>
-                              {formatInventoryLedgerEventLabel(eventType)}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-
-                  <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">
-                      <TooltipHeader
-                        label="Document Type"
-                        tooltip={LEDGER_DOCUMENT_TYPE_TOOLTIP}
-                      />
-                    </FieldLabel>
-                    <Select
-                      value={draftFilters.documentType ?? ALL_VALUE}
-                      onValueChange={(value) =>
-                        updateDraftFilters({
-                          documentType: normalizeOptionalValue(
-                            value
-                          ) as InventoryLedgerFilters["documentType"],
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Filter by document type">
-                        <SelectValue placeholder="All documents" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value={ALL_VALUE}>All documents</SelectItem>
-                          {INVENTORY_LEDGER_SOURCE_TYPES.map((documentType) => (
-                            <SelectItem key={documentType} value={documentType}>
-                              {formatInventoryLedgerSourceType(documentType)}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-
-                  <Field className="gap-1.5">
-                    <FieldLabel className="text-xs text-muted-foreground">
-                      <TooltipHeader label="Actor" tooltip={LEDGER_ACTOR_TOOLTIP} />
-                    </FieldLabel>
-                    <Select
-                      value={draftFilters.actorUserId ?? ALL_VALUE}
-                      onValueChange={(value) =>
-                        updateDraftFilters({
-                          actorUserId: normalizeOptionalValue(value),
-                        })
-                      }
-                    >
-                      <SelectTrigger aria-label="Filter by actor">
-                        <SelectValue placeholder="All actors" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value={ALL_VALUE}>All actors</SelectItem>
-                          {actorOptions.map((actor) => (
-                            <SelectItem key={actor.id} value={actor.id}>
-                              {actor.email ? `${actor.name} (${actor.email})` : actor.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </FieldGroup>
-              </PopoverContent>
-            </Popover>
-
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleApply}
-              disabled={isPending}
-            >
-              {isPending ? "Applying..." : "Apply"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClear}
-              disabled={isPending}
-            >
-              Clear
-            </Button>
-          </div>
-        </FieldGroup>
+        </div>
 
         <div className="overflow-hidden rounded-md border">
           {initialData.rows.length === 0 ? (
@@ -524,24 +727,115 @@ export function LedgerTable({
               No inventory events matched the current filters.
             </div>
           ) : (
-            <Table className="min-w-[1180px]">
+            <Table className="min-w-[1420px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>
-                    <TooltipHeader label="Occurred" tooltip={LEDGER_OCCURRED_TOOLTIP} />
+                    <OccurredFilterHeader
+                      dateFrom={initialFilters.dateFrom}
+                      dateTo={initialFilters.dateTo}
+                      onDateFromChange={(value) =>
+                        updateColumnFilter({ dateFrom: value })
+                      }
+                      onDateToChange={(value) =>
+                        updateColumnFilter({ dateTo: value })
+                      }
+                      onClear={() =>
+                        updateColumnFilter({
+                          dateFrom: undefined,
+                          dateTo: undefined,
+                          timeZone: undefined,
+                        })
+                      }
+                    />
                   </TableHead>
-                  <TableHead>Item</TableHead>
                   <TableHead>
-                    <TooltipHeader label="Event" tooltip={LEDGER_EVENT_TOOLTIP} />
+                    <SearchableFilterHeader
+                      label="Item"
+                      options={itemFilterOptions}
+                      value={initialFilters.itemId}
+                      inputLabel="Search item options"
+                      placeholder="Search items..."
+                      emptyMessage="No items found"
+                      onValueChange={(value) =>
+                        updateColumnFilter({
+                          itemId: value,
+                          itemType: undefined,
+                        })
+                      }
+                    />
                   </TableHead>
                   <TableHead>
-                    <TooltipHeader label="Source" tooltip={LEDGER_SOURCE_TOOLTIP} />
+                    <SearchableFilterHeader
+                      label="Event"
+                      tooltip={LEDGER_EVENT_TYPE_TOOLTIP}
+                      options={EVENT_TYPE_FILTER_OPTIONS}
+                      value={initialFilters.eventType}
+                      inputLabel="Search event options"
+                      placeholder="Search events..."
+                      emptyMessage="No events found"
+                      onValueChange={(value) =>
+                        updateColumnFilter({
+                          eventType: value as InventoryLedgerFilters["eventType"],
+                          eventClasses: undefined,
+                        })
+                      }
+                    />
                   </TableHead>
                   <TableHead>
-                    <TooltipHeader label="Lot" tooltip={LEDGER_LOT_TOOLTIP} />
+                    <MultiSelectFilterHeader
+                      label="Movement"
+                      tooltip={LEDGER_MOVEMENT_TOOLTIP}
+                      options={MOVEMENT_FILTER_OPTIONS}
+                      values={initialFilters.eventClasses}
+                      defaultValues={["stock"]}
+                      onValuesChange={(values) =>
+                        updateColumnFilter({
+                          eventClasses:
+                            values as InventoryLedgerFilters["eventClasses"],
+                          eventType: undefined,
+                        })
+                      }
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <ServerFilterableHeader
+                      label="Source"
+                      tooltip={LEDGER_SOURCE_TOOLTIP}
+                      options={DOCUMENT_TYPE_FILTER_OPTIONS}
+                      value={initialFilters.documentType}
+                      onValueChange={(value) =>
+                        updateColumnFilter({
+                          documentType: value as InventoryLedgerFilters["documentType"],
+                          documentId: undefined,
+                        })
+                      }
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <TextFilterHeader
+                      label="Lot"
+                      tooltip={LEDGER_LOT_TOOLTIP}
+                      value={initialFilters.lot}
+                      inputLabel="Lot filter value"
+                      placeholder="Lot number"
+                      debounceRef={lotDebounceRef}
+                      onInputChange={(value) =>
+                        setLotState({
+                          urlValue: initialLotValue,
+                          value,
+                        })
+                      }
+                      onValueChange={(value) =>
+                        updateColumnFilter({ lot: value })
+                      }
+                    />
                   </TableHead>
                   <TableHead className="text-right">
                     <TooltipHeader label="Change" tooltip={LEDGER_CHANGE_TOOLTIP} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <TooltipHeader label="On hand before" tooltip={LEDGER_ON_HAND_BEFORE_TOOLTIP} />
                   </TableHead>
                   <TableHead className="text-right">
                     <TooltipHeader label="On hand after" tooltip={LEDGER_ON_HAND_AFTER_TOOLTIP} />
@@ -550,13 +844,23 @@ export function LedgerTable({
                     <TooltipHeader label="Value change" tooltip={LEDGER_VALUE_CHANGE_TOOLTIP} />
                   </TableHead>
                   <TableHead>
-                    <TooltipHeader label="Actor" tooltip={LEDGER_ACTOR_TOOLTIP} />
+                    <ServerFilterableHeader
+                      label="Actor"
+                      tooltip={LEDGER_ACTOR_TOOLTIP}
+                      options={actorFilterOptions}
+                      value={initialFilters.actorUserId}
+                      onValueChange={(value) =>
+                        updateColumnFilter({ actorUserId: value })
+                      }
+                    />
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {initialData.rows.map((row) => {
                   const signedQuantity = parseFloat(row.signedQuantity);
+                  const onHandBefore =
+                    row.onHandBefore == null ? null : parseFloat(row.onHandBefore);
                   const onHandAfter =
                     row.onHandAfter == null ? null : parseFloat(row.onHandAfter);
                   const valueChange = formatValueChange(row);
@@ -580,6 +884,7 @@ export function LedgerTable({
                         </Link>
                       </TableCell>
                       <TableCell className="font-medium">{row.eventLabel}</TableCell>
+                      <TableCell>{formatInventoryLedgerMovementCategory(row.eventClass)}</TableCell>
                       <TableCell>
                         {row.sourceDocument ? (
                           row.sourceDocument.href ? (
@@ -610,6 +915,17 @@ export function LedgerTable({
                       <TableCell
                         className={cn(
                           "text-right font-mono",
+                          row.onHandBefore == null && "text-muted-foreground",
+                          onHandBefore != null &&
+                            onHandBefore < 0 &&
+                            "text-destructive"
+                        )}
+                      >
+                        {formatOnHandBefore(row)}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right font-mono",
                           row.onHandAfter == null && "text-muted-foreground",
                           onHandAfter != null &&
                             onHandAfter < 0 &&
@@ -636,39 +952,57 @@ export function LedgerTable({
           )}
         </div>
 
-        <div className="flex items-center justify-between py-1">
+        <div className="flex items-center justify-between py-4">
           <div className="text-sm text-muted-foreground">
             Page {currentPage} of {totalPages}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => goToPage(currentPage - 1)}
-              disabled={currentPage <= 1 || isPending}
-            >
-              <HugeiconsIcon
-                icon={ArrowLeft01Icon}
-                data-icon="inline-start"
-                aria-hidden
-              />
-              Previous
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => goToPage(currentPage + 1)}
-              disabled={currentPage >= totalPages || isPending}
-            >
-              Next
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                data-icon="inline-end"
-                aria-hidden
-              />
-            </Button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Rows</span>
+              <Select
+                value={String(initialData.pageSize)}
+                onValueChange={(value) => updatePageSize(Number(value))}
+              >
+                <SelectTrigger size="sm" className="w-auto" aria-label="Rows per page">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage <= 1 || isPending}
+              >
+                <HugeiconsIcon
+                  icon={ArrowLeft01Icon}
+                  data-icon="inline-start"
+                  aria-hidden
+                />
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage >= totalPages || isPending}
+              >
+                Next
+                <HugeiconsIcon
+                  icon={ArrowRight01Icon}
+                  data-icon="inline-end"
+                  aria-hidden
+                />
+              </Button>
+            </div>
           </div>
         </div>
       </div>

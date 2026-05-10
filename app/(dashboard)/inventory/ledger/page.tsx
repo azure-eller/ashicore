@@ -2,7 +2,11 @@ import { Suspense } from "react";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { parseInventoryLedgerFilters } from "./filters";
 import { LedgerTable } from "./ledger-table";
-import { getInventoryLedger, getInventoryLedgerActorOptions } from "./queries";
+import {
+  getInventoryLedger,
+  getInventoryLedgerActorOptions,
+  getInventoryLedgerItemOptions,
+} from "./queries";
 import InventoryLedgerLoading from "./loading";
 
 export default async function InventoryLedgerPage({
@@ -25,9 +29,10 @@ async function InventoryLedgerData({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const filters = parseInventoryLedgerFilters(await searchParams);
-  const [initialData, actorOptions] = await Promise.all([
+  const [initialData, actorOptions, itemOptions] = await Promise.all([
     getInventoryLedger(filters),
     getInventoryLedgerActorOptions(),
+    getInventoryLedgerItemOptions(),
   ]);
 
   return (
@@ -35,6 +40,7 @@ async function InventoryLedgerData({
       initialData={initialData}
       initialFilters={filters}
       actorOptions={actorOptions}
+      itemOptions={itemOptions}
     />
   );
 }

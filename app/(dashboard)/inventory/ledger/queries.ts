@@ -6,6 +6,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNull,
   isNotNull,
   lt,
   or,
@@ -44,7 +45,6 @@ import {
   getInventoryLedgerBalanceDimension,
   getInventoryLedgerEventClass,
   getSignedInventoryLedgerQuantity,
-  isStockAffectingInventoryEvent,
   summarizeInventoryLedgerMetadata,
   type InventoryLedgerSourceType,
 } from "@/lib/inventory/ledger";
@@ -52,6 +52,7 @@ import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
 import { itemDetailHref, type ItemType } from "../types";
 import type {
   InventoryLedgerActorOption,
+  InventoryLedgerItemOption,
   InventoryLedgerPageData,
   InventoryLedgerRow,
 } from "./types";
@@ -224,13 +225,10 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
 
   if (filters.eventType) {
     conditions.push(eq(inventoryEvents.eventType, filters.eventType));
-  } else if (filters.eventClass) {
+  } else if (filters.eventClasses) {
     const allowed = INVENTORY_EVENT_TYPES.filter(
-      (eventType) => getInventoryLedgerEventClass(eventType) === filters.eventClass
+      (eventType) => filters.eventClasses?.includes(getInventoryLedgerEventClass(eventType))
     );
-    conditions.push(inArray(inventoryEvents.eventType, allowed));
-  } else if (filters.scope === "stock") {
-    const allowed = INVENTORY_EVENT_TYPES.filter(isStockAffectingInventoryEvent);
     conditions.push(inArray(inventoryEvents.eventType, allowed));
   }
 
@@ -604,6 +602,18 @@ export async function getInventoryLedger(
     const balanceRows = tx
       .select({
         eventId: inventoryEvents.id,
+        onHandBefore: trimScale(sql`COALESCE(SUM(${ledgerOnHandDeltaExpr(
+          inventoryEvents.eventType,
+          inventoryEvents.quantity
+        )}) OVER (
+          PARTITION BY
+            ${inventoryEvents.organizationId},
+            ${inventoryEvents.locationId},
+            ${inventoryEvents.itemId},
+            ${inventoryEvents.lotId}
+          ORDER BY ${inventoryEvents.occurredAt} ASC, ${inventoryEvents.id} ASC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ), 0)`).as("onHandBefore"),
         onHandAfter: trimScale(sql`SUM(${ledgerOnHandDeltaExpr(
           inventoryEvents.eventType,
           inventoryEvents.quantity
@@ -628,6 +638,7 @@ export async function getInventoryLedger(
         eventType: inventoryEvents.eventType,
         eventSubtype: inventoryEvents.eventSubtype,
         quantity: trimScale(inventoryEvents.quantity).as("quantity"),
+        onHandBefore: balanceRows.onHandBefore,
         onHandAfter: balanceRows.onHandAfter,
         extendedCost: trimScaleNullable(inventoryEvents.extendedCost).as(
           "extendedCost"
@@ -812,6 +823,7 @@ export async function getInventoryLedger(
         eventLabel: formatInventoryLedgerEventLabel(eventType),
         quantity: row.quantity,
         signedQuantity: getSignedInventoryLedgerQuantity(eventType, row.quantity),
+        onHandBefore: row.onHandBefore,
         onHandAfter: row.onHandAfter,
         balanceDimension: getInventoryLedgerBalanceDimension(eventType),
         lot:
@@ -873,5 +885,40 @@ export async function getInventoryLedgerActorOptions(): Promise<
         name: row.name ?? row.email ?? row.id,
         email: row.email ?? "",
       }));
+  });
+}
+
+export async function getInventoryLedgerItemOptions(): Promise<
+  InventoryLedgerItemOption[]
+> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const rows = await tx
+      .selectDistinct({
+        id: items.id,
+        itemName: items.name,
+        sku: items.sku,
+        itemType: items.itemType,
+        masterName: masterItems.name,
+        masterVariantAxes: masterItems.variantAxes,
+        variantAttrs: items.variantAttrs,
+      })
+      .from(inventoryEvents)
+      .innerJoin(items, eq(inventoryEvents.itemId, items.id))
+      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+      .where(
+        and(
+          eq(inventoryEvents.organizationId, orgId),
+          eq(items.organizationId, orgId),
+          isNull(items.deletedAt)
+        )
+      )
+      .orderBy(asc(items.name), asc(items.sku), asc(items.id));
+
+    return rows.map((row) => ({
+      id: row.id,
+      displayName: resolveItemDisplayName(row),
+      sku: row.sku,
+      itemType: row.itemType as ItemType,
+    }));
   });
 }

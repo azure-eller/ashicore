@@ -14,6 +14,13 @@ export type InventoryLedgerActorOption = {
   email: string;
 };
 
+export type InventoryLedgerItemOption = {
+  id: string;
+  displayName: string;
+  sku: string | null;
+  itemType: ItemType;
+};
+
 export type InventoryLedgerRow = {
   id: string;
   occurredAt: Date;
@@ -31,6 +38,7 @@ export type InventoryLedgerRow = {
   eventLabel: string;
   quantity: string;
   signedQuantity: string;
+  onHandBefore: string | null;
   onHandAfter: string | null;
   balanceDimension: InventoryLedgerBalanceDimension;
   lot: {
@@ -70,4 +78,5 @@ export type InventoryLedgerPageProps = {
   initialData: InventoryLedgerPageData;
   initialFilters: InventoryLedgerFilters;
   actorOptions: InventoryLedgerActorOption[];
+  itemOptions: InventoryLedgerItemOption[];
 };

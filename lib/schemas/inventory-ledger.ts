@@ -16,6 +16,21 @@ const optionalTrimmedString = z
     return normalized ? normalized : undefined;
   });
 
+const eventClassesSchema = z
+  .preprocess((value) => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+    }
+    return undefined;
+  }, z.array(z.enum(INVENTORY_LEDGER_EVENT_CLASSES)).optional())
+  .transform((value) => (value && value.length > 0 ? value : undefined));
+
 export const inventoryLedgerFiltersSchema = z
   .object({
     q: optionalTrimmedString,
@@ -24,6 +39,7 @@ export const inventoryLedgerFiltersSchema = z
     itemType: z.enum(ITEM_TYPES).optional(),
     scope: z.enum(INVENTORY_LEDGER_SCOPE_VALUES).optional(),
     eventClass: z.enum(INVENTORY_LEDGER_EVENT_CLASSES).optional(),
+    eventClasses: eventClassesSchema,
     eventType: z.enum(INVENTORY_EVENT_TYPES).optional(),
     documentType: z.enum(INVENTORY_LEDGER_SOURCE_TYPES).optional(),
     documentId: optionalTrimmedString,
@@ -44,15 +60,16 @@ export const inventoryLedgerFiltersSchema = z
     pageSize: z.coerce.number().int().min(10).max(100).optional(),
   })
   .transform((value) => {
-    const hasExactScopeFilter = Boolean(value.itemId || value.documentId);
-    const eventClass = value.eventClass;
+    const eventClasses = value.eventClasses ?? (
+      value.eventClass ? [value.eventClass] : undefined
+    );
+    const defaultEventClasses = value.scope === "all" ? undefined : ["stock"];
 
     return {
       ...value,
-      scope:
-        eventClass && eventClass !== "stock"
-          ? "all"
-          : value.scope ?? (hasExactScopeFilter ? "all" : "stock"),
+      eventClass: undefined,
+      eventClasses: value.eventType ? undefined : eventClasses ?? defaultEventClasses,
+      scope: undefined,
       page: value.page ?? 1,
       pageSize: value.pageSize ?? 50,
     };
