@@ -207,10 +207,42 @@ export type SalesOrderItemOption = {
 };
 
 export type SalesOrderListLine = {
+  id?: string;
   masterName: string;
   attrs: string[];
   quantity: string;
+  shippedQuantity?: string;
+  allocatedQty?: string;
+  shortQty?: string;
+  sourceSummary?: string;
   unitName: string;
+};
+
+export type SalesAllocationCoverageKind = "explicit" | "implicit";
+export type SalesAllocationSourceType = "stock_pool" | "manufacturing_order";
+
+export type SalesAllocationLineSummary = {
+  salesOrderLineId: string;
+  itemId: string;
+  allocatedQty: string;
+  shortQty: string;
+  sourceSummary: string;
+  status: "ready" | "waiting_production" | "partial" | "short";
+  sources: Array<{
+    sourceType: SalesAllocationSourceType;
+    sourceId: string | null;
+    label: string;
+    quantity: string;
+    coverageKind: SalesAllocationCoverageKind;
+  }>;
+};
+
+export type SalesOrderFulfillmentSummary = {
+  remainingQty: string;
+  allocatedQty: string;
+  shortQty: string;
+  productionAllocatedQty: string;
+  label: string;
 };
 
 export type SalesShippingReadinessState =
@@ -241,6 +273,7 @@ export type SalesOrderListRow = {
   totalAmount: string;
   itemSummary: string;
   lines: SalesOrderListLine[];
+  fulfillmentSummary: SalesOrderFulfillmentSummary;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
@@ -287,6 +320,10 @@ export type SalesOrderDetailLine = {
   availableQty: string | null;
   allocatedQty: string;
   potential: string | null;
+  shortQty: string;
+  sourceSummary: string;
+  allocationStatus: SalesAllocationLineSummary["status"];
+  allocationSources: SalesAllocationLineSummary["sources"];
 };
 
 export type SalesShipmentLine = {
@@ -375,6 +412,7 @@ export type SalesOrderDetail = {
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
+  fulfillmentSummary: SalesOrderFulfillmentSummary;
   shippingReadiness: SalesShippingReadiness;
   deletedAt: Date | null;
   createdAt: Date;
@@ -389,8 +427,70 @@ export type SalesOrderDetail = {
     productSku: string | null;
     plannedQuantity: string;
     unitName: string;
+    plannedDate: string | null;
+    priorityRank: number | null;
     status: "draft" | "released" | "completed" | "cancelled";
   }>;
+};
+
+export type SalesAllocationSource = {
+  sourceType: SalesAllocationSourceType;
+  sourceId: string | null;
+  label: string;
+  status: "available" | "draft" | "released" | "completed";
+  date: string | null;
+  priorityRank: number | null;
+  totalQty: string;
+  allocatedQty: string;
+  freeQty: string;
+  currentTargetQty: string;
+  maxQty: string;
+  canAllocate: boolean;
+};
+
+export type SalesAllocationDemandRow = {
+  salesOrderLineId: string;
+  salesOrderId: string;
+  orderNumber: string;
+  orderStatus: SalesOrderStatus;
+  customerName: string;
+  shipDate: string | null;
+  itemId: string;
+  itemName: string;
+  unitName: string;
+  orderedQty: string;
+  shippedQty: string;
+  cancelledQty: string;
+  remainingQty: string;
+  allocatedQty: string;
+  shortQty: string;
+  sourceSummary: string;
+  sources: Array<{
+    sourceType: SalesAllocationSourceType;
+    sourceId: string | null;
+    label: string;
+    quantity: string;
+    coverageKind: SalesAllocationCoverageKind;
+  }>;
+  isTarget: boolean;
+};
+
+export type SalesAllocationSheetData = {
+  targetLine: SalesAllocationDemandRow & {
+    allocationManagedAt: Date | null;
+  };
+  editableAllocations: Array<{
+    sourceType: SalesAllocationSourceType;
+    sourceId: string | null;
+    sourceLabel: string;
+    quantity: string;
+    freeQuantity: string;
+    maxQuantity: string;
+    coverageKind: SalesAllocationCoverageKind;
+  }>;
+  supplySources: SalesAllocationSource[];
+  demandRows: SalesAllocationDemandRow[];
+  uncoveredDemandQty: string;
 };
 
 export type SalesShippingQueueRow = {
@@ -470,5 +570,18 @@ export type BulkOversellWarningPayload = {
     salesOrderId: string;
     salesOrderNumber: string;
     products: OversellWarningProduct[];
+  }>;
+};
+
+export type DraftAllocationTakeoverWarningPayload = {
+  allocations: Array<{
+    salesOrderId: string;
+    salesOrderLineId: string;
+    orderNumber: string;
+    customerName: string;
+    itemId: string;
+    itemName: string;
+    unitName: string;
+    quantity: number;
   }>;
 };

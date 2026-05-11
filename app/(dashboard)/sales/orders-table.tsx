@@ -37,6 +37,7 @@ import { SoStageAction } from "./so-stage-action";
 import { OrderExpandedDetail } from "./order-expanded-detail";
 import type {
   BulkOversellWarningPayload,
+  DraftAllocationTakeoverWarningPayload,
   SalesOrderListRow,
 } from "./types";
 import {
@@ -48,18 +49,19 @@ type ConfirmError = Error & {
   status?: number;
   error?: string;
   oversell?: BulkOversellWarningPayload;
+  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
 };
 
 type ConfirmMutationInput = {
   ids: string[];
   confirmOversell: boolean;
+  confirmDraftAllocationTakeover?: boolean;
   idempotencyKey: string;
 };
 
 const SALES_STATUS_FILTER_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "confirmed", label: "Confirmed" },
-  { value: "partially_shipped", label: "Partially Shipped" },
   { value: "shipped", label: "Shipped" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
@@ -135,6 +137,18 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     cell: ({ row }) => <SalesOrderStatusBadge status={row.original.status} />,
   },
   {
+    id: "fulfillment",
+    header: ({ column }) => <SortableHeader column={column} label="Fulfillment" />,
+    sortingFn: (a, b) =>
+      parseFloat(a.original.fulfillmentSummary.shortQty) -
+      parseFloat(b.original.fulfillmentSummary.shortQty),
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {row.original.fulfillmentSummary.label}
+      </span>
+    ),
+  },
+  {
     accessorKey: "orderDate",
     header: ({ column }) => (
       <SortableHeader column={column} label="Order" tooltip={SALES_ORDER_DATE_TOOLTIP} />
@@ -203,6 +217,8 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   const [formError, setFormError] = useState<string | null>(null);
   const [bulkOversellWarning, setBulkOversellWarning] =
     useState<BulkOversellWarningPayload | null>(null);
+  const [draftTakeoverWarning, setDraftTakeoverWarning] =
+    useState<DraftAllocationTakeoverWarningPayload | null>(null);
   const clearSelectionRef = useRef<(() => void) | null>(null);
   const pendingConfirmIdempotencyKeyRef = useRef<string | null>(null);
 
@@ -210,16 +226,21 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     mutationFn: async ({
       ids,
       confirmOversell,
+      confirmDraftAllocationTakeover,
       idempotencyKey,
     }: ConfirmMutationInput) => {
       await apiJson<void>("/api/sales-orders/bulk-confirm", {
         method: "POST",
         idempotencyKey,
-        body: { ids, confirmOversell },
+        body: { ids, confirmOversell, confirmDraftAllocationTakeover },
         fallbackError: "Failed to confirm orders.",
         mapError: (status, body) => {
           const payload = body as
-            | { error?: unknown; oversell?: BulkOversellWarningPayload }
+            | {
+                error?: unknown;
+                oversell?: BulkOversellWarningPayload;
+                draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
+              }
             | null;
           const message =
             typeof payload?.error === "string"
@@ -229,6 +250,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             status,
             error: message,
             oversell: payload?.oversell,
+            draftAllocationTakeover: payload?.draftAllocationTakeover,
           } satisfies Omit<ConfirmError, keyof Error>);
         },
       });
@@ -244,12 +266,17 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       setPendingConfirmIds([]);
       pendingConfirmIdempotencyKeyRef.current = null;
       setBulkOversellWarning(null);
+      setDraftTakeoverWarning(null);
       clearSelectionRef.current?.();
       clearSelectionRef.current = null;
     },
     onError: (error: ConfirmError) => {
       if (error.status === 409 && error.oversell) {
         setBulkOversellWarning(error.oversell);
+        return;
+      }
+      if (error.status === 409 && error.draftAllocationTakeover) {
+        setDraftTakeoverWarning(error.draftAllocationTakeover);
         return;
       }
 
@@ -277,10 +304,12 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             table={table}
             options={SALES_STATUS_FILTER_OPTIONS}
             ariaLabel="Filter sales orders by status"
+            showAll={false}
           />
         )}
         errorMessage={formError}
         initialSorting={[{ id: "shipDate", desc: false }]}
+        initialColumnFilters={[{ id: "status", value: ["draft"] }]}
         getRowCanExpand={() => true}
         renderExpandedRow={(row) => <OrderExpandedDetail orderId={row.original.id} />}
         selectedActions={[
@@ -360,6 +389,59 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
               }}
             >
               {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={draftTakeoverWarning != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDraftTakeoverWarning(null);
+            setPendingConfirmIds([]);
+            pendingConfirmIdempotencyKeyRef.current = null;
+          }
+        }}
+      >
+        <AlertDialogContent size="2xl" className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Take Draft Allocations?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirming these orders will reduce stock allocated to draft orders.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 overflow-y-auto pr-1 text-sm">
+            {draftTakeoverWarning?.allocations.map((allocation) => (
+              <div
+                key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
+                className="flex justify-between gap-4 rounded-md border p-2"
+              >
+                <span>
+                  {allocation.orderNumber} · {allocation.customerName} ·{" "}
+                  {allocation.itemName}
+                </span>
+                <span className="font-medium">
+                  {allocation.quantity} {allocation.unitName}
+                </span>
+              </div>
+            ))}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmMutation.isPending}
+              onClick={() => {
+                const idempotencyKey = pendingConfirmIdempotencyKeyRef.current;
+                if (pendingConfirmIds.length === 0 || !idempotencyKey) return;
+                confirmMutation.mutate({
+                  ids: pendingConfirmIds,
+                  confirmOversell: false,
+                  confirmDraftAllocationTakeover: true,
+                  idempotencyKey,
+                });
+              }}
+            >
+              {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

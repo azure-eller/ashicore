@@ -6,6 +6,7 @@ import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { getApiErrorMessage } from "@/lib/client/api";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, HelpCircleIcon } from "@hugeicons/core-free-icons";
 import {
@@ -99,6 +100,7 @@ import {
 } from "./oversell-warning-table";
 import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 import type {
+  DraftAllocationTakeoverWarningPayload,
   OversellWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
   SalesMarginSummary,
@@ -109,6 +111,7 @@ type ActionError = {
   status?: number;
   error?: string;
   oversell?: OversellWarningPayload;
+  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
 };
 
 function formatMarginPercent(value: string | null | undefined) {
@@ -535,7 +538,7 @@ function KeyFactRows({
       value: formatDate(order.orderDate),
     },
     {
-      label: "Ship by",
+      label: "Shipping Date",
       value: formatDate(order.shipDate),
       highlight: true,
     },
@@ -1135,6 +1138,8 @@ export function OrderDetail({
     useState<ShipmentCostFormState | null>(null);
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
+  const [draftTakeoverWarning, setDraftTakeoverWarning] =
+    useState<DraftAllocationTakeoverWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
   const accountingDocument = salesOrderAccountingDocument(order);
@@ -1501,26 +1506,31 @@ export function OrderDetail({
   });
 
   const confirmMutation = useMutation({
-    mutationFn: async (confirmOversell: boolean) => {
+    mutationFn: async (flags: {
+      confirmOversell?: boolean;
+      confirmDraftAllocationTakeover?: boolean;
+    }) => {
       const response = await fetch(`/api/sales-orders/${order.id}/confirm`, {
         method: "POST",
         headers: createIdempotencyHeaders("sales-order-confirm", {
           "Content-Type": "application/json",
         }),
-        body: JSON.stringify({ confirmOversell }),
+        body: JSON.stringify(flags),
       });
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
         throw {
           status: response.status,
-          error: body?.error ?? "Failed to confirm order.",
+          error: getApiErrorMessage(body, "Failed to confirm order."),
           oversell: body?.oversell,
+          draftAllocationTakeover: body?.draftAllocationTakeover,
         } satisfies ActionError;
       }
     },
     onMutate: () => {
       setActionError(null);
+      setDraftTakeoverWarning(null);
     },
     onSuccess: async () => {
       await Promise.all([
@@ -1528,11 +1538,16 @@ export function OrderDetail({
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
       setOversellWarning(null);
+      setDraftTakeoverWarning(null);
       router.refresh();
     },
     onError: (error: ActionError) => {
       if (error.status === 409 && error.oversell) {
         setOversellWarning(error.oversell);
+        return;
+      }
+      if (error.status === 409 && error.draftAllocationTakeover) {
+        setDraftTakeoverWarning(error.draftAllocationTakeover);
         return;
       }
 
@@ -1805,7 +1820,7 @@ export function OrderDetail({
               {canConfirm ? (
                 <Button
                   size="sm"
-                  onClick={() => confirmMutation.mutate(false)}
+                  onClick={() => confirmMutation.mutate({})}
                   disabled={confirmMutation.isPending}
                 >
                   {confirmMutation.isPending ? "Confirming..." : "Confirm"}
@@ -1823,6 +1838,17 @@ export function OrderDetail({
                 <CreateManufacturingOrdersDialog
                   salesOrderId={order.id}
                   initialOrder={order}
+                  openManufacturingOrders={order.linkedManufacturingOrders.map(
+                    (manufacturingOrder) => ({
+                      id: manufacturingOrder.id,
+                      orderNumber: manufacturingOrder.orderNumber,
+                      itemName: manufacturingOrder.productName,
+                      quantity: `${formatQuantity(manufacturingOrder.plannedQuantity)} ${manufacturingOrder.unitName}`,
+                      plannedDate: manufacturingOrder.plannedDate,
+                      priorityRank: manufacturingOrder.priorityRank,
+                      status: manufacturingOrder.status,
+                    })
+                  )}
                   buttonVariant="outline"
                 />
               ) : null}
@@ -2298,9 +2324,53 @@ export function OrderDetail({
             <AlertDialogCancel>Back</AlertDialogCancel>
             <AlertDialogAction
               disabled={confirmMutation.isPending}
-              onClick={() => confirmMutation.mutate(true)}
+              onClick={() => confirmMutation.mutate({ confirmOversell: true })}
             >
               {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={draftTakeoverWarning != null} onOpenChange={(open) => {
+        if (!open) {
+          setDraftTakeoverWarning(null);
+        }
+      }}>
+        <AlertDialogContent size="2xl" className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Take Draft Allocations?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirming this order will reduce stock allocated to draft orders.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-2 overflow-y-auto pr-1 text-sm">
+            {draftTakeoverWarning?.allocations.map((allocation) => (
+              <div
+                key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
+                className="flex justify-between gap-4 rounded-md border p-2"
+              >
+                <span>
+                  {allocation.orderNumber} · {allocation.customerName} ·{" "}
+                  {allocation.itemName}
+                </span>
+                <span className="font-medium">
+                  {allocation.quantity} {allocation.unitName}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmMutation.isPending}
+              onClick={() =>
+                confirmMutation.mutate({ confirmDraftAllocationTakeover: true })
+              }
+            >
+              {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

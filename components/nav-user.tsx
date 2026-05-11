@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import {
   Avatar,
   AvatarFallback,
@@ -12,6 +13,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -22,6 +26,7 @@ import {
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  CheckmarkCircle02Icon,
   UnfoldMoreIcon,
   LogoutIcon,
   Settings02Icon,
@@ -32,18 +37,28 @@ import { useRouter } from "next/navigation"
 
 export function NavUser({
   user,
+  activeOrganizationId,
   organizationName,
+  organizations,
 }: {
   user: {
     name: string
     email: string
     avatar?: string
   }
+  activeOrganizationId: string
   organizationName?: string
+  organizations: Array<{
+    id: string
+    name: string
+    slug: string | null
+  }>
 }) {
   const { isMobile } = useSidebar()
   const router = useRouter()
   const initials = getInitials(user.name)
+  const [switchingOrgId, setSwitchingOrgId] = useState<string | null>(null)
+  const [switchError, setSwitchError] = useState<string | null>(null)
 
   async function handleLogout() {
     const { error } = await authClient.signOut()
@@ -53,6 +68,27 @@ export function NavUser({
     }
 
     router.push("/sign-in")
+  }
+
+  async function handleSwitchOrganization(organizationId: string) {
+    if (organizationId === activeOrganizationId || switchingOrgId) {
+      return
+    }
+
+    setSwitchError(null)
+    setSwitchingOrgId(organizationId)
+    const { error } = await authClient.organization.setActive({
+      organizationId,
+    })
+
+    if (error) {
+      setSwitchError(error.message ?? "Failed to switch organization.")
+      setSwitchingOrgId(null)
+      return
+    }
+
+    router.refresh()
+    setSwitchingOrgId(null)
   }
 
   return (
@@ -96,6 +132,49 @@ export function NavUser({
               </div>
             </DropdownMenuLabel>
             <DropdownMenuGroup>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Switch org</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-60">
+                  {organizations.map((organization) => {
+                    const active = organization.id === activeOrganizationId
+                    return (
+                      <DropdownMenuItem
+                        key={organization.id}
+                        disabled={active || switchingOrgId != null}
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          void handleSwitchOrganization(organization.id)
+                        }}
+                        className="gap-2"
+                      >
+                        <div className="grid min-w-0 flex-1">
+                          <span className="truncate">{organization.name}</span>
+                          {organization.slug ? (
+                            <span className="truncate text-xs text-muted-foreground">
+                              {organization.slug}
+                            </span>
+                          ) : null}
+                        </div>
+                        {active ? (
+                          <HugeiconsIcon
+                            icon={CheckmarkCircle02Icon}
+                            strokeWidth={2}
+                            className="size-4"
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                  {switchError ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-xs font-normal text-destructive">
+                        {switchError}
+                      </DropdownMenuLabel>
+                    </>
+                  ) : null}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuItem onClick={() => router.push("/settings")}>
                   <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
                   Settings

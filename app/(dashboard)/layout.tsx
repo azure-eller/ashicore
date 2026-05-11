@@ -3,7 +3,10 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { Providers } from "@/app/providers";
 import { TimeZoneProvider } from "@/components/time-zone-provider";
-import { getAuthedMemberContext } from "@/lib/dal/auth";
+import {
+  getAuthedMemberContext,
+  getAuthedOrganizations,
+} from "@/lib/dal/auth";
 import {
   getRequestLogContext,
   logObservedEvent,
@@ -26,6 +29,7 @@ export default async function DashboardLayout({
   });
 
   const context = await getAuthedMemberContext();
+  const organizations = await getAuthedOrganizations();
   const user = {
     name: context.name,
     email: context.email,
@@ -39,7 +43,13 @@ export default async function DashboardLayout({
           <AppSidebar
             user={user}
             assignedRoles={context.assignedRoles}
+            activeOrganizationId={context.orgId}
             organizationName={context.organizationName}
+            organizations={organizations.map((organization) => ({
+              id: organization.id,
+              name: organization.name,
+              slug: organization.slug,
+            }))}
           />
           <SidebarInset>{children}</SidebarInset>
           <FeedbackWidget />

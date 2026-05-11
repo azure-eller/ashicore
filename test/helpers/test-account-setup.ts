@@ -61,12 +61,72 @@ async function authFetch(
 
 function extractCookies(res: Response): string {
   const cookies: string[] = [];
+  const headersWithSetCookie = res.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  const setCookieHeaders = headersWithSetCookie.getSetCookie?.() ?? [];
+
+  if (setCookieHeaders.length > 0) {
+    return setCookieHeaders.map((value) => value.split(";")[0]).join("; ");
+  }
+
   res.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie") {
       cookies.push(value.split(";")[0]);
     }
   });
   return cookies.join("; ");
+}
+
+function getSessionTokenFromCookies(cookies: string) {
+  const sessionCookie = cookies
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith("better-auth.session_token="));
+
+  if (!sessionCookie) {
+    return null;
+  }
+
+  const rawValue = sessionCookie.split("=").slice(1).join("=");
+  return decodeURIComponent(rawValue).split(".")[0] || null;
+}
+
+async function forceActiveOrganizationOnSession(
+  cookies: string,
+  organizationId: string
+) {
+  const connectionString = getOwnerConnectionString();
+  const sessionToken = getSessionTokenFromCookies(cookies);
+
+  if (!connectionString || !sessionToken) {
+    return false;
+  }
+
+  const client = new Client({ connectionString });
+  await client.connect();
+
+  try {
+    const result = await client.query(
+      'UPDATE system."session" SET active_organization_id = $1, updated_at = NOW() WHERE token = $2',
+      [organizationId, sessionToken]
+    );
+    return (result.rowCount ?? 0) > 0;
+  } finally {
+    await client.end();
+  }
+}
+
+async function getActiveOrganizationId(baseUrl: string, cookies: string) {
+  const sessionRes = await fetchWithCookies(
+    baseUrl,
+    "/api/auth/get-session",
+    cookies
+  );
+  const sessionData = await sessionRes.json().catch(() => null);
+  return typeof sessionData?.session?.activeOrganizationId === "string"
+    ? sessionData.session.activeOrganizationId
+    : null;
 }
 
 async function fetchWithCookies(
@@ -232,7 +292,22 @@ async function setActiveOrganization(
       body: JSON.stringify({ organizationId }),
     }
   );
-  return extractCookies(setOrgRes) || cookies;
+  const updatedCookies = extractCookies(setOrgRes) || cookies;
+
+  if ((await getActiveOrganizationId(baseUrl, updatedCookies)) === organizationId) {
+    return updatedCookies;
+  }
+
+  if (await forceActiveOrganizationOnSession(updatedCookies, organizationId)) {
+    if ((await getActiveOrganizationId(baseUrl, updatedCookies)) === organizationId) {
+      return updatedCookies;
+    }
+  }
+
+  const body = await setOrgRes.text().catch(() => "");
+  throw new Error(
+    `Failed to activate test organization. Status: ${setOrgRes.status}, Body: ${body}`
+  );
 }
 
 async function createDefaultUnit(baseUrl: string, cookies: string) {

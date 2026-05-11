@@ -303,6 +303,14 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
     .array(z.string().uuid("Sales order line is required"))
     .min(1, "Select at least one manufacturing order to create"),
   priorityRank: priorityRankSchema,
+  lineQuantities: z
+    .array(
+      z.object({
+        salesOrderLineId: z.string().uuid("Sales order line is required"),
+        quantity: positiveDecimalString("Quantity"),
+      })
+    )
+    .optional(),
   notes: nullableString,
 });
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<

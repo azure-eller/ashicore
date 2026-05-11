@@ -15,9 +15,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const data = confirmSalesOrderSchema.parse(body);
 
   try {
-    const order = await confirmSalesOrder(id, data.confirmOversell === true, {
-      idempotencyKey,
-    });
+    const order = await confirmSalesOrder(id, data, { idempotencyKey });
 
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });

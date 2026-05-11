@@ -53,7 +53,7 @@ function formatFieldErrors(errors: Record<string, string[]>) {
     .join("; ");
 }
 
-function getErrorMessage(body: unknown, fallback: string) {
+export function getApiErrorMessage(body: unknown, fallback: string) {
   if (isApiErrorBody(body)) {
     if (typeof body.error === "string" && body.error.trim() !== "") {
       return body.error;
@@ -150,7 +150,7 @@ export async function apiJson<T>(
     }
 
     throw new ApiJsonError(
-      getErrorMessage(responseBody, fallbackError),
+      getApiErrorMessage(responseBody, fallbackError),
       response.status,
       responseBody
     );

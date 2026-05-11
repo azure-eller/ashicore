@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiJson } from "@/lib/client/api";
+import { apiJson, getApiErrorMessage } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type {
+  DraftAllocationTakeoverWarningPayload,
   OversellWarningPayload,
   SalesOrderListRow,
 } from "./types";
@@ -30,6 +31,7 @@ type ActionError = Error & {
   status: number;
   error: string;
   oversell?: OversellWarningPayload;
+  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
 };
 
 type Props = {
@@ -38,6 +40,7 @@ type Props = {
     | "id"
     | "status"
     | "hasManufacturableLines"
+    | "fulfillmentSummary"
     | "shippingReadiness"
   >;
 };
@@ -48,6 +51,8 @@ export function SoStageAction({ order }: Props) {
   const [actionError, setActionError] = useState<ActionError | null>(null);
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
+  const [draftTakeoverWarning, setDraftTakeoverWarning] =
+    useState<DraftAllocationTakeoverWarningPayload | null>(null);
 
   const refreshSalesList = async () => {
     await Promise.all([
@@ -58,22 +63,30 @@ export function SoStageAction({ order }: Props) {
   };
 
   const confirmMutation = useMutation({
-    mutationFn: async (confirmOversell: boolean) => {
+    mutationFn: async (flags: {
+      confirmOversell?: boolean;
+      confirmDraftAllocationTakeover?: boolean;
+    }) => {
       await apiJson<void>(`/api/sales-orders/${order.id}/confirm`, {
         method: "POST",
         idempotencyKey: `sales-order-confirm-${order.id}`,
-        body: { confirmOversell },
+        body: flags,
         fallbackError: "Failed to confirm order.",
         mapError: (status, body) => {
-          const payload = body as { error?: unknown; oversell?: OversellWarningPayload } | null;
+          const payload = body as
+            | {
+                error?: unknown;
+                oversell?: OversellWarningPayload;
+                draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
+              }
+            | null;
           const message =
-            typeof payload?.error === "string"
-              ? payload.error
-              : "Failed to confirm order.";
+            getApiErrorMessage(payload, "Failed to confirm order.");
           return Object.assign(new Error(message), {
             status,
             error: message,
             oversell: payload?.oversell,
+            draftAllocationTakeover: payload?.draftAllocationTakeover,
           } satisfies Omit<ActionError, keyof Error>);
         },
       });
@@ -81,6 +94,7 @@ export function SoStageAction({ order }: Props) {
     onMutate: () => {
       setActionError(null);
       setOversellWarning(null);
+      setDraftTakeoverWarning(null);
     },
     onSuccess: async () => {
       await refreshSalesList();
@@ -88,6 +102,10 @@ export function SoStageAction({ order }: Props) {
     onError: (error: ActionError) => {
       if (error.status === 409 && error.oversell) {
         setOversellWarning(error.oversell);
+        return;
+      }
+      if (error.status === 409 && error.draftAllocationTakeover) {
+        setDraftTakeoverWarning(error.draftAllocationTakeover);
         return;
       }
 
@@ -107,7 +125,7 @@ export function SoStageAction({ order }: Props) {
               disabled={confirmMutation.isPending}
               onClick={(event) => {
                 event.stopPropagation();
-                confirmMutation.mutate(false);
+                confirmMutation.mutate({});
               }}
             >
               {confirmMutation.isPending ? "Confirming..." : "Confirm"}
@@ -147,9 +165,56 @@ export function SoStageAction({ order }: Props) {
               <AlertDialogCancel>Back</AlertDialogCancel>
               <AlertDialogAction
                 disabled={confirmMutation.isPending}
-                onClick={() => confirmMutation.mutate(true)}
+                onClick={() =>
+                  confirmMutation.mutate({ confirmOversell: true })
+                }
               >
                 {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog
+          open={draftTakeoverWarning != null}
+          onOpenChange={(open) => {
+            if (!open) setDraftTakeoverWarning(null);
+          }}
+        >
+          <AlertDialogContent
+            size="2xl"
+            className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Take Draft Allocations?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Confirming this order will reduce stock allocated to draft orders.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2 text-sm">
+              {draftTakeoverWarning?.allocations.map((allocation) => (
+                <div
+                  key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
+                  className="flex justify-between gap-4 rounded-md border p-2"
+                >
+                  <span>
+                    {allocation.orderNumber} · {allocation.customerName} ·{" "}
+                    {allocation.itemName}
+                  </span>
+                  <span className="font-medium">
+                    {allocation.quantity} {allocation.unitName}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Back</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={confirmMutation.isPending}
+                onClick={() =>
+                  confirmMutation.mutate({ confirmDraftAllocationTakeover: true })
+                }
+              >
+                {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -159,7 +224,10 @@ export function SoStageAction({ order }: Props) {
   }
 
   if (order.status === "confirmed" || order.status === "partially_shipped") {
-    if (!order.hasManufacturableLines) {
+    if (
+      !order.hasManufacturableLines ||
+      Number(order.fulfillmentSummary.shortQty) <= 0
+    ) {
       return null;
     }
 

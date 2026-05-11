@@ -1,6 +1,9 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  inventoryItemBalances,
+  inventoryLocations,
+  inventoryLotBalances,
   inventoryReservationsSummary,
   items,
   manufacturingOrders,
@@ -10,10 +13,6 @@ import {
 import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
 import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
-import {
-  projectedCommittedQtyExpr,
-  projectedReservableOnHandQtyExpr,
-} from "@/lib/inventory/kernel/read";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
@@ -160,16 +159,51 @@ export async function getSalesOrderManufacturingSummariesInTx(
       variantAttrs: items.variantAttrs,
       masterName: masterItems.name,
       masterVariantAxes: masterItems.variantAxes,
-      committedQty: trimScale(
-        projectedCommittedQtyExpr(items.organizationId, items.id)
-      ).as("committedQty"),
-      reservableOnHandQty: trimScale(
-        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-      ).as("reservableOnHandQty"),
     })
     .from(items)
     .leftJoin(masterItems, eq(items.parentId, masterItems.id))
     .where(inArray(items.id, itemIds));
+
+  const [defaultLocation] = await tx
+    .select({ id: inventoryLocations.id })
+    .from(inventoryLocations)
+    .where(and(eq(inventoryLocations.isDefault, true), isNull(inventoryLocations.deletedAt)))
+    .limit(1);
+
+  const itemBalanceRows = defaultLocation
+    ? await tx
+        .select({
+          itemId: inventoryItemBalances.itemId,
+          committedQty: trimScale(inventoryItemBalances.committedQty).as("committedQty"),
+        })
+        .from(inventoryItemBalances)
+        .where(
+          and(
+            eq(inventoryItemBalances.locationId, defaultLocation.id),
+            inArray(inventoryItemBalances.itemId, itemIds)
+          )
+        )
+    : [];
+
+  const reservableRows = defaultLocation
+    ? await tx
+        .select({
+          itemId: inventoryLotBalances.itemId,
+          reservableOnHandQty: trimScale(
+            sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`
+          ).as("reservableOnHandQty"),
+        })
+        .from(inventoryLotBalances)
+        .where(
+          and(
+            eq(inventoryLotBalances.locationId, defaultLocation.id),
+            inArray(inventoryLotBalances.itemId, itemIds),
+            eq(inventoryLotBalances.disposition, "available"),
+            sql`${inventoryLotBalances.quantity} > 0`
+          )
+        )
+        .groupBy(inventoryLotBalances.itemId)
+    : [];
 
   const itemById = new Map(
     itemRows.map((row) => [row.id, row])
@@ -228,10 +262,10 @@ export async function getSalesOrderManufacturingSummariesInTx(
       .filter((value): value is string => value != null)
   );
   const committedStockByItemId = new Map(
-    itemRows.map((row) => [row.id, Number(row.committedQty)])
+    itemBalanceRows.map((row) => [row.itemId, Number(row.committedQty)])
   );
   const reservableStockByItemId = new Map(
-    itemRows.map((row) => [row.id, Number(row.reservableOnHandQty)])
+    reservableRows.map((row) => [row.itemId, Number(row.reservableOnHandQty)])
   );
   const selectedReservationsByItem = new Map<string, number>();
   reservationRows.forEach((row) => {

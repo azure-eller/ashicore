@@ -284,6 +284,21 @@ export const SALES_ORDER_DATE_TOOLTIP =
 export const SALES_LINE_QTY_TOOLTIP =
   "Quantity requested by the sales line.";
 
+export const SALES_LINE_DEMAND_TOOLTIP =
+  "Total quantity requested by this sales line.";
+
+export const SALES_LINE_AVAILABLE_TOOLTIP =
+  "Usable stock available for this sales line.";
+
+export const SALES_LINE_CAN_MAKE_TOOLTIP =
+  "Quantity that can be made from available inputs.";
+
+export const SALES_LINE_ALLOCATION_TOOLTIP =
+  "Sources currently covering this sales line.";
+
+export const SALES_LINE_SHORT_TOOLTIP =
+  "Remaining quantity not covered by allocation.";
+
 export const SALES_UNIT_PRICE_TOOLTIP =
   "Price charged per sales unit.";
 

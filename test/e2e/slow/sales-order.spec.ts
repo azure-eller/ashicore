@@ -716,6 +716,7 @@ test.describe("Sales order flow", () => {
       .toBe("0.0000");
 
     await page.goto("/sales/orders");
+    await page.getByRole("radio", { name: "Show Cancelled status" }).click();
     await filterList(page, "Search orders", bulkOrder.orderNumber);
     const confirmedBulkRow = page.getByRole("row", {
       name: new RegExp(bulkOrder.orderNumber),
@@ -891,8 +892,9 @@ test.describe("Sales order flow", () => {
     expect(afterPrimaryBalance.committedQty).toBe(beforePrimaryBalance.committedQty);
   });
 
-  test("confirmed manufacturable orders show Create MOs from detail and the orders table", async ({
+  test("confirmed manufacturable orders show Create MOs when allocation is short", async ({
     page,
+    db,
   }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
@@ -906,11 +908,40 @@ test.describe("Sales order flow", () => {
     ).toBeVisible();
     await page.keyboard.press("Escape");
 
+    const shortOrderId = await createDraftSalesOrder({
+      customerId,
+      requestedDate: "2026-04-22",
+      notes: "Short manufacturing action coverage",
+      lines: [
+        {
+          itemId: primaryProductId,
+          quantity: "20",
+          unitPrice: "34.99",
+        },
+      ],
+    });
+
+    const confirmResponse = await testFetch(`/api/sales-orders/${shortOrderId}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ confirmOversell: true }),
+    });
+    expect(confirmResponse.status).toBe(200);
+
+    const [shortOrder] = await db
+      .select({
+        orderNumber: salesOrders.orderNumber,
+        status: salesOrders.status,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, shortOrderId));
+    expect(shortOrder.status).toBe("confirmed");
+
     await page.goto("/sales/orders");
-    await filterList(page, "Search orders", fullOrderNumber);
+    await page.getByRole("radio", { name: "Show Confirmed status" }).click();
+    await filterList(page, "Search orders", shortOrder.orderNumber);
 
     const confirmedRow = page.getByRole("row", {
-      name: new RegExp(fullOrderNumber),
+      name: new RegExp(shortOrder.orderNumber),
     });
     await expect(
       confirmedRow.getByRole("button", { name: "Create MOs" })
@@ -921,8 +952,11 @@ test.describe("Sales order flow", () => {
     });
     await expect(createMoDialog).toBeVisible();
     await expect(
-      createMoDialog.getByText(new RegExp(`^${fullOrderNumber} -`))
+      createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
     ).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await updateSalesOrderStatus(shortOrderId, "cancelled");
   });
 
   test("confirmed non-manufacturable orders do not show production actions", async ({
@@ -1037,6 +1071,7 @@ test.describe("Sales order flow", () => {
     expect(primaryMaterial.committedQty).toBe("0.0000");
 
     await page.goto("/sales/orders");
+    await page.getByRole("radio", { name: "Show Cancelled status" }).click();
     await filterList(page, "Search orders", fullOrderNumber);
     const cancelledRow = page.getByRole("row", { name: new RegExp(fullOrderNumber) });
     await expect(cancelledRow).toContainText("Cancelled");
@@ -1251,6 +1286,7 @@ test.describe("Sales order flow", () => {
 
     await page.goto("/sales/orders");
     const shippedOrderRow = shipOrderBeforeUi;
+    await page.getByRole("radio", { name: "Show Shipped status" }).click();
     await filterList(page, "Search orders", shippedOrderRow.orderNumber);
     const shippedRow = page.getByRole("row", {
       name: new RegExp(shippedOrderRow.orderNumber),
@@ -1412,14 +1448,16 @@ test.describe("Sales order flow", () => {
 
     await page.getByRole("button", { name: "Create Order" }).click();
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
+    guardOrderId = page.url().split("/").pop()!;
 
-    const guardOrderRows = await db
+    const [guardOrder] = await db
       .select()
       .from(salesOrders)
-      .where(eq(salesOrders.customerId, customerId));
-    const activeOrder = guardOrderRows.find((row) => row.deletedAt == null);
-    expect(activeOrder).toBeTruthy();
-    guardOrderId = activeOrder!.id;
+      .where(eq(salesOrders.id, guardOrderId));
+    expect(guardOrder).toBeTruthy();
+    expect(guardOrder.customerId).toBe(customerId);
+    expect(guardOrder.status).toBe("draft");
+    expect(guardOrder.deletedAt).toBeNull();
 
     await page.goto(`/sales/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();

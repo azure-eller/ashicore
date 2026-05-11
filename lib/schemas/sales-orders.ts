@@ -146,7 +146,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   shipDate: nullableString.refine((value) => {
     if (value == null) return true;
     return isValidIsoDate(value);
-  }, "Ship date must be a real date in YYYY-MM-DD format"),
+  }, "Shipping date must be a real date in YYYY-MM-DD format"),
   notes: nullableString,
   shipLine1: nullableString,
   shipLine2: nullableString,
@@ -181,14 +181,6 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.status === "confirmed" && !values.shipDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Ship date is required to confirm a sales order",
-        path: ["shipDate"],
-      });
-    }
-
     if (
       values.shipDate &&
       values.requestedDate &&
@@ -196,7 +188,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Delivery date cannot be before ship date",
+        message: "Delivery date cannot be before shipping date",
         path: ["requestedDate"],
       });
     }
@@ -218,14 +210,41 @@ export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
 export const confirmSalesOrderSchema = z.object({
   confirmOversell: z.boolean().optional(),
+  confirmDraftAllocationTakeover: z.boolean().optional(),
 });
 export type ConfirmSalesOrder = z.infer<typeof confirmSalesOrderSchema>;
 
 export const bulkConfirmSalesOrdersSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
   confirmOversell: z.boolean().optional(),
+  confirmDraftAllocationTakeover: z.boolean().optional(),
 });
 export type BulkConfirmSalesOrders = z.infer<typeof bulkConfirmSalesOrdersSchema>;
+
+export const saveSalesLineAllocationSchema = z.object({
+  allocations: z
+    .array(
+      z.object({
+        sourceType: z.enum(["stock_pool", "manufacturing_order"]),
+        sourceId: z
+          .string()
+          .uuid("Select a valid source")
+          .nullable()
+          .optional()
+          .transform((value) => value ?? null),
+        quantity: z
+          .string()
+          .trim()
+          .min(1, "Quantity is required")
+          .refine((value) => {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) && parsed > 0;
+          }, "Quantity must be greater than 0"),
+      })
+    )
+    .default([]),
+});
+export type SaveSalesLineAllocation = z.infer<typeof saveSalesLineAllocationSchema>;
 
 const rawShipmentLineSchema = z.object({
   salesOrderLineId: z.string().min(1, "Line is required"),

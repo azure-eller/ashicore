@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -19,7 +19,7 @@ import {
   type ModuleKey,
 } from "@/lib/authz";
 import { db } from "@/lib/db";
-import { member } from "@/lib/db/schema";
+import { member, organization } from "@/lib/db/schema";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 
@@ -159,6 +159,25 @@ export async function getAuthedMemberContext(): Promise<MemberContext> {
 export async function getAuthedContext() {
   const { orgId, userId } = await getAuthedMemberContext();
   return { orgId, userId };
+}
+
+export async function getAuthedOrganizations() {
+  const { session } = await getRequestAuthState();
+
+  if (!session) {
+    return [];
+  }
+
+  return db
+    .select({
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+    })
+    .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .where(eq(member.userId, session.user.id))
+    .orderBy(asc(organization.name), asc(organization.slug));
 }
 
 export async function getAuthedApiMemberContext(

@@ -83,6 +83,156 @@ export async function reserveForSalesInTx(
   return result;
 }
 
+export async function recordSalesDemandAndReservationsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    salesOrderId: string;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    demandLines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      quantity: number;
+    }>;
+    reservationLines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      quantity: number;
+    }>;
+  }
+) {
+  const replay = await beginInventoryOperationInTx<{ referenceIds: string[] }>(tx, {
+    organizationId: params.organizationId,
+    operationName: "recordSalesDemandAndReservations",
+    idempotencyKey: params.idempotencyKey ?? null,
+    payload: {
+      salesOrderId: params.salesOrderId,
+      demandLines: params.demandLines,
+      reservationLines: params.reservationLines,
+    },
+  });
+
+  if (replay.replayed) {
+    return replay.result;
+  }
+
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const demandEvents = await applyDemandReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    idempotencyKey: params.idempotencyKey ?? null,
+    eventSubtype: "sales_confirm",
+    deltas: params.demandLines.map((line) => ({
+      itemId: line.itemId,
+      referenceType: "sales_order_line",
+      referenceId: line.salesOrderLineId,
+      quantity: line.quantity,
+    })),
+  });
+  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: "sales_confirm",
+    deltas: params.reservationLines.map((line) => ({
+      itemId: line.itemId,
+      referenceType: "sales_order_line",
+      referenceId: line.salesOrderLineId,
+      quantity: line.quantity,
+    })),
+  });
+
+  const result = {
+    referenceIds: [
+      ...new Set([
+        ...params.demandLines.map((line) => line.salesOrderLineId),
+        ...params.reservationLines.map((line) => line.salesOrderLineId),
+      ]),
+    ],
+  };
+
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
+    result,
+  });
+
+  return result;
+}
+
+export async function setSalesLineStockReservationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    salesOrderLineId: string;
+    itemId: string;
+    quantity: number;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    eventSubtype?: "sales_confirm" | "sales_allocation";
+  }
+) {
+  const replay = await beginInventoryOperationInTx<{ referenceIds: string[] }>(tx, {
+    organizationId: params.organizationId,
+    operationName: "setSalesLineStockReservation",
+    idempotencyKey: params.idempotencyKey ?? null,
+    payload: {
+      salesOrderLineId: params.salesOrderLineId,
+      itemId: params.itemId,
+      quantity: params.quantity,
+    },
+  });
+
+  if (replay.replayed) {
+    return replay.result;
+  }
+
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const [existingReservation] = await tx
+    .select({ quantity: inventoryReservationsSummary.quantity })
+    .from(inventoryReservationsSummary)
+    .where(
+      and(
+        eq(inventoryReservationsSummary.organizationId, params.organizationId),
+        eq(inventoryReservationsSummary.locationId, location.id),
+        eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+        eq(inventoryReservationsSummary.referenceId, params.salesOrderLineId)
+      )
+    );
+  const currentQty = parseFloat(existingReservation?.quantity ?? "0");
+  const deltaQty = roundQuantity(params.quantity - currentQty);
+  const reservationEvents =
+    deltaQty === 0
+      ? []
+      : await applyReservationReferenceDeltasInTx(tx, {
+          organizationId: params.organizationId,
+          locationId: location.id,
+          actorUserId: params.actorUserId ?? null,
+          eventSubtype: params.eventSubtype ?? "sales_allocation",
+          deltas: [
+            {
+              itemId: params.itemId,
+              referenceType: "sales_order_line",
+              referenceId: params.salesOrderLineId,
+              quantity: deltaQty,
+            },
+          ],
+        });
+
+  const result = { referenceIds: [params.salesOrderLineId] };
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    firstEventId: reservationEvents[0]?.id ?? null,
+    result,
+  });
+
+  return result;
+}
+
 export async function releaseReservationForSalesLineInTx(
   tx: Tx,
   params: {

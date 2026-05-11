@@ -2341,7 +2341,7 @@ export async function getManufacturingSalesOrderOptions(): Promise<
       .where(
         and(
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["confirmed", "partially_shipped"])
+          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
         )
       )
       .orderBy(desc(salesOrders.createdAt));
@@ -2390,7 +2390,7 @@ export async function getManufacturingSalesOrderPreview(
         and(
           eq(salesOrders.id, id),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["confirmed", "partially_shipped"])
+          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
         )
       );
 
@@ -2840,9 +2840,9 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     throw new ManufacturingError("Sales order not found", 404);
   }
 
-  if (!["confirmed", "partially_shipped"].includes(order.status)) {
+  if (!["draft", "confirmed", "partially_shipped"].includes(order.status)) {
     throw new ManufacturingError(
-      "Only confirmed or partially shipped sales orders can create manufacturing orders",
+      "Only draft, confirmed, or partially shipped sales orders can create manufacturing orders",
       400
     );
   }
@@ -2860,6 +2860,12 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
 
   const plannedDate = payload.plannedDate ?? order.shipDate ?? order.requestedDate ?? null;
   const selectedLineIds = new Set(payload.salesOrderLineIds);
+  const quantityByLineId = new Map(
+    payload.lineQuantities?.map((lineQuantity) => [
+      lineQuantity.salesOrderLineId,
+      lineQuantity.quantity,
+    ]) ?? []
+  );
   const created: ManufacturingOrdersFromSalesOrderResult["created"] = [];
   const skipped: ManufacturingOrdersFromSalesOrderResult["skipped"] = [];
   const summaryLineById = new Map(
@@ -2873,6 +2879,17 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
   if (invalidLine) {
     throw new ManufacturingError(
       "Selected manufacturing orders changed. Refresh and try again.",
+      409
+    );
+  }
+
+  const invalidQuantityLine = [...quantityByLineId.keys()].find(
+    (lineId) => !selectedLineIds.has(lineId)
+  );
+
+  if (invalidQuantityLine) {
+    throw new ManufacturingError(
+      "Manufacturing quantity changed. Refresh and try again.",
       409
     );
   }
@@ -2891,8 +2908,9 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     }
 
     const product = await getValidatedProductInTx(tx, line.itemId);
+    const requestedQuantity = quantityByLineId.get(line.salesOrderLineId) ?? line.quantity;
     const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
-      computeBatchPlanning(product, Number(line.quantity));
+      computeBatchPlanning(product, Number(requestedQuantity));
     const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
       tx,
       line.itemId,
@@ -2911,7 +2929,7 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
         salesOrderNumber: order.orderNumber,
         customerName: order.customerName,
       },
-      requestedQuantity: line.quantity,
+      requestedQuantity,
       plannedQuantity,
       numberOfBatches,
       priorityRank,

@@ -38,13 +38,21 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
     email: string
     avatar?: string
   }
+  activeOrganizationId: string
   organizationName: string
+  organizations: Array<{
+    id: string
+    name: string
+    slug: string | null
+  }>
   assignedRoles: string[]
 }
 
 export function AppSidebar({
   user,
+  activeOrganizationId,
   organizationName,
+  organizations,
   assignedRoles,
   ...props
 }: AppSidebarProps) {
@@ -136,7 +144,12 @@ export function AppSidebar({
       <SidebarHeader>
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <NavUser user={user} organizationName={organizationName} />
+            <NavUser
+              user={user}
+              activeOrganizationId={activeOrganizationId}
+              organizationName={organizationName}
+              organizations={organizations}
+            />
           </div>
           <SidebarTrigger className="size-8 shrink-0 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden" />
         </div>

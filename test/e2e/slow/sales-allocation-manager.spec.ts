@@ -1,0 +1,696 @@
+import { asc, eq, sql } from "drizzle-orm";
+import type { Locator, Page } from "@playwright/test";
+import { test, expect, filterList } from "../fixtures";
+import {
+  inventoryDemandSummary,
+  inventoryItemBalances,
+  inventoryReservationsSummary,
+  manufacturingOrders,
+  salesOrderAllocations,
+  salesOrderLines,
+  salesOrders,
+} from "../../../lib/db/schema";
+import {
+  createCustomer,
+  createItem,
+  createManufacturingOrder,
+  createSalesOrder,
+  getUnitId,
+  testFetch,
+} from "../../helpers/api";
+import type { TestDb } from "../fixtures";
+
+function unique(prefix: string) {
+  return `${prefix} ${Date.now()} ${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sku(prefix: string) {
+  return unique(prefix).toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 48);
+}
+
+async function dragToCenter(page: Page, source: Locator, target: Locator) {
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+
+  if (!sourceBox || !targetBox) {
+    throw new Error("Could not resolve drag source or target bounds.");
+  }
+
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2
+  );
+  await page.waitForTimeout(75);
+  await page.mouse.down();
+  await page.waitForTimeout(75);
+  await page.mouse.move(
+    (sourceBox.x + sourceBox.width / 2 + targetBox.x + targetBox.width / 2) / 2,
+    (sourceBox.y + sourceBox.height / 2 + targetBox.y + targetBox.height / 2) / 2,
+    { steps: 12 }
+  );
+  await page.waitForTimeout(75);
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    { steps: 24 }
+  );
+  await page.waitForTimeout(75);
+  await page.mouse.up();
+}
+
+async function createCustomerFixture(namePrefix: string) {
+  const result = await createCustomer({ name: unique(namePrefix) });
+  expect(result.status).toBe(201);
+  return result.body.id as string;
+}
+
+async function createMaterialFixture(params: {
+  namePrefix: string;
+  stock: string;
+  sellingPrice?: string | null;
+}) {
+  const name = unique(params.namePrefix);
+  const result = await createItem({
+    name,
+    itemType: "material",
+    unitDefinitionId: getUnitId(),
+    sku: sku(params.namePrefix),
+    category: "Slow allocation manager",
+    description: null,
+    defaultPurchasePrice: "1",
+    defaultSellingPrice: params.sellingPrice ?? "10",
+    stock: params.stock,
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(result.status).toBe(201);
+  return { id: result.body.id as string, name };
+}
+
+async function createProductFixture(params: {
+  productPrefix: string;
+  componentPrefix: string;
+  stock: string;
+  componentStock: string;
+}) {
+  const component = await createMaterialFixture({
+    namePrefix: params.componentPrefix,
+    stock: params.componentStock,
+    sellingPrice: null,
+  });
+  const productName = unique(params.productPrefix);
+  const productResult = await createItem({
+    name: productName,
+    itemType: "product",
+    unitDefinitionId: getUnitId(),
+    sku: sku(params.productPrefix),
+    category: "Slow allocation manager",
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "20",
+    stock: params.stock,
+    safetyStock: "0",
+    bom: [{ componentId: component.id, quantity: "1" }],
+  });
+  expect(productResult.status).toBe(201);
+  return {
+    productId: productResult.body.id as string,
+    productName,
+    componentId: component.id,
+  };
+}
+
+async function createDraftOrder(params: {
+  customerId: string;
+  itemId: string;
+  quantity: string;
+  shipDate?: string | null;
+}) {
+  const result = await createSalesOrder({
+    customerId: params.customerId,
+    status: "draft",
+    shipDate: params.shipDate ?? "2026-05-20",
+    lines: [{ itemId: params.itemId, quantity: params.quantity, unitPrice: "10" }],
+  });
+  expect(result.status).toBe(201);
+  return result.body.id as string;
+}
+
+async function getOrderNumber(db: TestDb, orderId: string) {
+  const [order] = await db
+    .select({ orderNumber: salesOrders.orderNumber })
+    .from(salesOrders)
+    .where(eq(salesOrders.id, orderId));
+
+  expect(order?.orderNumber).toBeTruthy();
+  return order.orderNumber;
+}
+
+async function getLine(db: TestDb, orderId: string) {
+  const [line] = await db
+    .select({
+      id: salesOrderLines.id,
+      allocationManagedAt: salesOrderLines.allocationManagedAt,
+    })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, orderId))
+    .orderBy(asc(salesOrderLines.sortOrder));
+
+  expect(line?.id).toBeTruthy();
+  return line;
+}
+
+async function getActiveAllocations(db: TestDb, salesOrderLineId: string) {
+  return db
+    .select({
+      sourceType: salesOrderAllocations.sourceType,
+      sourceId: salesOrderAllocations.sourceId,
+      quantity: salesOrderAllocations.quantity,
+      status: salesOrderAllocations.status,
+    })
+    .from(salesOrderAllocations)
+    .where(eq(salesOrderAllocations.salesOrderLineId, salesOrderLineId))
+    .orderBy(asc(salesOrderAllocations.createdAt));
+}
+
+async function getItemBalance(db: TestDb, itemId: string) {
+  const [balance] = await db
+    .select({
+      onHandQty: inventoryItemBalances.onHandQty,
+      committedQty: inventoryItemBalances.committedQty,
+      demandQty: inventoryItemBalances.demandQty,
+      shortageQty: inventoryItemBalances.shortageQty,
+    })
+    .from(inventoryItemBalances)
+    .where(eq(inventoryItemBalances.itemId, itemId));
+
+  expect(balance).toBeTruthy();
+  return balance;
+}
+
+async function getReservationTotal(db: TestDb, itemId: string) {
+  const [row] = await db
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryReservationsSummary.quantity}), 0)`,
+    })
+    .from(inventoryReservationsSummary)
+    .where(eq(inventoryReservationsSummary.itemId, itemId));
+
+  return row?.quantity ?? "0";
+}
+
+async function getDemandTotal(db: TestDb, itemId: string) {
+  const [row] = await db
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)`,
+    })
+    .from(inventoryDemandSummary)
+    .where(eq(inventoryDemandSummary.itemId, itemId));
+
+  return row?.quantity ?? "0";
+}
+
+async function confirmOrder(
+  orderId: string,
+  options?: {
+    confirmOversell?: boolean;
+    confirmDraftAllocationTakeover?: boolean;
+  }
+) {
+  const response = await testFetch(`/api/sales-orders/${orderId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({
+      confirmOversell: options?.confirmOversell ?? false,
+      confirmDraftAllocationTakeover:
+        options?.confirmDraftAllocationTakeover ?? false,
+    }),
+  });
+  const body = await response.json().catch(() => null);
+  return { status: response.status, body };
+}
+
+async function openAllocationManager(params: {
+  page: Page;
+  orderNumber: string;
+  itemName: string;
+}) {
+  const { page, orderNumber, itemName } = params;
+
+  await page.goto("/sales/orders");
+  await page.getByRole("radio", { name: "Show Draft status" }).click();
+  await filterList(page, "Search orders", orderNumber);
+  const orderRow = page.getByRole("row", { name: new RegExp(orderNumber) });
+  await orderRow.getByRole("button", { name: "Expand order" }).click();
+
+  const expandedLine = page
+    .getByRole("row", { name: new RegExp(itemName) })
+    .last();
+  await expandedLine.getByRole("button", { name: new RegExp(itemName) }).click();
+
+  const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
+  await expect(sheet).toBeVisible();
+  return sheet;
+}
+
+async function saveAllocation(page: Page) {
+  await expect(page.getByRole("button", { name: "Save allocation" })).toBeEnabled();
+  await page.getByRole("button", { name: "Save allocation" }).click();
+  await expect(page.getByRole("button", { name: "Saving..." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save allocation" })).toBeDisabled({
+    timeout: 30_000,
+  });
+}
+
+test.describe("Sales allocation manager slow flow", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("moves draft stock promises between order buckets and confirms only allocated stock", async ({
+    page,
+    db,
+  }) => {
+    const customerId = await createCustomerFixture("Slow allocation stock customer");
+    const item = await createMaterialFixture({
+      namePrefix: "Slow allocation stock item",
+      stock: "10",
+    });
+    const currentOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "6",
+      shipDate: "2026-05-20",
+    });
+    const competingOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "5",
+      shipDate: "2026-05-21",
+    });
+    const currentOrderNumber = await getOrderNumber(db, currentOrderId);
+    const competingOrderNumber = await getOrderNumber(db, competingOrderId);
+
+    const sheet = await openAllocationManager({
+      page,
+      orderNumber: currentOrderNumber,
+      itemName: item.name,
+    });
+    const currentBucket = sheet.getByTestId("current-allocation-bucket");
+    const competingBucket = sheet
+      .getByTestId("readonly-allocation-bucket")
+      .filter({ hasText: competingOrderNumber });
+
+    await sheet.getByRole("button", { name: "Allocate all from Stock" }).click();
+    await expect(currentBucket).toContainText("Allocated6");
+    await expect(currentBucket).toContainText("Short—");
+
+    await dragToCenter(
+      page,
+      currentBucket.getByLabel("Move 6 from Stock"),
+      competingBucket
+    );
+    await expect(currentBucket).toContainText("Allocated1");
+    await expect(currentBucket).toContainText("Short5");
+    await expect(competingBucket).toContainText("Allocated5");
+    await expect(competingBucket).toContainText("Short—");
+
+    await saveAllocation(page);
+
+    const currentLine = await getLine(db, currentOrderId);
+    const competingLine = await getLine(db, competingOrderId);
+
+    await expect
+      .poll(async () => {
+        const refreshedCurrentLine = await getLine(db, currentOrderId);
+        const refreshedCompetingLine = await getLine(db, competingOrderId);
+        const currentAllocations = await getActiveAllocations(db, currentLine.id);
+        const competingAllocations = await getActiveAllocations(db, competingLine.id);
+        return {
+          currentManaged: refreshedCurrentLine.allocationManagedAt != null,
+          competingManaged: refreshedCompetingLine.allocationManagedAt != null,
+          current: currentAllocations
+            .filter((row) => row.status === "active")
+            .map((row) => `${row.sourceType}:${row.quantity}`),
+          competing: competingAllocations
+            .filter((row) => row.status === "active")
+            .map((row) => `${row.sourceType}:${row.quantity}`),
+        };
+      })
+      .toEqual({
+        currentManaged: true,
+        competingManaged: true,
+        current: ["stock_pool:1.0000"],
+        competing: ["stock_pool:5.0000"],
+      });
+
+    const draftBalance = await getItemBalance(db, item.id);
+    expect(draftBalance.committedQty).toBe("0.0000");
+    expect(draftBalance.demandQty).toBe("0.0000");
+    expect(await getReservationTotal(db, item.id)).toBe("0");
+    expect(await getDemandTotal(db, item.id)).toBe("0");
+
+    expect((await confirmOrder(competingOrderId)).status).toBe(200);
+    expect((await confirmOrder(currentOrderId)).status).toBe(200);
+
+    await expect
+      .poll(async () => {
+        const balance = await getItemBalance(db, item.id);
+        return {
+          committed: balance.committedQty,
+          demand: balance.demandQty,
+          shortage: balance.shortageQty,
+          reservation: await getReservationTotal(db, item.id),
+          demandSummary: await getDemandTotal(db, item.id),
+        };
+      })
+      .toEqual({
+        committed: "6.0000",
+        demand: "11.0000",
+        shortage: "5.0000",
+        reservation: "6.0000",
+        demandSummary: "11.0000",
+      });
+  });
+
+  test("production allocation confirms as demand without reserving available stock", async ({
+    page,
+    db,
+  }) => {
+    const customerId = await createCustomerFixture("Slow allocation production customer");
+    const fixture = await createProductFixture({
+      productPrefix: "Slow allocation production product",
+      componentPrefix: "Slow allocation production component",
+      stock: "20",
+      componentStock: "100",
+    });
+    const manufacturingResult = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "8",
+      plannedDate: "2026-05-22",
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "1" }],
+    });
+    expect(manufacturingResult.status).toBe(201);
+    const manufacturingOrderId = manufacturingResult.body.id as string;
+    const [manufacturingOrder] = await db
+      .select({ orderNumber: manufacturingOrders.orderNumber })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, manufacturingOrderId));
+
+    const orderId = await createDraftOrder({
+      customerId,
+      itemId: fixture.productId,
+      quantity: "8",
+      shipDate: "2026-05-22",
+    });
+    const orderNumber = await getOrderNumber(db, orderId);
+
+    const sheet = await openAllocationManager({
+      page,
+      orderNumber,
+      itemName: fixture.productName,
+    });
+    await expect(
+      sheet.getByRole("button", {
+        name: new RegExp(`Allocate all from ${manufacturingOrder.orderNumber}`),
+      })
+    ).toBeVisible();
+    await sheet
+      .getByRole("button", {
+        name: new RegExp(`Allocate all from ${manufacturingOrder.orderNumber}`),
+      })
+      .click();
+
+    const currentBucket = sheet.getByTestId("current-allocation-bucket");
+    await expect(currentBucket).toContainText("Allocated8");
+    await expect(currentBucket).toContainText("Short—");
+    await saveAllocation(page);
+
+    const line = await getLine(db, orderId);
+    const allocations = await getActiveAllocations(db, line.id);
+    expect(allocations.filter((row) => row.status === "active")).toMatchObject([
+      {
+        sourceType: "manufacturing_order",
+        sourceId: manufacturingOrderId,
+        quantity: "8.0000",
+      },
+    ]);
+    const allocationContextBeforeConfirm = await testFetch(
+      `/api/sales-order-lines/${line.id}/allocation`
+    );
+    expect(allocationContextBeforeConfirm.status).toBe(200);
+    const allocationContextBody = await allocationContextBeforeConfirm.json();
+    expect(allocationContextBody.targetLine.allocatedQty).toBe("8");
+    expect(allocationContextBody.targetLine.shortQty).toBe("0");
+    expect(allocationContextBody.targetLine.sources).toMatchObject([
+      {
+        sourceType: "manufacturing_order",
+        sourceId: manufacturingOrderId,
+        quantity: "8",
+      },
+    ]);
+
+    const confirmResult = await confirmOrder(orderId);
+    expect(confirmResult.status).toBe(200);
+
+    await expect
+      .poll(async () => {
+        const balance = await getItemBalance(db, fixture.productId);
+        return {
+          onHand: balance.onHandQty,
+          committed: balance.committedQty,
+          demand: balance.demandQty,
+          shortage: balance.shortageQty,
+          reservation: await getReservationTotal(db, fixture.productId),
+          demandSummary: await getDemandTotal(db, fixture.productId),
+        };
+      })
+      .toEqual({
+        onHand: "20.0000",
+        committed: "0.0000",
+        demand: "8.0000",
+        shortage: "8.0000",
+        reservation: "0",
+        demandSummary: "8.0000",
+      });
+  });
+
+  test("unmanaged confirmation warns before taking draft stock allocations", async ({
+    db,
+  }) => {
+    const customerId = await createCustomerFixture("Slow allocation takeover customer");
+    const item = await createMaterialFixture({
+      namePrefix: "Slow allocation takeover item",
+      stock: "10",
+    });
+    const draftHeldOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "8",
+      shipDate: "2026-05-23",
+    });
+    const unmanagedOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "10",
+      shipDate: "2026-05-24",
+    });
+    const draftHeldLine = await getLine(db, draftHeldOrderId);
+    const unmanagedOrderNumber = await getOrderNumber(db, unmanagedOrderId);
+
+    const allocationResponse = await testFetch(
+      `/api/sales-order-lines/${draftHeldLine.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            { sourceType: "stock_pool", sourceId: null, quantity: "8" },
+          ],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+
+    const blockedConfirm = await confirmOrder(unmanagedOrderId);
+    expect(blockedConfirm.status).toBe(409);
+    expect(blockedConfirm.body?.error).toMatch(/take stock allocated to draft orders/i);
+    expect(blockedConfirm.body?.draftAllocationTakeover?.allocations).toMatchObject([
+      {
+        salesOrderLineId: draftHeldLine.id,
+        itemId: item.id,
+        quantity: 8,
+      },
+    ]);
+
+    const confirmedWithTakeover = await confirmOrder(unmanagedOrderId, {
+      confirmDraftAllocationTakeover: true,
+    });
+    expect(confirmedWithTakeover.status).toBe(200);
+
+    const draftHeldAllocations = await getActiveAllocations(db, draftHeldLine.id);
+    expect(draftHeldAllocations.every((row) => row.status !== "active")).toBe(true);
+
+    await expect
+      .poll(async () => {
+        const balance = await getItemBalance(db, item.id);
+        return {
+          committed: balance.committedQty,
+          demand: balance.demandQty,
+          shortage: balance.shortageQty,
+          reservation: await getReservationTotal(db, item.id),
+          demandSummary: await getDemandTotal(db, item.id),
+        };
+      })
+      .toEqual({
+        committed: "10.0000",
+        demand: "10.0000",
+        shortage: "0.0000",
+        reservation: "10.0000",
+        demandSummary: "10.0000",
+      });
+
+    const draftHeldConfirm = await confirmOrder(draftHeldOrderId);
+    expect(draftHeldConfirm.status).toBe(200);
+
+    await expect
+      .poll(async () => {
+        const balance = await getItemBalance(db, item.id);
+        return {
+          committed: balance.committedQty,
+          demand: balance.demandQty,
+          shortage: balance.shortageQty,
+          reservation: await getReservationTotal(db, item.id),
+          demandSummary: await getDemandTotal(db, item.id),
+        };
+      })
+      .toEqual({
+        committed: "10.0000",
+        demand: "18.0000",
+        shortage: "8.0000",
+        reservation: "10.0000",
+        demandSummary: "18.0000",
+      });
+
+    const [unmanagedOrder] = await db
+      .select({ status: salesOrders.status, orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, unmanagedOrderId));
+    expect(unmanagedOrder).toMatchObject({
+      status: "confirmed",
+      orderNumber: unmanagedOrderNumber,
+    });
+  });
+
+  test("source over-allocation is rejected without changing prior allocations", async ({
+    db,
+  }) => {
+    const customerId = await createCustomerFixture("Slow allocation conflict customer");
+    const item = await createMaterialFixture({
+      namePrefix: "Slow allocation conflict item",
+      stock: "5",
+    });
+    const firstOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "5",
+    });
+    const secondOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "5",
+    });
+    const firstLine = await getLine(db, firstOrderId);
+    const secondLine = await getLine(db, secondOrderId);
+
+    const firstAllocation = await testFetch(
+      `/api/sales-order-lines/${firstLine.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            { sourceType: "stock_pool", sourceId: null, quantity: "5" },
+          ],
+        }),
+      }
+    );
+    expect(firstAllocation.status).toBe(200);
+
+    const invalidAllocation = await testFetch(
+      `/api/sales-order-lines/${secondLine.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            { sourceType: "stock_pool", sourceId: null, quantity: "1" },
+          ],
+        }),
+      }
+    );
+    expect(invalidAllocation.status).toBe(409);
+    const invalidAllocationBody = await invalidAllocation.json();
+    expect(invalidAllocationBody.error).toMatch(/stock only has 0 free/i);
+
+    expect(await getActiveAllocations(db, firstLine.id)).toMatchObject([
+      {
+        sourceType: "stock_pool",
+        sourceId: null,
+        quantity: "5.0000",
+        status: "active",
+      },
+    ]);
+    expect(await getActiveAllocations(db, secondLine.id)).toHaveLength(0);
+
+    const balance = await getItemBalance(db, item.id);
+    expect(balance.committedQty).toBe("0.0000");
+    expect(balance.demandQty).toBe("0.0000");
+  });
+
+  test("editing a draft order with allocations cancels old allocation rows", async ({
+    db,
+  }) => {
+    const customerId = await createCustomerFixture("Slow allocation edit customer");
+    const item = await createMaterialFixture({
+      namePrefix: "Slow allocation edit item",
+      stock: "10",
+    });
+    const orderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "6",
+    });
+    const originalLine = await getLine(db, orderId);
+
+    const allocationResponse = await testFetch(
+      `/api/sales-order-lines/${originalLine.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            { sourceType: "stock_pool", sourceId: null, quantity: "4" },
+          ],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+
+    const editResponse = await testFetch(`/api/sales-orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        customerId,
+        status: "draft",
+        shipDate: "2026-05-20",
+        lines: [{ itemId: item.id, quantity: "7", unitPrice: "10" }],
+      }),
+    });
+    const editBody = await editResponse.json().catch(() => null);
+    expect(editResponse.status).toBe(200);
+    expect(editBody?.id).toBe(orderId);
+
+    expect(await getActiveAllocations(db, originalLine.id)).toHaveLength(0);
+
+    const replacementLine = await getLine(db, orderId);
+    expect(replacementLine.id).not.toBe(originalLine.id);
+    expect(await getActiveAllocations(db, replacementLine.id)).toHaveLength(0);
+
+    const balance = await getItemBalance(db, item.id);
+    expect(balance.committedQty).toBe("0.0000");
+    expect(balance.demandQty).toBe("0.0000");
+  });
+});

@@ -484,6 +484,13 @@
       "when": 1778458635629,
       "tag": "0068_classy_nightcrawler",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1778506949895,
+      "tag": "0069_furry_sprite",
+      "breakpoints": true
     }
   ]
 }

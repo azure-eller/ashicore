@@ -475,6 +475,10 @@ export const salesOrderLines = salesSchema
       pricingBreakLabel: varchar("pricing_break_label", { length: 50 }),
       isPriceOverridden: boolean("is_price_overridden").notNull().default(false),
       lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
+      allocationManagedAt: timestamp("allocation_managed_at", {
+        withTimezone: true,
+      }),
+      allocationManagedBy: text("allocation_managed_by"),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -503,6 +507,68 @@ export const salesOrderLines = salesSchema
           FROM sales.sales_orders
           WHERE organization_id = current_setting('app.current_org_id', true)
         )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const salesOrderAllocations = salesSchema
+  .table(
+    "sales_order_allocations",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      salesOrderLineId: uuid("sales_order_line_id")
+        .notNull()
+        .references(() => salesOrderLines.id),
+      itemId: uuid("item_id")
+        .notNull()
+        .references(() => items.id),
+      sourceType: varchar("source_type", { length: 30 }).notNull(),
+      sourceId: uuid("source_id"),
+      quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      status: varchar("status", { length: 20 }).notNull().default("active"),
+      createdBy: text("created_by"),
+      updatedBy: text("updated_by"),
+      cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+      cancelledBy: text("cancelled_by"),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_order_allocations_org_id_idx").on(table.organizationId),
+      index("sales_order_allocations_line_id_idx").on(table.salesOrderLineId),
+      index("sales_order_allocations_item_source_idx").on(
+        table.organizationId,
+        table.itemId,
+        table.sourceType,
+        table.sourceId
+      ),
+      index("sales_order_allocations_active_item_idx")
+        .on(table.organizationId, table.itemId)
+        .where(sql`status = 'active'`),
+      check(
+        "sales_order_allocations_source_type_check",
+        sql`source_type IN ('stock_pool', 'manufacturing_order')`
+      ),
+      check(
+        "sales_order_allocations_status_check",
+        sql`status IN ('active', 'consumed', 'cancelled')`
+      ),
+      check("sales_order_allocations_quantity_check", sql`quantity > 0`),
+      check(
+        "sales_order_allocations_source_id_check",
+        sql`(source_type = 'stock_pool' AND source_id IS NULL) OR (source_type = 'manufacturing_order' AND source_id IS NOT NULL)`
+      ),
+      check(
+        "sales_order_allocations_cancelled_check",
+        sql`(status = 'cancelled' AND cancelled_at IS NOT NULL) OR (status <> 'cancelled' AND cancelled_at IS NULL)`
+      ),
+      pgPolicy("sales_order_allocations_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
       }),
     ]
   )

@@ -126,6 +126,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   globalFilterFn?: FilterFn<TData> | BuiltInFilterFn;
   onRowClick?: (row: TData) => void;
   initialSorting?: SortingState;
+  initialColumnFilters?: ColumnFiltersState;
   errorMessage?: string | null;
 };
 
@@ -161,6 +162,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   globalFilterFn,
   onRowClick,
   initialSorting,
+  initialColumnFilters,
   errorMessage,
 }: DashboardDataTableProps<TData>) {
   const router = useRouter();
@@ -168,7 +170,9 @@ export function DashboardDataTable<TData extends { id: string }>({
   const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
+    initialColumnFilters ?? []
+  );
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);

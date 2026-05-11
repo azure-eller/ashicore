@@ -16,6 +16,7 @@ type DataTableStatusFilterProps<TData, TValue extends string> = {
   columnId?: string;
   options: readonly StatusOption<TValue>[];
   ariaLabel: string;
+  showAll?: boolean;
 };
 
 export function DataTableStatusFilter<TData, TValue extends string>({
@@ -23,6 +24,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
   columnId = "status",
   options,
   ariaLabel,
+  showAll = true,
 }: DataTableStatusFilterProps<TData, TValue>) {
   const column = table.getColumn(columnId);
   const selected = (column?.getFilterValue() as string[] | undefined) ?? [];
@@ -41,6 +43,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
       value={value}
       onValueChange={(nextValue) => {
         if (!column) return;
+        if (!showAll && !nextValue) return;
         if (!nextValue) {
           column.setFilterValue(undefined);
           return;
@@ -50,14 +53,16 @@ export function DataTableStatusFilter<TData, TValue extends string>({
       aria-label={ariaLabel}
       className="max-w-full flex-wrap rounded-lg bg-muted p-1"
     >
-      <ToggleGroupItem
-        value="all"
-        aria-label="Show all statuses"
-        className={itemClassName}
-      >
-        All
-        <span className="text-muted-foreground">{allCount}</span>
-      </ToggleGroupItem>
+      {showAll ? (
+        <ToggleGroupItem
+          value="all"
+          aria-label="Show all statuses"
+          className={itemClassName}
+        >
+          All
+          <span className="text-muted-foreground">{allCount}</span>
+        </ToggleGroupItem>
+      ) : null}
       {options.map((option) => (
         <ToggleGroupItem
           key={option.value}

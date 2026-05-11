@@ -28,7 +28,7 @@ export class DomainError<
     this.extra = options?.extra;
   }
 
-  toResponse() {
+  toResponse(): NextResponse<Record<string, unknown>> {
     const body =
       this.extra != null
         ? { error: this.message, ...this.extra }

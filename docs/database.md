@@ -503,7 +503,7 @@ Do not use `gh pr merge --delete-branch` from a feature worktree. GitHub CLI may
 
 Data persists across `pnpm db:local:stop` because the Docker Postgres service uses a named volume. You do not need to reseed every time you start it.
 
-Each worktree still gets its own database. `pnpm db:local:setup` derives the database name from the worktree path and writes that database URL into the worktree `.env.local`. For a brand-new worktree DB, run the dev server and then `pnpm dev:seed-user` once; it creates `test@test.com` in `paonia-soil-company` and idempotently loads the Paonia catalog and 2026 sales data.
+Each worktree still gets its own database. `pnpm db:local:setup` derives the database name from the worktree path and writes that database URL into the worktree `.env.local`. For a brand-new worktree DB, run the dev server and then `pnpm dev:seed-user` once; it creates `test@test.com` in fake org `test-paonia-soil-co` and idempotently loads Paonia-style catalog and 2026 sales data there.
 
 If you already run Postgres outside Docker, set `LOCAL_DB_ADMIN_URL` before `pnpm db:local:setup`:
 
