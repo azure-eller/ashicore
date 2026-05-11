@@ -66,12 +66,12 @@ export const manufacturingOrders = manufacturingSchema
         scale: 4,
       }),
       notes: text("notes"),
-      releasedAt: timestamp("released_at"),
-      completedAt: timestamp("completed_at"),
-      cancelledAt: timestamp("cancelled_at"),
-      deletedAt: timestamp("deleted_at"),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      releasedAt: timestamp("released_at", { withTimezone: true }),
+      completedAt: timestamp("completed_at", { withTimezone: true }),
+      cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_orders_org_id_idx").on(table.organizationId),
@@ -134,15 +134,15 @@ export const manufacturingOrderIngredients = manufacturingSchema
         .notNull()
         .default("0"),
       pickStatus: varchar("pick_status", { length: 20 }).notNull().default("not_picked"),
-      pickedAt: timestamp("picked_at"),
+      pickedAt: timestamp("picked_at", { withTimezone: true }),
       actualQuantity: numeric("actual_quantity", { precision: 12, scale: 4 }),
       actualCostTotal: numeric("actual_cost_total", {
         precision: 12,
         scale: 4,
       }),
       sortOrder: integer("sort_order").notNull().default(0),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_order_ingredients_order_id_idx").on(
@@ -189,12 +189,12 @@ export const manufacturingOrderBatches = manufacturingSchema
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
       actualQuantity: numeric("actual_quantity", { precision: 12, scale: 4 }),
-      startedAt: timestamp("started_at"),
-      pickedAt: timestamp("picked_at"),
-      completedAt: timestamp("completed_at"),
+      startedAt: timestamp("started_at", { withTimezone: true }),
+      pickedAt: timestamp("picked_at", { withTimezone: true }),
+      completedAt: timestamp("completed_at", { withTimezone: true }),
       lotId: uuid("lot_id").references(() => lots.id),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_order_batches_order_id_idx").on(table.manufacturingOrderId),
@@ -238,9 +238,9 @@ export const manufacturingPickAllocations = manufacturingSchema
         .notNull()
         .default(false),
       requirementOverrideConfirmedBy: text("requirement_override_confirmed_by"),
-      requirementOverrideConfirmedAt: timestamp("requirement_override_confirmed_at"),
+      requirementOverrideConfirmedAt: timestamp("requirement_override_confirmed_at", { withTimezone: true }),
       createdBy: text("created_by").notNull(),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_pick_allocations_ingredient_id_idx").on(
@@ -293,7 +293,7 @@ export const manufacturingOrderOutputs = manufacturingSchema
       }).notNull(),
       notes: text("notes"),
       createdBy: text("created_by").notNull(),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_order_outputs_order_id_idx").on(
@@ -345,7 +345,7 @@ export const manufacturingOrderOutputConsumptions = manufacturingSchema
         .references(() => lots.id),
       quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
       costPerUnit: numeric("cost_per_unit", { precision: 18, scale: 6 }).notNull(),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_order_output_consumptions_output_id_idx").on(
@@ -387,8 +387,8 @@ export const manufacturingOrderIngredientConstraints = manufacturingSchema
       constraintType: varchar("constraint_type", { length: 64 }).notNull(),
       config: jsonb("config").$type<BomComponentConstraintConfig>().notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("manufacturing_order_ingredient_constraints_ingredient_id_idx").on(

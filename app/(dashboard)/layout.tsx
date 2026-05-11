@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { Providers } from "@/app/providers";
+import { TimeZoneProvider } from "@/components/time-zone-provider";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import {
   getRequestLogContext,
@@ -33,15 +34,17 @@ export default async function DashboardLayout({
 
   return (
     <Providers>
-      <SidebarProvider>
-        <AppSidebar
-          user={user}
-          assignedRoles={context.assignedRoles}
-          organizationName={context.organizationName}
-        />
-        <SidebarInset>{children}</SidebarInset>
-        <FeedbackWidget />
-      </SidebarProvider>
+      <TimeZoneProvider timeZone={context.organizationTimeZone}>
+        <SidebarProvider>
+          <AppSidebar
+            user={user}
+            assignedRoles={context.assignedRoles}
+            organizationName={context.organizationName}
+          />
+          <SidebarInset>{children}</SidebarInset>
+          <FeedbackWidget />
+        </SidebarProvider>
+      </TimeZoneProvider>
     </Providers>
   );
 }

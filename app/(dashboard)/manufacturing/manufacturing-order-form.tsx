@@ -60,11 +60,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { TooltipHeader } from "@/components/tooltip-header";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import {
   formatQuantity,
   getFieldArrayError,
   normalizeNumeric,
   parsePositive,
+  todayInTimeZone,
 } from "@/lib/format";
 import {
   BOM_QTY_PER_BATCH_TOOLTIP,
@@ -137,14 +139,6 @@ function formatSalesLineLabel(
   return `${line.salesOrderNumber} - ${line.customerName} - ${line.quantity} ${line.unitName}`;
 }
 
-function getTodayDateString() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 export function ManufacturingOrderForm({
   productTemplates = [],
   salesLineOptions = [],
@@ -162,12 +156,13 @@ export function ManufacturingOrderForm({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const timeZone = useOrganizationTimeZone();
   const isEditing = Boolean(initialData);
   const fallbackPath = initialData
     ? `/manufacturing/orders/${initialData.id}`
     : "/manufacturing/orders";
   const [formError, setFormError] = useState<string | null>(null);
-  const todayDate = getTodayDateString();
+  const todayDate = todayInTimeZone(timeZone);
   const formResolver = zodResolver(
     isEditing ? updateManufacturingOrderSchema : manufacturingOrderCreateFormSchema
   ) as Resolver<ManufacturingOrderFormValues>;

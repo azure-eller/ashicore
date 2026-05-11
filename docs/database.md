@@ -71,6 +71,47 @@ await tx.select().from(items).where(
 );
 ```
 
+## Date and Time Model
+
+Use two separate models:
+
+- `*At` fields are exact instants, such as `createdAt`, `receivedAt`, `shippedAt`, `completedAt`, and `occurredAt`.
+- `*Date` fields are business calendar dates, such as `shipDate`, `plannedDate`, `expectedDate`, and `requestedDate`.
+
+Instant columns use `timestamptz` through Drizzle:
+
+```ts
+createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+```
+
+Business date columns use Postgres `date` and TypeScript strings:
+
+```ts
+shipDate: date("ship_date", { mode: "string" })
+```
+
+Do not model business dates as UTC-midnight timestamps. A ship date of `2026-05-10` is not `2026-05-10T00:00:00.000Z`; it is just the calendar date `2026-05-10`.
+
+Formatting rules:
+
+- `formatDate(value)` is only for `YYYY-MM-DD` business dates. It does not use JS `Date` and does not timezone-convert.
+- `formatDateTime(value, organizationTimeZone)` is only for exact instants. It requires an explicit IANA timezone.
+- Operational ERP timestamps display in the organization timezone by default.
+- Personal/session/security timestamps may use browser/user timezone only when explicitly intended.
+
+Defaulting rules:
+
+- Use `todayInTimeZone(organizationTimeZone)` for default business dates when current local business day matters.
+- Use `new Date()` for true instant writes.
+
+Migration rule for legacy naive ERP timestamps:
+
+```sql
+ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE 'UTC';
+```
+
+Before applying that migration to production, verify `SHOW timezone;` and representative timestamp rows. The migration assumes existing naive values represent UTC wall-clock instants.
+
 ## Soft Deletes
 
 | Table type | Delete strategy |

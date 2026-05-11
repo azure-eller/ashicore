@@ -477,6 +477,13 @@
       "when": 1778380525872,
       "tag": "0067_universal_manufacturing_output",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1778458635629,
+      "tag": "0068_classy_nightcrawler",
+      "breakpoints": true
     }
   ]
 }

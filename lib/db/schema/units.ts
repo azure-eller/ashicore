@@ -23,9 +23,9 @@ export const unitDefinitions = inventorySchema
       name: varchar("name", { length: 50 }).notNull(),
       size: numeric("size", { precision: 10, scale: 4 }).notNull(),
       uom: varchar("uom", { length: 30 }).notNull(),
-      deletedAt: timestamp("deleted_at"),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("unit_definitions_org_id_idx").on(table.organizationId),

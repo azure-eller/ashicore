@@ -32,7 +32,7 @@ export const xeroConnections = xeroSchema
         .default(sql`'[]'::jsonb`),
       accessToken: text("access_token").notNull(),
       refreshToken: text("refresh_token").notNull(),
-      tokenExpiresAt: timestamp("token_expires_at").notNull(),
+      tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
       defaultAccountCode: varchar("default_account_code", { length: 20 }),
       defaultTaxType: varchar("default_tax_type", { length: 50 }),
       invoiceStatusPreference: varchar("invoice_status_preference", {
@@ -59,8 +59,8 @@ export const xeroConnections = xeroSchema
       )
         .notNull()
         .default("DRAFT"),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("xero_connections_tenant_idx").on(table.tenantId),
@@ -97,9 +97,9 @@ export const xeroImportRuns = xeroSchema
       updatedCount: integer("updated_count").notNull().default(0),
       skippedCount: integer("skipped_count").notNull().default(0),
       errorCount: integer("error_count").notNull().default(0),
-      undoneAt: timestamp("undone_at"),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      undoneAt: timestamp("undone_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("xero_import_runs_org_entity_idx").on(
@@ -136,7 +136,7 @@ export const xeroImportRunRows = xeroSchema
       xeroContactId: text("xero_contact_id"),
       localName: text("local_name").notNull(),
       previousData: jsonb("previous_data"),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("xero_import_run_rows_run_idx").on(table.runId),

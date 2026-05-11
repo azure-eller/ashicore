@@ -6,8 +6,9 @@ import { FilterableHeader, multiValueFilter } from "@/components/filterable-head
 import { SortableHeader } from "@/components/sortable-header";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { DateTimeText } from "@/components/date-time-text";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatAddressLines, formatDate } from "@/lib/format";
+import { formatAddressLines } from "@/lib/format";
 import type { CustomerRow } from "./types";
 
 function customerListAddress(customer: CustomerRow) {
@@ -106,7 +107,7 @@ const columns: ColumnDef<CustomerRow>[] = [
     sortingFn: (a, b) =>
       new Date(a.original.updatedAt).getTime() -
       new Date(b.original.updatedAt).getTime(),
-    cell: ({ row }) => formatDate(row.original.updatedAt),
+    cell: ({ row }) => <DateTimeText value={row.original.updatedAt} />,
   },
 ];
 

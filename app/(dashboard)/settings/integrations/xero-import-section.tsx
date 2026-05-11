@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { formatDateTime } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import type { XeroImportRunSummary } from "@/lib/dal/xero";
 
 type EntityType = "customers" | "suppliers";
@@ -103,6 +104,7 @@ export function XeroImportSection({
   canResetSupplierImports: boolean;
   importRuns: XeroImportRunSummary[];
 }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const [runs, setRuns] = useState(importRuns);
   const [dialogAction, setDialogAction] = useState<DialogAction | null>(null);
@@ -274,7 +276,7 @@ export function XeroImportSection({
                       </Badge>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {run.tenantName} · {formatDateTime(run.createdAt)} ·{" "}
+                      {run.tenantName} · {formatDateTime(run.createdAt, timeZone)} ·{" "}
                       {run.createdCount} loaded, {run.updatedCount} already existed
                     </div>
                   </div>

@@ -28,6 +28,7 @@ type MemberContext = {
   orgId: string;
   memberId: string;
   organizationName: string;
+  organizationTimeZone: string;
   role: AppRole;
   assignedRoles: string[];
   name: string;
@@ -78,6 +79,7 @@ async function resolveMemberContext(
           organization: {
             columns: {
               name: true,
+              timeZone: true,
             },
           },
         },
@@ -99,6 +101,7 @@ async function resolveMemberContext(
     orgId: activeOrganizationId,
     memberId: membership.id,
     organizationName: membership.organization.name,
+    organizationTimeZone: membership.organization.timeZone,
     role: normalizeAppRole(membership.role),
     assignedRoles: membership.role.split(",").map((value) => value.trim()).filter(Boolean),
     name: session.user.name ?? "",

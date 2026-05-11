@@ -5,8 +5,8 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { DateTimeText } from "@/components/date-time-text";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatDate } from "@/lib/format";
 import {
   STOCKTAKE_STATUS_COLUMN_TOOLTIP,
   STOCKTAKE_COUNTED_TOOLTIP,
@@ -100,12 +100,12 @@ const columns: ColumnDef<StocktakeListRow>[] = [
   {
     accessorKey: "createdAt",
     header: ({ column }) => <SortableHeader column={column} label="Created" />,
-    cell: ({ row }) => formatDate(row.original.createdAt),
+    cell: ({ row }) => <DateTimeText value={row.original.createdAt} />,
   },
   {
     accessorKey: "completedAt",
     header: ({ column }) => <SortableHeader column={column} label="Completed" />,
-    cell: ({ row }) => formatDate(row.original.completedAt),
+    cell: ({ row }) => <DateTimeText value={row.original.completedAt} />,
   },
 ];
 

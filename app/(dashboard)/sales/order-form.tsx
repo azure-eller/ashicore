@@ -36,6 +36,7 @@ import {
   getFieldArrayError,
   normalizeAddressFields,
   parsePositive,
+  todayInTimeZone,
 } from "@/lib/format";
 import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { calculateMarginMetrics, calculateUnitMarginMetrics } from "@/lib/margin";
@@ -91,6 +92,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import {
   REQUESTED_DATE_TOOLTIP,
   SALES_ORDER_SHIP_DATE_TOOLTIP,
@@ -369,6 +371,7 @@ export function OrderForm({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const timeZone = useOrganizationTimeZone();
   const isEditing = Boolean(initialData);
   const fallbackPath = initialData ? `/sales/orders/${initialData.id}` : "/sales/orders";
   const [formError, setFormError] = useState<string | null>(null);
@@ -443,7 +446,10 @@ export function OrderForm({
           })),
           confirmOversell: false,
         }
-      : salesOrderDefaultValues,
+      : {
+          ...salesOrderDefaultValues,
+          orderDate: todayInTimeZone(timeZone),
+        },
   });
 
   const watchedLines = useWatch({

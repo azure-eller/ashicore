@@ -92,6 +92,7 @@ import { DetailPageActions } from "@/components/detail-page-actions";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { cn } from "@/lib/utils";
 import { formatAddress, formatDate, formatDateTime } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import type {
   CustomerContactRole,
@@ -236,7 +237,7 @@ function activityTypeConfig(type: CustomerCorrespondenceType) {
   return activityTypes.find((entry) => entry.value === type) ?? activityTypes[0];
 }
 
-function formatRelative(date: Date) {
+function formatRelative(date: Date, timeZone: string) {
   const ms = Date.now() - date.getTime();
   const minutes = Math.round(ms / 60000);
   if (minutes < 1) return "just now";
@@ -245,7 +246,7 @@ function formatRelative(date: Date) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return formatDate(date);
+  return formatDateTime(date, timeZone);
 }
 
 function groupActivity(entries: CustomerCorrespondenceRow[]) {
@@ -384,6 +385,7 @@ function CustomerDetailTabs({
 }
 
 export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [detail, setDetail] = useState(customer);
@@ -744,8 +746,8 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                             }) || "\u2014"}
                           </span>
                         </DetailField>
-                        <DetailField label="Created">{formatDateTime(detail.createdAt)}</DetailField>
-                        <DetailField label="Updated">{formatDateTime(detail.updatedAt)}</DetailField>
+                        <DetailField label="Created">{formatDateTime(detail.createdAt, timeZone)}</DetailField>
+                        <DetailField label="Updated">{formatDateTime(detail.updatedAt, timeZone)}</DetailField>
                       </dl>
                     </CardContent>
                   </Card>
@@ -775,7 +777,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                                       {entry.title || config.label}
                                     </p>
                                     <span className="shrink-0 text-xs text-muted-foreground">
-                                      {formatRelative(new Date(entry.occurredAt))}
+                                      {formatRelative(new Date(entry.occurredAt), timeZone)}
                                     </span>
                                   </div>
                                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -1151,7 +1153,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                                           ) : null}
                                         </div>
                                         <div className="shrink-0 text-right text-xs text-muted-foreground">
-                                          <div>{formatDateTime(new Date(entry.occurredAt))}</div>
+                                          <div>{formatDateTime(entry.occurredAt, timeZone)}</div>
                                           <div className="mt-0.5">by {entry.createdByName ?? "System"}</div>
                                         </div>
                                       </div>
@@ -1355,7 +1357,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                                     <div className="min-w-0 flex-1">
                                       <p className="truncate text-sm font-medium">{file.filename}</p>
                                       <p className="text-xs text-muted-foreground">
-                                        {formatBytes(file.sizeBytes)} {"\u00b7"} uploaded {formatDate(file.createdAt)}
+                                        {formatBytes(file.sizeBytes)} {"\u00b7"} uploaded {formatDateTime(file.createdAt, timeZone)}
                                       </p>
                                     </div>
                                     <Button variant="ghost" size="icon-sm" asChild>

@@ -25,9 +25,9 @@ export const lots = inventorySchema
       quantity: numeric("quantity", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
-      receivedAt: timestamp("received_at").notNull().defaultNow(),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       uniqueIndex("lots_org_lot_number_uidx").on(

@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/table";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   formatMinimumLotAgeRequirement,
@@ -362,6 +363,7 @@ export function ManufacturingOrderDetail({
   order: ManufacturingOrderDetailType;
   canViewLedger?: boolean;
 }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -592,19 +594,19 @@ export function ManufacturingOrderDetail({
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.createdAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.createdAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Released</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.releasedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.releasedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Completed</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.completedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.completedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
@@ -669,8 +671,8 @@ export function ManufacturingOrderDetail({
                         <TableCell className="text-right">
                           {formatQuantity(batch.actualQuantity)}
                         </TableCell>
-                        <TableCell>{formatDateTime(batch.startedAt)}</TableCell>
-                        <TableCell>{formatDateTime(batch.completedAt)}</TableCell>
+                        <TableCell>{formatDateTime(batch.startedAt, timeZone)}</TableCell>
+                        <TableCell>{formatDateTime(batch.completedAt, timeZone)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

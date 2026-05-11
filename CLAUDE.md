@@ -144,6 +144,14 @@ Don't write descriptive subtitles that restate what a heading, label, or button 
 
 Never use `<input type="date">`. Use `DatePicker` for date columns (`YYYY-MM-DD`) and `DateTimePicker` for timestamp columns (`YYYY-MM-DDTHH:mm:ss`). Both use string values matching Postgres types. See `docs/ui-patterns.md` for Controller examples.
 
+### Date and time model
+
+`*At` columns are exact instants: `timestamp("created_at", { withTimezone: true })`. Display operational instants with explicit `organizationTimeZone` via `formatDateTime(value, organizationTimeZone)`.
+
+`*Date` columns are business dates: `date("ship_date", { mode: "string" })`. Display with `formatDate(value)` and never convert through JS `Date`.
+
+Use `todayInTimeZone(organizationTimeZone)` for default business dates. Keep `new Date()` for true instant writes.
+
 ### No local utility functions
 
 Before defining a helper in a module, check `lib/format.ts` and `lib/schemas/shared.ts` first. Common helpers that exist there: `normalizeNumeric`, `normalizeMoney`, `parsePositive`, `getFieldArrayError`, `formatQuantity`, `formatDate`, `formatDateTime`, `formatPrice`. Never copy these into module files.

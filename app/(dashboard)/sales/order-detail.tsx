@@ -82,6 +82,7 @@ import {
   formatPrice,
   formatQuantity,
 } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { cn } from "@/lib/utils";
 import {
@@ -1069,6 +1070,7 @@ function ManufacturingPanel({
 }
 
 function ActivityPanel({ order }: { order: SalesOrderDetailType }) {
+  const timeZone = useOrganizationTimeZone();
   const events = [
     {
       timestamp: order.updatedAt,
@@ -1092,7 +1094,7 @@ function ActivityPanel({ order }: { order: SalesOrderDetailType }) {
           className="flex gap-4 border-b py-3"
         >
           <div className="w-[140px] shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-            {formatDateTime(event.timestamp)}
+            {formatDateTime(event.timestamp, timeZone)}
           </div>
           <div className="min-w-0 flex-1 text-sm">
             <div>
@@ -1117,6 +1119,7 @@ export function OrderDetail({
   order: SalesOrderDetailType;
   canViewLedger?: boolean;
 }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -1163,6 +1166,7 @@ export function OrderDetail({
       title,
       description,
       stages: buildAccountingSyncStages({
+          timeZone,
         document: accountingDocument,
         includeAccounting,
         includeEmail,
@@ -1197,6 +1201,7 @@ export function OrderDetail({
         title,
         description,
         stages: buildAccountingSyncStages({
+          timeZone,
           document: latestDocument,
           includeAccounting,
           includeEmail,
@@ -1437,6 +1442,7 @@ export function OrderDetail({
           ? "The order is shipped. The Xero invoice result is shown below."
           : "The shipment was marked shipped. Remaining quantities still need shipment.",
         stages: buildAccountingSyncStages({
+          timeZone,
           document: latestDocument,
           includeAccounting,
           includeEmail: false,

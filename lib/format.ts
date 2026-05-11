@@ -4,6 +4,7 @@ import {
   normalizeRegion,
 } from "@/lib/address-options";
 import type { InventoryDisposition } from "@/lib/db/schema";
+import { isValidTimeZone } from "@/lib/time-zone";
 
 const priceFormat = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const costFormat = new Intl.NumberFormat("en-US", {
@@ -27,20 +28,68 @@ export function formatCost(value: string | null | undefined): string | null {
   return costFormat.format(parseFloat(value));
 }
 
-export function formatDate(value: string | Date | null | undefined): string {
+/**
+ * Formats a business date string, e.g. "2026-05-10".
+ *
+ * Do not pass timestamps. This does not use JS Date and does not
+ * timezone-convert.
+ */
+export function formatDate(value: string | null | undefined): string {
   if (value == null) return "\u2014";
-  if (typeof value === "string") {
-    // Date-only strings (YYYY-MM-DD) need T00:00:00 to avoid timezone shift.
-    // Full ISO strings (from RSC serialization) are already parseable as-is.
-    const d = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
-    return d.toLocaleDateString("en-US");
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return value;
   }
-  return new Date(value).toLocaleDateString("en-US");
+
+  return `${Number(match[2])}/${Number(match[3])}/${match[1]}`;
 }
 
-export function formatDateTime(value: Date | null | undefined): string {
+/**
+ * Formats an exact instant, e.g. createdAt/shippedAt/occurredAt.
+ *
+ * Requires an explicit IANA timezone. Use organizationTimeZone for
+ * operational ERP timestamps. Do not pass date-only strings.
+ */
+export function formatDateTime(
+  value: string | Date | null | undefined,
+  timeZone: string
+): string {
   if (value == null) return "\u2014";
-  return new Date(value).toLocaleString("en-US");
+  if (!isValidTimeZone(timeZone)) {
+    throw new Error(`Invalid IANA timezone: ${timeZone}`);
+  }
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("formatDateTime received a date-only string.");
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+export function todayInTimeZone(timeZone: string): string {
+  if (!isValidTimeZone(timeZone)) {
+    throw new Error(`Invalid IANA timezone: ${timeZone}`);
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    throw new Error(`Unable to format today's date for timezone: ${timeZone}`);
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 export function getInitials(value: string | null | undefined): string {

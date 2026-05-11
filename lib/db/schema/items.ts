@@ -64,15 +64,15 @@ export const items = inventorySchema
 
       // BOM lock
       bomLocked: boolean("bom_locked").notNull().default(false),
-      bomLockedAt: timestamp("bom_locked_at"),
+      bomLockedAt: timestamp("bom_locked_at", { withTimezone: true }),
       bomLockedByUserId: text("bom_locked_by_user_id"),
 
       // Soft delete
-      deletedAt: timestamp("deleted_at"),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
       // Timestamps
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("items_org_id_idx").on(table.organizationId),

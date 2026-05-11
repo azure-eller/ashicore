@@ -54,6 +54,7 @@ import {
   formatPrice,
   formatQuantity,
 } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { cn } from "@/lib/utils";
 import {
   formatInventoryLedgerEventLabel,
@@ -539,6 +540,8 @@ export function LedgerTable({
   actorOptions,
   itemOptions,
 }: InventoryLedgerPageProps) {
+  const timeZone = useOrganizationTimeZone();
+  const displayTimeZone = initialFilters.timeZone ?? timeZone;
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
@@ -874,7 +877,7 @@ export function LedgerTable({
 
                   return (
                     <TableRow key={row.id}>
-                      <TableCell>{formatDateTime(row.occurredAt)}</TableCell>
+                      <TableCell>{formatDateTime(row.occurredAt, displayTimeZone)}</TableCell>
                       <TableCell>
                         <Link
                           href={row.item.href}

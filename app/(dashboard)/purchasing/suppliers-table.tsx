@@ -5,8 +5,8 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { DateTimeText } from "@/components/date-time-text";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatDate } from "@/lib/format";
 import { SUPPLIER_CODE_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "./types";
 
@@ -63,7 +63,7 @@ const columns: ColumnDef<SupplierRow>[] = [
     sortingFn: (a, b) =>
       new Date(a.original.updatedAt).getTime() -
       new Date(b.original.updatedAt).getTime(),
-    cell: ({ row }) => formatDate(row.original.updatedAt),
+    cell: ({ row }) => <DateTimeText value={row.original.updatedAt} />,
   },
 ];
 

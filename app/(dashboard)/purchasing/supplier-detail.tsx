@@ -21,10 +21,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { formatAddress, formatDateTime } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { PAYMENT_TERMS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "./types";
 
 export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -129,16 +131,16 @@ export function SupplierDetail({ supplier }: { supplier: SupplierRow }) {
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(supplier.createdAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(supplier.createdAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(supplier.updatedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(supplier.updatedAt, timeZone)}</dd>
           </div>
           {supplier.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
-              <dd className="mt-1 text-sm">{formatDateTime(supplier.deletedAt)}</dd>
+              <dd className="mt-1 text-sm">{formatDateTime(supplier.deletedAt, timeZone)}</dd>
             </div>
           )}
         </dl>

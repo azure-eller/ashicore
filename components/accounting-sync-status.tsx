@@ -28,6 +28,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 
 export type AccountingDocumentPushStatus = "pending" | "pushed" | "failed" | null;
 export type AccountingDocumentEmailStatus = "sent" | "failed" | "skipped" | null;
@@ -76,6 +77,7 @@ export type AccountingActionConfirmStep = {
 
 export function buildAccountingSyncStages(params: {
   document: AccountingSyncDocument;
+  timeZone: string;
   includeAccounting?: boolean;
   includeEmail: boolean;
   isWorking?: boolean;
@@ -88,6 +90,7 @@ export function buildAccountingSyncStages(params: {
     includeEmail,
     isWorking = false,
     activeStage = "push",
+    timeZone,
   } = params;
   const localActionLabel = params.localActionLabel ?? "Save ERP document";
   const pushLabel = `Create ${document.documentLabel} in ${document.providerName}`;
@@ -105,7 +108,7 @@ export function buildAccountingSyncStages(params: {
   }
 
   if (isWorking) {
-    const pushStage = buildPushStage(document, pushLabel);
+    const pushStage = buildPushStage(document, pushLabel, timeZone);
 
     return [
       localStage,
@@ -130,11 +133,11 @@ export function buildAccountingSyncStages(params: {
     ];
   }
 
-  const pushStage = buildPushStage(document, pushLabel);
+  const pushStage = buildPushStage(document, pushLabel, timeZone);
   return [
     localStage,
     pushStage,
-    ...(includeEmail ? [buildEmailStage(document, emailLabel, pushStage.state)] : []),
+    ...(includeEmail ? [buildEmailStage(document, emailLabel, pushStage.state, timeZone)] : []),
   ];
 }
 
@@ -155,13 +158,21 @@ export function AccountingSyncStatus({
   providerAction?: AccountingProviderAction;
   compact?: boolean;
 }) {
+  const timeZone = useOrganizationTimeZone();
+
   if (!document.pushStatus) return null;
 
   const pushStage = buildPushStage(
     document,
-    `${document.documentLabel} in ${document.providerName}`
+    `${document.documentLabel} in ${document.providerName}`,
+    timeZone
   );
-  const emailStage = buildEmailStage(document, `${document.documentLabel} email`, pushStage.state);
+  const emailStage = buildEmailStage(
+    document,
+    `${document.documentLabel} email`,
+    pushStage.state,
+    timeZone
+  );
   const canSendEmail =
     onRetryEmail && document.pushStatus === "pushed" && document.emailStatus !== "sent";
   const emailActionLabel =
@@ -691,16 +702,17 @@ function StatusTimelineStep({
 
 function buildPushStage(
   document: AccountingSyncDocument,
-  label: string
+  label: string,
+  timeZone: string
 ): AccountingSyncStage {
   if (document.pushStatus === "pushed") {
     return {
       id: "push",
       label,
       detail: document.documentNumber
-        ? `${document.documentNumber}${document.pushedAt ? ` · ${formatAccountingDateTime(document.pushedAt)}` : ""}`
+        ? `${document.documentNumber}${document.pushedAt ? ` · ${formatAccountingDateTime(document.pushedAt, timeZone)}` : ""}`
         : document.pushedAt
-          ? formatAccountingDateTime(document.pushedAt)
+          ? formatAccountingDateTime(document.pushedAt, timeZone)
           : null,
       state: "success",
     };
@@ -735,7 +747,8 @@ function buildPushStage(
 function buildEmailStage(
   document: AccountingSyncDocument,
   label: string,
-  pushState: AccountingSyncStageState
+  pushState: AccountingSyncStageState,
+  timeZone: string
 ): AccountingSyncStage {
   if (
     pushState === "failed" ||
@@ -758,7 +771,7 @@ function buildEmailStage(
       detail: [
         `Accepted by ${document.emailProviderName}`,
         document.recipientEmail ? `To ${document.recipientEmail}` : `To ${document.recipientLabel}`,
-        document.emailedAt ? formatAccountingDateTime(document.emailedAt) : null,
+        document.emailedAt ? formatAccountingDateTime(document.emailedAt, timeZone) : null,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -794,9 +807,9 @@ function buildEmailStage(
   };
 }
 
-function formatAccountingDateTime(value: Date | string): string {
+function formatAccountingDateTime(value: Date | string, timeZone: string): string {
   if (value instanceof Date) {
-    return formatDateTime(value);
+    return formatDateTime(value, timeZone);
   }
 
   const date = new Date(value);
@@ -804,7 +817,7 @@ function formatAccountingDateTime(value: Date | string): string {
     return value;
   }
 
-  return formatDateTime(date);
+  return formatDateTime(date, timeZone);
 }
 
 function StatusLine({ stage }: { stage: AccountingSyncStage }) {

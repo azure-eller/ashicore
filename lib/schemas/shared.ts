@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidTimeZone } from "@/lib/time-zone";
 
 /**
  * Accepts string | null | undefined, normalizes to string | null.
@@ -51,14 +52,7 @@ export function isValidIsoDate(value: string) {
   );
 }
 
-export function isValidTimeZone(value: string) {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
-}
+export { isValidTimeZone };
 
 /**
  * Shared schema for bulk delete endpoints.

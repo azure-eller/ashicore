@@ -17,7 +17,7 @@ import {
   MODULE_KEYS,
   type ModuleAccessLevel,
 } from "@/lib/authz";
-import { formatDate } from "@/lib/format";
+import { DateTimeText } from "@/components/date-time-text";
 import { createTeamInvitationSchema, moduleAccessSchema } from "@/lib/schemas/team";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -561,7 +561,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-foreground">{invite.email}</div>
                 <div className="text-sm text-muted-foreground">
-                  pending · expires {formatDate(invite.expiresAt)}
+                  pending · expires <DateTimeText value={invite.expiresAt} />
                 </div>
               </div>
 

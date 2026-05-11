@@ -14,6 +14,7 @@ import { ItemDetailTabs } from "./item-detail-tabs";
 import { ItemHistorySparklineCard } from "./item-history-sparkline-card";
 import { LotDispositionActions } from "./lot-disposition-actions";
 import { InventoryCommitmentDonut } from "./inventory-commitment-donut";
+import { DateTimeText } from "@/components/date-time-text";
 import type { ItemCommitmentSummary } from "./commitment-summary";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -34,7 +35,6 @@ import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, itemDetailHref, type ItemType } from "@/app/(dashboard)/inventory/types";
 import {
   formatCost,
-  formatDate,
   formatInventoryDisposition,
   formatMovementType,
   formatPrice,
@@ -774,7 +774,7 @@ function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
                   {formatMarginPercent(lot.realizedMarginPercent)}
                 </TableCell>
                 <TableCell className="text-right font-mono text-muted-foreground">
-                  {formatDate(lot.receivedAt)}
+                  <DateTimeText value={lot.receivedAt} />
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col gap-2">
@@ -836,7 +836,7 @@ function RecipePanel({
       <div className="border-b px-4 py-3 text-xs text-muted-foreground">
         {revision ? (
           <span>
-            Rev {revision.revisionNumber} · {formatDate(revision.createdAt)}
+            Rev {revision.revisionNumber} · <DateTimeText value={revision.createdAt} />
             {revision.createdByName ? ` · ${revision.createdByName}` : ""}
             {revision.note ? ` · ${revision.note}` : ""}
           </span>
@@ -967,7 +967,7 @@ function MovementsPanel({
               return (
                 <TableRow key={movement.id}>
                   <TableCell className="font-mono text-muted-foreground">
-                    {formatDate(movement.createdAt)}
+                    <DateTimeText value={movement.createdAt} />
                   </TableCell>
                   <TableCell>{formatMovementType(movement.movementType)}</TableCell>
                   <TableCell

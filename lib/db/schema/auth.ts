@@ -90,6 +90,7 @@ export const organization = systemSchema.table(
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
     logo: text("logo"),
+    timeZone: text("time_zone").notNull().default("America/Denver"),
     createdAt: timestamp("created_at").notNull(),
     metadata: text("metadata"),
   },

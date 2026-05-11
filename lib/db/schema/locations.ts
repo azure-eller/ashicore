@@ -20,9 +20,9 @@ export const inventoryLocations = inventorySchema
       name: varchar("name", { length: 100 }).notNull(),
       code: varchar("code", { length: 40 }).notNull(),
       isDefault: boolean("is_default").notNull().default(false),
-      deletedAt: timestamp("deleted_at"),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("inventory_locations_org_idx").on(table.organizationId),

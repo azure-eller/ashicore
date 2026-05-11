@@ -31,8 +31,8 @@ export const bomRevisions = inventorySchema
       note: varchar("note", { length: 500 }),
       createdBy: text("created_by").notNull(),
       parentBomRevisionId: uuid("parent_bom_revision_id").references((): AnyPgColumn => bomRevisions.id, { onDelete: "set null" }),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("bom_revisions_org_id_idx").on(table.organizationId),
@@ -71,8 +71,8 @@ export const bomRevisionComponents = inventorySchema
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("bom_revision_components_revision_id_idx").on(table.bomRevisionId),
@@ -117,8 +117,8 @@ export const bomRevisionComponentAlternates = inventorySchema
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantityFactor: numeric("quantity_factor", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("bom_revision_component_alternates_component_id_idx").on(
@@ -177,8 +177,8 @@ export const bomRevisionComponentConstraints = inventorySchema
       constraintType: varchar("constraint_type", { length: 64 }).notNull(),
       config: jsonb("config").$type<BomComponentConstraintConfig>().notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
-      createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
       index("bom_revision_component_constraints_component_id_idx").on(

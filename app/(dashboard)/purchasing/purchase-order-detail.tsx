@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import {
@@ -137,6 +138,7 @@ export function PurchaseOrderDetail({
   order: PurchaseOrderDetailType;
   canViewLedger?: boolean;
 }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -199,6 +201,7 @@ export function PurchaseOrderDetail({
       title,
       description,
       stages: buildAccountingSyncStages({
+        timeZone,
         document: accountingDocument,
         includeAccounting,
         includeEmail,
@@ -232,6 +235,7 @@ export function PurchaseOrderDetail({
       title,
       description,
       stages: buildAccountingSyncStages({
+        timeZone,
         document: latestDocument,
         includeAccounting,
         includeEmail,
@@ -657,28 +661,28 @@ export function PurchaseOrderDetail({
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.createdAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.createdAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Ordered</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.orderedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.orderedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Received</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.receivedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.receivedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.cancelledAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(order.cancelledAt, timeZone)}</dd>
           </div>
           {order.deletedAt && (
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Deleted</dt>
-              <dd className="mt-1 text-sm">{formatDateTime(order.deletedAt)}</dd>
+              <dd className="mt-1 text-sm">{formatDateTime(order.deletedAt, timeZone)}</dd>
             </div>
           )}
         </dl>

@@ -50,6 +50,7 @@ import {
   useSortableReorderItem,
 } from "@/components/sortable-reorder";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import {
   formatMinimumLotAgeRequirement,
@@ -409,6 +410,7 @@ export function ManufacturingExecution({
 }: {
   execution: ManufacturingExecutionDetail;
 }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [pickError, setPickError] = useState<{ id: string; message: string } | null>(null);
@@ -821,7 +823,7 @@ export function ManufacturingExecution({
                             muted
                           />
                           {execution.currentBatch.startedAt && (
-                            <> • Started {formatDateTime(execution.currentBatch.startedAt)}</>
+                            <> • Started {formatDateTime(execution.currentBatch.startedAt, timeZone)}</>
                           )}
                         </p>
                       </div>

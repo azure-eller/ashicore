@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDateTime, formatQuantity, getFieldArrayError, normalizeNumeric } from "@/lib/format";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   type UpdateStocktakeCounts,
@@ -107,6 +108,7 @@ export function StocktakeDetail({
   stocktake: StocktakeDetailType;
   canViewLedger?: boolean;
 }) {
+  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -487,19 +489,19 @@ export function StocktakeDetail({
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.createdAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(stocktake.createdAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.updatedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(stocktake.updatedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Completed</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.completedAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(stocktake.completedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.cancelledAt)}</dd>
+            <dd className="mt-1 text-sm">{formatDateTime(stocktake.cancelledAt, timeZone)}</dd>
           </div>
         </dl>
 

@@ -9,6 +9,7 @@ import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
+import { DateTimeText } from "@/components/date-time-text";
 import { DataTableStatusFilter } from "@/components/data-table-status-filter";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -302,7 +303,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
     accessorKey: "completedAt",
     header: ({ column }) => <SortableHeader column={column} label="Completed" />,
-    cell: ({ row }) => formatDate(row.original.completedAt),
+    cell: ({ row }) => <DateTimeText value={row.original.completedAt} />,
   },
   {
     id: "action",
