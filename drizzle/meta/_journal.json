@@ -470,6 +470,13 @@
       "when": 1778280219757,
       "tag": "0066_nebulous_martin_li",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1778380525872,
+      "tag": "0067_universal_manufacturing_output",
+      "breakpoints": true
     }
   ]
 }

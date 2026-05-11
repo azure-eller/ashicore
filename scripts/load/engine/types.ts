@@ -35,7 +35,6 @@ export type ItemSeed = {
   purchaseToStockFactor?: string;
   manufacturingMode?: "discrete" | "batch";
   expectedBatchYield?: string | null;
-  allowPartialManufacturingOutput?: boolean;
   bomLocked?: boolean;
   bom?: Array<{
     componentKey: string;
@@ -77,7 +76,6 @@ export type ExistingItem = {
   defaultSellingPrice: string | null;
   manufacturingMode: string;
   expectedBatchYield: string | null;
-  allowPartialManufacturingOutput: boolean;
   bomLocked: boolean;
   safetyStock: string;
   isMaster: boolean;

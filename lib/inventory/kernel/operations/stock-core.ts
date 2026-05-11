@@ -481,6 +481,282 @@ export async function createPositiveStockEventInTx(
   };
 }
 
+export async function appendPositiveStockToExistingLotInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    lotId: string;
+    quantity: number;
+    unitCost: string;
+    eventType: PositiveStockEventType;
+    eventSubtype?: string | null;
+    referenceType?: string | null;
+    referenceId?: string | null;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    occurredAt?: Date;
+    metadata?: Record<string, unknown> | null;
+    disposition?: InventoryDisposition;
+  }
+) {
+  await lockItemsInTx(tx, [params.itemId]);
+
+  const disposition = params.disposition ?? DEFAULT_DISPOSITION;
+  const quantity = normalizeNumeric(params.quantity);
+  const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
+  const extendedCost = calculateExtendedCost(quantity, unitCost);
+  const [lot] = await tx
+    .select({
+      id: lots.id,
+      lotNumber: lots.lotNumber,
+      receivedAt: lots.receivedAt,
+    })
+    .from(lots)
+    .where(
+      and(
+        eq(lots.organizationId, params.organizationId),
+        eq(lots.itemId, params.itemId),
+        eq(lots.id, params.lotId)
+      )
+    )
+    .for("update");
+
+  if (!lot) {
+    throw new Error(`Lot ${params.lotId} was not found.`);
+  }
+
+  const [currentBalance] = await tx
+    .select({
+      quantity: inventoryLotBalances.quantity,
+      unitCost: inventoryLotBalances.unitCost,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.disposition, disposition)
+      )
+    )
+    .for("update");
+
+  const currentQuantity = parseFloat(currentBalance?.quantity ?? "0");
+  const currentUnitCost = parseFloat(currentBalance?.unitCost ?? unitCost);
+  const addedQuantity = parseFloat(quantity);
+  const nextQuantity = currentQuantity + addedQuantity;
+  const nextUnitCost =
+    nextQuantity > 0
+      ? normalizeNumericScale(
+          (currentQuantity * currentUnitCost + addedQuantity * parseFloat(unitCost)) /
+            nextQuantity,
+          6
+        )
+      : unitCost;
+
+  await tx
+    .update(lots)
+    .set({
+      quantity: sql`${lots.quantity} + ${quantity}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(lots.id, params.lotId));
+
+  const [event] = await insertInventoryEventsInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? null,
+      itemId: params.itemId,
+      lotId: params.lotId,
+      quantity,
+      unitCost,
+      extendedCost,
+      disposition,
+      toDisposition: disposition,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: params.idempotencyKey ?? null,
+      occurredAt: params.occurredAt,
+      metadata: {
+        lotNumber: lot.lotNumber,
+        ...(params.metadata ?? {}),
+      },
+    },
+  ]);
+
+  await applyLotBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      lotId: params.lotId,
+      itemId: params.itemId,
+      disposition,
+      quantityDelta: addedQuantity,
+      unitCost: nextUnitCost,
+      receivedAt: lot.receivedAt,
+      originEventId: event.id,
+    },
+  ]);
+
+  await tx
+    .update(inventoryLotBalances)
+    .set({
+      unitCost: nextUnitCost,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.disposition, disposition)
+      )
+    );
+
+  await applyItemBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      onHandDelta: addedQuantity,
+    },
+  ]);
+
+  return {
+    eventId: event.id,
+    lotId: lot.id,
+    lotNumber: lot.lotNumber,
+  };
+}
+
+export async function decrementExistingLotStockInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    lotId: string;
+    quantity: number;
+    unitCost: string;
+    eventType: NegativeStockEventType;
+    eventSubtype?: string | null;
+    referenceType?: string | null;
+    referenceId?: string | null;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    occurredAt?: Date;
+    metadata?: Record<string, unknown> | null;
+    disposition?: InventoryDisposition;
+  }
+) {
+  await lockItemsInTx(tx, [params.itemId]);
+
+  const disposition = params.disposition ?? DEFAULT_DISPOSITION;
+  const quantity = normalizeNumeric(params.quantity);
+  const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
+  const extendedCost = calculateExtendedCost(quantity, unitCost);
+  const [lot] = await tx
+    .select({
+      id: lots.id,
+      lotNumber: lots.lotNumber,
+    })
+    .from(lots)
+    .where(
+      and(
+        eq(lots.organizationId, params.organizationId),
+        eq(lots.itemId, params.itemId),
+        eq(lots.id, params.lotId)
+      )
+    )
+    .for("update");
+
+  if (!lot) {
+    throw new Error(`Lot ${params.lotId} was not found.`);
+  }
+
+  const [updatedBalance] = await tx
+    .update(inventoryLotBalances)
+    .set({
+      quantity: sql`${inventoryLotBalances.quantity} - ${quantity}`,
+      stillActive: sql`(${inventoryLotBalances.quantity} - ${quantity}) > 0`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.disposition, disposition),
+        sql`${inventoryLotBalances.quantity} >= ${quantity}`
+      )
+    )
+    .returning({ lotId: inventoryLotBalances.lotId });
+
+  if (!updatedBalance) {
+    throw new InsufficientStockError({
+      itemId: params.itemId,
+      available: 0,
+      requested: params.quantity,
+    });
+  }
+
+  await tx
+    .update(lots)
+    .set({
+      quantity: sql`${lots.quantity} - ${quantity}`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(lots.id, params.lotId), sql`${lots.quantity} >= ${quantity}`));
+
+  const [event] = await insertInventoryEventsInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? null,
+      itemId: params.itemId,
+      lotId: params.lotId,
+      quantity,
+      unitCost,
+      extendedCost,
+      disposition,
+      fromDisposition: disposition,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: params.idempotencyKey ?? null,
+      occurredAt: params.occurredAt,
+      metadata: {
+        lotNumber: lot.lotNumber,
+        ...(params.metadata ?? {}),
+      },
+    },
+  ]);
+
+  await applyItemBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      onHandDelta: -parseFloat(quantity),
+    },
+  ]);
+
+  return {
+    eventId: event.id,
+    lotId: lot.id,
+    lotNumber: lot.lotNumber,
+  };
+}
+
 async function getLockedFifoLotsInTx(
   tx: Tx,
   params: {

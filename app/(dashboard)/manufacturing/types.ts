@@ -12,7 +12,6 @@ export type ManufacturingProductOption = {
   unitName: string;
   manufacturingMode: string;
   expectedBatchYield: string | null;
-  allowPartialManufacturingOutput: boolean;
 };
 
 export type ManufacturingSalesLineOption = {
@@ -125,7 +124,6 @@ export type ManufacturingOrderListRow = {
   status: ManufacturingOrderStatus;
   manufacturingMode: string;
   numberOfBatches: number | null;
-  allowPartialManufacturingOutput: boolean;
   pickProgressStatus: ManufacturingPickProgressStatus;
   completedBatchCount: number;
   actionableBatchCount: number;
@@ -223,7 +221,6 @@ export type ManufacturingOrderDetail = {
   manufacturingMode: string;
   numberOfBatches: number | null;
   expectedBatchYield: string | null;
-  allowPartialManufacturingOutput: boolean;
   priorityRank: number | null;
   requestedQuantity: string;
   plannedQuantity: string;
@@ -267,10 +264,10 @@ export type ManufacturingExecutionDetail = {
   status: ManufacturingOrderStatus;
   manufacturingMode: string;
   plannedQuantity: string;
+  recordedOutputQuantity: string;
   actualQuantity: string | null;
   expectedBatchYield: string | null;
   numberOfBatches: number | null;
-  allowPartialManufacturingOutput: boolean;
   pickProgressStatus: ManufacturingPickProgressStatus;
   salesOrderId: string | null;
   salesOrderNumber: string | null;

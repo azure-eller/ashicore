@@ -55,9 +55,6 @@ export const items = inventorySchema
       // Manufacturing
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
-      allowPartialManufacturingOutput: boolean("allow_partial_manufacturing_output")
-        .notNull()
-        .default(false),
 
       // Variant family
       isMaster: boolean("is_master").notNull().default(false),

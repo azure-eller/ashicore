@@ -279,7 +279,14 @@ export type ReorderManufacturingOrderPriorityRanks = z.infer<
 >;
 
 export const recordManufacturingOutputSchema = z.object({
-  quantity: positiveDecimalString("Output quantity"),
+  quantity: z
+    .string()
+    .trim()
+    .min(1, "Output quantity is required")
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed !== 0;
+    }, "Output quantity must be a non-zero number"),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   notes: nullableString,
 });

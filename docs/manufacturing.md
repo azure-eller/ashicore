@@ -20,6 +20,7 @@ Manufacturing v1 now covers both planning and simple execution:
 - mobile-first execution flow with a minimal web fallback
 - discrete orders picked once, then completed once
 - batch-mode orders executed one batch at a time
+- universal partial output from the execution screen, without a product-level mode
 
 Still excluded in v1:
 
@@ -165,7 +166,15 @@ Released execution does not change materials. Picking consumes the ingredient on
 
 ### Discrete Orders
 
-Discrete completion is still one-shot, but it is now pick-gated:
+Discrete completion can be done incrementally from the execution screen:
+
+- every released order can log produced output before closing
+- the first output creates the produced lot; later output appends to that same lot
+- logged output consumes ingredients proportionally to planned output
+- the order remains `released` until the worker closes it
+- the mobile MO execution handoff at `/home/aeller/Downloads/mobile MO execution.zip` is the UI source of truth; implement Option A only
+
+One-shot completion remains available as the complete-all path:
 
 - user enters `actualQuantity`
 - every ingredient must already be fully picked

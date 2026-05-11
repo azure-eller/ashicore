@@ -1141,7 +1141,6 @@ export async function getItem(id: string) {
         expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
           "expectedBatchYield"
         ),
-        allowPartialManufacturingOutput: items.allowPartialManufacturingOutput,
         isMaster: items.isMaster,
         parentId: items.parentId,
         variantAxes: items.variantAxes,

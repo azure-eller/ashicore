@@ -20,6 +20,7 @@ import {
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel/operations/common";
 import {
+  appendPositiveStockToExistingLotInTx,
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
   getCurrentAvailableQtyAtLocationInTx,
@@ -589,6 +590,7 @@ export async function produceManufacturedStockInTx(
     quantity: number;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    lotId?: string | null;
     outputDisposition?: Extract<InventoryDisposition, "available" | "blocked">;
     overheadCostTotal?: number;
     expectedReleaseQuantity?: number | null;
@@ -609,6 +611,7 @@ export async function produceManufacturedStockInTx(
       quantity: params.quantity,
       overheadCostTotal: params.overheadCostTotal ?? 0,
       outputDisposition: params.outputDisposition ?? "available",
+      lotId: params.lotId ?? null,
       expectedReleaseQuantity: params.expectedReleaseQuantity ?? null,
       ingredientRows: params.ingredientRows,
     },
@@ -626,14 +629,14 @@ export async function produceManufacturedStockInTx(
   const unitCost = normalizeNumericScale(totalCost / params.quantity, 6);
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
 
-  const created = await createPositiveStockEventInTx(tx, {
+  const stockEventParams = {
     organizationId: params.organizationId,
     locationId: location.id,
     itemId: params.productId,
     quantity: params.quantity,
     unitCost,
     disposition: params.outputDisposition ?? "available",
-    eventType: "manufacturing_output",
+    eventType: "manufacturing_output" as const,
     eventSubtype: "manufacturing_complete",
     referenceType: "manufacturing_order",
     referenceId: params.manufacturingOrderId,
@@ -644,7 +647,13 @@ export async function produceManufacturedStockInTx(
       overheadCostTotal: normalizeNumericScale(params.overheadCostTotal ?? 0, 6),
       ingredientIds: params.ingredientRows.map((row) => row.ingredientId),
     },
-  });
+  };
+  const created = params.lotId
+    ? await appendPositiveStockToExistingLotInTx(tx, {
+        ...stockEventParams,
+        lotId: params.lotId,
+      })
+    : await createPositiveStockEventInTx(tx, stockEventParams);
 
   const existingExpected = await tx
     .select({

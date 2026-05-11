@@ -49,9 +49,6 @@ export const manufacturingOrders = manufacturingSchema
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       numberOfBatches: integer("number_of_batches"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
-      allowPartialManufacturingOutput: boolean("allow_partial_manufacturing_output")
-        .notNull()
-        .default(false),
       requestedQuantity: numeric("requested_quantity", { precision: 12, scale: 4 })
         .notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
