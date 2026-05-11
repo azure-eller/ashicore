@@ -121,6 +121,10 @@ const cleanedLinesSchema = z
   });
 
 const baseSalesOrderSchema = createInsertSchema(salesOrders, {
+  orderNumber: nullableString.refine(
+    (value) => value == null || value.length <= 32,
+    "Order number must be 32 characters or fewer"
+  ),
   customerId: z.string().min(1, "Customer is required"),
   status: z.enum(["draft", "confirmed"]),
   orderDate: z
@@ -148,7 +152,6 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
 }).omit({
   id: true,
   organizationId: true,
-  orderNumber: true,
   customerName: true,
   shippedAt: true,
   xeroInvoiceId: true,
@@ -359,6 +362,7 @@ export type SalesShipmentCostsInput = z.infer<
 >;
 
 export const salesOrderDefaultValues: InsertSalesOrder = {
+  orderNumber: null,
   customerId: "",
   status: "draft",
   orderDate: new Date().toISOString().slice(0, 10),

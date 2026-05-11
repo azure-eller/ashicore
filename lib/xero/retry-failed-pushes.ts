@@ -5,6 +5,7 @@ import {
   organization,
   purchaseOrders,
   salesOrders,
+  salesShipments,
   xeroConnections,
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
@@ -29,13 +30,23 @@ export type XeroRetryOrgResult = {
     stillFailed: number;
     skipped: number;
   };
+  salesShipments: {
+    candidates: number;
+    recovered: number;
+    stillFailed: number;
+    skipped: number;
+  };
   purchaseOrders: {
     candidates: number;
     recovered: number;
     stillFailed: number;
     skipped: number;
   };
-  errors: Array<{ entity: "sales_order" | "purchase_order"; id: string; message: string }>;
+  errors: Array<{
+    entity: "sales_order" | "sales_shipment" | "purchase_order";
+    id: string;
+    message: string;
+  }>;
 };
 
 export type XeroRetrySummary = {
@@ -85,6 +96,30 @@ async function listFailedSalesOrders(orgId: string): Promise<string[]> {
   });
 }
 
+async function listFailedSalesShipments(
+  orgId: string
+): Promise<Array<{ orderId: string; shipmentId: string }>> {
+  return withOrgContext(orgId, async (tx) => {
+    const rows = await tx
+      .select({
+        orderId: salesShipments.salesOrderId,
+        shipmentId: salesShipments.id,
+      })
+      .from(salesShipments)
+      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesShipments.xeroPushStatus, "failed"),
+          sql`${salesShipments.xeroRetryCount} < ${MAX_PUSH_ATTEMPTS}`,
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .orderBy(salesShipments.xeroLastPushAttemptAt)
+      .limit(BATCH_SIZE_PER_ORG);
+    return rows;
+  });
+}
+
 async function listFailedPurchaseOrders(orgId: string): Promise<string[]> {
   return withOrgContext(orgId, async (tx) => {
     const rows = await tx
@@ -117,9 +152,12 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
   const orgIds = await listConnectedOrgs();
   const results: XeroRetryOrgResult[] = [];
 
-  const { pushSalesOrderToXero, markXeroPushFailed } = await import(
-    "./push-invoice"
-  );
+  const {
+    pushSalesOrderToXero,
+    pushSalesShipmentToXero,
+    markXeroPushFailed,
+    markShipmentXeroPushFailed,
+  } = await import("./push-invoice");
   const { pushPurchaseOrderToXero, markXeroPurchaseOrderPushFailed } =
     await import("./push-purchase-order");
 
@@ -127,6 +165,12 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
     const orgResult: XeroRetryOrgResult = {
       orgId,
       salesOrders: { candidates: 0, recovered: 0, stillFailed: 0, skipped: 0 },
+      salesShipments: {
+        candidates: 0,
+        recovered: 0,
+        stillFailed: 0,
+        skipped: 0,
+      },
       purchaseOrders: {
         candidates: 0,
         recovered: 0,
@@ -150,7 +194,7 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
 
     for (const id of salesIds) {
       try {
-        await pushSalesOrderToXero(orgId, id);
+        await pushSalesOrderToXero(orgId, id, { allowAutoEmail: false });
         orgResult.salesOrders.recovered += 1;
       } catch (error) {
         if (
@@ -174,6 +218,48 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
         orgResult.errors.push({
           entity: "sales_order",
           id,
+          message: (error as Error).message ?? "unknown",
+        });
+      }
+    }
+
+    let shipmentIds: Array<{ orderId: string; shipmentId: string }> = [];
+    try {
+      shipmentIds = await listFailedSalesShipments(orgId);
+    } catch (error) {
+      orgResult.errors.push({
+        entity: "sales_shipment",
+        id: "*",
+        message: `Failed to list candidates: ${(error as Error).message}`,
+      });
+    }
+    orgResult.salesShipments.candidates = shipmentIds.length;
+
+    for (const { orderId, shipmentId } of shipmentIds) {
+      try {
+        await pushSalesShipmentToXero(orgId, orderId, shipmentId, {
+          allowAutoEmail: false,
+        });
+        orgResult.salesShipments.recovered += 1;
+      } catch (error) {
+        if (
+          error instanceof XeroError &&
+          (error.status === 400 || error.status === 404 || error.status === 409)
+        ) {
+          orgResult.salesShipments.skipped += 1;
+          continue;
+        }
+
+        try {
+          await markShipmentXeroPushFailed(orgId, shipmentId, error);
+        } catch {
+          // ignore — best effort.
+        }
+
+        orgResult.salesShipments.stillFailed += 1;
+        orgResult.errors.push({
+          entity: "sales_shipment",
+          id: shipmentId,
           message: (error as Error).message ?? "unknown",
         });
       }

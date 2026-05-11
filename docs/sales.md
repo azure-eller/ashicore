@@ -36,7 +36,7 @@ Sales v1 does not include:
 ## Status Rules
 
 - `draft` orders are editable
-- `confirmed` orders are read-only and can create draft shipments, cancel remaining quantities, or be soft-deleted
+- `confirmed` orders are editable until shipped, and can create draft shipments, cancel remaining quantities, or be soft-deleted
 - `partially_shipped` orders are read-only and can create more draft shipments or cancel remaining quantities
 - `shipped` orders are terminal, read-only, and can only be soft-deleted
 - `cancelled` orders are terminal and can only be soft-deleted
@@ -46,6 +46,7 @@ Valid transitions:
 - create `draft`
 - create `confirmed`
 - edit `draft`
+- edit `confirmed`
 - confirm `draft`
 - create/cancel/edit draft shipment under `confirmed` or `partially_shipped`
 - ship draft shipment from `confirmed` or `partially_shipped`
@@ -60,7 +61,6 @@ Valid transitions:
 
 Invalid transitions:
 
-- edit `confirmed`
 - edit `shipped`
 - edit `cancelled`
 - cancel `draft`

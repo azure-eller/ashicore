@@ -19,6 +19,7 @@ import {
   releaseManufacturingOrder,
   testFetch,
   updateItem,
+  updateSalesOrder,
 } from "../../helpers/api";
 import type { TestDb } from "../fixtures";
 
@@ -254,6 +255,59 @@ test.describe("Reservation correctness", () => {
     expect(balance.shortageQty).toBe("0.0000");
     expect(balance.availableToPromise).toBe("0.0000");
     expect(await getReservationTotal(db, itemId)).toBe("6.0000");
+  });
+
+  test("confirmed sales order edits refresh reservations atomically", async ({
+    db,
+  }) => {
+    const customerId = await createCustomerFixture(uniqueName("Confirmed edit customer"));
+    const itemId = await createMaterial(uniqueName("Confirmed edit material"), "5");
+    const orderId = await createDraftSalesOrder({
+      customerId,
+      itemId,
+      quantity: "3",
+    });
+    expect((await confirmSalesOrder(orderId)).status).toBe(200);
+
+    const warning = await updateSalesOrder(orderId, {
+      customerId,
+      status: "confirmed",
+      shipDate: "2026-04-15",
+      lines: [{ itemId, quantity: "7", unitPrice: "9.00" }],
+    });
+    expect(warning.status).toBe(409);
+    expect(warning.body.oversell.products[0]).toMatchObject({
+      availableQty: 5,
+      committedQty: 0,
+      demandQty: 0,
+      shortageQty: 0,
+      projectedDemandQty: 7,
+      projectedShortageQty: 2,
+    });
+
+    let balance = await getItemBalance(db, itemId);
+    expect(balance.committedQty).toBe("3.0000");
+    expect(balance.demandQty).toBe("3.0000");
+    expect(balance.shortageQty).toBe("0.0000");
+    expect(await getReservationTotal(db, itemId)).toBe("3.0000");
+    expect(await getDemandTotal(db, itemId)).toBe("3.0000");
+
+    const confirmedEdit = await updateSalesOrder(orderId, {
+      customerId,
+      status: "confirmed",
+      shipDate: "2026-04-15",
+      lines: [{ itemId, quantity: "7", unitPrice: "9.00" }],
+      confirmOversell: true,
+    });
+    expect(confirmedEdit.status).toBe(200);
+
+    balance = await getItemBalance(db, itemId);
+    expect(balance.committedQty).toBe("5.0000");
+    expect(balance.demandQty).toBe("7.0000");
+    expect(balance.shortageQty).toBe("2.0000");
+    expect(balance.availableToPromise).toBe("-2.0000");
+    expect(await getReservationTotal(db, itemId)).toBe("5.0000");
+    expect(await getDemandTotal(db, itemId)).toBe("7.0000");
   });
 
   test("available stock excludes existing reservations and blocked lots", async ({

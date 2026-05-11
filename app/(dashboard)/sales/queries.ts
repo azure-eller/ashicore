@@ -840,6 +840,79 @@ async function generateOrderNumber(tx: Tx) {
   return `SO-${year}-${String(sequenceValue).padStart(4, "0")}`;
 }
 
+async function resolveSalesOrderNumberInTx(
+  tx: Tx,
+  organizationId: string,
+  requestedOrderNumber: string | null | undefined,
+  options?: { excludeId?: string }
+) {
+  const orderNumber = requestedOrderNumber?.trim() || await generateOrderNumber(tx);
+  const conditions = [
+    eq(salesOrders.organizationId, organizationId),
+    eq(salesOrders.orderNumber, orderNumber),
+  ];
+
+  if (options?.excludeId) {
+    conditions.push(sql`${salesOrders.id} <> ${options.excludeId}`);
+  }
+
+  const [existingOrder] = await tx
+    .select({ id: salesOrders.id })
+    .from(salesOrders)
+    .where(and(...conditions))
+    .limit(1);
+
+  if (existingOrder) {
+    throw new SalesError("A sales order with this number already exists.", 400, {
+      errors: {
+        orderNumber: ["A sales order with this number already exists."],
+      },
+    });
+  }
+
+  return orderNumber;
+}
+
+async function resolveBolContactInTx(tx: Tx, customerId: string) {
+  const [customer] = await tx
+    .select({
+      email: customers.email,
+      phone: customers.phone,
+    })
+    .from(customers)
+    .where(eq(customers.id, customerId))
+    .limit(1);
+
+  const [contact] = await tx
+    .select({
+      name: customerContacts.name,
+      title: customerContacts.title,
+      email: customerContacts.email,
+      phone: customerContacts.phone,
+    })
+    .from(customerContacts)
+    .where(
+      and(
+        eq(customerContacts.customerId, customerId),
+        isNull(customerContacts.deletedAt)
+      )
+    )
+    .orderBy(
+      desc(customerContacts.receivesShipping),
+      desc(customerContacts.isOnSite),
+      desc(customerContacts.isPrimary),
+      asc(customerContacts.name)
+    )
+    .limit(1);
+
+  return {
+    contactName: contact?.name ?? null,
+    contactTitle: contact?.title ?? null,
+    contactEmail: contact?.email ?? customer?.email ?? null,
+    contactPhone: contact?.phone ?? customer?.phone ?? null,
+  };
+}
+
 async function getOrderLinesInTx(tx: Tx, orderId: string) {
   return tx
     .select({
@@ -1160,6 +1233,7 @@ async function getActiveDraftShipmentInTx(
   const [shipment] = await tx
     .select({
       id: salesShipments.id,
+      sequence: salesShipments.sequence,
       status: salesShipments.status,
     })
     .from(salesShipments)
@@ -1360,7 +1434,14 @@ async function upsertDefaultDraftShipmentForOrderInTx(
 
     await tx
       .update(salesShipments)
-      .set({ scheduledDate: order.shipDate, ...shipAddress, updatedAt: now })
+      .set({
+        shipmentNumber: `${order.orderNumber}-S${existingShipment.sequence}`,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        scheduledDate: order.shipDate,
+        ...shipAddress,
+        updatedAt: now,
+      })
       .where(eq(salesShipments.id, existingShipment.id));
 
     return existingShipment.id;
@@ -3823,6 +3904,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             orderNumber: salesOrders.orderNumber,
             customerName: salesOrders.customerName,
             customerEmail: customers.email,
+            notes: salesOrders.notes,
             status: salesOrders.status,
             orderDate: salesOrders.orderDate,
             shipDate: salesOrders.shipDate,
@@ -4276,6 +4358,10 @@ export async function getSalesOrder(
         customerFreightChargeAmount: trimScaleNullable(
           salesShipments.customerFreightChargeAmount
         ).as("customerFreightChargeAmount"),
+        xeroInvoiceId: salesShipments.xeroInvoiceId,
+        xeroInvoiceNumber: salesShipments.xeroInvoiceNumber,
+        xeroPushStatus: salesShipments.xeroPushStatus,
+        xeroPushError: salesShipments.xeroPushError,
         createdAt: salesShipments.createdAt,
         updatedAt: salesShipments.updatedAt,
         lineId: salesShipmentLines.id,
@@ -4313,6 +4399,10 @@ export async function getSalesOrder(
           shippedAt: row.shippedAt,
           notes: row.notes,
           customerFreightChargeAmount: row.customerFreightChargeAmount,
+          xeroInvoiceId: row.xeroInvoiceId,
+          xeroInvoiceNumber: row.xeroInvoiceNumber,
+          xeroPushStatus: row.xeroPushStatus as SalesShipmentRow["xeroPushStatus"],
+          xeroPushError: row.xeroPushError,
           lines: [],
           costs: [],
           marginSummary: buildSalesMarginSummary({
@@ -4689,6 +4779,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
       .select({
         id: salesOrders.id,
         customerId: salesOrders.customerId,
+        orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         orderDate: salesOrders.orderDate,
         shipDate: salesOrders.shipDate,
@@ -4706,7 +4797,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         and(
           eq(salesOrders.id, id),
           isNull(salesOrders.deletedAt),
-          eq(salesOrders.status, "draft")
+          inArray(salesOrders.status, ["draft", "confirmed"])
         )
       );
 
@@ -4718,7 +4809,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
 
     return {
       ...order,
-      status: "draft",
+      status: order.status as "draft" | "confirmed",
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -4771,7 +4862,11 @@ export async function createSalesOrder(
       }
     }
 
-    const orderNumber = await generateOrderNumber(tx);
+    const orderNumber = await resolveSalesOrderNumberInTx(
+      tx,
+      orgId,
+      data.orderNumber
+    );
     const [order] = await tx
       .insert(salesOrders)
       .values({
@@ -4849,6 +4944,42 @@ export async function createSalesOrder(
   });
 }
 
+export async function duplicateSalesOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
+  const order = await getSalesOrder(id);
+
+  if (!order) {
+    return null;
+  }
+
+  return createSalesOrder(
+    {
+      orderNumber: null,
+      customerId: order.customerId,
+      status: "draft",
+      orderDate: order.orderDate,
+      shipDate: order.shipDate,
+      requestedDate: order.requestedDate,
+      notes: order.notes,
+      shipLine1: order.shipLine1,
+      shipLine2: order.shipLine2,
+      shipCity: order.shipCity,
+      shipRegion: order.shipRegion,
+      shipPostcode: order.shipPostcode,
+      shipCountry: order.shipCountry,
+      lines: order.lines.map((line) => ({
+        itemId: line.itemId,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+      })),
+      confirmOversell: false,
+    },
+    options
+  );
+}
+
 export async function updateSalesOrder(
   id: string,
   data: UpdateSalesOrder,
@@ -4880,17 +5011,43 @@ export async function updateSalesOrder(
     const existingLines = await getOrderLinesInTx(tx, id);
 
     if (existingOrder.status === "confirmed") {
-      if (!isCancelPayload(data)) {
-        throw new SalesError("Confirmed orders cannot be edited.", 400);
+      if (isCancelPayload(data)) {
+        await tx
+          .update(salesOrders)
+          .set({
+            status: "cancelled",
+            updatedAt: new Date(),
+          })
+          .where(eq(salesOrders.id, id));
+
+        await releaseReservationForSalesLineInTx(tx, {
+          organizationId: orgId,
+          salesOrderId: id,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "cancel-confirmed-order"
+          ),
+          reason: "cancelled",
+          salesOrderLineIds: existingLines.map((line) => line.id),
+        });
+        const result = { id };
+        await finishInventoryOperationInTx(tx, {
+          organizationId: orgId,
+          idempotencyKey: options?.idempotencyKey ?? null,
+          result,
+        });
+        return result;
       }
 
-      await tx
-        .update(salesOrders)
-        .set({
-          status: "cancelled",
-          updatedAt: new Date(),
-        })
-        .where(eq(salesOrders.id, id));
+      if (data.status !== "confirmed") {
+        throw new SalesError("Confirmed orders must stay confirmed while editing.", 400);
+      }
+
+      await lockItemsInTx(tx, [
+        ...existingLines.map((line) => line.itemId),
+        ...data.lines.map((line) => line.itemId),
+      ]);
 
       await releaseReservationForSalesLineInTx(tx, {
         organizationId: orgId,
@@ -4898,18 +5055,11 @@ export async function updateSalesOrder(
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
-          "cancel-confirmed-order"
+          "edit-confirmed-order-release"
         ),
-        reason: "cancelled",
+        reason: "edited",
         salesOrderLineIds: existingLines.map((line) => line.id),
       });
-      const result = { id };
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
     }
 
     if (existingOrder.status === "cancelled") {
@@ -4931,7 +5081,7 @@ export async function updateSalesOrder(
     const shouldCheckOversell =
       data.status === "confirmed" && data.confirmOversell !== true;
     const prepared = await prepareOrderPayload(tx, data, {
-      lockItems: shouldCheckOversell,
+      lockItems: shouldCheckOversell && existingOrder.status !== "confirmed",
     });
 
     if (shouldCheckOversell) {
@@ -4973,6 +5123,20 @@ export async function updateSalesOrder(
         .where(inArray(salesOrderAllocations.salesOrderLineId, existingLineIds));
     }
 
+    const existingShipmentRows = await tx
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, id));
+
+    if (existingShipmentRows.length > 0) {
+      await tx.delete(salesShipmentLines).where(
+        inArray(
+          salesShipmentLines.salesShipmentId,
+           existingShipmentRows.map((shipment) => shipment.id)
+         )
+       );
+    }
+
     await tx.delete(salesOrderLines).where(eq(salesOrderLines.salesOrderId, id));
 
     const insertedLines =
@@ -4989,9 +5153,17 @@ export async function updateSalesOrder(
           })
         : [];
 
+    const orderNumber = await resolveSalesOrderNumberInTx(
+      tx,
+      orgId,
+      data.orderNumber,
+      { excludeId: id }
+    );
+
     await tx
       .update(salesOrders)
       .set({
+        orderNumber,
         customerId: prepared.customerId,
         customerName: prepared.customerName,
         status: data.status,
@@ -5028,7 +5200,7 @@ export async function updateSalesOrder(
 
       await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
         id,
-        orderNumber: existingOrder.orderNumber,
+        orderNumber,
         customerId: prepared.customerId,
         customerName: prepared.customerName,
         shipDate: prepared.shipDate,
@@ -5056,6 +5228,10 @@ export async function updateSalesOrder(
 export type BolSalesOrderData = {
   orderNumber: string;
   customerName: string;
+  contactName: string | null;
+  contactTitle: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
   requestedDate: string | null;
   shippedAt: Date | null;
   notes: string | null;
@@ -5113,10 +5289,12 @@ export async function getSalesOrderForBol(
       .orderBy(asc(salesOrderLines.sortOrder));
 
     const shipAddress = await resolveShipmentAddressInTx(tx, order);
+    const contact = await resolveBolContactInTx(tx, order.customerId);
 
     return {
       orderNumber: order.orderNumber,
       customerName: order.customerName,
+      ...contact,
       requestedDate: order.requestedDate,
       shippedAt: order.shippedAt,
       notes: order.notes,
@@ -5131,6 +5309,10 @@ export type BolSalesShipmentData = {
   orderNumber: string;
   shipmentNumber: string;
   customerName: string;
+  contactName: string | null;
+  contactTitle: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
   requestedDate: string | null;
   scheduledDate: string | null;
   shippedAt: Date | null;
@@ -5222,11 +5404,13 @@ export async function getSalesShipmentForBol(
           shipPostcode: shipment.orderShipPostcode,
           shipCountry: shipment.orderShipCountry,
         });
+    const contact = await resolveBolContactInTx(tx, shipment.customerId);
 
     return {
       orderNumber: shipment.orderNumber,
       shipmentNumber: shipment.shipmentNumber,
       customerName: shipment.customerName,
+      ...contact,
       requestedDate: shipment.requestedDate,
       scheduledDate: shipment.scheduledDate,
       shippedAt: shipment.shippedAt,
@@ -5815,12 +5999,17 @@ export async function shipSalesShipment(
     return result.result;
   }
 
-  const { pushSalesOrderToXero, markXeroPushFailed } = await import(
-    "@/lib/xero/push-invoice"
-  );
+  const {
+    hasShipmentInvoiceForSalesOrder,
+    pushSalesOrderToXero,
+    markXeroPushFailed,
+  } = await import("@/lib/xero/push-invoice");
   const { XeroError } = await import("@/lib/xero/errors");
 
   try {
+    if (await hasShipmentInvoiceForSalesOrder(result.orgId, orderId)) {
+      return result.result;
+    }
     await pushSalesOrderToXero(result.orgId, orderId);
   } catch (error) {
     if (
@@ -6191,11 +6380,37 @@ export async function retryXeroPushForSalesOrder(id: string) {
       const result = await pushSalesOrderToXero(orgId, id);
       return { ok: true as const, result };
     } catch (error) {
-      if (error instanceof XeroError && (error.status === 404 || error.status === 409)) {
+      if (
+        error instanceof XeroError &&
+        (error.status === 400 || error.status === 404 || error.status === 409)
+      ) {
         throw error;
       }
 
       await markXeroPushFailed(orgId, id, error);
+      throw error;
+    }
+  });
+}
+
+export async function retryXeroPushForSalesShipment(orderId: string, shipmentId: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { pushSalesShipmentToXero, markShipmentXeroPushFailed } =
+      await import("@/lib/xero/push-invoice");
+    const { XeroError } = await import("@/lib/xero/errors");
+
+    try {
+      const result = await pushSalesShipmentToXero(orgId, orderId, shipmentId);
+      return { ok: true as const, result };
+    } catch (error) {
+      if (
+        error instanceof XeroError &&
+        (error.status === 400 || error.status === 404 || error.status === 409)
+      ) {
+        throw error;
+      }
+
+      await markShipmentXeroPushFailed(orgId, shipmentId, error);
       throw error;
     }
   });

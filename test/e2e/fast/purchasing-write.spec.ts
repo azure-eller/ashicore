@@ -169,4 +169,43 @@ test.describe("Purchasing write-path smoke", () => {
     expect(lines[1].itemId).toBe(sandId);
     expect(lines[1].quantityOrdered).toBe("5.0000");
   });
+
+  test("duplicates a purchase order from the detail actions", async ({ page, db }) => {
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.getByRole("button", { name: "More actions" }).click();
+
+    const [duplicateResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/duplicate`)
+      ),
+      page.getByRole("menuitem", { name: "Duplicate" }).click(),
+    ]);
+    expect(duplicateResponse.status()).toBe(201);
+    const created = await duplicateResponse.json();
+    const duplicateId = created.id as string;
+    await page.waitForURL(`**/purchasing/orders/${duplicateId}`);
+    expect(duplicateId).not.toBe(purchaseOrderId);
+
+    const [duplicate] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, duplicateId));
+    expect(duplicate.supplierId).toBe(supplierId);
+    expect(duplicate.supplierName).toBe(supplierName);
+    expect(duplicate.status).toBe("draft");
+    expect(duplicate.notes).toBe("Fast purchase order smoke test");
+
+    const duplicateLines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, duplicateId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+    expect(duplicateLines).toHaveLength(2);
+    expect(duplicateLines[0].itemId).toBe(barkId);
+    expect(duplicateLines[0].quantityOrdered).toBe("10.0000");
+    expect(duplicateLines[1].itemId).toBe(sandId);
+    expect(duplicateLines[1].quantityOrdered).toBe("5.0000");
+  });
 });

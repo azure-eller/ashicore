@@ -26,6 +26,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   REQUESTED_DATE_TOOLTIP,
   SALES_ORDER_SHIP_DATE_TOOLTIP,
   SALES_ORDER_DATE_TOOLTIP,
@@ -65,6 +70,30 @@ const SALES_STATUS_FILTER_OPTIONS = [
   { value: "shipped", label: "Shipped" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
+
+function NotesCell({ notes }: { notes: string | null }) {
+  const trimmedNotes = notes?.trim();
+
+  if (!trimmedNotes) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="block max-w-48 truncate text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+        >
+          {trimmedNotes}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-80 whitespace-pre-wrap">
+        {trimmedNotes}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
@@ -116,6 +145,11 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   {
     accessorKey: "customerName",
     header: ({ column }) => <SortableHeader column={column} label="Customer" />,
+  },
+  {
+    accessorKey: "notes",
+    header: ({ column }) => <SortableHeader column={column} label="Notes" />,
+    cell: ({ row }) => <NotesCell notes={row.original.notes} />,
   },
   {
     accessorKey: "totalAmount",

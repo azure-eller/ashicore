@@ -438,7 +438,7 @@ export function DashboardDataTable<TData extends { id: string }>({
           </p>
         )}
 
-        <div className="overflow-hidden rounded-md border">
+        <div className="rounded-md border">
           <Table className={tableClassName}>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (

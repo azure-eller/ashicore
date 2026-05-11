@@ -81,6 +81,7 @@ import {
   EditableLineGridCell,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
+import { ComboboxCreateLinks } from "@/components/combobox-create-links";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -428,6 +429,7 @@ export function OrderForm({
     mode: "onBlur",
     defaultValues: initialData
       ? {
+          orderNumber: initialData.orderNumber,
           customerId: initialData.customerId,
           status: initialData.status,
           orderDate: initialData.orderDate,
@@ -465,6 +467,7 @@ export function OrderForm({
     control: form.control,
     name: "status",
   });
+  const isConfirmedEdit = initialData?.status === "confirmed";
 
   const { fields, append, move, remove } = useFieldArray({
     control: form.control,
@@ -823,6 +826,14 @@ export function OrderForm({
                               </ComboboxItem>
                             )}
                           </ComboboxList>
+                          <ComboboxCreateLinks
+                            links={[
+                              {
+                                href: "/sales/customers/new",
+                                label: "Create customer",
+                              },
+                            ]}
+                          />
                         </ComboboxContent>
                       </Combobox>
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
@@ -831,6 +842,26 @@ export function OrderForm({
                 />
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <Controller
+                    control={form.control}
+                    name="orderNumber"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name} className="w-full">
+                          Order Number
+                        </FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          placeholder="Assigned on save"
+                          aria-invalid={fieldState.invalid}
+                        />
+                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      </Field>
+                    )}
+                  />
+
                   <Controller
                     control={form.control}
                     name="status"
@@ -845,6 +876,7 @@ export function OrderForm({
                           name={field.name}
                           value={field.value}
                           onValueChange={field.onChange}
+                          disabled={isConfirmedEdit}
                         >
                           <SelectTrigger aria-invalid={fieldState.invalid}>
                             <SelectValue placeholder="Select a status" />
@@ -1475,6 +1507,18 @@ function OrderLineRow({
                       );
                     }}
                   </ComboboxList>
+                  <ComboboxCreateLinks
+                    links={[
+                      {
+                        href: "/inventory/products/new",
+                        label: "Create product",
+                      },
+                      {
+                        href: "/inventory/materials/new",
+                        label: "Create material",
+                      },
+                    ]}
+                  />
                 </ComboboxContent>
               </Combobox>
               {item ? (

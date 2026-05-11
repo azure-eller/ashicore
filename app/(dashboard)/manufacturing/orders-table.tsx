@@ -73,6 +73,72 @@ function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
   );
 }
 
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getOrderProgress(order: ManufacturingOrderListRow) {
+  if (order.status === "completed") {
+    return { percent: 100, label: "Complete" };
+  }
+
+  if (order.status === "cancelled") {
+    return { percent: 0, label: "Cancelled" };
+  }
+
+  if (order.status === "draft") {
+    return { percent: 0, label: "Draft" };
+  }
+
+  if (order.manufacturingMode === "batch") {
+    const totalBatchCount = order.numberOfBatches ?? 0;
+    const percent =
+      totalBatchCount > 0
+        ? (order.completedBatchCount / totalBatchCount) * 100
+        : order.pickProgressPercent;
+
+    return {
+      percent: clampPercent(percent),
+      label:
+        totalBatchCount > 0
+          ? `${order.completedBatchCount}/${totalBatchCount} batches`
+          : "Released",
+    };
+  }
+
+  if (order.pickProgressStatus === "picked") {
+    return { percent: 75, label: "Picked" };
+  }
+
+  return {
+    percent: clampPercent(order.pickProgressPercent),
+    label:
+      order.pickProgressPercent > 0
+        ? `${clampPercent(order.pickProgressPercent)}% picked`
+        : "Released",
+  };
+}
+
+function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
+  const progress = getOrderProgress(order);
+
+  return (
+    <div className="min-w-32 space-y-1">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="truncate text-muted-foreground">{progress.label}</span>
+        <span className="font-mono tabular-nums">{progress.percent}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function comparePriorityRank(
   left: ManufacturingOrderListRow,
   right: ManufacturingOrderListRow
@@ -254,6 +320,14 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     sortingFn: (a, b) =>
       parseFloat(a.original.plannedQuantity) - parseFloat(b.original.plannedQuantity),
     cell: ({ row }) => <PlannedQuantityCell order={row.original} />,
+  },
+  {
+    accessorKey: "pickProgressPercent",
+    header: ({ column }) => <SortableHeader column={column} label="Progress" />,
+    sortingFn: (a, b) =>
+      getOrderProgress(a.original).percent - getOrderProgress(b.original).percent,
+    cell: ({ row }) => <ProgressCell order={row.original} />,
+    meta: { className: "w-40" },
   },
   {
     accessorKey: "actualQuantity",

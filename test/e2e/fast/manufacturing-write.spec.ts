@@ -155,6 +155,50 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(updatedOrder.notes).toBe("Fast manufacturing updated");
   });
 
+  test("duplicates a manufacturing order from the detail actions", async ({
+    page,
+    db,
+  }) => {
+    await page.goto(`/manufacturing/orders/${orderId}`);
+    await page.getByRole("button", { name: "More actions" }).click();
+
+    const [duplicateResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/manufacturing-orders/${orderId}/duplicate`)
+      ),
+      page.getByRole("menuitem", { name: "Duplicate" }).click(),
+    ]);
+    expect(duplicateResponse.status()).toBe(201);
+    const created = await duplicateResponse.json();
+    const duplicateId = created.id as string;
+    await page.waitForURL(`**/manufacturing/orders/${duplicateId}`);
+    expect(duplicateId).not.toBe(orderId);
+
+    const [duplicate] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, duplicateId));
+    expect(duplicate.productId).toBe(productId);
+    expect(duplicate.status).toBe("draft");
+    expect(duplicate.requestedQuantity).toBe("5.0000");
+    expect(duplicate.plannedQuantity).toBe("5.0000");
+    expect(duplicate.plannedDate).toBe("2026-04-25");
+    expect(duplicate.notes).toBe("Fast manufacturing updated");
+    expect(duplicate.salesOrderId).toBeNull();
+    expect(duplicate.salesOrderLineId).toBeNull();
+
+    const duplicateIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, duplicateId));
+    expect(duplicateIngredients).toHaveLength(2);
+    expect(duplicateIngredients.map((ingredient) => ingredient.itemId).sort()).toEqual(
+      [sandId, compostId].sort()
+    );
+  });
+
   test("keeps manufacturing order rows in place after release from the list", async ({
     page,
     db,

@@ -794,25 +794,25 @@ test.describe("Sales order flow", () => {
     await expect(page.getByRole("button", { name: "Create MOs", exact: true })).toBeVisible();
   });
 
-  test("confirmed orders are read-only from detail", async ({ page }) => {
+  test("confirmed orders can be edited from detail", async ({ page }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Ship" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Cancel order" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
 
-  test("confirmed order stale-client edits and deletes are rejected without changing reservations", async ({
+  test("confirmed order stale-client status downgrades and deletes are rejected without changing reservations", async ({
     page,
     db,
   }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Edit" })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Ship" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
 
     const [beforeOrder] = await db
       .select({

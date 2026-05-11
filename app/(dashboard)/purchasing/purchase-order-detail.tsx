@@ -500,6 +500,30 @@ export function PurchaseOrderDetail({
     },
   });
 
+  const duplicateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/purchase-orders/${order.id}/duplicate`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("purchase-order-duplicate"),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to duplicate purchase order.");
+      }
+      return body as { id: string };
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async (created) => {
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      router.push(`/purchasing/orders/${created.id}`);
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const isDeleted = order.deletedAt != null;
   const canEdit = !isDeleted && order.status === "draft";
   const canSubmit = !isDeleted && order.status === "draft";
@@ -549,6 +573,15 @@ export function PurchaseOrderDetail({
                             documentId: order.id,
                           })
                         ),
+                    },
+                  ]
+                : []),
+              ...(!isDeleted
+                ? [
+                    {
+                      label: "Duplicate",
+                      onSelect: () => duplicateMutation.mutate(),
+                      disabled: duplicateMutation.isPending,
                     },
                   ]
                 : []),

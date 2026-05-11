@@ -125,6 +125,7 @@ export type ManufacturingOrderListRow = {
   manufacturingMode: string;
   numberOfBatches: number | null;
   pickProgressStatus: ManufacturingPickProgressStatus;
+  pickProgressPercent: number;
   completedBatchCount: number;
   actionableBatchCount: number;
   deletedAt: Date | null;

@@ -7,6 +7,8 @@ import {
   organization,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
 } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
@@ -25,6 +27,7 @@ type OrderForPush = {
   id: string;
   organizationName: string;
   orderNumber: string;
+  status: string;
   customerId: string;
   customerName: string;
   requestedDate: string | null;
@@ -71,6 +74,11 @@ type LineForPush = {
   lineTotal: string;
 };
 
+type ShipmentForPush = OrderForPush & {
+  shipmentId: string;
+  shipmentNumber: string;
+};
+
 export type PushInvoiceResult = {
   xeroInvoiceId: string;
   xeroInvoiceNumber: string;
@@ -85,7 +93,24 @@ export type PushInvoiceResult = {
 
 type PushInvoiceOptions = {
   sendEmail?: boolean;
+  allowAutoEmail?: boolean;
 };
+
+const orderInvoiceableStatuses = new Set([
+  "confirmed",
+  "partially_shipped",
+  "shipped",
+]);
+
+function shouldSendSalesInvoiceEmail(
+  connection: { autoEmailSalesInvoices?: boolean },
+  options: PushInvoiceOptions
+) {
+  return (
+    options.sendEmail === true ||
+    (options.allowAutoEmail !== false && connection.autoEmailSalesInvoices === true)
+  );
+}
 
 function customerToXeroContact(customer: CustomerForPush): XeroContactInput {
   return {
@@ -127,6 +152,7 @@ async function loadOrderForPushInTx(
       id: salesOrders.id,
       organizationName: organization.name,
       orderNumber: salesOrders.orderNumber,
+      status: salesOrders.status,
       customerId: salesOrders.customerId,
       customerName: salesOrders.customerName,
       requestedDate: salesOrders.requestedDate,
@@ -149,7 +175,6 @@ async function loadOrderForPushInTx(
     .where(
       and(
         eq(salesOrders.id, orderId),
-        eq(salesOrders.status, "shipped"),
         isNull(salesOrders.deletedAt)
       )
     );
@@ -196,6 +221,129 @@ async function loadOrderForPushInTx(
   return { order, customer, lines };
 }
 
+async function loadShipmentForPushInTx(
+  tx: import("@/lib/db/with-org-context").Tx,
+  orderId: string,
+  shipmentId: string
+): Promise<{
+  order: ShipmentForPush;
+  customer: CustomerForPush;
+  lines: LineForPush[];
+} | null> {
+  const [shipment] = await tx
+    .select({
+      id: salesOrders.id,
+      shipmentId: salesShipments.id,
+      shipmentNumber: salesShipments.shipmentNumber,
+      organizationName: organization.name,
+      orderNumber: salesOrders.orderNumber,
+      status: salesOrders.status,
+      customerId: salesOrders.customerId,
+      customerName: salesOrders.customerName,
+      requestedDate: salesOrders.requestedDate,
+      shippedAt: salesShipments.shippedAt,
+      shipLine1: salesShipments.shipLine1,
+      shipLine2: salesShipments.shipLine2,
+      shipCity: salesShipments.shipCity,
+      shipRegion: salesShipments.shipRegion,
+      shipPostcode: salesShipments.shipPostcode,
+      shipCountry: salesShipments.shipCountry,
+      totalAmount: sql<string>`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`,
+      xeroInvoiceId: salesShipments.xeroInvoiceId,
+      xeroInvoiceNumber: salesShipments.xeroInvoiceNumber,
+      xeroPushStatus: salesShipments.xeroPushStatus,
+      xeroPushPayloadHash: salesShipments.xeroPushPayloadHash,
+      xeroEmailStatus: salesShipments.xeroEmailStatus,
+    })
+    .from(salesShipments)
+    .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+    .innerJoin(organization, eq(salesOrders.organizationId, organization.id))
+    .innerJoin(salesShipmentLines, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
+    .innerJoin(salesOrderLines, eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id))
+    .where(
+      and(
+        eq(salesOrders.id, orderId),
+        eq(salesShipments.id, shipmentId),
+        eq(salesShipments.status, "shipped"),
+        isNull(salesOrders.deletedAt)
+      )
+    )
+    .groupBy(
+      salesOrders.id,
+      salesShipments.id,
+      organization.name
+    );
+
+  if (!shipment) return null;
+
+  const [customer] = await tx
+    .select({
+      id: customers.id,
+      name: customers.name,
+      email: customers.email,
+      phone: customers.phone,
+      xeroContactId: customers.xeroContactId,
+      billingLine1: customers.billingLine1,
+      billingLine2: customers.billingLine2,
+      billingCity: customers.billingCity,
+      billingRegion: customers.billingRegion,
+      billingPostcode: customers.billingPostcode,
+      billingCountry: customers.billingCountry,
+      shipLine1: customers.shipLine1,
+      shipLine2: customers.shipLine2,
+      shipCity: customers.shipCity,
+      shipRegion: customers.shipRegion,
+      shipPostcode: customers.shipPostcode,
+      shipCountry: customers.shipCountry,
+    })
+    .from(customers)
+    .where(eq(customers.id, shipment.customerId));
+
+  if (!customer) return null;
+
+  const lines = await tx
+    .select({
+      itemName: salesShipmentLines.itemName,
+      itemSku: salesShipmentLines.itemSku,
+      quantity: salesShipmentLines.quantity,
+      unitPrice: salesOrderLines.unitPrice,
+      lineTotal: sql<string>`${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}`,
+    })
+    .from(salesShipmentLines)
+    .innerJoin(salesOrderLines, eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id))
+    .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
+    .orderBy(salesShipmentLines.sortOrder);
+
+  return { order: shipment, customer, lines };
+}
+
+async function hasShipmentInvoiceForOrderInTx(
+  tx: import("@/lib/db/with-org-context").Tx,
+  orderId: string
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: salesShipments.id })
+    .from(salesShipments)
+    .where(
+      and(
+        eq(salesShipments.salesOrderId, orderId),
+        sql`${salesShipments.xeroInvoiceId} IS NOT NULL OR ${salesShipments.xeroPushStatus} = 'pushed'`
+      )
+    )
+    .limit(1);
+
+  return row != null;
+}
+
+export async function hasShipmentInvoiceForSalesOrder(
+  orgId: string,
+  orderId: string
+): Promise<boolean> {
+  return withOrgContext(orgId, (tx) =>
+    hasShipmentInvoiceForOrderInTx(tx, orderId)
+  );
+}
+
 async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
     await tx
@@ -206,6 +354,19 @@ async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
         updatedAt: new Date(),
       })
       .where(eq(salesOrders.id, orderId));
+  });
+}
+
+async function markShipmentPushAttempt(orgId: string, shipmentId: string): Promise<void> {
+  await withOrgContext(orgId, async (tx) => {
+    await tx
+      .update(salesShipments)
+      .set({
+        xeroLastPushAttemptAt: new Date(),
+        xeroRetryCount: sql`${salesShipments.xeroRetryCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesShipments.id, shipmentId));
   });
 }
 
@@ -230,6 +391,30 @@ async function persistPushSuccess(
         updatedAt: new Date(),
       })
       .where(eq(salesOrders.id, orderId));
+  });
+}
+
+async function persistShipmentPushSuccess(
+  orgId: string,
+  shipmentId: string,
+  invoiceId: string,
+  invoiceNumber: string,
+  payloadHash: string
+): Promise<void> {
+  await withOrgContext(orgId, async (tx) => {
+    await tx
+      .update(salesShipments)
+      .set({
+        xeroInvoiceId: invoiceId,
+        xeroInvoiceNumber: invoiceNumber,
+        xeroPushStatus: "pushed",
+        xeroPushError: null,
+        xeroPushedAt: new Date(),
+        xeroPushPayloadHash: payloadHash,
+        xeroRetryCount: 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesShipments.id, shipmentId));
   });
 }
 
@@ -317,10 +502,37 @@ async function persistEmailOutcome(
   });
 }
 
+async function persistShipmentEmailOutcome(
+  orgId: string,
+  shipmentId: string,
+  outcome:
+    | { status: "sent"; error?: never }
+    | { status: "failed"; error: string }
+    | { status: "skipped"; error?: never }
+): Promise<void> {
+  await withOrgContext(orgId, async (tx) => {
+    await tx
+      .update(salesShipments)
+      .set({
+        xeroEmailStatus: outcome.status,
+        xeroEmailError: outcome.status === "failed" ? outcome.error : null,
+        xeroEmailedAt: outcome.status === "sent" ? new Date() : undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesShipments.id, shipmentId));
+  });
+}
+
 async function sendInvoiceEmail(
   params: {
     orgId: string;
     orderId: string;
+    persistOutcome?: (
+      outcome:
+        | { status: "sent"; error?: never }
+        | { status: "failed"; error: string }
+        | { status: "skipped"; error?: never }
+    ) => Promise<void>;
     organizationName: string;
     orderNumber: string;
     invoiceId: string;
@@ -391,11 +603,15 @@ async function sendInvoiceEmail(
       console.error("Xero invoice mark-sent failed:", redactXeroError(error));
     }
 
-    await persistEmailOutcome(params.orgId, params.orderId, { status: "sent" });
+    await (params.persistOutcome ?? ((outcome) =>
+      persistEmailOutcome(params.orgId, params.orderId, outcome)))({
+      status: "sent",
+    });
   } catch (error) {
     const message = extractXeroMessage(error).slice(0, 500);
     console.error("Invoice email failed:", redactXeroError(error));
-    await persistEmailOutcome(params.orgId, params.orderId, {
+    await (params.persistOutcome ?? ((outcome) =>
+      persistEmailOutcome(params.orgId, params.orderId, outcome)))({
       status: "failed",
       error: message,
     });
@@ -407,9 +623,9 @@ async function sendInvoiceEmail(
 }
 
 /**
- * Push a shipped sales order to Xero. Idempotent: if a Xero invoice already
- * exists for this order (locally tracked or discoverable by reference) the
- * existing invoice is adopted instead of creating a duplicate.
+ * Push an invoiceable sales order to Xero. Idempotent: if a Xero invoice
+ * already exists for this order (locally tracked or discoverable by reference)
+ * the existing invoice is adopted instead of creating a duplicate.
  *
  * Increments `xero_retry_count` and stamps `xero_last_push_attempt_at` on
  * every call so the cron can cap retries.
@@ -419,6 +635,32 @@ export async function pushSalesOrderToXero(
   orderId: string,
   options: PushInvoiceOptions = {}
 ): Promise<PushInvoiceResult> {
+  const data = await withOrgContext(orgId, async (tx) =>
+    loadOrderForPushInTx(tx, orderId)
+  );
+  if (!data) {
+    throw new XeroError("Order not found.", 404);
+  }
+
+  if (!orderInvoiceableStatuses.has(data.order.status)) {
+    throw new XeroError(
+      "Only confirmed, partially shipped, or shipped orders can be invoiced.",
+      409
+    );
+  }
+
+  if (
+    !data.order.xeroInvoiceId &&
+    (await withOrgContext(orgId, (tx) =>
+      hasShipmentInvoiceForOrderInTx(tx, orderId)
+    ))
+  ) {
+    throw new XeroError(
+      "One or more shipments already have invoices. Invoice the remaining shipments individually instead.",
+      409
+    );
+  }
+
   const authed = await getAuthedXeroClient(orgId);
   const connection = authed.connection;
 
@@ -427,13 +669,6 @@ export async function pushSalesOrderToXero(
       "Set a default Xero account code in settings before pushing invoices.",
       400
     );
-  }
-
-  const data = await withOrgContext(orgId, async (tx) =>
-    loadOrderForPushInTx(tx, orderId)
-  );
-  if (!data) {
-    throw new XeroError("Order not found.", 404);
   }
 
   await markPushAttempt(orgId, orderId);
@@ -579,7 +814,7 @@ export async function pushSalesOrderToXero(
   if (created || adopted) {
     const decision = decideEmail({
       statusPref,
-      sendEmail: options.sendEmail === true,
+      sendEmail: shouldSendSalesInvoiceEmail(connection, options),
       customerEmail: data.customer.email,
       existingEmailStatus: data.order.xeroEmailStatus,
     });
@@ -619,6 +854,201 @@ export async function pushSalesOrderToXero(
     adopted,
     emailStatus,
   };
+}
+
+export async function pushSalesShipmentToXero(
+  orgId: string,
+  orderId: string,
+  shipmentId: string,
+  options: PushInvoiceOptions = {}
+): Promise<PushInvoiceResult> {
+  const authed = await getAuthedXeroClient(orgId);
+  const connection = authed.connection;
+
+  if (!connection.defaultAccountCode) {
+    throw new XeroError(
+      "Set a default Xero account code in settings before pushing invoices.",
+      400
+    );
+  }
+
+  const data = await withOrgContext(orgId, async (tx) =>
+    loadShipmentForPushInTx(tx, orderId, shipmentId)
+  );
+  if (!data) {
+    throw new XeroError("Shipped shipment not found.", 404);
+  }
+
+  await markShipmentPushAttempt(orgId, shipmentId);
+
+  const accountingApi = authed.client.accountingApi;
+  const invoiceNumberBase = data.order.shipmentNumber;
+
+  const lineItems: LineItem[] = data.lines.map((line) => ({
+    description: line.itemSku
+      ? `${line.itemName} (${line.itemSku})`
+      : line.itemName,
+    quantity: parseFloat(line.quantity),
+    unitAmount: parseFloat(line.unitPrice),
+    accountCode: connection.defaultAccountCode ?? undefined,
+    taxType: connection.defaultTaxType ?? undefined,
+    lineAmount: parseFloat(line.lineTotal),
+  }));
+
+  const statusPref =
+    connection.invoiceStatusPreference === "DRAFT"
+      ? Invoice.StatusEnum.DRAFT
+      : Invoice.StatusEnum.AUTHORISED;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const invoiceDate = data.order.shippedAt
+    ? new Date(data.order.shippedAt).toISOString().slice(0, 10)
+    : today;
+  const dueDate = data.order.requestedDate ?? today;
+
+  const payloadHash = hashXeroPayload({
+    orderNumber: invoiceNumberBase,
+    statusPref,
+    invoiceDate,
+    dueDate,
+    totalAmount: data.order.totalAmount,
+    accountCode: connection.defaultAccountCode,
+    taxType: connection.defaultTaxType,
+    lines: lineItems.map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitAmount: line.unitAmount,
+      lineAmount: line.lineAmount,
+    })),
+  });
+
+  let invoiceId: string;
+  let invoiceNumber: string;
+  let created = false;
+  let adopted = false;
+
+  if (data.order.xeroInvoiceId) {
+    invoiceId = data.order.xeroInvoiceId;
+    invoiceNumber = data.order.xeroInvoiceNumber ?? invoiceNumberBase;
+    await persistShipmentPushSuccess(orgId, shipmentId, invoiceId, invoiceNumber, payloadHash);
+  } else {
+    const existing = await findXeroInvoiceForSalesOrder(orgId, invoiceNumberBase);
+    if (existing) {
+      invoiceId = existing.invoiceID;
+      invoiceNumber = existing.invoiceNumber ?? invoiceNumberBase;
+      adopted = true;
+      await persistShipmentPushSuccess(orgId, shipmentId, invoiceId, invoiceNumber, payloadHash);
+    } else {
+      const contactId = await upsertXeroContact(
+        orgId,
+        customerToXeroContact(data.customer),
+        authed.tenantId,
+        accountingApi
+      );
+
+      const invoice: Invoice = {
+        type: Invoice.TypeEnum.ACCREC,
+        contact: { contactID: contactId },
+        lineItems,
+        date: invoiceDate,
+        dueDate,
+        invoiceNumber: invoiceNumberBase,
+        reference: data.order.orderNumber,
+        status: statusPref,
+      };
+
+      try {
+        const response = await accountingApi.createInvoices(
+          authed.tenantId,
+          { invoices: [invoice] },
+          undefined,
+          undefined,
+          buildXeroIdempotencyKey(orgId, "shipment-invoice", shipmentId, "create")
+        );
+        const returned = response.body.invoices?.[0];
+        if (!returned?.invoiceID) {
+          throw new XeroError("Xero did not return an invoice ID.", 502);
+        }
+        invoiceId = returned.invoiceID;
+        invoiceNumber = returned.invoiceNumber ?? invoiceNumberBase;
+        created = true;
+      } catch (error) {
+        if (error instanceof XeroError) throw error;
+        console.error("Xero shipment invoice create failed:", redactXeroError(error));
+        throw new XeroError(
+          `Failed to push shipment invoice to Xero: ${extractXeroMessage(error)}`,
+          502
+        );
+      }
+
+      await persistShipmentPushSuccess(orgId, shipmentId, invoiceId, invoiceNumber, payloadHash);
+    }
+  }
+
+  let emailStatus: PushInvoiceResult["emailStatus"] = null;
+  if (created || adopted) {
+    const decision = decideEmail({
+      statusPref,
+      sendEmail: shouldSendSalesInvoiceEmail(connection, options),
+      customerEmail: data.customer.email,
+      existingEmailStatus: data.order.xeroEmailStatus,
+    });
+
+    if (decision.action === "send") {
+      try {
+        await sendInvoiceEmail({
+          orgId,
+          orderId: shipmentId,
+          persistOutcome: (outcome) =>
+            persistShipmentEmailOutcome(orgId, shipmentId, outcome),
+          organizationName: data.order.organizationName,
+          orderNumber: invoiceNumberBase,
+          invoiceId,
+          invoiceNumber,
+          totalAmount: data.order.totalAmount,
+          dueDate,
+          customerName: data.customer.name,
+          customerEmail: data.customer.email ?? "",
+          lines: data.lines,
+          tenantId: authed.tenantId,
+          accountingApi,
+        });
+        emailStatus = "sent";
+      } catch {
+        emailStatus = "failed";
+      }
+    } else {
+      await persistShipmentEmailOutcome(orgId, shipmentId, { status: "skipped" });
+      emailStatus = "skipped";
+    }
+  }
+
+  return {
+    xeroInvoiceId: invoiceId,
+    xeroInvoiceNumber: invoiceNumber,
+    status: "pushed",
+    created,
+    adopted,
+    emailStatus,
+  };
+}
+
+export async function markShipmentXeroPushFailed(
+  orgId: string,
+  shipmentId: string,
+  error: unknown
+): Promise<void> {
+  const message = extractXeroMessage(error).slice(0, 500);
+  await withOrgContext(orgId, async (tx) => {
+    await tx
+      .update(salesShipments)
+      .set({
+        xeroPushStatus: "failed",
+        xeroPushError: message,
+        updatedAt: new Date(),
+      })
+      .where(eq(salesShipments.id, shipmentId));
+  });
 }
 
 export async function getOnlineInvoiceUrlForOrder(
@@ -696,6 +1126,12 @@ export async function emailSalesInvoiceForOrder(
 
   if (!data) {
     throw new XeroError("Order not found.", 404);
+  }
+  if (!orderInvoiceableStatuses.has(data.order.status)) {
+    throw new XeroError(
+      "Only confirmed, partially shipped, or shipped orders can be invoiced.",
+      409
+    );
   }
   if (!data.order.xeroInvoiceId || data.order.xeroPushStatus !== "pushed") {
     throw new XeroError(

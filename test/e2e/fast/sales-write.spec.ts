@@ -1,9 +1,10 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryItemBalances,
   inventoryLotBalances,
+  inventoryReservationsSummary,
   customerContacts,
   customerCorrespondence,
   customerCorrespondenceAttendees,
@@ -14,6 +15,7 @@ import {
   purchaseOrderLines,
   salesOrderAllocations,
   salesOrderLines,
+  salesShipmentLines,
   salesOrders,
   salesShipments,
   customers as salesCustomers,
@@ -23,6 +25,7 @@ import {
   createItem,
   createPurchaseOrder,
   createSalesOrder,
+  confirmSalesOrder,
   createSupplier,
   fulfillSalesOrder,
   getUnitId,
@@ -40,7 +43,9 @@ function utcDateDaysFromToday(days: number) {
 }
 
 async function showSalesOrderStatus(page: Parameters<typeof filterList>[0], status: string) {
-  await page.getByRole("radio", { name: `Show ${status} status` }).click();
+  const option = page.getByRole("radio", { name: `Show ${status} status` });
+  await option.click();
+  await expect(option).toBeChecked();
 }
 
 async function dragToCenter(page: Page, source: Locator, target: Locator) {
@@ -80,6 +85,8 @@ test.describe("Sales write-path smoke", () => {
   const unitId = getUnitId();
   const customerName = `Fast Customer ${ts}`;
   const productName = `Fast Sales Product ${ts}`;
+  const orderNote =
+    "Fast order smoke test note appears in the sales order table notes column.";
   let customerId = "";
   let productId = "";
   let orderId = "";
@@ -343,7 +350,7 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(productName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
     await page.locator('input[placeholder="0.00"]').first().fill("34.99");
-    await page.getByLabel("Notes").fill("Fast order smoke test");
+    await page.getByLabel("Notes").fill(orderNote);
 
     const [createOrderResponse] = await Promise.all([
       page.waitForResponse(
@@ -367,7 +374,30 @@ test.describe("Sales write-path smoke", () => {
     expect(order.orderDate).toBe("2026-04-01");
     expect(order.shipDate).toBe("2026-04-15");
     expect(order.requestedDate).toBe("2026-04-15");
-    expect(order.notes).toBe("Fast order smoke test");
+    expect(order.notes).toBe(orderNote);
+
+    await page.goto("/sales/orders");
+    await showSalesOrderStatus(page, "Draft");
+    await filterList(page, "Search orders", order.orderNumber);
+    const listRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
+    const notesSnippet = listRow.getByRole("button", { name: orderNote });
+    await expect(notesSnippet).toBeVisible();
+    await notesSnippet.hover();
+    await expect(page.getByRole("tooltip")).toContainText(orderNote);
+
+    await page.goto(`/sales/orders/${orderId}`);
+    await expect(
+      page.getByRole("heading", { level: 1, name: order.orderNumber })
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create invoice" })).toHaveCount(0);
+
+    const draftInvoiceResponse = await page.request.post(
+      `/api/sales-orders/${orderId}/xero-push`
+    );
+    expect(draftInvoiceResponse.status()).toBe(409);
+    expect(await draftInvoiceResponse.json()).toMatchObject({
+      error: "Only confirmed, partially shipped, or shipped orders can be invoiced.",
+    });
 
     const [line] = await db
       .select()
@@ -401,6 +431,7 @@ test.describe("Sales write-path smoke", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, orderId));
     expect(confirmedOrder.status).toBe("confirmed");
+    await expect(page.getByRole("button", { name: "Create invoice" })).toBeVisible();
 
     const shipments = await db
       .select()
@@ -503,6 +534,286 @@ test.describe("Sales write-path smoke", () => {
     const body = await createResponse.json();
     expect(body.error).toBe("Ship date cannot be before order date");
     expect(body.errors.shipDate[0]).toBe("Ship date cannot be before order date");
+  });
+
+  test("duplicates a sales order from the detail actions", async ({ page, db }) => {
+    await page.goto(`/sales/orders/${orderId}`);
+    await page.getByRole("button", { name: "More actions" }).click();
+
+    const [duplicateResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/sales-orders/${orderId}/duplicate`)
+      ),
+      page.getByRole("menuitem", { name: "Duplicate" }).click(),
+    ]);
+    expect(duplicateResponse.status()).toBe(201);
+    const created = await duplicateResponse.json();
+    const duplicateId = created.id as string;
+    await page.waitForURL(`**/sales/orders/${duplicateId}`);
+    expect(duplicateId).not.toBe(orderId);
+
+    const [duplicate] = await db
+      .select()
+      .from(salesOrders)
+      .where(eq(salesOrders.id, duplicateId));
+    expect(duplicate.customerId).toBe(customerId);
+    expect(duplicate.customerName).toBe(customerName);
+    expect(duplicate.status).toBe("draft");
+    expect(duplicate.notes).toBe(orderNote);
+
+    const [duplicateLine] = await db
+      .select()
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, duplicateId))
+      .orderBy(asc(salesOrderLines.sortOrder));
+    expect(duplicateLine.itemId).toBe(productId);
+    expect(duplicateLine.quantity).toBe("3.0000");
+    expect(duplicateLine.unitPrice).toBe("34.99");
+  });
+
+  test("removes line items from detail and expanded list views", async ({
+    page,
+    db,
+  }) => {
+    const firstProductName = `Fast Detail Delete Product ${ts}`;
+    const secondProductName = `Fast Detail Keep Product ${ts}`;
+    const expandedDeleteName = `Fast Expanded Delete Product ${ts}`;
+    const expandedKeepName = `Fast Expanded Keep Product ${ts}`;
+
+    const createProduct = async (name: string, sku: string) => {
+      const result = await createItem({
+        name,
+        itemType: "product",
+        unitDefinitionId: unitId,
+        sku,
+        category: `Fast Sales ${ts}`,
+        description: "Product for line delete regression",
+        defaultPurchasePrice: null,
+        defaultSellingPrice: "10",
+        stock: "0",
+        safetyStock: "0",
+        bom: [],
+      });
+      expect(result.status).toBe(201);
+      return result.body.id as string;
+    };
+
+    const detailDeleteId = await createProduct(
+      firstProductName,
+      `FAST-DETAIL-DELETE-${ts}`
+    );
+    const detailKeepId = await createProduct(
+      secondProductName,
+      `FAST-DETAIL-KEEP-${ts}`
+    );
+    const detailOrderResult = await createSalesOrder({
+      customerId,
+      status: "draft",
+      shipDate: "2026-04-20",
+      requestedDate: "2026-04-20",
+      notes: "Fast detail line delete regression",
+      lines: [
+        { itemId: detailDeleteId, quantity: "1", unitPrice: "10" },
+        { itemId: detailKeepId, quantity: "2", unitPrice: "10" },
+      ],
+    });
+    expect(detailOrderResult.status).toBe(201);
+    const detailOrderId = detailOrderResult.body.id as string;
+
+    await page.goto(`/sales/orders/${detailOrderId}`);
+    await page
+      .getByRole("row", { name: new RegExp(firstProductName) })
+      .getByRole("button", { name: `Delete ${firstProductName}` })
+      .click();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    const detailDeleteResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/sales-orders/${detailOrderId}`)
+    );
+    await page.getByRole("button", { name: "Delete Line" }).click();
+    expect((await detailDeleteResponsePromise).status()).toBe(200);
+    await expect(page.getByText(firstProductName)).toHaveCount(0);
+
+    let detailLines = await db
+      .select()
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, detailOrderId))
+      .orderBy(asc(salesOrderLines.sortOrder));
+    expect(detailLines).toHaveLength(1);
+    expect(detailLines[0].itemId).toBe(detailKeepId);
+
+    const expandedDeleteId = await createProduct(
+      expandedDeleteName,
+      `FAST-EXP-DELETE-${ts}`
+    );
+    const expandedKeepId = await createProduct(
+      expandedKeepName,
+      `FAST-EXP-KEEP-${ts}`
+    );
+    const expandedOrderResult = await createSalesOrder({
+      customerId,
+      status: "draft",
+      shipDate: "2026-04-21",
+      requestedDate: "2026-04-21",
+      notes: "Fast expanded line delete regression",
+      lines: [
+        { itemId: expandedDeleteId, quantity: "1", unitPrice: "10" },
+        { itemId: expandedKeepId, quantity: "2", unitPrice: "10" },
+      ],
+    });
+    expect(expandedOrderResult.status).toBe(201);
+    const expandedOrderId = expandedOrderResult.body.id as string;
+    const [expandedOrder] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, expandedOrderId));
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", expandedOrder.orderNumber);
+    await page
+      .getByRole("row", { name: new RegExp(expandedOrder.orderNumber) })
+      .getByRole("button", { name: "Expand order" })
+      .click();
+    await expect(page.getByText(expandedDeleteName)).toBeVisible();
+    await expect(
+      page
+        .getByRole("row", { name: new RegExp(expandedDeleteName) })
+        .getByRole("link", { name: `Edit ${expandedDeleteName}` })
+    ).toHaveAttribute("href", `/sales/orders/${expandedOrderId}/edit`);
+
+    const expandedDeleteResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/sales-orders/${expandedOrderId}`)
+    );
+    await page
+      .getByRole("row", { name: new RegExp(expandedDeleteName) })
+      .getByRole("button", { name: `Delete ${expandedDeleteName}` })
+      .click();
+    await page.getByRole("button", { name: "Delete Line" }).click();
+    expect((await expandedDeleteResponsePromise).status()).toBe(200);
+    await expect(page.getByText(expandedDeleteName)).toHaveCount(0);
+
+    detailLines = await db
+      .select()
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, expandedOrderId))
+      .orderBy(asc(salesOrderLines.sortOrder));
+    expect(detailLines).toHaveLength(1);
+    expect(detailLines[0].itemId).toBe(expandedKeepId);
+  });
+
+  test("edits a confirmed unshipped order and refreshes reservations", async ({
+    page,
+    db,
+  }) => {
+    const editCustomerResult = await createCustomer({
+      name: `Fast Confirmed Edit Customer ${ts}`,
+      email: `fast-confirmed-edit-${ts}@example.com`,
+    });
+    expect(editCustomerResult.status).toBe(201);
+    const editCustomerId = editCustomerResult.body.id as string;
+
+    const editItemResult = await createItem({
+      name: `Fast Confirmed Edit Material ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-CONF-EDIT-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: "Material for confirmed order edit regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "12",
+      stock: "10",
+      safetyStock: "0",
+    });
+    expect(editItemResult.status).toBe(201);
+    const editItemId = editItemResult.body.id as string;
+
+    const editOrderResult = await createSalesOrder({
+      customerId: editCustomerId,
+      status: "draft",
+      shipDate: "2026-04-18",
+      requestedDate: "2026-04-18",
+      lines: [{ itemId: editItemId, quantity: "2", unitPrice: "12" }],
+    });
+    expect(editOrderResult.status).toBe(201);
+    const editOrderId = editOrderResult.body.id as string;
+    expect((await confirmSalesOrder(editOrderId)).status).toBe(200);
+
+    const [orderBeforeEdit] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, editOrderId));
+
+    await page.goto(`/sales/orders/${editOrderId}`);
+    await expect(
+      page.getByRole("heading", { level: 1, name: orderBeforeEdit.orderNumber })
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Edit" }).click();
+    await page.waitForURL(`**/sales/orders/${editOrderId}/edit`);
+
+    await page.locator('input[placeholder="0"]').first().fill("4");
+    await page.getByLabel("Notes").fill("Confirmed order edited after approval");
+
+    const updateOrderResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/sales-orders/${editOrderId}`)
+    );
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    expect((await updateOrderResponsePromise).status()).toBe(200);
+    await page.waitForURL(`**/sales/orders/${editOrderId}`);
+
+    const [orderAfterEdit] = await db
+      .select({
+        status: salesOrders.status,
+        notes: salesOrders.notes,
+        totalAmount: salesOrders.totalAmount,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, editOrderId));
+    expect(orderAfterEdit.status).toBe("confirmed");
+    expect(orderAfterEdit.notes).toBe("Confirmed order edited after approval");
+    expect(orderAfterEdit.totalAmount).toBe("48.00");
+
+    const [lineAfterEdit] = await db
+      .select({ id: salesOrderLines.id, quantity: salesOrderLines.quantity })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, editOrderId));
+    expect(lineAfterEdit.quantity).toBe("4.0000");
+
+    const [balanceAfterEdit] = await db
+      .select({
+        committedQty: inventoryItemBalances.committedQty,
+        demandQty: inventoryItemBalances.demandQty,
+        shortageQty: inventoryItemBalances.shortageQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, editItemId));
+    expect(balanceAfterEdit.committedQty).toBe("4.0000");
+    expect(balanceAfterEdit.demandQty).toBe("4.0000");
+    expect(balanceAfterEdit.shortageQty).toBe("0.0000");
+
+    const [reservation] = await db
+      .select({
+        quantity: sql<string>`COALESCE(SUM(${inventoryReservationsSummary.quantity}), 0)`,
+      })
+      .from(inventoryReservationsSummary)
+      .where(eq(inventoryReservationsSummary.itemId, editItemId));
+    expect(reservation.quantity).toBe("4.0000");
+
+    const [draftShipmentLine] = await db
+      .select({ quantity: salesShipmentLines.quantity })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, editOrderId));
+    expect(draftShipmentLine.quantity).toBe("4.0000");
   });
 
   test("expanded order lines show available stock after confirmed reservations", async ({
@@ -964,12 +1275,14 @@ test.describe("Sales write-path smoke", () => {
       .getByRole("button", { name: "Confirm" })
       .click();
     await showSalesOrderStatus(page, "Confirmed");
+    await filterList(page, "Search orders", orderingCustomerName);
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
     ).toContainText("Confirmed", { timeout: 15_000 });
 
     await expect(page.getByRole("row", { name: new RegExp(firstOrderNumber) })).toBeVisible();
     await showSalesOrderStatus(page, "Draft");
+    await filterList(page, "Search orders", orderingCustomerName);
     await expect(page.getByRole("row", { name: new RegExp(secondOrderNumber) })).toBeVisible();
   });
 
@@ -1765,5 +2078,109 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesShipments.salesOrderId, webShipOrderId));
     expect(shippedShipment.status).toBe("shipped");
     expect(shippedShipment.shippedAt).not.toBeNull();
+  });
+
+  test("plans a draft shipment before stock is allocated", async ({ db }) => {
+    const suffix = `${ts}-DRAFT-SHORT`;
+    const customerResult = await createCustomer({
+      name: `Fast Draft Short Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const itemResult = await createItem({
+      name: `Fast Draft Short Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-DRAFT-SHORT-${suffix}`,
+      category: `Fast Draft Short ${suffix}`,
+      description: "Material for draft shipment planning without allocation",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(itemResult.status).toBe(201);
+
+    const orderResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId: customerResult.body.id,
+        status: "draft",
+        orderDate: "2026-04-23",
+        shipDate: "2026-04-23",
+        requestedDate: "2026-04-23",
+        notes: "Draft shipment before allocation",
+        lines: [
+          {
+            itemId: itemResult.body.id,
+            quantity: "8",
+            unitPrice: "10",
+          },
+        ],
+      }),
+    });
+    expect(orderResponse.status).toBe(201);
+    const orderBody = await orderResponse.json();
+    const shortOrderId = orderBody.id as string;
+
+    const confirmResponse = await confirmSalesOrder(shortOrderId, {
+      confirmOversell: true,
+    });
+    expect(confirmResponse.status).toBe(200);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, shortOrderId));
+
+    const [initialDraftShipment] = await db
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, shortOrderId));
+    if (!initialDraftShipment) {
+      throw new Error("Expected confirmation to create a draft shipment.");
+    }
+
+    const splitExistingResponse = await testFetch(
+      `/api/sales-orders/${shortOrderId}/shipments/${initialDraftShipment.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-04-23",
+          notes: "First split, allocate later",
+          lines: [{ salesOrderLineId: line.id, quantity: "4" }],
+        }),
+      }
+    );
+    expect(splitExistingResponse.status).toBe(200);
+
+    const planResponse = await testFetch(
+      `/api/sales-orders/${shortOrderId}/shipments`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-04-23",
+          notes: "Plan now, allocate later",
+          lines: [{ salesOrderLineId: line.id, quantity: "4" }],
+        }),
+      }
+    );
+    expect(planResponse.status).toBe(201);
+    const plannedShipment = await planResponse.json();
+
+    const [plannedLine] = await db
+      .select({ quantity: salesShipmentLines.quantity })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, plannedShipment.id));
+    expect(plannedLine.quantity).toBe("4.0000");
+
+    const shipResponse = await testFetch(
+      `/api/sales-orders/${shortOrderId}/shipments/${plannedShipment.id}/ship`,
+      { method: "POST" }
+    );
+    expect(shipResponse.status).toBe(409);
   });
 });

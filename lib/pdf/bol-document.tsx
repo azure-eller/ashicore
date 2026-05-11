@@ -53,6 +53,9 @@ const styles = StyleSheet.create({
   addressLine: {
     marginBottom: 2,
   },
+  contactBlock: {
+    marginTop: 6,
+  },
   tableHeader: {
     flexDirection: "row",
     borderBottomWidth: 1,
@@ -103,6 +106,10 @@ export type BolOrder = {
   orderNumber: string;
   shipmentNumber?: string | null;
   customerName: string;
+  contactName: string | null;
+  contactTitle: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
   requestedDate: string | null;
   scheduledDate?: string | null;
   shippedAt: Date | null;
@@ -139,6 +146,13 @@ export function BillOfLadingDocument({
     ? new Date(order.shippedAt).toLocaleDateString("en-US")
     : "\u2014";
   const title = "Bill of Lading";
+  const contactLines = [
+    order.contactName
+      ? `${order.contactTitle ? `${order.contactName}, ${order.contactTitle}` : order.contactName}`
+      : null,
+    order.contactPhone ? `Phone: ${order.contactPhone}` : null,
+    order.contactEmail ? `Email: ${order.contactEmail}` : null,
+  ].filter((line): line is string => line != null);
 
   return (
     <Document
@@ -193,6 +207,16 @@ export function BillOfLadingDocument({
               ))
             ) : (
               <Text style={styles.addressLine}>{order.customerName}</Text>
+            )}
+            {contactLines.length > 0 && (
+              <View style={styles.contactBlock}>
+                <Text style={styles.colLabel}>Contact</Text>
+                {contactLines.map((line, index) => (
+                  <Text key={index} style={styles.addressLine}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
             )}
           </View>
         </View>

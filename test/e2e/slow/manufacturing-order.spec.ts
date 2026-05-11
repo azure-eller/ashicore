@@ -54,6 +54,7 @@ async function createSalesOrder(payload: {
     body: JSON.stringify({
       customerId: payload.customerId,
       status: "draft",
+      orderDate: payload.requestedDate ?? "2026-04-20",
       shipDate: payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,

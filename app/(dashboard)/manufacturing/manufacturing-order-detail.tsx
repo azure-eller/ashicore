@@ -401,6 +401,30 @@ export function ManufacturingOrderDetail({
     },
   });
 
+  const duplicateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/manufacturing-orders/${order.id}/duplicate`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("manufacturing-order-duplicate"),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to duplicate order.");
+      }
+      return body as { id: string };
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async (created) => {
+      await refreshQueries();
+      router.push(`/manufacturing/orders/${created.id}`);
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const cancelMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/manufacturing-orders/${order.id}/cancel`, {
@@ -464,6 +488,15 @@ export function ManufacturingOrderDetail({
                             documentId: order.id,
                           })
                         ),
+                    },
+                  ]
+                : []),
+              ...(order.deletedAt == null
+                ? [
+                    {
+                      label: "Duplicate",
+                      onSelect: () => duplicateMutation.mutate(),
+                      disabled: duplicateMutation.isPending,
                     },
                   ]
                 : []),

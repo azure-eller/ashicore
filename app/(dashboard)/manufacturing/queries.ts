@@ -317,6 +317,22 @@ function getPickProgressStatus(
   return fullyPicked ? "picked" : "in_progress";
 }
 
+function getPickProgressPercent(rows: IngredientProgressRow[]) {
+  const plannedTotal = sumNumericStrings(rows.map((row) => row.plannedQuantity));
+
+  if (plannedTotal <= 0) {
+    return 0;
+  }
+
+  const pickedTotal = rows.reduce((total, row) => {
+    const planned = parseFloat(row.plannedQuantity);
+    const picked = parseFloat(row.pickedQuantity);
+    return total + Math.min(planned, picked);
+  }, 0);
+
+  return Math.min(100, Math.round((pickedTotal / plannedTotal) * 100));
+}
+
 /**
  * Compute batch-aware planning values from a product and desired quantity.
  * For batch products: rounds up to full batches.
@@ -2082,6 +2098,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "productMasterName"
             | "productAttrs"
             | "pickProgressStatus"
+            | "pickProgressPercent"
             | "completedBatchCount"
             | "actionableBatchCount"
           > & {
@@ -2140,10 +2157,15 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
 
         return orders.map(({ variantAttrs, masterName, masterVariantAxes, ...order }) => {
           const batches = batchesByOrder.get(order.id) ?? [];
+          const ingredientProgressRows = ingredientsByOrder.get(order.id) ?? [];
           const pickProgressStatus =
             order.manufacturingMode === "batch" && batches.length > 0
               ? getBatchPickProgressStatus(batches)
-              : getPickProgressStatus(ingredientsByOrder.get(order.id) ?? []);
+              : getPickProgressStatus(ingredientProgressRows);
+          const completedBatchCount = batches.filter(
+            (batch) => batch.status === "completed"
+          ).length;
+          const totalBatchCount = order.numberOfBatches ?? batches.length;
           const display = resolveVariantDisplay(
             order.productName,
             masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
@@ -2155,7 +2177,11 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             productMasterName: display.masterName,
             productAttrs: display.attrs,
             pickProgressStatus,
-            completedBatchCount: batches.filter((batch) => batch.status === "completed").length,
+            pickProgressPercent:
+              order.manufacturingMode === "batch" && totalBatchCount > 0
+                ? Math.min(100, Math.round((completedBatchCount / totalBatchCount) * 100))
+                : getPickProgressPercent(ingredientProgressRows),
+            completedBatchCount,
             actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
           };
         });
@@ -2815,6 +2841,31 @@ export async function createManufacturingOrder(
   return withAuthedOrgContext((tx, orgId) =>
     createManufacturingOrderInTx(tx, orgId, payload)
   );
+}
+
+export async function duplicateManufacturingOrder(
+  id: string
+): Promise<{ id: string } | null> {
+  const order = await getManufacturingOrder(id);
+
+  if (!order) {
+    return null;
+  }
+
+  return createManufacturingOrder({
+    productId: order.productId,
+    salesOrderId: null,
+    salesOrderLineId: null,
+    plannedQuantity: order.requestedQuantity,
+    priorityRank: null,
+    plannedDate: order.plannedDate,
+    notes: order.notes,
+    ingredients: order.ingredients.map((ingredient) => ({
+      itemId: ingredient.itemId,
+      quantityPerUnit: ingredient.quantityPerUnit,
+    })),
+    confirmShortage: false,
+  });
 }
 
 export async function createManufacturingOrdersFromSalesOrderInTx(

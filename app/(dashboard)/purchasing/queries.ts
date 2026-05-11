@@ -695,6 +695,25 @@ export async function createPurchaseOrder(data: InsertPurchaseOrder) {
   );
 }
 
+export async function duplicatePurchaseOrder(id: string) {
+  const order = await getPurchaseOrder(id);
+
+  if (!order) {
+    return null;
+  }
+
+  return createPurchaseOrder({
+    supplierId: order.supplierId,
+    expectedDate: order.expectedDate,
+    notes: order.notes,
+    lines: order.lines.map((line) => ({
+      itemId: line.itemId,
+      quantityOrdered: line.quantityOrdered,
+      unitCost: line.unitCost,
+    })),
+  });
+}
+
 export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
   return withAuthedOrgContext(async (tx) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);

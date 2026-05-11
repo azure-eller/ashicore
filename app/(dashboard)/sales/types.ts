@@ -265,6 +265,7 @@ export type SalesOrderListRow = {
   orderNumber: string;
   customerName: string;
   customerEmail: string | null;
+  notes: string | null;
   status: SalesOrderStatus;
   orderDate: string;
   shipDate: string | null;
@@ -372,6 +373,10 @@ export type SalesShipmentRow = {
   shippedAt: Date | null;
   notes: string | null;
   customerFreightChargeAmount: string | null;
+  xeroInvoiceId: string | null;
+  xeroInvoiceNumber: string | null;
+  xeroPushStatus: "pending" | "pushed" | "failed" | null;
+  xeroPushError: string | null;
   lines: SalesShipmentLine[];
   costs: SalesShipmentCostRow[];
   marginSummary: SalesMarginSummary;
@@ -519,7 +524,8 @@ export type SalesShippingQueueRow = {
 export type SalesOrderEditData = {
   id: string;
   customerId: string;
-  status: Extract<SalesOrderStatus, "draft">;
+  orderNumber: string;
+  status: Extract<SalesOrderStatus, "draft" | "confirmed">;
   orderDate: string;
   shipDate: string | null;
   requestedDate: string | null;

@@ -8,7 +8,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { getApiErrorMessage } from "@/lib/client/api";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, HelpCircleIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  Delete02Icon,
+  HelpCircleIcon,
+  PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
 import {
   AccountingSyncDialog,
   AccountingSyncStatus,
@@ -94,6 +99,7 @@ import {
 } from "@/lib/schemas/sales-orders";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
 import { SalesOrderStatusBadge } from "./status-badge";
+import { buildSalesOrderLineRemovalPayload } from "./order-line-removal";
 import {
   OVERSELL_WARNING_DESCRIPTION,
   OversellWarningTable,
@@ -129,6 +135,16 @@ type ShipmentFormState = {
 
 type ShipmentActionPayload = {
   shipmentId: string;
+  idempotencyKey: string;
+};
+
+type ShipmentInvoiceActionPayload = {
+  shipment: SalesShipmentRow;
+  idempotencyKey: string;
+};
+
+type DeleteLineActionPayload = {
+  lineId: string;
   idempotencyKey: string;
 };
 
@@ -646,12 +662,17 @@ function EmptyPanel({
 function LinesPanel({
   order,
   canEdit,
+  onDeleteLine,
+  deletingLineId,
 }: {
   order: SalesOrderDetailType;
   canEdit: boolean;
+  onDeleteLine: (line: SalesOrderDetailType["lines"][number]) => void;
+  deletingLineId: string | null;
 }) {
   const totalQuantity = sumNumeric(order.lines.map((line) => line.quantity));
   const totalLineAmount = sumNumeric(order.lines.map((line) => line.lineTotal));
+  const canRemoveLines = canEdit && order.lines.length > 1;
 
   return (
     <div className="space-y-3">
@@ -691,6 +712,7 @@ function LinesPanel({
               <TableHead className="text-right">
                 <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
               </TableHead>
+              <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -698,7 +720,7 @@ function LinesPanel({
               const margin = lineMarginParts(line, order.status);
 
               return (
-                <TableRow key={line.id}>
+                <TableRow key={line.id} className="group/line">
                   <TableCell>
                     <Link
                       href={itemDetailHref("product", line.itemId)}
@@ -736,6 +758,58 @@ function LinesPanel({
                   <TableCell className="text-right font-mono font-medium tabular-nums">
                     {money(line.lineTotal)}
                   </TableCell>
+                  <TableCell className="text-right">
+                    {canEdit ? (
+                      <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-within:opacity-100">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              asChild
+                            >
+                              <Link
+                                href={`/sales/orders/${order.id}/edit`}
+                                aria-label={`Edit ${line.itemName}`}
+                              >
+                                <HugeiconsIcon
+                                  icon={PencilEdit02Icon}
+                                  size={14}
+                                  strokeWidth={2}
+                                />
+                              </Link>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Edit line</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              disabled={!canRemoveLines || deletingLineId === line.id}
+                              aria-label={`Delete ${line.itemName}`}
+                              onClick={() => onDeleteLine(line)}
+                            >
+                              <HugeiconsIcon
+                                icon={Delete02Icon}
+                                size={14}
+                                strokeWidth={2}
+                              />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {canRemoveLines
+                              ? "Delete line"
+                              : "Order needs at least one line"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               );
             })}
@@ -757,6 +831,7 @@ function LinesPanel({
               <TableCell className="text-right font-mono tabular-nums">
                 {money(String(totalLineAmount))}
               </TableCell>
+              <TableCell />
             </TableRow>
           </TableFooter>
         </Table>
@@ -768,27 +843,37 @@ function LinesPanel({
 function ShippingPanel({
   order,
   canCreateShipment,
+  canCreateOrderInvoice,
   canEdit,
   hasCancelledRemainingHistory,
   onCreateShipment,
+  onCreateOrderInvoice,
   onEditShipment,
   onShipShipment,
   onCancelShipment,
   onEditCosts,
+  onCreateShipmentInvoice,
   shipShipmentPending,
   cancelShipmentPending,
+  createOrderInvoicePending,
+  createShipmentInvoicePending,
 }: {
   order: SalesOrderDetailType;
   canCreateShipment: boolean;
+  canCreateOrderInvoice: boolean;
   canEdit: boolean;
   hasCancelledRemainingHistory: boolean;
   onCreateShipment: () => void;
+  onCreateOrderInvoice: () => void;
   onEditShipment: (shipment: SalesShipmentRow) => void;
   onShipShipment: (shipment: SalesShipmentRow) => void;
   onCancelShipment: (shipment: SalesShipmentRow) => void;
   onEditCosts: (shipment: SalesShipmentRow) => void;
+  onCreateShipmentInvoice: (shipment: SalesShipmentRow) => void;
   shipShipmentPending: boolean;
   cancelShipmentPending: boolean;
+  createOrderInvoicePending: boolean;
+  createShipmentInvoicePending: boolean;
 }) {
   const shipToLines = formatAddressLines({
     line1: order.shipLine1,
@@ -831,8 +916,13 @@ function ShippingPanel({
 
       {order.shippingReadiness.blockers.length > 0 ? (
         <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
+          <div className="font-medium text-foreground">
+            Shipment planning is available; final shipping is blocked.
+          </div>
           {order.shippingReadiness.blockers.map((blocker) => (
-            <div key={blocker}>{blocker}</div>
+            <div key={blocker} className="mt-1">
+              {blocker}
+            </div>
           ))}
         </div>
       ) : null}
@@ -841,11 +931,23 @@ function ShippingPanel({
         <span className="text-sm text-muted-foreground">
           {shippedShipmentCount} of {activeShipmentCount} shipped
         </span>
-        {canCreateShipment ? (
-          <Button variant="outline" size="sm" onClick={onCreateShipment}>
-            New shipment
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {canCreateOrderInvoice ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onCreateOrderInvoice}
+              disabled={createOrderInvoicePending}
+            >
+              {createOrderInvoicePending ? "Creating..." : "Create invoice"}
+            </Button>
+          ) : null}
+          {canCreateShipment ? (
+            <Button variant="outline" size="sm" onClick={onCreateShipment}>
+              New shipment
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {order.shipments.length > 0 ? (
@@ -950,6 +1052,18 @@ function ShippingPanel({
                           >
                             Costs
                           </Button>
+                          {shipment.status === "shipped" ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onCreateShipmentInvoice(shipment)}
+                              disabled={createShipmentInvoicePending}
+                            >
+                              {shipment.xeroPushStatus === "pushed"
+                                ? "Invoice created"
+                                : "Create invoice"}
+                            </Button>
+                          ) : null}
                         </>
                       ) : null}
                       {shipment.status === "draft" ? (
@@ -1136,6 +1250,10 @@ export function OrderDetail({
   const [shipmentForm, setShipmentForm] = useState<ShipmentFormState | null>(null);
   const [shipmentCostForm, setShipmentCostForm] =
     useState<ShipmentCostFormState | null>(null);
+  const [lineToDelete, setLineToDelete] =
+    useState<SalesOrderDetailType["lines"][number] | null>(null);
+  const [deleteLineIdempotencyKey, setDeleteLineIdempotencyKey] =
+    useState<string | null>(null);
   const [oversellWarning, setOversellWarning] =
     useState<OversellWarningPayload | null>(null);
   const [draftTakeoverWarning, setDraftTakeoverWarning] =
@@ -1276,6 +1394,63 @@ export function OrderDetail({
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
       router.push("/sales/orders");
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const deleteLineMutation = useMutation({
+    mutationFn: async ({ lineId, idempotencyKey }: DeleteLineActionPayload) => {
+      const response = await fetch(`/api/sales-orders/${order.id}`, {
+        method: "PUT",
+        headers: {
+          "Idempotency-Key": idempotencyKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(buildSalesOrderLineRemovalPayload(order, lineId)),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to delete line.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["sales-order-detail", order.id] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setLineToDelete(null);
+      setDeleteLineIdempotencyKey(null);
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/sales-orders/${order.id}/duplicate`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("sales-order-duplicate"),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to duplicate order.");
+      }
+      return body as { id: string };
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async (created) => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      router.push(`/sales/orders/${created.id}`);
     },
     onError: (error) => {
       setActionError(error.message);
@@ -1598,6 +1773,35 @@ export function OrderDetail({
     },
   });
 
+  const shipmentXeroPushMutation = useMutation({
+    mutationFn: async ({
+      shipment,
+      idempotencyKey,
+    }: ShipmentInvoiceActionPayload) => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/shipments/${shipment.id}/xero-push`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey },
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to push shipment invoice to Xero.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      router.refresh();
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const onlineInvoiceMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(
@@ -1621,7 +1825,7 @@ export function OrderDetail({
   });
 
   const isDeleted = order.deletedAt != null;
-  const canEdit = !isDeleted && order.status === "draft";
+  const canEdit = !isDeleted && (order.status === "draft" || order.status === "confirmed");
   const canConfirm = !isDeleted && order.status === "draft";
   const canCreateManufacturingOrders =
     !isDeleted &&
@@ -1634,10 +1838,15 @@ export function OrderDetail({
   const canCancel = !isDeleted && order.status === "confirmed";
   const canDelete = !isDeleted;
   const canDownloadBol = order.status === "shipped";
+  const canInvoiceOrderStatus =
+    order.status === "confirmed" ||
+    order.status === "partially_shipped" ||
+    order.status === "shipped";
   const canRetryXeroPush =
-    order.status === "shipped" &&
+    canInvoiceOrderStatus &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
-  const canCreateXeroInvoice = order.status === "shipped" && !order.xeroPushStatus;
+  const canCreateXeroInvoice =
+    !isDeleted && canInvoiceOrderStatus && !order.xeroPushStatus;
   const canCreateShipment =
     !isDeleted &&
     (order.status === "confirmed" || order.status === "partially_shipped");
@@ -1699,6 +1908,11 @@ export function OrderDetail({
     setShipShipmentIdempotencyKey(`sales-shipment-ship:${crypto.randomUUID()}`);
   };
 
+  const openDeleteLineDialog = (line: SalesOrderDetailType["lines"][number]) => {
+    setLineToDelete(line);
+    setDeleteLineIdempotencyKey(`sales-order-line-delete:${crypto.randomUUID()}`);
+  };
+
   return (
     <>
       <div className="mx-auto w-full max-w-7xl px-8 py-6">
@@ -1752,6 +1966,15 @@ export function OrderDetail({
                               documentId: order.id,
                             })
                           ),
+                      },
+                    ]
+                  : []),
+                ...(!isDeleted
+                  ? [
+                      {
+                        label: "Duplicate",
+                        onSelect: () => duplicateMutation.mutate(),
+                        disabled: duplicateMutation.isPending,
                       },
                     ]
                   : []),
@@ -1831,7 +2054,7 @@ export function OrderDetail({
                   size="sm"
                   onClick={() => setShipmentForm(buildShipmentFormState(order))}
                 >
-                  Ship
+                  Plan shipment
                 </Button>
               ) : null}
               {canCreateManufacturingOrders ? (
@@ -1868,16 +2091,27 @@ export function OrderDetail({
             activeTab={activeTab}
             onTabChange={handleTabChange}
             panels={{
-              lines: <LinesPanel order={order} canEdit={canEdit} />,
+              lines: (
+                <LinesPanel
+                  order={order}
+                  canEdit={canEdit}
+                  onDeleteLine={openDeleteLineDialog}
+                  deletingLineId={
+                    deleteLineMutation.isPending ? lineToDelete?.id ?? null : null
+                  }
+                />
+              ),
               shipping: (
                 <ShippingPanel
                   order={order}
                   canCreateShipment={canCreateShipment}
+                  canCreateOrderInvoice={canCreateXeroInvoice}
                   canEdit={canEdit}
                   hasCancelledRemainingHistory={hasCancelledRemainingHistory}
                   onCreateShipment={() =>
                     setShipmentForm(buildShipmentFormState(order))
                   }
+                  onCreateOrderInvoice={() => xeroPushMutation.mutate()}
                   onEditShipment={(shipment) =>
                     setShipmentForm(buildShipmentFormState(order, shipment))
                   }
@@ -1891,8 +2125,16 @@ export function OrderDetail({
                   onEditCosts={(shipment) =>
                     setShipmentCostForm(buildShipmentCostFormState(shipment))
                   }
+                  onCreateShipmentInvoice={(shipment) =>
+                    shipmentXeroPushMutation.mutate({
+                      shipment,
+                      idempotencyKey: `sales-shipment-xero-push:${crypto.randomUUID()}`,
+                    })
+                  }
                   shipShipmentPending={shipShipmentMutation.isPending}
                   cancelShipmentPending={cancelShipmentMutation.isPending}
+                  createOrderInvoicePending={xeroPushMutation.isPending}
+                  createShipmentInvoicePending={shipmentXeroPushMutation.isPending}
                 />
               ),
               manufacturing: <ManufacturingPanel order={order} />,
@@ -1911,10 +2153,10 @@ export function OrderDetail({
         <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {shipmentForm?.shipmentId ? "Edit Shipment" : "Create Shipment"}
+              {shipmentForm?.shipmentId ? "Edit Shipment" : "Plan Shipment"}
             </DialogTitle>
             <DialogDescription>
-              The BOL is generated automatically from the saved shipment.
+              The BOL is generated automatically from the draft shipment.
             </DialogDescription>
           </DialogHeader>
           {shipmentForm ? (
@@ -2486,6 +2728,50 @@ export function OrderDetail({
               onClick={() => deleteMutation.mutate()}
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete Order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={lineToDelete != null}
+        onOpenChange={(open) => {
+          if (!open && !deleteLineMutation.isPending) {
+            setLineToDelete(null);
+            setDeleteLineIdempotencyKey(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this line?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {lineToDelete
+                ? `${lineToDelete.itemName} will be removed from this order.`
+                : "This line will be removed from the order."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLineMutation.isPending}>
+              Back
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={
+                deleteLineMutation.isPending ||
+                !lineToDelete ||
+                !deleteLineIdempotencyKey
+              }
+              onClick={() => {
+                if (lineToDelete && deleteLineIdempotencyKey) {
+                  deleteLineMutation.mutate({
+                    lineId: lineToDelete.id,
+                    idempotencyKey: deleteLineIdempotencyKey,
+                  });
+                }
+              }}
+            >
+              {deleteLineMutation.isPending ? "Deleting..." : "Delete Line"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

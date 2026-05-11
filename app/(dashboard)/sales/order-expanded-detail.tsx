@@ -2,10 +2,28 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Delete02Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { Spinner } from "@/components/ui/spinner";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -28,6 +46,12 @@ import {
 import { OrderLineAttributeBadges } from "./order-line-attribute-badges";
 import { AllocationSheet } from "./allocation-sheet";
 import type { SalesOrderDetail } from "./types";
+import { buildSalesOrderLineRemovalPayload } from "./order-line-removal";
+
+type DeleteLineActionPayload = {
+  lineId: string;
+  idempotencyKey: string;
+};
 
 function ShortCell({ value }: { value: string | null }) {
   if (value === null) return <span className="text-muted-foreground">{"\u2014"}</span>;
@@ -114,6 +138,12 @@ function AllocationChips({
 
 export function OrderExpandedDetail({ orderId }: { orderId: string }) {
   const [allocationLineId, setAllocationLineId] = useState<string | null>(null);
+  const [lineToDelete, setLineToDelete] =
+    useState<SalesOrderDetail["lines"][number] | null>(null);
+  const [deleteLineIdempotencyKey, setDeleteLineIdempotencyKey] =
+    useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["sales-order-detail", orderId],
     queryFn: async () => {
@@ -122,6 +152,49 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
       return res.json() as Promise<SalesOrderDetail>;
     },
   });
+  const canEdit =
+    data != null &&
+    data.deletedAt == null &&
+    (data.status === "draft" || data.status === "confirmed");
+  const canRemoveLines = canEdit && (data?.lines.length ?? 0) > 1;
+  const deleteLineMutation = useMutation({
+    mutationFn: async ({ lineId, idempotencyKey }: DeleteLineActionPayload) => {
+      if (!data) throw new Error("Order is still loading.");
+
+      const res = await fetch(`/api/sales-orders/${orderId}`, {
+        method: "PUT",
+        headers: {
+          "Idempotency-Key": idempotencyKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(buildSalesOrderLineRemovalPayload(data, lineId)),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error ?? "Failed to delete line.");
+      }
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["sales-order-detail", orderId] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setLineToDelete(null);
+      setDeleteLineIdempotencyKey(null);
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
+  const openDeleteLineDialog = (line: SalesOrderDetail["lines"][number]) => {
+    setLineToDelete(line);
+    setDeleteLineIdempotencyKey(`sales-order-line-delete:${crypto.randomUUID()}`);
+  };
 
   return (
     <div className="bg-muted/50 px-8 py-3">
@@ -133,6 +206,9 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
         }}
         onTargetLineChange={setAllocationLineId}
       />
+      {actionError ? (
+        <p className="mb-2 text-sm text-destructive">{actionError}</p>
+      ) : null}
       <Table>
         <TableHeader>
           <TableRow>
@@ -173,12 +249,13 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
             <TableHead className="text-xs text-right">
               <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
             </TableHead>
+            <TableHead className="w-20" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={9}>
+              <TableCell colSpan={10}>
                 <div className="flex min-h-24 items-center justify-center">
                   <Spinner className="text-foreground" />
                 </div>
@@ -186,7 +263,7 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
             </TableRow>
           ) : data?.lines.length ? (
             data.lines.map((line) => (
-                <TableRow key={line.id}>
+                <TableRow key={line.id} className="group/line">
                   <TableCell className="text-sm">
                     <span className="flex items-center gap-1.5 flex-wrap">
                       <Link
@@ -229,17 +306,112 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
                   <TableCell className="text-sm text-right">
                     {formatPrice(line.lineTotal) ?? "\u2014"}
                   </TableCell>
+                  <TableCell className="text-right">
+                    {canEdit ? (
+                      <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-within:opacity-100">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              asChild
+                            >
+                              <Link
+                                href={`/sales/orders/${orderId}/edit`}
+                                aria-label={`Edit ${line.masterName}`}
+                              >
+                                <HugeiconsIcon
+                                  icon={PencilEdit02Icon}
+                                  size={14}
+                                  strokeWidth={2}
+                                />
+                              </Link>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Edit line</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              disabled={!canRemoveLines || deleteLineMutation.isPending}
+                              aria-label={`Delete ${line.masterName}`}
+                              onClick={() => openDeleteLineDialog(line)}
+                            >
+                              <HugeiconsIcon
+                                icon={Delete02Icon}
+                                size={14}
+                                strokeWidth={2}
+                              />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {canRemoveLines
+                              ? "Delete line"
+                              : "Order needs at least one line"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               ))
           ) : (
             <TableRow>
-              <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
+              <TableCell colSpan={10} className="text-center text-sm text-muted-foreground">
                 No line items.
               </TableCell>
             </TableRow>
           )}
         </TableBody>
       </Table>
+      <AlertDialog
+        open={lineToDelete != null}
+        onOpenChange={(open) => {
+          if (!open && !deleteLineMutation.isPending) {
+            setLineToDelete(null);
+            setDeleteLineIdempotencyKey(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this line?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {lineToDelete
+                ? `${lineToDelete.masterName} will be removed from this order.`
+                : "This line will be removed from the order."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLineMutation.isPending}>
+              Back
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={
+                deleteLineMutation.isPending ||
+                !lineToDelete ||
+                !deleteLineIdempotencyKey
+              }
+              onClick={() => {
+                if (lineToDelete && deleteLineIdempotencyKey) {
+                  deleteLineMutation.mutate({
+                    lineId: lineToDelete.id,
+                    idempotencyKey: deleteLineIdempotencyKey,
+                  });
+                }
+              }}
+            >
+              {deleteLineMutation.isPending ? "Deleting..." : "Delete Line"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
