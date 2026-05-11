@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
@@ -6,6 +6,7 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   lots,
+  manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingPickAllocations,
   manufacturingOrders,
@@ -565,6 +566,10 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
 
     await page.goto("/manufacturing/orders");
+    await expect(
+      page.getByRole("heading", { name: "Manufacturing Orders" })
+    ).toBeVisible();
+    await expect(page.getByLabel("Show all statuses")).toHaveCount(0);
     await filterList(page, "Search manufacturing orders", linkedOrder.orderNumber);
     const draftRow = page.getByRole("row", { name: new RegExp(linkedOrder.orderNumber) });
     await expect(draftRow).toContainText(productName);
@@ -995,6 +1000,172 @@ test.describe("Manufacturing order flow", () => {
       name: new RegExp(cancelledOrder.orderNumber),
     });
     await expect(cancelledRow).toContainText("Cancelled");
+  });
+
+  test("cancels an in-progress batch order and frees picked materials", async ({
+    page,
+    db,
+  }) => {
+    const batchMaterialName = `Batch Cancel Material ${ts}`;
+    const batchProductName = `Batch Cancel Product ${ts}`;
+
+    const materialCreate = await createItem({
+      name: batchMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-BATCH-CANCEL-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Batch cancellation ingredient",
+      defaultPurchasePrice: "5.00",
+      defaultSellingPrice: null,
+      stock: "4",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialCreate.status).toBe(201);
+    const batchMaterialId = materialCreate.body.id as string;
+
+    const productCreate = await createItem({
+      name: batchProductName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-BATCH-CANCEL-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Batch cancellation product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "24.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: batchMaterialId, quantity: "1" }],
+    });
+    expect(productCreate.status).toBe(201);
+    const batchProductId = productCreate.body.id as string;
+
+    const productUpdate = await updateItem(batchProductId, {
+      name: batchProductName,
+      sku: `PROD-BATCH-CANCEL-${ts}`,
+      category: `Manufacturing ${ts}`,
+      description: "Batch cancellation product",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "24.00",
+      manufacturingMode: "batch",
+      expectedBatchYield: "1",
+      safetyStock: "0",
+      stock: "0",
+      bom: [{ componentId: batchMaterialId, quantity: "1" }],
+    });
+    expect(productUpdate.status).toBe(200);
+
+    const batchOrderId = await createManufacturingOrder({
+      productId: batchProductId,
+      plannedQuantity: "2",
+      plannedDate: "2026-05-05",
+      notes: "Cancel after starting first batch",
+      ingredients: [{ itemId: batchMaterialId, quantityPerUnit: "1" }],
+    });
+
+    await releaseManufacturingOrder(batchOrderId);
+
+    const executionResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/execution`
+    );
+    const executionBody = await executionResponse.json().catch(() => null);
+    expect(executionResponse.status).toBe(200);
+
+    const firstIngredient = executionBody?.ingredients?.[0];
+    expect(firstIngredient?.id).toBeTruthy();
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/ingredients/${firstIngredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const [balanceAfterPick] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        committedQty: inventoryItemBalances.committedQty,
+        expectedQty: inventoryItemBalances.expectedQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, batchMaterialId));
+    expect(balanceAfterPick.onHandQty).toBe("3.0000");
+    expect(balanceAfterPick.committedQty).toBe("1.0000");
+
+    const cancelResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/cancel`,
+      { method: "POST" }
+    );
+    const cancelBody = await cancelResponse.json().catch(() => null);
+    expect(cancelResponse.status).toBe(200);
+    expect(cancelBody?.id).toBe(batchOrderId);
+
+    const [cancelledOrder] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, batchOrderId));
+    expect(cancelledOrder.status).toBe("cancelled");
+    expect(cancelledOrder.cancelledAt).toBeTruthy();
+
+    const [materialBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        committedQty: inventoryItemBalances.committedQty,
+        demandQty: inventoryItemBalances.demandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, batchMaterialId));
+    expect(materialBalance.onHandQty).toBe("4.0000");
+    expect(materialBalance.committedQty).toBe("0.0000");
+    expect(materialBalance.demandQty).toBe("0.0000");
+
+    const [productBalance] = await db
+      .select({
+        expectedQty: inventoryItemBalances.expectedQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, batchProductId));
+    expect(productBalance.expectedQty).toBe("0.0000");
+
+    const batchIngredients = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, batchOrderId));
+    const remainingAllocations = await db
+      .select()
+      .from(manufacturingPickAllocations)
+      .where(
+        inArray(
+          manufacturingPickAllocations.manufacturingOrderIngredientId,
+          batchIngredients.map((ingredient) => ingredient.id)
+        )
+      );
+    expect(remainingAllocations).toHaveLength(0);
+
+    const batches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId));
+    expect(batches).toHaveLength(2);
+    expect(batches.every((batch) => batch.status !== "completed")).toBe(true);
+
+    const referencedMovements = await db
+      .select()
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, batchOrderId));
+    expect(
+      referencedMovements.some((event) => event.eventType === "unpick_restock")
+    ).toBe(true);
+    expect(
+      referencedMovements.some((event) => event.eventType === "manufacturing_output")
+    ).toBe(false);
+
+    await page.goto(`/manufacturing/orders/${batchOrderId}`);
+    await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Execute" })).toHaveCount(0);
   });
 
   test("completes a released order with FIFO consumption, actuals, and a produced lot", async ({

@@ -5999,6 +5999,12 @@ export async function shipSalesShipment(
     return result.result;
   }
 
+  const { getXeroAutomationSettingsForOrg } = await import("@/lib/dal/xero");
+  const automation = await getXeroAutomationSettingsForOrg(result.orgId);
+  if (!automation?.autoPushSalesInvoices) {
+    return result.result;
+  }
+
   const {
     hasShipmentInvoiceForSalesOrder,
     pushSalesOrderToXero,
@@ -6330,6 +6336,12 @@ export async function shipSalesOrder(
   }
 
   if (options?.syncAccounting === false) {
+    return result.shipped;
+  }
+
+  const { getXeroAutomationSettingsForOrg } = await import("@/lib/dal/xero");
+  const automation = await getXeroAutomationSettingsForOrg(result.orgId);
+  if (!automation?.autoPushSalesInvoices) {
     return result.shipped;
   }
 

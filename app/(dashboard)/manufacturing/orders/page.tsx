@@ -5,9 +5,12 @@ import DataTableLoading from "../data-table-loading";
 
 export default function ManufacturingOrdersPage() {
   return (
-    <Suspense fallback={<DataTableLoading />}>
-      <ManufacturingOrdersData />
-    </Suspense>
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Manufacturing Orders</h1>
+      <Suspense fallback={<DataTableLoading />}>
+        <ManufacturingOrdersData />
+      </Suspense>
+    </div>
   );
 }
 

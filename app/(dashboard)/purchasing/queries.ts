@@ -855,6 +855,12 @@ export async function submitPurchaseOrder(
     return result.submitted;
   }
 
+  const { getXeroAutomationSettingsForOrg } = await import("@/lib/dal/xero");
+  const automation = await getXeroAutomationSettingsForOrg(result.orgId);
+  if (!automation?.autoPushPurchaseOrders) {
+    return result.submitted;
+  }
+
   // Stock + expected-supply tx has committed. Attempt the Xero PO push;
   // a failure must NOT roll back the submit — the order is ordered
   // regardless of accounting state.

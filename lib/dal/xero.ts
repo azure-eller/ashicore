@@ -1,8 +1,15 @@
 import "server-only";
 
-import { desc, eq } from "drizzle-orm";
-import { xeroConnections, xeroImportRuns } from "@/lib/db/schema";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
+import {
+  purchaseOrders,
+  salesOrders,
+  salesShipments,
+  xeroConnections,
+  xeroImportRuns,
+} from "@/lib/db/schema";
 import { withAuthedOrgContext } from "./auth";
+import { withOrgContext } from "@/lib/db/with-org-context";
 import type { XeroConnectionRow } from "@/lib/xero/client";
 import {
   probeXeroConnectionHealth,
@@ -16,6 +23,8 @@ export type XeroConnectionSummary = {
   defaultAccountCode: string | null;
   defaultTaxType: string | null;
   invoiceStatusPreference: string;
+  autoPushSalesInvoices: boolean;
+  autoPushPurchaseOrders: boolean;
   autoEmailSalesInvoices: boolean;
   autoEmailPurchaseOrders: boolean;
   purchaseOrderDefaultAccountCode: string | null;
@@ -38,6 +47,18 @@ export type XeroImportRunSummary = {
   undoneAt: Date | null;
 };
 
+export type XeroExportHistoryRow = {
+  id: string;
+  sourceType: "sales_order" | "sales_shipment" | "purchase_order";
+  sourceNumber: string;
+  partyName: string;
+  xeroDocumentNumber: string | null;
+  xeroPushStatus: string | null;
+  xeroPushError: string | null;
+  xeroPushedAt: Date | null;
+  updatedAt: Date;
+};
+
 function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
   return {
     tenantId: row.tenantId,
@@ -46,6 +67,8 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     defaultAccountCode: row.defaultAccountCode,
     defaultTaxType: row.defaultTaxType,
     invoiceStatusPreference: row.invoiceStatusPreference,
+    autoPushSalesInvoices: row.autoPushSalesInvoices,
+    autoPushPurchaseOrders: row.autoPushPurchaseOrders,
     autoEmailSalesInvoices: row.autoEmailSalesInvoices,
     autoEmailPurchaseOrders: row.autoEmailPurchaseOrders,
     purchaseOrderDefaultAccountCode: row.purchaseOrderDefaultAccountCode,
@@ -86,6 +109,133 @@ export async function getRecentXeroImportRuns(
       .from(xeroImportRuns)
       .orderBy(desc(xeroImportRuns.createdAt))
       .limit(limit);
+  });
+}
+
+export async function getRecentXeroExports({
+  includeSales,
+  includePurchasing,
+  limit = 20,
+}: {
+  includeSales: boolean;
+  includePurchasing: boolean;
+  limit?: number;
+}): Promise<XeroExportHistoryRow[]> {
+  if (!includeSales && !includePurchasing) return [];
+
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [salesInvoiceRows, shipmentInvoiceRows, purchaseOrderRows] = await Promise.all([
+      includeSales
+        ? tx
+            .select({
+              id: salesOrders.id,
+              sourceNumber: salesOrders.orderNumber,
+              partyName: salesOrders.customerName,
+              xeroDocumentNumber: salesOrders.xeroInvoiceNumber,
+              xeroPushStatus: salesOrders.xeroPushStatus,
+              xeroPushError: salesOrders.xeroPushError,
+              xeroPushedAt: salesOrders.xeroPushedAt,
+              updatedAt: salesOrders.updatedAt,
+            })
+            .from(salesOrders)
+            .where(
+              and(
+                eq(salesOrders.organizationId, orgId),
+                isNotNull(salesOrders.xeroPushStatus)
+              )
+            )
+            .orderBy(
+              desc(salesOrders.xeroLastPushAttemptAt),
+              desc(salesOrders.updatedAt)
+            )
+            .limit(limit)
+        : Promise.resolve([]),
+      includeSales
+        ? tx
+            .select({
+              id: salesShipments.id,
+              sourceNumber: salesShipments.shipmentNumber,
+              partyName: salesShipments.customerName,
+              xeroDocumentNumber: salesShipments.xeroInvoiceNumber,
+              xeroPushStatus: salesShipments.xeroPushStatus,
+              xeroPushError: salesShipments.xeroPushError,
+              xeroPushedAt: salesShipments.xeroPushedAt,
+              updatedAt: salesShipments.updatedAt,
+            })
+            .from(salesShipments)
+            .where(
+              and(
+                eq(salesShipments.organizationId, orgId),
+                isNotNull(salesShipments.xeroPushStatus)
+              )
+            )
+            .orderBy(
+              desc(salesShipments.xeroLastPushAttemptAt),
+              desc(salesShipments.updatedAt)
+            )
+            .limit(limit)
+        : Promise.resolve([]),
+      includePurchasing
+        ? tx
+            .select({
+              id: purchaseOrders.id,
+              sourceNumber: purchaseOrders.orderNumber,
+              partyName: purchaseOrders.supplierName,
+              xeroDocumentNumber: purchaseOrders.xeroPurchaseOrderNumber,
+              xeroPushStatus: purchaseOrders.xeroPushStatus,
+              xeroPushError: purchaseOrders.xeroPushError,
+              xeroPushedAt: purchaseOrders.xeroPushedAt,
+              updatedAt: purchaseOrders.updatedAt,
+            })
+            .from(purchaseOrders)
+            .where(
+              and(
+                eq(purchaseOrders.organizationId, orgId),
+                isNotNull(purchaseOrders.xeroPushStatus)
+              )
+            )
+            .orderBy(
+              desc(purchaseOrders.xeroLastPushAttemptAt),
+              desc(purchaseOrders.updatedAt)
+            )
+            .limit(limit)
+        : Promise.resolve([]),
+    ]);
+
+    return [
+      ...salesInvoiceRows.map((row) => ({
+        ...row,
+        sourceType: "sales_order" as const,
+      })),
+      ...shipmentInvoiceRows.map((row) => ({
+        ...row,
+        sourceType: "sales_shipment" as const,
+      })),
+      ...purchaseOrderRows.map((row) => ({
+        ...row,
+        sourceType: "purchase_order" as const,
+      })),
+    ]
+      .sort(
+        (left, right) =>
+          (right.xeroPushedAt ?? right.updatedAt).getTime() -
+          (left.xeroPushedAt ?? left.updatedAt).getTime()
+      )
+      .slice(0, limit);
+  });
+}
+
+export async function getXeroAutomationSettingsForOrg(orgId: string) {
+  return withOrgContext(orgId, async (tx) => {
+    const [row] = await tx
+      .select({
+        autoPushSalesInvoices: xeroConnections.autoPushSalesInvoices,
+        autoPushPurchaseOrders: xeroConnections.autoPushPurchaseOrders,
+      })
+      .from(xeroConnections)
+      .where(eq(xeroConnections.organizationId, orgId));
+
+    return row ?? null;
   });
 }
 
@@ -168,6 +318,8 @@ export async function updateXeroSettings(params: {
   defaultAccountCode: string | null;
   defaultTaxType: string | null;
   invoiceStatusPreference: "DRAFT" | "AUTHORISED";
+  autoPushSalesInvoices: boolean;
+  autoPushPurchaseOrders: boolean;
   autoEmailSalesInvoices: boolean;
   autoEmailPurchaseOrders: boolean;
   purchaseOrderDefaultAccountCode: string | null;
@@ -204,6 +356,8 @@ export async function updateXeroSettings(params: {
         defaultAccountCode: params.defaultAccountCode,
         defaultTaxType: params.defaultTaxType,
         invoiceStatusPreference: params.invoiceStatusPreference,
+        autoPushSalesInvoices: params.autoPushSalesInvoices,
+        autoPushPurchaseOrders: params.autoPushPurchaseOrders,
         autoEmailSalesInvoices: params.autoEmailSalesInvoices,
         autoEmailPurchaseOrders: params.autoEmailPurchaseOrders,
         purchaseOrderDefaultAccountCode: params.purchaseOrderDefaultAccountCode,

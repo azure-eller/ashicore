@@ -51,6 +51,11 @@ Allowed transitions:
 
 No revert-to-draft in v1.
 
+Cancelling a released batch order preserves completed batch output. Non-completed
+batches are cancelled with the parent order; any picked ingredients for those
+batches are unpicked and returned to stock, and remaining reservations/expected
+supply are released. Fully completed orders cannot be cancelled.
+
 ## Priority Ranking
 
 Manufacturing orders may have an optional `priorityRank`:

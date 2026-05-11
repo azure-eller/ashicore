@@ -1320,6 +1320,31 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
   }));
 }
 
+async function getManufacturingIngredientReservationRowsForBatchesInTx(
+  tx: Tx,
+  manufacturingOrderId: string,
+  batchIds: string[]
+) {
+  if (batchIds.length === 0) {
+    return [];
+  }
+
+  return tx
+    .select({
+      ingredientId: manufacturingOrderIngredients.id,
+      itemId: manufacturingOrderIngredients.itemId,
+      plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      pickedQuantity: manufacturingOrderIngredients.pickedQuantity,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(
+      and(
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId),
+        inArray(manufacturingOrderIngredients.manufacturingOrderBatchId, batchIds)
+      )
+    );
+}
+
 async function getBatchRowsInTx(tx: Tx, orderId: string) {
   return tx
     .select({
@@ -4792,17 +4817,23 @@ export async function cancelManufacturingOrder(
       throw new ManufacturingError("Only draft or released orders can be cancelled", 400);
     }
 
+    let reservationRows: Awaited<
+      ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
+    > = [];
+
     if (order.status === "released") {
       if (order.manufacturingMode === "batch") {
         const batches = await getLockedBatchStateRowsInTx(tx, order.id);
-        const startedBatch = batches.find((batch) => batch.status !== "pending");
-
-        if (startedBatch) {
-          throw new ManufacturingError(
-            "Started batch orders cannot be cancelled in v1.",
-            400
-          );
-        }
+        const cancellableBatchIds = batches
+          .filter((batch) => batch.status !== "completed")
+          .map((batch) => batch.id);
+        reservationRows = await getManufacturingIngredientReservationRowsForBatchesInTx(
+          tx,
+          id,
+          cancellableBatchIds
+        );
+      } else {
+        reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, id);
       }
     }
 
@@ -4817,7 +4848,6 @@ export async function cancelManufacturingOrder(
       .returning({ id: manufacturingOrders.id });
 
     if (order.status === "released") {
-      const reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, id);
       await cancelReleasedManufacturingOrderInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
