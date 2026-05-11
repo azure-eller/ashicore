@@ -502,6 +502,7 @@ test.describe("Reservation correctness", () => {
     await itemInput.click();
     await itemInput.pressSequentially(materialName);
     await page.getByRole("option", { name: new RegExp(materialName) }).click();
+    await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
     await selectDate(page, page.getByLabel("Ship Date"), "2026-04-15");
     await page.locator('input[placeholder="0"]').first().fill("5");
     await page.locator('input[placeholder="0.00"]').first().fill("9.00");

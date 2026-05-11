@@ -1488,11 +1488,23 @@ async function prepareDraftOrdersForConfirmationInTx(
   const preparedOrders: DraftOrderConfirmationPayload[] = [];
 
   for (const order of orders) {
+    if (!order.shipDate) {
+      throw new SalesError("Ship date is required to confirm a sales order.", 400, {
+        errors: {
+          shipDate: ["Ship date is required to confirm a sales order"],
+        },
+      });
+    }
+
     await getValidatedCustomerInTx(tx, order.customerId);
 
     const orderLines = linesByOrderId.get(order.id) ?? [];
     if (orderLines.length === 0) {
-      throw new SalesError("Orders must have at least one line to confirm.", 400);
+      throw new SalesError("Sales order must have at least one line item.", 400, {
+        errors: {
+          lines: ["Sales order must have at least one line item"],
+        },
+      });
     }
 
     const preparedLines = orderLines.map((line) => {
@@ -1682,11 +1694,13 @@ async function prepareOrderPayload(
   const customer = await getValidatedCustomerInTx(tx, payload.customerId);
   const itemIds = payload.lines.map((line) => line.itemId);
 
-  if (options?.lockItems) {
+  if (options?.lockItems && itemIds.length > 0) {
     await lockItemsInTx(tx, itemIds);
   }
 
-  const itemsById = await getValidatedSalesItemsInTx(tx, itemIds);
+  const itemsById = itemIds.length
+    ? await getValidatedSalesItemsInTx(tx, itemIds)
+    : new Map<string, SalesItemValidationRow>();
 
   const preparedLines = await Promise.all(
     payload.lines.map(async (line, index) => {
@@ -4780,16 +4794,19 @@ export async function createSalesOrder(
       })
       .returning({ id: salesOrders.id });
 
-    const insertedLines = await tx.insert(salesOrderLines).values(
-      prepared.preparedLines.map((line) => ({
-        salesOrderId: order.id,
-        ...line,
-      }))
-    ).returning({
-      salesOrderLineId: salesOrderLines.id,
-      itemId: salesOrderLines.itemId,
-      quantity: salesOrderLines.quantity,
-    });
+    const insertedLines =
+      prepared.preparedLines.length > 0
+        ? await tx.insert(salesOrderLines).values(
+            prepared.preparedLines.map((line) => ({
+              salesOrderId: order.id,
+              ...line,
+            }))
+          ).returning({
+            salesOrderLineId: salesOrderLines.id,
+            itemId: salesOrderLines.itemId,
+            quantity: salesOrderLines.quantity,
+          })
+        : [];
 
     if (data.status === "confirmed") {
       await reserveForSalesInTx(tx, {
@@ -4958,16 +4975,19 @@ export async function updateSalesOrder(
 
     await tx.delete(salesOrderLines).where(eq(salesOrderLines.salesOrderId, id));
 
-    const insertedLines = await tx.insert(salesOrderLines).values(
-      prepared.preparedLines.map((line) => ({
-        salesOrderId: id,
-        ...line,
-      }))
-    ).returning({
-      salesOrderLineId: salesOrderLines.id,
-      itemId: salesOrderLines.itemId,
-      quantity: salesOrderLines.quantity,
-    });
+    const insertedLines =
+      prepared.preparedLines.length > 0
+        ? await tx.insert(salesOrderLines).values(
+            prepared.preparedLines.map((line) => ({
+              salesOrderId: id,
+              ...line,
+            }))
+          ).returning({
+            salesOrderLineId: salesOrderLines.id,
+            itemId: salesOrderLines.itemId,
+            quantity: salesOrderLines.quantity,
+          })
+        : [];
 
     await tx
       .update(salesOrders)

@@ -13,17 +13,10 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id, shipmentId } = await (ctx as ShipmentRouteContext).params;
   await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json();
-  const parsed = salesShipmentCostsInputSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 }
-    );
-  }
+  const data = salesShipmentCostsInputSchema.parse(body);
 
   try {
-    const result = await updateSalesShipmentCosts(id, shipmentId, parsed.data);
+    const result = await updateSalesShipmentCosts(id, shipmentId, data);
     if (!result) {
       return NextResponse.json({ error: "Shipment not found" }, { status: 404 });
     }

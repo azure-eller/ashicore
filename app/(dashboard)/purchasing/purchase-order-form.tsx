@@ -23,7 +23,12 @@ import {
   insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
-import { formatPrice, getFieldArrayError, parsePositive } from "@/lib/format";
+import {
+  formatPrice,
+  getFieldArrayError,
+  getFirstFormErrorMessage,
+  parsePositive,
+} from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   CreatePageGrid,
@@ -199,6 +204,7 @@ export function PurchaseOrderForm({
     },
     onError: (error: ApiError) => {
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as never, {
             type: "server",
@@ -213,6 +219,11 @@ export function PurchaseOrderForm({
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
   const selectedSupplier = supplierOptionsSorted.find(
@@ -293,7 +304,10 @@ export function PurchaseOrderForm({
       >
       <form
         id="purchase-order-form"
-        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        onSubmit={form.handleSubmit(
+          (values) => mutation.mutate(values),
+          handleInvalidSubmit
+        )}
       >
         <FieldGroup className="gap-6">
           <CreateSection

@@ -10,7 +10,7 @@ import {
   insertVariantSchema,
   type InsertVariantFormValues,
 } from "@/lib/schemas/items";
-import { formatVariantDisplay } from "@/lib/format";
+import { formatVariantDisplay, getFirstFormErrorMessage } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   CreatePageHeader,
@@ -119,6 +119,11 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   return (
     <CreatePageShell className="max-w-4xl">
@@ -152,7 +157,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
         className="space-y-0"
         onSubmit={form.handleSubmit((data) => {
           if (!mutation.isPending) mutation.mutate(data);
-        })}
+        }, handleInvalidSubmit)}
       >
         <FieldGroup className="gap-6">
           <CreateSection

@@ -18,6 +18,7 @@ import {
   CreatePageShell,
 } from "@/components/create-page";
 import { FieldError } from "@/components/ui/field";
+import { getFirstFormErrorMessage } from "@/lib/format";
 import { SupplierFieldGroups, type SupplierFormValues } from "./supplier-fields";
 
 type ApiError = {
@@ -88,6 +89,7 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
     },
     onError: (error: ApiError) => {
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as keyof SupplierFormValues, {
             type: "server",
@@ -102,6 +104,11 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   return (
     <CreatePageShell className="max-w-4xl">
@@ -131,7 +138,10 @@ export function SupplierForm({ initialData }: { initialData?: SupplierRow }) {
       <form
         id="supplier-form"
         className="space-y-0"
-        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        onSubmit={form.handleSubmit(
+          (values) => mutation.mutate(values),
+          handleInvalidSubmit
+        )}
       >
         <SupplierFieldGroups control={form.control} />
       </form>

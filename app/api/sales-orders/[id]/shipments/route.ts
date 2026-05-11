@@ -9,17 +9,10 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "createSalesShipment");
   const body = await request.json();
-  const parsed = salesShipmentInputSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 }
-    );
-  }
+  const data = salesShipmentInputSchema.parse(body);
 
   try {
-    const shipment = await createSalesShipment(id, parsed.data, { idempotencyKey });
+    const shipment = await createSalesShipment(id, data, { idempotencyKey });
     if (!shipment) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }

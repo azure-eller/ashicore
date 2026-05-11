@@ -47,7 +47,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { PRICING_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
-import { normalizeAddressFields } from "@/lib/format";
+import { getFirstFormErrorMessage, normalizeAddressFields } from "@/lib/format";
 
 type CustomerFormValues = z.input<typeof insertCustomerSchema>;
 const EVERYONE_CATEGORY_VALUE = "__everyone__";
@@ -268,6 +268,7 @@ export function CustomerForm({
     },
     onError: (error: { error?: string; errors?: Record<string, string[]> }) => {
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as keyof CustomerFormValues, {
             type: "server",
@@ -282,6 +283,11 @@ export function CustomerForm({
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   return (
     <CreatePageShell className="max-w-4xl">
@@ -311,7 +317,10 @@ export function CustomerForm({
       <form
         id="customer-form"
         className="space-y-0"
-        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        onSubmit={form.handleSubmit(
+          (values) => mutation.mutate(values),
+          handleInvalidSubmit
+        )}
       >
         <FieldGroup className="gap-6">
           <CreateSection title="Basics">

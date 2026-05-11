@@ -64,6 +64,7 @@ import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import {
   formatQuantity,
   getFieldArrayError,
+  getFirstFormErrorMessage,
   normalizeNumeric,
   parsePositive,
   todayInTimeZone,
@@ -424,6 +425,7 @@ export function ManufacturingOrderForm({
     },
     onError: (error: ApiError) => {
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as never, {
             type: "server",
@@ -438,6 +440,11 @@ export function ManufacturingOrderForm({
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   const handleSalesOrderChange = (salesOrderId: string) => {
     const selected = salesOrderMap.get(salesOrderId);
@@ -589,7 +596,10 @@ export function ManufacturingOrderForm({
       >
       <form
         id="manufacturing-order-form"
-        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        onSubmit={form.handleSubmit(
+          (values) => mutation.mutate(values),
+          handleInvalidSubmit
+        )}
       >
         <FieldGroup className="gap-6">
           <CreateSection

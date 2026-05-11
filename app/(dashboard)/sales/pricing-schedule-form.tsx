@@ -16,7 +16,11 @@ import {
   insertPricingScheduleSchema,
   pricingScheduleDefaultValues,
 } from "@/lib/schemas/pricing-schedules";
-import { formatPrice, getFieldArrayError } from "@/lib/format";
+import {
+  formatPrice,
+  getFieldArrayError,
+  getFirstFormErrorMessage,
+} from "@/lib/format";
 import type {
   CustomerCategoryOption,
   PricingScheduleEditData,
@@ -183,6 +187,7 @@ export function PricingScheduleForm({
     },
     onError: (error: { error?: string; errors?: Record<string, string[]> }) => {
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as never, {
             type: "server",
@@ -197,6 +202,11 @@ export function PricingScheduleForm({
   });
 
   const handleCancel = useSmartBack(fallbackPath);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
   const breaksError = getFieldArrayError(form.formState.errors.breaks);
   const basePreview = Number(previewBasePrice);
 
@@ -280,7 +290,10 @@ export function PricingScheduleForm({
       >
         <form
           id="pricing-schedule-form"
-          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+          onSubmit={form.handleSubmit(
+            (values) => mutation.mutate(values),
+            handleInvalidSubmit
+          )}
         >
         <FieldGroup className="gap-6">
           <CreateSection

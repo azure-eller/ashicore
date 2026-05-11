@@ -38,6 +38,7 @@ import {
   stocktakeDefaultValues,
   type StocktakeScope,
 } from "@/lib/schemas/stocktakes";
+import { getFirstFormErrorMessage } from "@/lib/format";
 import { STOCKTAKE_SCOPE_TOOLTIP } from "@/lib/tooltip-copy";
 import { buildStocktakeName, type StocktakeScopeOptionGroup } from "./types";
 
@@ -96,6 +97,7 @@ export function StocktakeForm({
     },
     onError: (error: ApiError) => {
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as keyof StocktakeFormValues, {
             type: "server",
@@ -108,6 +110,12 @@ export function StocktakeForm({
       setFormError(error.error ?? "Failed to create stocktake.");
     },
   });
+
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   const handleCancel = useSmartBack("/inventory/stocktakes");
 
@@ -169,7 +177,10 @@ export function StocktakeForm({
       >
         <form
           id="stocktake-form"
-          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+          onSubmit={form.handleSubmit(
+            (values) => mutation.mutate(values),
+            handleInvalidSubmit
+          )}
         >
           <CreateSection
             title="Basics"

@@ -33,7 +33,7 @@ export class DomainError<
       this.extra != null
         ? { error: this.message, ...this.extra }
         : this.errors != null
-          ? { errors: this.errors }
+          ? { error: this.message, errors: this.errors }
           : { error: this.message };
 
     return NextResponse.json(body, { status: this.status });

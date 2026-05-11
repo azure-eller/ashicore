@@ -28,19 +28,22 @@ Do not leave guarded `GET` handlers as bare `export async function GET(...) { ..
 
 ## Validation Error Shape
 
-Field-level validation errors (Zod failures):
+Field-level validation errors (Zod failures) must include both a top-level
+message for action surfaces and field details for forms. Prefer `schema.parse()`
+inside `apiHandler` so the shared handler formats the response.
 
 ```ts
-const result = schema.safeParse(await req.json());
-if (!result.success) {
-  return NextResponse.json(
-    { errors: result.error.flatten().fieldErrors },
-    { status: 400 }
-  );
-}
+const data = schema.parse(await req.json());
 ```
 
-Note: **`errors`** (plural) for field errors — this is what react-hook-form's `setError` expects.
+Response shape:
+
+```ts
+{ error: "Ship date is required", errors: { shipDate: ["Ship date is required"] } }
+```
+
+Note: **`error`** is for the visible message, and **`errors`** is what
+react-hook-form's `setError` expects.
 
 ## General Error Shape
 
@@ -67,9 +70,9 @@ Do not coerce exact decimals to JS `number` in API responses.
 
 API-facing business errors with shared JSON response behavior should extend `DomainError` from `lib/errors/domain-error.ts` instead of re-implementing `status` and `toResponse()`.
 
-- Put field validation failures in `errors`
+- Put field validation failures in `errors`; `toResponse()` also includes `error`
 - Put domain-specific warning payloads in `extra`
-- `toResponse()` returns `{ errors }` for field errors, otherwise `{ error, ...extra }`
+- `toResponse()` returns `{ error, errors }` for field errors, otherwise `{ error, ...extra }`
 
 ```ts
 export class StocktakeError extends DomainError<{

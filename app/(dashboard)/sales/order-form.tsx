@@ -34,6 +34,7 @@ import {
 import {
   formatPrice,
   getFieldArrayError,
+  getFirstFormErrorMessage,
   normalizeAddressFields,
   parsePositive,
   todayInTimeZone,
@@ -646,6 +647,7 @@ export function OrderForm({
       }
 
       if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as never, {
             type: "server",
@@ -667,7 +669,14 @@ export function OrderForm({
     : isEditing
       ? "Save Changes"
       : "Create Order";
-  const submitOrder = form.handleSubmit((values) => mutation.mutate(values));
+  const submitOrder = form.handleSubmit(
+    (values) => mutation.mutate(values),
+    (errors) => {
+      setFormError(
+        getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+      );
+    }
+  );
 
   const handleSaveDraft = () => {
     form.setValue("status", "draft", {

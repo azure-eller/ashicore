@@ -431,7 +431,11 @@ export async function createSalesOrder(data: {
     body: JSON.stringify({
       customerId: data.customerId,
       status: data.status ?? "draft",
-      ...(data.orderDate ? { orderDate: data.orderDate } : {}),
+      orderDate:
+        data.orderDate ??
+        data.shipDate ??
+        data.requestedDate ??
+        "2026-04-15",
       shipDate:
         data.shipDate ??
         data.requestedDate ??
@@ -471,7 +475,11 @@ export async function updateSalesOrder(
     body: JSON.stringify({
       customerId: data.customerId,
       status: data.status ?? "draft",
-      ...(data.orderDate ? { orderDate: data.orderDate } : {}),
+      orderDate:
+        data.orderDate ??
+        data.shipDate ??
+        data.requestedDate ??
+        "2026-04-15",
       shipDate:
         data.shipDate ??
         data.requestedDate ??

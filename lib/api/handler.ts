@@ -32,6 +32,10 @@ export function requireIdempotencyKey(
   return idempotencyKey;
 }
 
+function formatFieldErrors(errors: Record<string, string[]>) {
+  return Object.values(errors).flat()[0] ?? "Invalid request.";
+}
+
 export function apiHandler<TArgs extends unknown[]>(
   fn: (request: Request, ...args: TArgs) => Promise<NextResponse>
 ) {
@@ -83,9 +87,10 @@ export function apiHandler<TArgs extends unknown[]>(
           return finalizeResponse(response);
         }
         if (error instanceof z.ZodError) {
+          const errors = error.flatten().fieldErrors;
           return finalizeResponse(
             NextResponse.json(
-              { errors: error.flatten().fieldErrors, requestId },
+              { error: formatFieldErrors(errors), errors, requestId },
               { status: 400 }
             )
           );

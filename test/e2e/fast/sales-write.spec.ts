@@ -334,6 +334,7 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
     await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
+    await selectDate(page, page.getByLabel("Ship Date"), "2026-04-15");
     await selectDate(page, page.getByLabel("Delivery Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...");
@@ -364,6 +365,7 @@ test.describe("Sales write-path smoke", () => {
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("draft");
     expect(order.orderDate).toBe("2026-04-01");
+    expect(order.shipDate).toBe("2026-04-15");
     expect(order.requestedDate).toBe("2026-04-15");
     expect(order.notes).toBe("Fast order smoke test");
 
@@ -404,7 +406,103 @@ test.describe("Sales write-path smoke", () => {
       .select()
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, orderId));
-    expect(shipments).toHaveLength(0);
+    expect(shipments).toHaveLength(1);
+    expect(shipments[0].scheduledDate).toBe("2026-04-15");
+  });
+
+  test("confirming without a delivery date returns a readable error", async () => {
+    const createResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        status: "draft",
+        orderDate: "2026-04-01",
+        shipDate: null,
+        requestedDate: null,
+        notes: null,
+        lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const order = await createResponse.json();
+
+    const confirmResponse = await testFetch(`/api/sales-orders/${order.id}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ confirmOversell: false }),
+    });
+    expect(confirmResponse.status).toBe(400);
+    const body = await confirmResponse.json();
+    expect(body.error).toBe("Ship date is required to confirm a sales order.");
+    expect(body.errors.shipDate[0]).toBe(
+      "Ship date is required to confirm a sales order"
+    );
+  });
+
+  test("saving a draft without line items is allowed", async ({ db }) => {
+    const createResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        status: "draft",
+        orderDate: "2026-04-01",
+        shipDate: null,
+        requestedDate: null,
+        notes: null,
+        lines: [],
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const order = await createResponse.json();
+
+    const lines = await db
+      .select()
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.id));
+    expect(lines).toHaveLength(0);
+  });
+
+  test("confirming without line items returns a readable error", async () => {
+    const createResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        status: "draft",
+        orderDate: "2026-04-01",
+        shipDate: "2026-04-15",
+        requestedDate: "2026-04-15",
+        notes: null,
+        lines: [],
+      }),
+    });
+    expect(createResponse.status).toBe(201);
+    const order = await createResponse.json();
+
+    const confirmResponse = await testFetch(`/api/sales-orders/${order.id}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ confirmOversell: false }),
+    });
+    expect(confirmResponse.status).toBe(400);
+    const body = await confirmResponse.json();
+    expect(body.error).toBe("Sales order must have at least one line item.");
+  });
+
+  test("saving a ship date before the order date returns a readable error", async () => {
+    const createResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        status: "draft",
+        orderDate: "2026-04-10",
+        shipDate: "2026-04-09",
+        requestedDate: "2026-04-11",
+        notes: null,
+        lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+      }),
+    });
+    expect(createResponse.status).toBe(400);
+    const body = await createResponse.json();
+    expect(body.error).toBe("Ship date cannot be before order date");
+    expect(body.errors.shipDate[0]).toBe("Ship date cannot be before order date");
   });
 
   test("expanded order lines show available stock after confirmed reservations", async ({

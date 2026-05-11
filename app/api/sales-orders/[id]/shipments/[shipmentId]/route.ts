@@ -15,17 +15,10 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "updateSalesShipment");
   const body = await request.json();
-  const parsed = salesShipmentInputSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { errors: parsed.error.flatten().fieldErrors },
-      { status: 400 }
-    );
-  }
+  const data = salesShipmentInputSchema.parse(body);
 
   try {
-    const shipment = await updateSalesShipment(id, shipmentId, parsed.data, {
+    const shipment = await updateSalesShipment(id, shipmentId, data, {
       idempotencyKey,
     });
     if (!shipment) {

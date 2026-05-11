@@ -420,7 +420,7 @@ See `docs/sales.md` and `docs/planning.md`. Critical:
 ### API error shape
 
 - `{ error: string }` for general errors
-- `{ errors: Record<string, string[]> }` for Zod field-level errors
+- `{ error: string, errors: Record<string, string[]> }` for field-level errors
 - Domain errors (SalesError, ManufacturingError) use `error.toResponse()` in route handlers
 - Guarded API `GET` handlers should also use `apiHandler`, not bare `export async function GET`, so `AuthorizationError` returns JSON instead of a 500
 - Shared `lib/` code should throw typed errors when routes need non-500 handling. Catch them explicitly in route handlers:

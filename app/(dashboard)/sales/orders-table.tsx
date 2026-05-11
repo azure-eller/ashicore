@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiJson } from "@/lib/client/api";
+import { apiJson, getApiErrorMessage } from "@/lib/client/api";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
@@ -242,10 +242,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
                 draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
               }
             | null;
-          const message =
-            typeof payload?.error === "string"
-              ? payload.error
-              : "Failed to confirm orders.";
+          const message = getApiErrorMessage(payload, "Failed to confirm orders.");
           return Object.assign(new Error(message), {
             status,
             error: message,

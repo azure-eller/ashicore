@@ -58,15 +58,6 @@ const cleanedLinesSchema = z
   .array(rawOrderLineSchema)
   .transform((lines) => lines.filter((line) => !isBlankLine(line)))
   .superRefine((lines, ctx) => {
-    if (lines.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "At least one line is required",
-        path: [],
-      });
-      return;
-    }
-
     const seen = new Set<string>();
 
     lines.forEach((line, index) => {
@@ -181,6 +172,30 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
+    if (values.status === "confirmed" && values.lines.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Sales order must have at least one line item",
+        path: ["lines"],
+      });
+    }
+
+    if (values.status === "confirmed" && !values.shipDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Ship date is required to confirm a sales order",
+        path: ["shipDate"],
+      });
+    }
+
+    if (values.shipDate && values.orderDate && values.shipDate < values.orderDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Ship date cannot be before order date",
+        path: ["shipDate"],
+      });
+    }
+
     if (
       values.shipDate &&
       values.requestedDate &&

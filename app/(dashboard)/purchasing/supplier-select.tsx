@@ -8,6 +8,7 @@ import {
   insertSupplierSchema,
   supplierDefaultValues,
 } from "@/lib/schemas/suppliers";
+import { getFirstFormErrorMessage } from "@/lib/format";
 import type { SupplierOption } from "./types";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,6 +99,7 @@ export function SupplierSelect({
     },
     onError: (error: ApiError) => {
       if (error.errors) {
+        setDialogError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as keyof SupplierFormValues, {
             type: "server",
@@ -110,6 +112,11 @@ export function SupplierSelect({
       setDialogError(error.error ?? "Failed to create supplier.");
     },
   });
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setDialogError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   return (
     <>
@@ -175,7 +182,10 @@ export function SupplierSelect({
           <form
             id="inline-supplier-form"
             className="space-y-0"
-            onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+            onSubmit={form.handleSubmit(
+              (values) => mutation.mutate(values),
+              handleInvalidSubmit
+            )}
           >
             <SupplierFieldGroups control={form.control} />
           </form>

@@ -408,6 +408,26 @@ export function getFieldArrayError(error: unknown): string | null {
   return null;
 }
 
+export function getFirstFormErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+
+  if ("message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+
+  if ("root" in error) {
+    const rootMessage = getFirstFormErrorMessage(error.root);
+    if (rootMessage) return rootMessage;
+  }
+
+  for (const value of Object.values(error)) {
+    const message = getFirstFormErrorMessage(value);
+    if (message) return message;
+  }
+
+  return null;
+}
+
 /**
  * Build the canonical display name for a variant item.
  * For standalone items: returns the item name as-is.

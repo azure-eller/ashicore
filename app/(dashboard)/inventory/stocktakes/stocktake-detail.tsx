@@ -45,7 +45,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { formatDateTime, formatQuantity, getFieldArrayError, normalizeNumeric } from "@/lib/format";
+import {
+  formatDateTime,
+  formatQuantity,
+  getFieldArrayError,
+  getFirstFormErrorMessage,
+  normalizeNumeric,
+} from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
@@ -213,6 +219,7 @@ export function StocktakeDetail({
     },
     onError: (error: ApiError) => {
       if (error.errors) {
+        setActionError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
           form.setError(field as never, {
             type: "server",
@@ -266,31 +273,43 @@ export function StocktakeDetail({
     },
   });
 
-  const handleSave = form.handleSubmit(async (values) => {
-    try {
-      const didSave = await saveDirtyCounts(values);
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setActionError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
-      if (!didSave) {
+  const handleSave = form.handleSubmit(
+    async (values) => {
+      try {
+        const didSave = await saveDirtyCounts(values);
+
+        if (!didSave) {
+          return;
+        }
+
+        router.refresh();
+      } catch {
         return;
       }
+    },
+    handleInvalidSubmit
+  );
 
-      router.refresh();
-    } catch {
-      return;
-    }
-  });
+  const handleComplete = form.handleSubmit(
+    async (values) => {
+      try {
+        if (form.formState.isDirty) {
+          await saveDirtyCounts(values);
+        }
 
-  const handleComplete = form.handleSubmit(async (values) => {
-    try {
-      if (form.formState.isDirty) {
-        await saveDirtyCounts(values);
+        await completeMutation.mutateAsync(false);
+      } catch {
+        return;
       }
-
-      await completeMutation.mutateAsync(false);
-    } catch {
-      return;
-    }
-  });
+    },
+    handleInvalidSubmit
+  );
 
   const cancelMutation = useMutation<void, Error, void>({
     mutationFn: async () => {

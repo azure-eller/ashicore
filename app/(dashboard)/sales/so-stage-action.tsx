@@ -80,8 +80,7 @@ export function SoStageAction({ order }: Props) {
                 draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
               }
             | null;
-          const message =
-            getApiErrorMessage(payload, "Failed to confirm order.");
+          const message = getApiErrorMessage(payload, "Failed to confirm order.");
           return Object.assign(new Error(message), {
             status,
             error: message,

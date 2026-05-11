@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CircleLock01Icon, CircleUnlock01Icon } from "@hugeicons/core-free-icons";
-import { formatPrice, parsePositive } from "@/lib/format";
+import { formatPrice, getFirstFormErrorMessage, parsePositive } from "@/lib/format";
 import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
 import {
   insertItemSchema,
@@ -350,6 +350,11 @@ export function ItemForm({
       setFormError(null);
     },
   });
+  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
+    setFormError(
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+    );
+  };
 
   const currentStockUnitCostMutation = useMutation({
     mutationFn: async () => {
@@ -615,7 +620,9 @@ export function ItemForm({
       <CreatePageGrid sidebar={itemSidebar}>
       <form
         id="item-form"
-        onSubmit={form.handleSubmit((data) => { if (!mutation.isPending) mutation.mutate(data); })}
+        onSubmit={form.handleSubmit((data) => {
+          if (!mutation.isPending) mutation.mutate(data);
+        }, handleInvalidSubmit)}
       >
         <FieldGroup className="gap-6">
           <CreateSection title="Basics">

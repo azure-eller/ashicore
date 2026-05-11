@@ -26,6 +26,7 @@ import {
 
 async function createDraftSalesOrder(payload: {
   customerId: string;
+  orderDate?: string;
   shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
@@ -40,6 +41,7 @@ async function createDraftSalesOrder(payload: {
     body: JSON.stringify({
       customerId: payload.customerId,
       status: "draft",
+      orderDate: payload.orderDate ?? "2026-04-01",
       shipDate: payload.shipDate ?? payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
