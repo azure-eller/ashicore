@@ -18,12 +18,14 @@ import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  ArrowLeft01Icon,
   Factory01Icon,
   PackageIcon,
   ReloadIcon,
 } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Sheet,
@@ -33,6 +35,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -61,6 +71,30 @@ type AllocationTokenData = {
 };
 
 type SourceColor = "stock" | "blue" | "purple";
+
+type OutputAllocationData = {
+  sourceMo: {
+    id: string;
+    orderNumber: string;
+    productName: string;
+    plannedQuantity: string;
+    actualQuantity: string;
+    status: string;
+  };
+  productionDestinations: Array<{
+    ingredientId: string;
+    manufacturingOrderId: string;
+    orderNumber: string;
+    productName: string;
+    status: string;
+    remainingNeed: string;
+    assignedQty: string;
+    shortQty: string;
+  }>;
+  assignedSalesQty: string;
+  assignedProductionQty: string;
+  unassignedQty: string;
+};
 
 type Props = {
   lineId: string | null;
@@ -171,6 +205,235 @@ function sourceKindLabel(source: SalesAllocationSource) {
   if (source.sourceType === "stock_pool") return "Stock";
   if (source.sourceType === "lot") return "Usable lot";
   return source.status === "draft" ? "Draft production" : "Released production";
+}
+
+function OutputAllocationWorkspace({
+  manufacturingOrderId,
+  onBack,
+}: {
+  manufacturingOrderId: string;
+  onBack: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [draftState, setDraftState] = useState<{
+    manufacturingOrderId: string | null;
+    values: Record<string, string>;
+  }>({ manufacturingOrderId: null, values: {} });
+  const outputQuery = useQuery<OutputAllocationData>({
+    queryKey: ["manufacturing-output-allocation", manufacturingOrderId],
+    queryFn: () =>
+      apiJson<OutputAllocationData>(
+        `/api/manufacturing-orders/${manufacturingOrderId}/output-allocation`,
+        { fallbackError: "Failed to load output allocation." }
+      ),
+  });
+  const data = outputQuery.data ?? null;
+  const defaultDraft = useMemo(
+    () =>
+      Object.fromEntries(
+        data?.productionDestinations.map((destination) => [
+          destination.ingredientId,
+          formatQuantity(destination.assignedQty),
+        ]) ?? []
+      ),
+    [data]
+  );
+  const draft =
+    draftState.manufacturingOrderId === manufacturingOrderId
+      ? draftState.values
+      : defaultDraft;
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiJson<OutputAllocationData>(
+        `/api/manufacturing-orders/${manufacturingOrderId}/output-allocation`,
+        {
+          method: "PUT",
+          body: {
+            productionAllocations: Object.entries(draft)
+              .map(([ingredientId, quantity]) => ({ ingredientId, quantity }))
+              .filter((allocation) => readQuantity(allocation.quantity) > 0),
+          },
+          fallbackError: "Failed to save output allocation.",
+        }
+      ),
+    onSuccess: async (nextData) => {
+      setDraftState({
+        manufacturingOrderId,
+        values: Object.fromEntries(
+          nextData.productionDestinations.map((destination) => [
+            destination.ingredientId,
+            formatQuantity(destination.assignedQty),
+          ])
+        ),
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["manufacturing-output-allocation", manufacturingOrderId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["sales-line-allocation"] }),
+        queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
+      ]);
+    },
+  });
+
+  const canSave =
+    !!data &&
+    !outputQuery.isLoading &&
+    !mutation.isPending &&
+    JSON.stringify(draft) !== JSON.stringify(defaultDraft);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+          <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
+          Back
+        </Button>
+        <Button type="button" onClick={() => mutation.mutate()} disabled={!canSave}>
+          {mutation.isPending ? "Saving..." : "Save allocation"}
+        </Button>
+      </div>
+
+      {outputQuery.isLoading ? (
+        <div className="flex min-h-48 items-center justify-center">
+          <Spinner className="text-foreground" />
+        </div>
+      ) : outputQuery.isError ? (
+        <p className="text-sm text-destructive">{outputQuery.error.message}</p>
+      ) : data ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border bg-card p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex size-12 items-center justify-center rounded-md bg-muted">
+                <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xl font-semibold text-foreground">
+                    {data.sourceMo.orderNumber}
+                  </div>
+                  <Badge variant="secondary">Output allocation</Badge>
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {data.sourceMo.productName} · {statusLabel(data.sourceMo.status)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
+            <span>Planned {formatQuantity(data.sourceMo.plannedQuantity)}</span>
+            <span>Produced {formatQuantity(data.sourceMo.actualQuantity)}</span>
+            <span>Sales {formatQuantity(data.assignedSalesQty)}</span>
+            <span>Production {formatQuantity(data.assignedProductionQty)}</span>
+            <span>Unassigned {formatQuantity(data.unassignedQty)}</span>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.25fr]">
+            <section className="rounded-lg border bg-card p-3">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Available Output</h3>
+                  <p className="text-sm text-muted-foreground">{data.sourceMo.productName}</p>
+                </div>
+                <div className="text-right text-sm">
+                  <div>{formatQuantity(data.unassignedQty)} Unassigned</div>
+                  <div className="text-muted-foreground">
+                    {formatQuantity(data.assignedProductionQty)} to production
+                  </div>
+                </div>
+              </div>
+              <div className="flex min-h-14 flex-wrap items-center gap-2">
+                <div className={tokenClassName("blue")}>
+                  {formatQuantity(data.sourceMo.plannedQuantity)}
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold">Allocate to Production</h3>
+                <p className="text-sm text-muted-foreground">
+                  Assign output to downstream ingredient demand
+                </p>
+              </div>
+
+              {data.productionDestinations.length > 0 ? (
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Production Orders</TableHead>
+                        <TableHead className="text-right">Remaining</TableHead>
+                        <TableHead className="w-36 text-right">Allocated</TableHead>
+                        <TableHead className="text-right">Short</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.productionDestinations.map((destination) => {
+                        const allocated = readQuantity(
+                          draft[destination.ingredientId] ?? destination.assignedQty
+                        );
+                        const shortQty = Math.max(
+                          0,
+                          readQuantity(destination.remainingNeed) - allocated
+                        );
+
+                        return (
+                          <TableRow key={destination.ingredientId}>
+                            <TableCell>
+                              <div className="font-medium">{destination.orderNumber}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {destination.productName}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatQuantity(destination.remainingNeed)}
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                inputMode="decimal"
+                                value={draft[destination.ingredientId] ?? ""}
+                                onChange={(event) =>
+                                  setDraftState((current) => ({
+                                    manufacturingOrderId,
+                                    values: {
+                                      ...(current.manufacturingOrderId ===
+                                      manufacturingOrderId
+                                        ? current.values
+                                        : defaultDraft),
+                                      [destination.ingredientId]: event.target.value,
+                                    },
+                                  }))
+                                }
+                                className="text-right"
+                              />
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {shortLabel(shortQty)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  No production orders currently need this output.
+                </p>
+              )}
+            </section>
+          </div>
+
+          {mutation.error ? (
+            <p className="text-sm text-destructive">{mutation.error.message}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function SourceToken({
@@ -406,6 +669,7 @@ export function AllocationSheet({
   const pointerDropHandledRef = useRef(false);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const activeTokenRef = useRef<AllocationTokenData | null>(null);
+  const [outputMoId, setOutputMoId] = useState<string | null>(null);
   const [draftState, setDraftState] = useState<AllocationDraftState>({
     lineId: null,
     values: {},
@@ -424,7 +688,7 @@ export function AllocationSheet({
         `/api/sales-order-lines/${lineId}/allocation`,
         { fallbackError: "Failed to load allocation." }
       ),
-    enabled: open && lineId != null,
+    enabled: open && lineId != null && outputMoId == null,
   });
 
   useEffect(() => {
@@ -783,7 +1047,15 @@ export function AllocationSheet({
     !overAllocatedSource;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setOutputMoId(null);
+        }
+        onOpenChange(nextOpen);
+      }}
+    >
       <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(94vw,76rem)] data-[side=right]:sm:max-w-none">
         <SheetHeader className="border-b">
           <SheetTitle>Allocation Manager</SheetTitle>
@@ -813,17 +1085,23 @@ export function AllocationSheet({
           ) : null}
         </SheetHeader>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={pointerWithin}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => {
-            pointerDropHandledRef.current = false;
-            setActiveToken(null);
-          }}
-        >
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
+        {outputMoId ? (
+          <OutputAllocationWorkspace
+            manufacturingOrderId={outputMoId}
+            onBack={() => setOutputMoId(null)}
+          />
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={pointerWithin}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => {
+              pointerDropHandledRef.current = false;
+              setActiveToken(null);
+            }}
+          >
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
             {query.isLoading ? (
               <div className="flex min-h-48 items-center justify-center">
                 <Spinner className="text-foreground" />
@@ -885,7 +1163,18 @@ export function AllocationSheet({
                                 />
                               </div>
                               <div>
-                                <div className="font-medium">{source.label}</div>
+                                {source.sourceType === "manufacturing_order" &&
+                                source.sourceId ? (
+                                  <button
+                                    type="button"
+                                    className="font-medium text-primary underline-offset-4 hover:underline"
+                                    onClick={() => setOutputMoId(source.sourceId)}
+                                  >
+                                    {source.label}
+                                  </button>
+                                ) : (
+                                  <div className="font-medium">{source.label}</div>
+                                )}
                                 <div className="text-xs text-muted-foreground">
                                   {sourceLabel(sourceKindLabel(source), source.date)}
                                 </div>
@@ -1063,20 +1352,22 @@ export function AllocationSheet({
                 </section>
               </div>
             ) : null}
-          </div>
+            </div>
 
-          <DragOverlay>
-            {activeToken ? (
-              <TokenPreview
-                label={activeToken.sourceLabel}
-                quantity={activeToken.quantity}
-                color={sourceColor(activeToken.sourceType, activeToken.sourceIndex)}
-              />
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+            <DragOverlay>
+              {activeToken ? (
+                <TokenPreview
+                  label={activeToken.sourceLabel}
+                  quantity={activeToken.quantity}
+                  color={sourceColor(activeToken.sourceType, activeToken.sourceIndex)}
+                />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        )}
 
-        <SheetFooter className="border-t">
+        {!outputMoId ? (
+          <SheetFooter className="border-t">
           {mutation.error ? (
             <p className="text-sm text-destructive">{mutation.error.message}</p>
           ) : totalOverRemaining && targetLine ? (
@@ -1118,7 +1409,8 @@ export function AllocationSheet({
               </Button>
             </div>
           </div>
-        </SheetFooter>
+          </SheetFooter>
+        ) : null}
       </SheetContent>
     </Sheet>
   );
