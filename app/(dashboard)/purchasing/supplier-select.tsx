@@ -11,14 +11,7 @@ import {
 import { getFirstFormErrorMessage } from "@/lib/format";
 import type { SupplierOption } from "./types";
 import { Button } from "@/components/ui/button";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
+import { EntityCombobox } from "@/components/entity-combobox";
 import {
   Dialog,
   DialogContent,
@@ -50,9 +43,6 @@ export function SupplierSelect({
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
-
-  const supplierIds = suppliers.map((supplier) => supplier.id);
-  const supplierMap = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
 
   const form = useForm<SupplierFormValues>({
     resolver: zodResolver(insertSupplierSchema),
@@ -132,32 +122,20 @@ export function SupplierSelect({
             New Supplier
           </Button>
         </div>
-        <Combobox
-          items={supplierIds}
+        <EntityCombobox
+          options={suppliers}
           value={value ?? null}
-          onValueChange={(nextValue) => onValueChange(nextValue ?? null)}
-          itemToStringLabel={(id) => supplierMap.get(id)?.name ?? ""}
-        >
-          <ComboboxInput placeholder="Search suppliers..." />
-          <ComboboxContent className="bg-popover text-popover-foreground">
-            <ComboboxEmpty>No suppliers found</ComboboxEmpty>
-            <ComboboxList>
-              {(id: string) => {
-                const supplier = supplierMap.get(id);
-                return (
-                  <ComboboxItem key={id} value={id}>
-                    <span>{supplier?.name ?? id}</span>
-                    {supplier?.code && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {supplier.code}
-                      </span>
-                    )}
-                  </ComboboxItem>
-                );
-              }}
-            </ComboboxList>
-          </ComboboxContent>
-        </Combobox>
+          onValueChange={onValueChange}
+          placeholder="Search suppliers..."
+          emptyMessage="No suppliers found"
+          renderSecondary={(supplier) =>
+            supplier.code ? (
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                {supplier.code}
+              </span>
+            ) : null
+          }
+        />
         {errorMessage && <FieldError>{errorMessage}</FieldError>}
       </Field>
 
