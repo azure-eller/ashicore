@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -47,6 +47,7 @@ import {
   EditableLineGridCell,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
+import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -215,7 +216,15 @@ export function ManufacturingOrderForm({
     name: "salesOrderId",
   });
 
-  const productIds = productTemplates.map((product) => product.id);
+  const productOptions = useMemo(
+    () =>
+      productTemplates.map((product) => ({
+        ...product,
+        displayName: product.name,
+        itemType: "product",
+      })),
+    [productTemplates]
+  );
   const productMap = new Map(productTemplates.map((product) => [product.id, product]));
   const salesOrderIds = salesOrderOptions.map((order) => order.id);
   const salesOrderMap = new Map(salesOrderOptions.map((order) => [order.id, order]));
@@ -745,31 +754,24 @@ export function ManufacturingOrderForm({
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel>Product</FieldLabel>
-                        <Combobox
-                          items={productIds}
+                        <InventoryItemCombobox
+                          options={productOptions}
                           value={field.value ?? ""}
                           onValueChange={(value) => handleProductChange(value ?? "")}
-                          itemToStringLabel={(value) => productMap.get(value)?.name ?? ""}
-                        >
-                          <ComboboxInput placeholder="Search products..." />
-                          <ComboboxContent className="bg-popover text-popover-foreground">
-                            <ComboboxEmpty>No products found</ComboboxEmpty>
-                            <ComboboxList>
-                              {(id: string) => {
-                                const product = productMap.get(id);
-                                return (
-                                  <ComboboxItem key={id} value={id}>
-                                    <span>
-                                      {product?.sku
-                                        ? `${product.name} (${product.sku})`
-                                        : product?.name ?? id}
-                                    </span>
-                                  </ComboboxItem>
-                                );
-                              }}
-                            </ComboboxList>
-                          </ComboboxContent>
-                        </Combobox>
+                          placeholder="Search products..."
+                          emptyMessage="No products found"
+                          createLinks={[
+                            {
+                              href: "/inventory/products/new",
+                              label: "Create product",
+                            },
+                          ]}
+                          getSecondaryText={(product) =>
+                            [product.sku, product.unitName]
+                              .filter((part): part is string => part != null && part !== "")
+                              .join(" · ")
+                          }
+                        />
                         <FieldDescription>
                           {watchedProductId
                             ? "Change the product to reset ingredients."

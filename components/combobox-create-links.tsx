@@ -6,7 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 
 import { cn } from "@/lib/utils";
 
-type ComboboxCreateLink = {
+export type ComboboxCreateLink = {
   href: string;
   label: string;
 };

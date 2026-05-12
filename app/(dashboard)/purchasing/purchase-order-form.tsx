@@ -39,19 +39,12 @@ import {
   SummaryRows,
 } from "@/components/create-page";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
-import {
   Field,
   FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import {
   EditableLineGrid,
   EditableLineGridCell,
@@ -126,7 +119,16 @@ export function PurchaseOrderForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [supplierOptions, setSupplierOptions] = useState(suppliers);
 
-  const materialIds = materials.map((material) => material.id);
+  const materialOptions = useMemo(
+    () =>
+      materials.map((material) => ({
+        ...material,
+        displayName: material.name,
+        itemType: "material" as const,
+        unitName: material.stockingUnitName,
+      })),
+    [materials]
+  );
   const materialMap = new Map(materials.map((material) => [material.id, material]));
   const supplierOptionsSorted = [...supplierOptions].sort((a, b) =>
     a.name.localeCompare(b.name)
@@ -404,7 +406,7 @@ export function PurchaseOrderForm({
                         lineKey={field.id}
                         index={index}
                         control={form.control}
-                        materialIds={materialIds}
+                        materials={materialOptions}
                         materialMap={materialMap}
                         onMaterialChange={(materialId) => {
                           const material = materialMap.get(materialId);
@@ -503,7 +505,7 @@ function PurchaseOrderLineRow({
   lineKey,
   index,
   control,
-  materialIds,
+  materials,
   materialMap,
   onMaterialChange,
   onRemove,
@@ -511,7 +513,13 @@ function PurchaseOrderLineRow({
   lineKey: string;
   index: number;
   control: Control<PurchaseOrderFormValues>;
-  materialIds: string[];
+  materials: Array<
+    PurchaseOrderMaterialOption & {
+      displayName: string;
+      itemType: "material";
+      unitName: string;
+    }
+  >;
   materialMap: Map<string, PurchaseOrderMaterialOption>;
   onMaterialChange: (materialId: string) => void;
   onRemove: () => void;
@@ -543,37 +551,28 @@ function PurchaseOrderLineRow({
               <FieldLabel className="sr-only" htmlFor={`${lineKey}-material`}>
                 Material
               </FieldLabel>
-              <Combobox
-                items={materialIds}
+              <InventoryItemCombobox
+                options={materials}
                 value={field.value ?? ""}
                 onValueChange={(value) => onMaterialChange(value ?? "")}
-                itemToStringLabel={(value) => materialMap.get(value)?.name ?? ""}
-              >
-                <ComboboxInput
-                  id={`${lineKey}-material`}
-                  aria-invalid={fieldState.invalid}
-                  className="w-full min-w-0"
-                  placeholder="Search materials..."
-                />
-                <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
-                  <ComboboxEmpty>No materials found</ComboboxEmpty>
-                  <ComboboxList>
-                    {(value: string) => {
-                      const current = materialMap.get(value);
-                      return (
-                        <ComboboxItem key={value} value={value}>
-                          <span>{current?.name ?? value}</span>
-                          {current?.sku && (
-                            <span className="ml-auto text-xs text-muted-foreground">
-                              {current.sku}
-                            </span>
-                          )}
-                        </ComboboxItem>
-                      );
-                    }}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
+                inputId={`${lineKey}-material`}
+                inputAriaInvalid={fieldState.invalid}
+                inputClassName="w-full min-w-0"
+                placeholder="Search materials..."
+                emptyMessage="No materials found"
+                contentClassName="w-[min(32rem,calc(100vw-2rem))]"
+                createLinks={[
+                  {
+                    href: "/inventory/materials/new",
+                    label: "Create material",
+                  },
+                ]}
+                getSecondaryText={(current) =>
+                  [current.sku, current.stockingUnitName]
+                    .filter((part): part is string => part != null && part !== "")
+                    .join(" · ")
+                }
+              />
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
             </Field>
           )}

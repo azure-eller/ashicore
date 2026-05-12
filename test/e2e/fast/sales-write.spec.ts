@@ -43,9 +43,30 @@ function utcDateDaysFromToday(days: number) {
 }
 
 async function showSalesOrderStatus(page: Parameters<typeof filterList>[0], status: string) {
-  const option = page.getByRole("radio", { name: `Show ${status} status` });
-  await option.click();
-  await expect(option).toBeChecked();
+  if (status === "Cancelled") {
+    await page.getByRole("combobox", { name: "Filter by lane" }).click();
+    await page.getByRole("option", { name: "Cancelled" }).click();
+  }
+}
+
+function salesOrderCard(page: Page, orderNumber: string) {
+  return page
+    .locator('[data-testid="sales-order-card"]')
+    .filter({ hasText: orderNumber })
+    .first();
+}
+
+async function expandSalesOrderCard(page: Page, orderNumber: string) {
+  const card = salesOrderCard(page, orderNumber);
+  await card.locator(":scope > button").click();
+  return card;
+}
+
+function salesOrderLineRow(page: Page, lineName: string) {
+  return page
+    .locator('[data-testid="sales-order-line-row"]')
+    .filter({ hasText: lineName })
+    .first();
 }
 
 async function dragToCenter(page: Page, source: Locator, target: Locator) {
@@ -379,8 +400,8 @@ test.describe("Sales write-path smoke", () => {
     await page.goto("/sales/orders");
     await showSalesOrderStatus(page, "Draft");
     await filterList(page, "Search orders", order.orderNumber);
-    const listRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
-    const notesSnippet = listRow.getByRole("button", { name: orderNote });
+    const listRow = salesOrderCard(page, order.orderNumber);
+    const notesSnippet = listRow.getByText(orderNote);
     await expect(notesSnippet).toBeVisible();
     await notesSnippet.hover();
     await expect(page.getByRole("tooltip")).toContainText(orderNote);
@@ -673,14 +694,10 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", expandedOrder.orderNumber);
-    await page
-      .getByRole("row", { name: new RegExp(expandedOrder.orderNumber) })
-      .getByRole("button", { name: "Expand order" })
-      .click();
+    await expandSalesOrderCard(page, expandedOrder.orderNumber);
     await expect(page.getByText(expandedDeleteName)).toBeVisible();
     await expect(
-      page
-        .getByRole("row", { name: new RegExp(expandedDeleteName) })
+      salesOrderLineRow(page, expandedDeleteName)
         .getByRole("link", { name: `Edit ${expandedDeleteName}` })
     ).toHaveAttribute("href", `/sales/orders/${expandedOrderId}/edit`);
 
@@ -689,8 +706,7 @@ test.describe("Sales write-path smoke", () => {
         response.request().method() === "PUT" &&
         response.url().endsWith(`/api/sales-orders/${expandedOrderId}`)
     );
-    await page
-      .getByRole("row", { name: new RegExp(expandedDeleteName) })
+    await salesOrderLineRow(page, expandedDeleteName)
       .getByRole("button", { name: `Delete ${expandedDeleteName}` })
       .click();
     await page.getByRole("button", { name: "Delete Line" }).click();
@@ -861,22 +877,19 @@ test.describe("Sales write-path smoke", () => {
     await showSalesOrderStatus(page, "Confirmed");
     await filterList(page, "Search orders", order.orderNumber);
 
-    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
-    await orderRow.getByRole("button", { name: "Expand order" }).click();
+    await expandSalesOrderCard(page, order.orderNumber);
 
-    const expandedLine = page.getByRole("row", {
-      name: new RegExp(`${materialName}.*${materialSku}`),
-    }).last();
-    const cells = expandedLine.getByRole("cell");
-    await expect(cells.nth(1)).toHaveText(materialSku);
-    await expect(cells.nth(2)).toHaveText("150");
-    await expect(cells.nth(3)).toHaveText("0");
-    await expect(cells.nth(5)).toContainText("150 Stock");
-    await expect(cells.nth(6)).toHaveText("—");
+    const expandedLine = salesOrderLineRow(page, materialName);
+    await expect(expandedLine).toContainText(materialName);
+    await expect(expandedLine).toContainText("150");
+    await expect(page.getByText("150 / 150 units allocated")).toBeVisible();
+    await expect(
+      salesOrderCard(page, order.orderNumber).getByText("Stock", { exact: true })
+    ).toBeVisible();
     await expect(expandedLine).not.toContainText("-200");
 
-    await expandedLine
-      .getByRole("button", { name: `Manage allocation for ${materialName}` })
+    await salesOrderCard(page, order.orderNumber)
+      .getByRole("button", { name: "Manage" })
       .click();
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
     await expect(sheet).toBeVisible();
@@ -957,16 +970,11 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", tokenOrder.orderNumber);
-    const orderRow = page.getByRole("row", {
-      name: new RegExp(tokenOrder.orderNumber),
-    });
-    await orderRow.getByRole("button", { name: "Expand order" }).click();
+    await expandSalesOrderCard(page, tokenOrder.orderNumber);
 
-    const expandedLine = page.getByRole("row", {
-      name: new RegExp(`${tokenMaterialName}.*${tokenMaterialSku}`),
-    }).last();
-    await expandedLine
-      .getByRole("button", { name: `Allocate ${tokenMaterialName}` })
+    await expect(salesOrderLineRow(page, tokenMaterialName)).toBeVisible();
+    await salesOrderCard(page, tokenOrder.orderNumber)
+      .getByRole("button", { name: "Manage" })
       .click();
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
@@ -1405,18 +1413,16 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", orderingCustomerName);
-    await expect(
-      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
-    ).toBeVisible();
+    await expect(salesOrderCard(page, firstOrderNumber)).toBeVisible();
+    await expect(salesOrderCard(page, secondOrderNumber)).toBeVisible();
 
     const getSameDatePositions = () =>
-      page.locator("tbody tr").evaluateAll(
-        (rows, orderNumbers) =>
+      page.locator('[data-testid="sales-order-card"]').evaluateAll(
+        (cards, orderNumbers) =>
           (orderNumbers as string[]).map((orderNumber) =>
-            rows.findIndex((row) => row.textContent?.includes(orderNumber))
+            cards.findIndex(
+              (card) => card.getAttribute("data-order-number") === orderNumber
+            )
           ),
         orderNumbers
       );
@@ -1425,19 +1431,18 @@ test.describe("Sales write-path smoke", () => {
     expect(beforeConfirm).toEqual([0, 1]);
 
     await page
-      .getByRole("row", { name: new RegExp(firstOrderNumber) })
+      .locator('[data-testid="sales-order-card"]')
+      .filter({ hasText: firstOrderNumber })
       .getByRole("button", { name: "Confirm" })
       .click();
     await showSalesOrderStatus(page, "Confirmed");
-    await filterList(page, "Search orders", orderingCustomerName);
-    await expect(
-      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toContainText("Confirmed", { timeout: 15_000 });
+    await expect(salesOrderCard(page, firstOrderNumber)).toContainText("Confirmed", {
+      timeout: 15_000,
+    });
 
-    await expect(page.getByRole("row", { name: new RegExp(firstOrderNumber) })).toBeVisible();
+    await expect(salesOrderCard(page, firstOrderNumber)).toBeVisible();
     await showSalesOrderStatus(page, "Draft");
-    await filterList(page, "Search orders", orderingCustomerName);
-    await expect(page.getByRole("row", { name: new RegExp(secondOrderNumber) })).toBeVisible();
+    await expect(salesOrderCard(page, secondOrderNumber)).toBeVisible();
   });
 
   test("confirming schedules a draft shipment and selected MOs stay separate", async ({
@@ -2024,8 +2029,8 @@ test.describe("Sales write-path smoke", () => {
     await showSalesOrderStatus(page, "Confirmed");
     await filterList(page, "Search orders", order.orderNumber);
 
-    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
-    await orderRow.getByRole("button", { name: "Create MOs" }).click();
+    const orderCard = salesOrderCard(page, order.orderNumber);
+    await orderCard.getByRole("button", { name: "Create MOs" }).click();
     const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText(productTwoName);
@@ -2156,8 +2161,8 @@ test.describe("Sales write-path smoke", () => {
     await showSalesOrderStatus(page, "Confirmed");
     await filterList(page, "Search orders", order.orderNumber);
 
-    const orderRow = page.getByRole("row", { name: new RegExp(order.orderNumber) });
-    await expect(orderRow.getByRole("button", { name: "Create MOs" })).toHaveCount(0);
+    const orderCard = salesOrderCard(page, order.orderNumber);
+    await expect(orderCard.getByRole("button", { name: "Create MOs" })).toHaveCount(0);
   });
 
   test("ships a draft shipment from sales order detail", async ({ page, db }) => {

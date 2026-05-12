@@ -24,6 +24,18 @@ import {
   testFetch,
 } from "../../helpers/api";
 
+function salesOrderCard(page: Parameters<typeof filterList>[0], orderNumber: string) {
+  return page
+    .locator('[data-testid="sales-order-card"]')
+    .filter({ hasText: orderNumber })
+    .first();
+}
+
+async function showCancelledOrders(page: Parameters<typeof filterList>[0]) {
+  await page.getByRole("combobox", { name: "Filter by lane" }).click();
+  await page.getByRole("option", { name: "Cancelled" }).click();
+}
+
 async function createDraftSalesOrder(payload: {
   customerId: string;
   orderDate?: string;
@@ -83,11 +95,11 @@ test.describe("Sales order flow", () => {
   currentMonthFourteenth.setDate(14);
   const expectedOrderDate = format(currentMonthFirst, "yyyy-MM-dd");
   const expectedOrderDatePickerLabel = format(currentMonthFirst, "MMMM d, yyyy");
-  const expectedOrderDateLabel = new Date(
-    `${expectedOrderDate}T00:00:00`
-  ).toLocaleDateString("en-US");
   const expectedShipDate = format(currentMonthFourteenth, "yyyy-MM-dd");
   const expectedShipDatePickerLabel = format(currentMonthFourteenth, "MMMM d, yyyy");
+  const expectedShipDateLabel = new Date(
+    `${expectedShipDate}T00:00:00`
+  ).toLocaleDateString("en-US");
   const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
   const expectedRequestedDatePickerLabel = format(currentMonthFifteenth, "MMMM d, yyyy");
   const expectedRequestedDateLabel = new Date(
@@ -540,12 +552,11 @@ test.describe("Sales order flow", () => {
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
-    const draftRow = page.getByRole("row", { name: new RegExp(fullOrderNumber) });
-    await expect(draftRow).toContainText(customerName);
-    await expect(draftRow).toContainText("$158.97");
-    await expect(draftRow).toContainText("Draft");
-    await expect(draftRow).toContainText(expectedOrderDateLabel);
-    await expect(draftRow).toContainText(expectedRequestedDateLabel);
+    const draftCard = salesOrderCard(page, fullOrderNumber);
+    await expect(draftCard).toContainText(customerName);
+    await expect(draftCard).toContainText("$158.97");
+    await expect(draftCard).toContainText("Draft");
+    await expect(draftCard).toContainText(expectedShipDateLabel);
   });
 
   test("edits the draft order — verifies pre-population and changes quantity", async ({ page, db }) => {
@@ -630,7 +641,7 @@ test.describe("Sales order flow", () => {
     );
   });
 
-  test("bulk confirms selected draft orders and handles the oversell warning", async ({
+  test("confirms a draft order from the board and handles the oversell warning", async ({
     page,
     db,
   }) => {
@@ -661,15 +672,9 @@ test.describe("Sales order flow", () => {
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", bulkOrder.orderNumber);
 
-    await page.getByLabel(`Select ${bulkOrder.orderNumber}`).click();
-    await expect(page.getByText("1 of 1 row(s) selected.")).toBeVisible();
-    await page.getByRole("button", { name: "Actions (1 selected)" }).click();
-
-    const confirmSelectedItem = page.getByRole("menuitem", {
-      name: "Confirm Selected",
-    });
-    await expect(confirmSelectedItem).toBeVisible();
-    await confirmSelectedItem.click();
+    await salesOrderCard(page, bulkOrder.orderNumber)
+      .getByRole("button", { name: "Confirm", exact: true })
+      .click();
 
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
@@ -718,12 +723,9 @@ test.describe("Sales order flow", () => {
       .toBe("0.0000");
 
     await page.goto("/sales/orders");
-    await page.getByRole("radio", { name: "Show Cancelled status" }).click();
+    await showCancelledOrders(page);
     await filterList(page, "Search orders", bulkOrder.orderNumber);
-    const confirmedBulkRow = page.getByRole("row", {
-      name: new RegExp(bulkOrder.orderNumber),
-    });
-    await expect(confirmedBulkRow).toContainText("Cancelled");
+    await expect(salesOrderCard(page, bulkOrder.orderNumber)).toContainText("Cancelled");
   });
 
   test("confirms the draft order from detail, handles oversell, and commits stock", async ({ page, db }) => {
@@ -939,12 +941,9 @@ test.describe("Sales order flow", () => {
     expect(shortOrder.status).toBe("confirmed");
 
     await page.goto("/sales/orders");
-    await page.getByRole("radio", { name: "Show Confirmed status" }).click();
     await filterList(page, "Search orders", shortOrder.orderNumber);
 
-    const confirmedRow = page.getByRole("row", {
-      name: new RegExp(shortOrder.orderNumber),
-    });
+    const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
     await expect(
       confirmedRow.getByRole("button", { name: "Create MOs" })
     ).toBeVisible();
@@ -1009,9 +1008,7 @@ test.describe("Sales order flow", () => {
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", noManufacturingOrderNumber);
 
-    const disabledRow = page.getByRole("row", {
-      name: new RegExp(noManufacturingOrderNumber),
-    });
+    const disabledRow = salesOrderCard(page, noManufacturingOrderNumber);
     await expect(
       disabledRow.getByRole("button", { name: "Plan Fulfillment" })
     ).toHaveCount(0);
@@ -1073,10 +1070,9 @@ test.describe("Sales order flow", () => {
     expect(primaryMaterial.committedQty).toBe("0.0000");
 
     await page.goto("/sales/orders");
-    await page.getByRole("radio", { name: "Show Cancelled status" }).click();
+    await showCancelledOrders(page);
     await filterList(page, "Search orders", fullOrderNumber);
-    const cancelledRow = page.getByRole("row", { name: new RegExp(fullOrderNumber) });
-    await expect(cancelledRow).toContainText("Cancelled");
+    await expect(salesOrderCard(page, fullOrderNumber)).toContainText("Cancelled");
   });
 
   test("deletes the cancelled order", async ({ page, db }) => {
@@ -1288,12 +1284,10 @@ test.describe("Sales order flow", () => {
 
     await page.goto("/sales/orders");
     const shippedOrderRow = shipOrderBeforeUi;
-    await page.getByRole("radio", { name: "Show Shipped status" }).click();
     await filterList(page, "Search orders", shippedOrderRow.orderNumber);
-    const shippedRow = page.getByRole("row", {
-      name: new RegExp(shippedOrderRow.orderNumber),
-    });
-    await expect(shippedRow).toContainText("Shipped");
+    await expect(salesOrderCard(page, shippedOrderRow.orderNumber)).toContainText(
+      "Shipped"
+    );
   });
 
   test("plans available partial shipment on a short order and keeps history after cancelling remaining", async ({
