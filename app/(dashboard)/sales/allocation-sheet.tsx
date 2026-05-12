@@ -930,7 +930,6 @@ function DemandCard({
 }) {
   const remaining = readQuantity(row.remainingQty);
   const canPlace = carried != null && shortQty > 0;
-  const unitLabel = compactUnitName(row.unitName);
   const visual = itemVisual(row.itemName, row.unitName);
 
   return (
@@ -963,21 +962,15 @@ function DemandCard({
         }
       }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <Badge className="rounded-sm bg-warning/10 text-warning">SO</Badge>
-            <span className="font-semibold">{row.orderNumber}</span>
-            <span className="truncate text-muted-foreground">{row.customerName}</span>
-            {isTarget ? <Badge variant="outline">This order</Badge> : null}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"}
-          </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <Badge className="rounded-sm bg-warning/10 text-warning">SO</Badge>
+          <span className="font-semibold">{row.orderNumber}</span>
+          <span className="truncate text-muted-foreground">{row.customerName}</span>
+          {isTarget ? <Badge variant="outline">This order</Badge> : null}
         </div>
-        <div className="shrink-0 text-right text-xs text-muted-foreground">
-          <div>{formatQuantity(row.remainingQty)} needed</div>
-          <div>{unitLabel}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"}
         </div>
       </div>
 
@@ -1011,18 +1004,12 @@ function DemandCard({
 function AllocationChip({
   label,
   quantity,
-  itemName,
-  unitName,
   onPick,
 }: {
   label: string;
   quantity: number;
-  itemName: string;
-  unitName: string;
   onPick: () => void;
 }) {
-  const visual = itemVisual(itemName, unitName);
-
   return (
     <button
       type="button"
@@ -1033,13 +1020,6 @@ function AllocationChip({
       className="inline-flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-xs font-medium shadow-xs transition hover:border-primary/40 hover:bg-primary/5"
       aria-label={`Move ${formatQuantity(toQuantityString(quantity))} from ${label}`}
     >
-      <ItemToken
-        kind={visual.kind}
-        color={visual.color}
-        state="reserved"
-        size="xs"
-        className="size-4 rounded-sm border-0 bg-transparent p-0 shadow-none ring-0"
-      />
       <span className="max-w-28 truncate">{label}</span>
       <span className="tabular-nums">{formatQuantity(toQuantityString(quantity))}</span>
     </button>
@@ -2178,8 +2158,6 @@ export function AllocationSheet({
                                     key={key}
                                     label={meta?.source.label ?? "Source"}
                                     quantity={quantity}
-                                    itemName={row.itemName}
-                                    unitName={row.unitName}
                                     onPick={() =>
                                       pickToken({
                                         sourceKey: key,
