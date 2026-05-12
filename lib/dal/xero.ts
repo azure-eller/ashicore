@@ -1,7 +1,10 @@
 import "server-only";
 
-import { desc, eq } from "drizzle-orm";
-import { xeroConnections, xeroImportRuns } from "@/lib/db/schema";
+import { desc, eq, inArray } from "drizzle-orm";
+import {
+  xeroConnections,
+  xeroImportRuns,
+} from "@/lib/db/schema";
 import { withAuthedOrgContext } from "./auth";
 import type { XeroConnectionRow } from "@/lib/xero/client";
 import {
@@ -70,7 +73,7 @@ export async function getRecentXeroImportRuns(
   limit = 8
 ): Promise<XeroImportRunSummary[]> {
   return withAuthedOrgContext(async (tx) => {
-    return tx
+    const rows = await tx
       .select({
         id: xeroImportRuns.id,
         entityType: xeroImportRuns.entityType,
@@ -84,8 +87,14 @@ export async function getRecentXeroImportRuns(
         undoneAt: xeroImportRuns.undoneAt,
       })
       .from(xeroImportRuns)
+      .where(inArray(xeroImportRuns.entityType, ["customers", "suppliers"]))
       .orderBy(desc(xeroImportRuns.createdAt))
       .limit(limit);
+
+    return rows.map((row) => ({
+      ...row,
+      entityType: row.entityType as XeroImportRunSummary["entityType"],
+    }));
   });
 }
 

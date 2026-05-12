@@ -5,7 +5,7 @@ import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { apiJson } from "@/lib/client/api";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CircleLock01Icon, CircleUnlock01Icon } from "@hugeicons/core-free-icons";
 import { formatPrice, getFirstFormErrorMessage, parsePositive } from "@/lib/format";
@@ -112,6 +112,11 @@ type ItemFormValues = InsertItemFormValues | UpdateItemFormValues | InsertMaster
 type ItemMutationResult = { id: string };
 type CurrentStockUnitCostResult = { id: string; currentStockUnitCost: string | null };
 type UnitDefinitionResult = { id: string; name: string; size: string; uom: string };
+type XeroAccountOption = {
+  code: string;
+  name: string;
+  type: string | null;
+};
 
 export function ItemForm({
   itemType,
@@ -183,6 +188,7 @@ export function ItemForm({
           category: initialData.category,
           description: initialData.description,
           defaultPurchasePrice: initialData.defaultPurchasePrice,
+          xeroPurchaseAccountCode: initialData.xeroPurchaseAccountCode,
           currentStockUnitCost: initialData.currentStockUnitCost,
           defaultSellingPrice: initialData.defaultSellingPrice,
           sellable: initialData.sellable ?? true,
@@ -211,6 +217,7 @@ export function ItemForm({
             category: null,
             description: null,
             defaultPurchasePrice: null,
+            xeroPurchaseAccountCode: null,
             currentStockUnitCost: null,
             defaultSellingPrice: null,
             sellable: true,
@@ -226,6 +233,15 @@ export function ItemForm({
 
   const [formError, setFormError] = useState<string | null>(null);
   const [unitError, setUnitError] = useState<string | null>(null);
+  const xeroAccountsQuery = useQuery({
+    queryKey: ["xero-accounts"],
+    queryFn: async () => {
+      const response = await fetch("/api/xero/accounts");
+      if (!response.ok) return { accounts: [] as XeroAccountOption[] };
+      return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
+    },
+  });
+  const xeroAccounts = xeroAccountsQuery.data?.accounts ?? [];
   const bomLocked = useWatch({
     control: form.control,
     name: "bomLocked",
@@ -1037,6 +1053,59 @@ export function ItemForm({
                               Override current stock unit cost
                             </Button>
                           </div>
+                        )}
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+                )}
+
+                {itemType === "material" && (
+                  <Controller
+                    name="xeroPurchaseAccountCode"
+                    control={form.control}
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name}>
+                          Xero Purchase Account
+                        </FieldLabel>
+                        {xeroAccounts.length > 0 ? (
+                          <Select
+                            value={field.value ?? "__default__"}
+                            onValueChange={(value) =>
+                              field.onChange(value === "__default__" ? null : value)
+                            }
+                          >
+                            <SelectTrigger
+                              id={field.name}
+                              className="w-full"
+                              aria-invalid={fieldState.invalid}
+                            >
+                              <SelectValue placeholder="Select account" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__default__">Use PO default</SelectItem>
+                              {xeroAccounts.map((account) => (
+                                <SelectItem key={account.code} value={account.code}>
+                                  {account.code} · {account.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            onChange={(event) =>
+                              field.onChange(event.target.value || null)
+                            }
+                            aria-invalid={fieldState.invalid}
+                            placeholder="Account code"
+                            autoComplete="off"
+                          />
                         )}
                         {fieldState.invalid && (
                           <FieldError errors={[fieldState.error]} />

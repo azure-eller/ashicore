@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
@@ -536,6 +536,25 @@ function PostingDefaultsDialog({
       | "AUTHORISED") ?? "DRAFT"
   );
   const [formError, setFormError] = useState<string | null>(null);
+  const accountsQuery = useQuery({
+    queryKey: ["xero-accounts", connection.tenantId],
+    queryFn: async () => {
+      const res = await fetch("/api/xero/accounts");
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error ?? "Failed to load Xero accounts.");
+      }
+      return body as {
+        accounts: Array<{
+          code: string;
+          name: string;
+          type: string | null;
+          taxType: string | null;
+          class: string | null;
+        }>;
+      };
+    },
+  });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -567,6 +586,13 @@ function PostingDefaultsDialog({
 
   const activeTax = tab === "sales" ? taxType : poTaxType || taxType;
   const activeStatus = tab === "sales" ? invoiceStatus : poStatus;
+  const accounts = accountsQuery.data?.accounts ?? [];
+  const accountLabel = (code: string) => {
+    const account = accounts.find((entry) => entry.code === code);
+    if (!account) return code;
+    const metadata = [account.type, account.class].filter(Boolean).join(" · ");
+    return `${account.code} - ${account.name}${metadata ? ` (${metadata})` : ""}`;
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -612,12 +638,29 @@ function PostingDefaultsDialog({
             <>
               <Field>
                 <FieldLabel htmlFor="xero-account-code">Account code</FieldLabel>
-                <Input
-                  id="xero-account-code"
-                  value={accountCode}
-                  onChange={(event) => setAccountCode(event.target.value)}
-                  placeholder="200"
-                />
+                {accounts.length > 0 ? (
+                  <Select value={accountCode} onValueChange={setAccountCode}>
+                    <SelectTrigger id="xero-account-code" className="w-full">
+                      <SelectValue placeholder="Choose account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accounts.map((account) => (
+                        <SelectItem key={account.code} value={account.code}>
+                          {accountLabel(account.code)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="xero-account-code"
+                    value={accountCode}
+                    onChange={(event) => setAccountCode(event.target.value)}
+                    placeholder={
+                      accountsQuery.isLoading ? "Loading accounts..." : "200"
+                    }
+                  />
+                )}
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
@@ -652,12 +695,31 @@ function PostingDefaultsDialog({
             <>
               <Field>
                 <FieldLabel htmlFor="xero-po-account-code">Account code</FieldLabel>
-                <Input
-                  id="xero-po-account-code"
-                  value={poAccountCode}
-                  onChange={(event) => setPoAccountCode(event.target.value)}
-                  placeholder="Falls back to invoice code"
-                />
+                {accounts.length > 0 ? (
+                  <Select value={poAccountCode} onValueChange={setPoAccountCode}>
+                    <SelectTrigger id="xero-po-account-code" className="w-full">
+                      <SelectValue placeholder="Choose account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accounts.map((account) => (
+                        <SelectItem key={account.code} value={account.code}>
+                          {accountLabel(account.code)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="xero-po-account-code"
+                    value={poAccountCode}
+                    onChange={(event) => setPoAccountCode(event.target.value)}
+                    placeholder={
+                      accountsQuery.isLoading
+                        ? "Loading accounts..."
+                        : "Falls back to invoice code"
+                    }
+                  />
+                )}
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>

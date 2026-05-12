@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
+  purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
   suppliers as purchasingSuppliers,
@@ -87,6 +88,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Primary purchasing test material",
       defaultPurchasePrice: "2.00",
+      xeroPurchaseAccountCode: "310",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -100,6 +102,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Secondary purchasing test material",
       defaultPurchasePrice: "1.50",
+      xeroPurchaseAccountCode: "311",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -120,6 +123,11 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
     await selectDate(page, page.locator("#expectedDate"), "2026-05-01");
+    await page.locator("#xeroPurchaseAccountCode").fill("300");
+    await page.locator("#po-ship-line1").fill("44 Test Dock");
+    await page.locator("#po-ship-city").fill("Boulder");
+    await page.locator("#po-ship-region").fill("CO");
+    await page.locator("#po-ship-postcode").fill("80301");
     await page.locator("#notes").fill("Fast purchase order smoke test");
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
@@ -127,6 +135,7 @@ test.describe("Purchasing write-path smoke", () => {
     await firstMaterialInput.pressSequentially(barkName);
     await page.getByRole("option", { name: barkOptionPattern }).click();
     await page.getByPlaceholder("0").first().fill("10");
+    await page.getByPlaceholder("310").fill("312");
 
     await page.getByRole("button", { name: "Add Material" }).click();
     const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
@@ -134,6 +143,11 @@ test.describe("Purchasing write-path smoke", () => {
     await secondMaterialInput.pressSequentially(sandName);
     await page.getByRole("option", { name: sandOptionPattern }).click();
     await page.locator('input[name="lines.1.quantityOrdered"]').fill("5");
+
+    await page.getByRole("button", { name: "Add Cost" }).click();
+    await page.getByPlaceholder("Reference").fill("Freight smoke");
+    await page.getByPlaceholder("PO default").fill("400");
+    await page.getByPlaceholder("Amount").fill("12.50");
 
     const [createOrderResponse] = await Promise.all([
       page.waitForResponse(
@@ -156,6 +170,11 @@ test.describe("Purchasing write-path smoke", () => {
     expect(order.supplierName).toBe(supplierName);
     expect(order.status).toBe("draft");
     expect(order.expectedDate).toBe("2026-05-01");
+    expect(order.xeroPurchaseAccountCode).toBe("300");
+    expect(order.shipLine1).toBe("44 Test Dock");
+    expect(order.shipCity).toBe("Boulder");
+    expect(order.shipRegion).toBe("CO");
+    expect(order.shipPostcode).toBe("80301");
     expect(order.notes).toBe("Fast purchase order smoke test");
 
     const lines = await db
@@ -166,8 +185,21 @@ test.describe("Purchasing write-path smoke", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0].itemId).toBe(barkId);
     expect(lines[0].quantityOrdered).toBe("10.0000");
+    expect(lines[0].xeroPurchaseAccountCode).toBe("312");
     expect(lines[1].itemId).toBe(sandId);
     expect(lines[1].quantityOrdered).toBe("5.0000");
+    expect(lines[1].xeroPurchaseAccountCode).toBe("311");
+
+    const additionalCosts = await db
+      .select()
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, purchaseOrderId));
+    expect(additionalCosts).toHaveLength(1);
+    expect(additionalCosts[0].costType).toBe("shipping");
+    expect(additionalCosts[0].reference).toBe("Freight smoke");
+    expect(additionalCosts[0].distributionMethod).toBe("by_value");
+    expect(additionalCosts[0].xeroPurchaseAccountCode).toBe("400");
+    expect(additionalCosts[0].amount).toBe("12.5000");
   });
 
   test("duplicates a purchase order from the detail actions", async ({ page, db }) => {
@@ -196,6 +228,8 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicate.supplierName).toBe(supplierName);
     expect(duplicate.status).toBe("draft");
     expect(duplicate.notes).toBe("Fast purchase order smoke test");
+    expect(duplicate.xeroPurchaseAccountCode).toBe("300");
+    expect(duplicate.shipLine1).toBe("44 Test Dock");
 
     const duplicateLines = await db
       .select()
@@ -205,7 +239,16 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicateLines).toHaveLength(2);
     expect(duplicateLines[0].itemId).toBe(barkId);
     expect(duplicateLines[0].quantityOrdered).toBe("10.0000");
+    expect(duplicateLines[0].xeroPurchaseAccountCode).toBe("312");
     expect(duplicateLines[1].itemId).toBe(sandId);
     expect(duplicateLines[1].quantityOrdered).toBe("5.0000");
+    expect(duplicateLines[1].xeroPurchaseAccountCode).toBe("311");
+
+    const duplicateCosts = await db
+      .select()
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, duplicateId));
+    expect(duplicateCosts).toHaveLength(1);
+    expect(duplicateCosts[0].xeroPurchaseAccountCode).toBe("400");
   });
 });

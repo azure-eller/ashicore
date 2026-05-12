@@ -31,6 +31,7 @@ export default async function NewPurchaseOrderPage({
       itemId: material.id,
       quantityOrdered: null,
       unitCost: material.defaultPurchasePrice,
+      xeroPurchaseAccountCode: material.xeroPurchaseAccountCode,
     }));
   const supplierId =
     typeof params.supplierId === "string" &&
@@ -38,11 +39,13 @@ export default async function NewPurchaseOrderPage({
       ? params.supplierId
       : "";
   const defaultValues =
-    prefilledLines.length > 0
+    prefilledLines.length > 0 || supplierId
       ? {
           ...purchaseOrderDefaultValues,
           supplierId,
-          lines: prefilledLines,
+          lines: prefilledLines.length > 0
+            ? prefilledLines
+            : purchaseOrderDefaultValues.lines,
         }
       : undefined;
 

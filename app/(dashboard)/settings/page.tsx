@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { getRecentXeroImportRuns, getXeroConnection } from "@/lib/dal/xero";
+import {
+  getRecentXeroImportRuns,
+  getXeroConnection,
+} from "@/lib/dal/xero";
 import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getSettingsSections } from "./sections";

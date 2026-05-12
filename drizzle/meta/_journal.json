@@ -505,6 +505,34 @@
       "when": 1778530455983,
       "tag": "0071_calm_miek",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1778582400000,
+      "tag": "0072_xero_po_draft_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1778586000000,
+      "tag": "0073_purchase_order_shipping_cost",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1778589600000,
+      "tag": "0074_purchase_order_additional_costs",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1778593200000,
+      "tag": "0075_purchase_order_xero_accounts_delivery",
+      "breakpoints": true
     }
   ]
 }
