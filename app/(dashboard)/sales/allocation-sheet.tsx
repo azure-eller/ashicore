@@ -89,6 +89,8 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTargetLineChange: (lineId: string) => void;
+  outputManufacturingOrderId?: string | null;
+  onOutputManufacturingOrderChange?: (id: string | null) => void;
 };
 
 type CarryState = AllocationTokenData | null;
@@ -638,9 +640,11 @@ function AllocationChip({
 function OutputAllocationWorkspace({
   manufacturingOrderId,
   onBack,
+  onOpenOutput,
 }: {
   manufacturingOrderId: string;
   onBack: () => void;
+  onOpenOutput: (id: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [selectedIngredientId, setSelectedIngredientId] = useState<string | null>(null);
@@ -868,11 +872,20 @@ function OutputAllocationWorkspace({
                 const shortQty = Math.max(0, remaining - allocated);
                 const selected = selectedIngredientId === destination.ingredientId;
                 return (
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     key={destination.ingredientId}
+                    aria-label={`Allocate output to ${destination.orderNumber}`}
                     onClick={() => placeOnDestination(destination.ingredientId)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        placeOnDestination(destination.ingredientId);
+                      }
+                    }}
                     className={cn(
+                      "cursor-pointer",
                       "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       "border-primary/30 bg-primary/5",
                       selected && "ring-2 ring-primary/25"
@@ -898,6 +911,18 @@ function OutputAllocationWorkspace({
                       <div className="text-right text-xs text-muted-foreground">
                         <div>{destination.plannedDate ? formatDate(destination.plannedDate) : "\u2014"}</div>
                         <div>{statusLabel(destination.status)}</div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 h-7 px-2 text-primary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenOutput(destination.manufacturingOrderId);
+                          }}
+                        >
+                          Open output
+                        </Button>
                       </div>
                     </div>
                     <div className="mt-3 space-y-2">
@@ -915,7 +940,7 @@ function OutputAllocationWorkspace({
                         </span>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -946,9 +971,19 @@ function OutputAllocationWorkspace({
   );
 }
 
-export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
+export function AllocationSheet({
+  lineId,
+  open,
+  onOpenChange,
+  outputManufacturingOrderId,
+  onOutputManufacturingOrderChange,
+}: Props) {
   const queryClient = useQueryClient();
-  const [outputMoId, setOutputMoId] = useState<string | null>(null);
+  const [internalOutputMoId, setInternalOutputMoId] = useState<string | null>(null);
+  const isOutputMoControlled = outputManufacturingOrderId !== undefined;
+  const outputMoId = isOutputMoControlled
+    ? outputManufacturingOrderId
+    : internalOutputMoId;
   const [selectedSourceKey, setSelectedSourceKey] = useState<string | null>(null);
   const [carried, setCarried] = useState<CarryState>(null);
   const [draftState, setDraftState] = useState<AllocationDraftState>({
@@ -995,6 +1030,19 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
   );
   const targetLine = data?.targetLine ?? null;
   const targetLineId = targetLine?.salesOrderLineId ?? null;
+
+  function setOutputMoId(id: string | null) {
+    if (isOutputMoControlled) {
+      onOutputManufacturingOrderChange?.(id);
+      return;
+    }
+    setInternalOutputMoId(id);
+  }
+
+  function openOutputMo(id: string) {
+    setCarried(null);
+    setOutputMoId(id);
+  }
 
   function updateDrafts(nextDrafts: Record<string, AllocationDraft>) {
     setDraftState({ lineId, values: nextDrafts });
@@ -1301,16 +1349,35 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
         {outputMoId ? (
           <OutputAllocationWorkspace
             manufacturingOrderId={outputMoId}
-            onBack={() => setOutputMoId(null)}
+            onBack={() => {
+              if (lineId == null) {
+                onOpenChange(false);
+                return;
+              }
+              setOutputMoId(null);
+            }}
+            onOpenOutput={openOutputMo}
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
-            {query.isLoading ? (
+            {lineId == null ? (
+              <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
+                <p className="text-sm font-medium">Choose a sales line or MO output first.</p>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              </div>
+            ) : query.isLoading ? (
               <div className="flex min-h-48 items-center justify-center">
                 <Spinner className="text-foreground" />
               </div>
             ) : query.isError ? (
-              <p className="text-sm text-destructive">{query.error.message}</p>
+              <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
+                <p className="text-sm text-destructive">{query.error.message}</p>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              </div>
             ) : data && targetLine ? (
               <div className="grid min-h-0 gap-4 xl:grid-cols-2">
                 <WorkspacePanel
@@ -1333,7 +1400,7 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                               previewFree={getSourcePreviewFree(source)}
                               isSelected={selectedSourceKey === key}
                               onPick={pickToken}
-                              onOpenOutput={setOutputMoId}
+                              onOpenOutput={openOutputMo}
                             />
                           );
                         })}
@@ -1364,7 +1431,7 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                               previewFree={getSourcePreviewFree(source)}
                               isSelected={selectedSourceKey === key}
                               onPick={pickToken}
-                              onOpenOutput={setOutputMoId}
+                              onOpenOutput={openOutputMo}
                             />
                           );
                         })}
@@ -1470,7 +1537,14 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                   </div>
                 </WorkspacePanel>
               </div>
-            ) : null}
+            ) : (
+              <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
+                <p className="text-sm font-medium">No allocatable line found.</p>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              </div>
+            )}
             <CarryPanel
               carried={carried}
               onClear={() => setCarried(null)}

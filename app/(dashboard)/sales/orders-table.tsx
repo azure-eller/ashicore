@@ -739,6 +739,12 @@ function ExpandedOrderCard({ order }: { order: SalesOrderListRow }) {
   const allocatedQty = readNumber(order.fulfillmentSummary.allocatedQty);
   const remainingQty = readNumber(order.fulfillmentSummary.remainingQty);
   const percent = progressPercent(allocatedQty, remainingQty);
+  const allocationOpen =
+    detail != null &&
+    ["draft", "confirmed", "partially_shipped"].includes(detail.status);
+  const allocatableLines = allocationOpen
+    ? lines.filter((line) => Number(line.remainingQuantity) > 0)
+    : [];
   const deleteLineMutation = useMutation({
     mutationFn: async ({ lineId, idempotencyKey }: DeleteLineActionPayload) => {
       if (!detail) throw new Error("Order is still loading.");
@@ -845,13 +851,9 @@ function ExpandedOrderCard({ order }: { order: SalesOrderListRow }) {
               type="button"
               variant="outline"
               size="xs"
-              disabled={!lines.some((line) => Number(line.remainingQuantity) > 0)}
+              disabled={allocatableLines.length === 0}
               onClick={() => {
-                const firstLine = lines.find(
-                  (line) =>
-                    Number(line.remainingQuantity) > 0 &&
-                    ["draft", "confirmed", "partially_shipped"].includes(detail.status)
-                );
+                const firstLine = allocatableLines[0];
                 if (firstLine) setAllocationLineId(firstLine.id);
               }}
             >

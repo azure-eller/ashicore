@@ -1597,6 +1597,7 @@ test.describe("Manufacturing order flow", () => {
 
   test("materializes MO output allocation promises into lot holds for downstream picks", async ({
     db,
+    page,
   }) => {
     const allocationTs = Date.now();
     const category = `MO Output Allocation ${allocationTs}`;
@@ -1632,8 +1633,9 @@ test.describe("Manufacturing order flow", () => {
     expect(toteCreate.status).toBe(201);
     const toteId = toteCreate.body.id as string;
 
+    const bagName = `Allocation Bag ${allocationTs}`;
     const bagCreate = await createItem({
-      name: `Allocation Bag ${allocationTs}`,
+      name: bagName,
       itemType: "product",
       unitDefinitionId: unitId,
       sku: `PROD-ALLOC-BAG-${allocationTs}`,
@@ -1665,6 +1667,21 @@ test.describe("Manufacturing order flow", () => {
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, downstreamOrderId));
     expect(downstreamIngredient?.id).toBeTruthy();
+
+    await page.goto(`/manufacturing/orders/${sourceOrderId}`);
+    await page.waitForLoadState("networkidle");
+    const manageOutputAllocation = page.getByRole("button", { name: "Manage allocation" });
+    await expect(manageOutputAllocation).toBeEnabled();
+    await page.waitForTimeout(500);
+    await manageOutputAllocation.click();
+    const allocationDialog = page.getByRole("dialog", { name: "Allocation Manager" });
+    await expect(allocationDialog).toBeVisible();
+    await expect(allocationDialog.getByText("Supply · Output")).toBeVisible();
+    await expect(allocationDialog.getByText("Demand · Orders")).toBeVisible();
+    await expect(allocationDialog.getByText(new RegExp(`produces.*${bagName}`))).toBeVisible();
+    await allocationDialog.getByRole("button", { name: "Open output" }).click();
+    await expect(allocationDialog.getByText(bagName)).toBeVisible();
+    await page.keyboard.press("Escape");
 
     const allocationResponse = await testFetch(
       `/api/manufacturing-orders/${sourceOrderId}/output-allocation`,

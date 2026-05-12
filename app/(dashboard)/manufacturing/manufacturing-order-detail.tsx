@@ -64,6 +64,7 @@ import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from "./types";
+import { AllocationSheet } from "../sales/allocation-sheet";
 
 type ManufacturingIngredient =
   ManufacturingOrderDetailType["ingredients"][number];
@@ -192,9 +193,10 @@ function OutputAllocationSection({
   onUpdated: () => Promise<void>;
 }) {
   const [data, setData] = useState<OutputAllocationData | null>(null);
-  const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetManufacturingOrderId, setSheetManufacturingOrderId] = useState<string | null>(order.id);
 
   const loadAllocation = useCallback(async () => {
     setLoading(true);
@@ -205,16 +207,6 @@ function OutputAllocationSection({
         throw new Error(body?.error ?? "Failed to load output allocation.");
       }
       setData(body);
-      setDraft(
-        Object.fromEntries(
-          body.productionDestinations.map(
-            (destination: OutputAllocationData["productionDestinations"][number]) => [
-              destination.ingredientId,
-              formatQuantity(destination.assignedQty),
-            ]
-          )
-        )
-      );
       setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load output allocation.");
@@ -227,123 +219,91 @@ function OutputAllocationSection({
     void loadAllocation();
   }, [loadAllocation]);
 
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/manufacturing-orders/${order.id}/output-allocation`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productionAllocations: Object.entries(draft)
-            .map(([ingredientId, quantity]) => ({ ingredientId, quantity }))
-            .filter((allocation) => Number(allocation.quantity) > 0),
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to save output allocation.");
-      }
-      return body as OutputAllocationData;
-    },
-    onSuccess: async (nextData) => {
-      setData(nextData);
-      setDraft(
-        Object.fromEntries(
-          nextData.productionDestinations.map((destination) => [
-            destination.ingredientId,
-            formatQuantity(destination.assignedQty),
-          ])
-        )
-      );
-      setError(null);
-      await onUpdated();
-    },
-    onError: (saveError) => {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save output allocation.");
-    },
-  });
-
   const canEdit = order.status !== "cancelled";
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Output Allocation</h2>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => mutation.mutate()}
-          disabled={!canEdit || loading || mutation.isPending}
-        >
-          {mutation.isPending ? "Saving..." : "Save"}
-        </Button>
-      </div>
-      {data ? (
-        <>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>Planned {formatQuantity(data.sourceMo.plannedQuantity)}</span>
-            <span>Sales {formatQuantity(data.assignedSalesQty)}</span>
-            <span>Production {formatQuantity(data.assignedProductionQty)}</span>
-            <span>Unassigned {formatQuantity(data.unassignedQty)}</span>
-          </div>
-          {data.productionDestinations.length > 0 ? (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Production Orders</TableHead>
-                    <TableHead className="text-right">Remaining Need</TableHead>
-                    <TableHead className="w-36 text-right">Allocated</TableHead>
-                    <TableHead className="text-right">Short</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.productionDestinations.map((destination) => (
-                    <TableRow key={destination.ingredientId}>
-                      <TableCell>
+    <>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">Output Allocation</h2>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSheetManufacturingOrderId(order.id);
+              setSheetOpen(true);
+            }}
+            disabled={!canEdit || loading}
+          >
+            Manage allocation
+          </Button>
+        </div>
+        {data ? (
+          <>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+              <span>Planned {formatQuantity(data.sourceMo.plannedQuantity)}</span>
+              <span>Sales {formatQuantity(data.assignedSalesQty)}</span>
+              <span>Production {formatQuantity(data.assignedProductionQty)}</span>
+              <span>Unassigned {formatQuantity(data.unassignedQty)}</span>
+            </div>
+            {data.productionDestinations.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {data.productionDestinations.slice(0, 4).map((destination) => (
+                  <div key={destination.ingredientId} className="rounded-md border bg-card p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
                         <div className="font-medium">{destination.orderNumber}</div>
-                        <div className="text-sm text-muted-foreground">
+                        <div className="truncate text-sm text-muted-foreground">
                           {destination.productName}
                         </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatQuantity(destination.remainingNeed)}
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          inputMode="decimal"
-                          value={draft[destination.ingredientId] ?? ""}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              [destination.ingredientId]: event.target.value,
-                            }))
-                          }
-                          disabled={!canEdit || mutation.isPending}
-                          className="text-right"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatQuantity(destination.shortQty)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No production orders currently need this output.
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {loading ? "Loading output allocation..." : "Output allocation is unavailable."}
-        </p>
-      )}
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-    </div>
+                      </div>
+                      <Badge variant="secondary">MO</Badge>
+                    </div>
+                    <div className="mt-3 flex justify-between gap-3 text-sm">
+                      <span>
+                        <span className="text-muted-foreground">Allocated </span>
+                        <span className="font-medium">
+                          {formatQuantity(destination.assignedQty)}
+                        </span>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground">Short </span>
+                        <span>{formatQuantity(destination.shortQty)}</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No production orders currently need this output.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {loading ? "Loading output allocation..." : "Output allocation is unavailable."}
+          </p>
+        )}
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </div>
+      <AllocationSheet
+        lineId={null}
+        open={sheetOpen}
+        onOpenChange={(nextOpen) => {
+          setSheetOpen(nextOpen);
+          if (!nextOpen) {
+            setSheetManufacturingOrderId(order.id);
+            void loadAllocation();
+            void onUpdated();
+          }
+        }}
+        onTargetLineChange={() => {}}
+        outputManufacturingOrderId={sheetOpen ? sheetManufacturingOrderId : null}
+        onOutputManufacturingOrderChange={(id) => setSheetManufacturingOrderId(id ?? order.id)}
+      />
+    </>
   );
 }
 
@@ -457,6 +417,53 @@ function IngredientsTable({
     mutation.mutate(ingredients.map((ingredient) => ingredient.id));
   }
 
+  const ingredientsTable = (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {canReorder && <TableHead className="w-10" />}
+          <TableHead>Ingredient</TableHead>
+          <TableHead>Type</TableHead>
+          <TableHead className="text-right">
+            <TooltipHeader
+              label={order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
+              tooltip={
+                order.manufacturingMode === "batch"
+                  ? BOM_QTY_PER_BATCH_TOOLTIP
+                  : BOM_QTY_PER_UNIT_TOOLTIP
+              }
+            />
+          </TableHead>
+          <TableHead className="text-right">
+            <TooltipHeader label="Planned" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
+          </TableHead>
+          <TableHead className="text-right">
+            <TooltipHeader label="Picked" tooltip={MANUFACTURING_PICKED_QTY_TOOLTIP} />
+          </TableHead>
+          <TableHead className="text-right">
+            <TooltipHeader label="Remaining" tooltip={MANUFACTURING_REMAINING_QTY_TOOLTIP} />
+          </TableHead>
+          <TableHead className="text-right">
+            <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
+          </TableHead>
+          <TableHead className="text-right">
+            <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
+          </TableHead>
+          <TableHead>Requirements</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {ingredients.map((ingredient) => (
+          <IngredientTableRow
+            key={ingredient.id}
+            ingredient={ingredient}
+            canReorder={canReorder}
+          />
+        ))}
+      </TableBody>
+    </Table>
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -474,65 +481,16 @@ function IngredientsTable({
       </div>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {canReorder && <TableHead className="w-10" />}
-              <TableHead>Ingredient</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader
-                  label={order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
-                  tooltip={
-                    order.manufacturingMode === "batch"
-                      ? BOM_QTY_PER_BATCH_TOOLTIP
-                      : BOM_QTY_PER_UNIT_TOOLTIP
-                  }
-                />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Planned" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Picked" tooltip={MANUFACTURING_PICKED_QTY_TOOLTIP} />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Remaining" tooltip={MANUFACTURING_REMAINING_QTY_TOOLTIP} />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
-              </TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
-              </TableHead>
-              <TableHead>Requirements</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {canReorder ? (
-              <SortableReorder
-                ids={ingredients.map((ingredient) => ingredient.id)}
-                onMove={handleMove}
-              >
-                {ingredients.map((ingredient) => (
-                  <IngredientTableRow
-                    key={ingredient.id}
-                    ingredient={ingredient}
-                    canReorder
-                  />
-                ))}
-              </SortableReorder>
-            ) : (
-              ingredients.map((ingredient) => (
-                <IngredientTableRow
-                  key={ingredient.id}
-                  ingredient={ingredient}
-                  canReorder={false}
-                />
-              ))
-            )}
-          </TableBody>
-        </Table>
+        {canReorder ? (
+          <SortableReorder
+            ids={ingredients.map((ingredient) => ingredient.id)}
+            onMove={handleMove}
+          >
+            {ingredientsTable}
+          </SortableReorder>
+        ) : (
+          ingredientsTable
+        )}
       </div>
     </div>
   );
