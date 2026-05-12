@@ -251,14 +251,16 @@ async function openAllocationManager(params: {
   await page.goto("/sales/orders");
   await filterList(page, "Search orders", orderNumber);
   const orderCard = salesOrderCard(page, orderNumber);
-  await orderCard.locator(":scope > button").click();
+  await orderCard.click();
 
   const expandedLine = page
     .locator('[data-testid="sales-order-line-row"]')
     .filter({ hasText: itemName })
     .last();
   await expect(expandedLine).toBeVisible();
-  await orderCard.getByRole("button", { name: "Manage", exact: true }).click();
+  await expandedLine
+    .getByRole("button", { name: `Manage allocation for ${itemName}` })
+    .click();
 
   const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
   await expect(sheet).toBeVisible();

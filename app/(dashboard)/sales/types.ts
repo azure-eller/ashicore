@@ -218,6 +218,18 @@ export type SalesOrderListLine = {
   unitName: string;
 };
 
+export type SalesOrderListShipment = {
+  id: string;
+  shipmentNumber: string;
+  sequence: number;
+  status: "draft" | "shipped" | "cancelled";
+  fulfillmentType: "delivery" | "pickup";
+  scheduledDate: string | null;
+  shippedAt: Date | null;
+  totalAmount: string;
+  lineCount: number;
+};
+
 export type SalesAllocationCoverageKind = "explicit" | "implicit";
 export type SalesAllocationSourceType = "stock_pool" | "lot" | "manufacturing_order";
 
@@ -274,6 +286,7 @@ export type SalesOrderListRow = {
   totalAmount: string;
   itemSummary: string;
   lines: SalesOrderListLine[];
+  shipments: SalesOrderListShipment[];
   fulfillmentSummary: SalesOrderFulfillmentSummary;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;

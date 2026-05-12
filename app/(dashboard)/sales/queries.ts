@@ -3964,6 +3964,69 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           openManufacturingBySalesOrderId.set(row.salesOrderId, bucket);
         });
 
+        const shipmentSummaryRows = await tx
+          .select({
+            salesOrderId: salesShipments.salesOrderId,
+            id: salesShipments.id,
+            shipmentNumber: salesShipments.shipmentNumber,
+            sequence: salesShipments.sequence,
+            status: salesShipments.status,
+            fulfillmentType: salesShipments.fulfillmentType,
+            scheduledDate: salesShipments.scheduledDate,
+            shippedAt: salesShipments.shippedAt,
+            totalAmount: trimScale(
+              sql`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`
+            ).as("totalAmount"),
+            lineCount: sql<number>`COUNT(${salesShipmentLines.id})::int`.as(
+              "lineCount"
+            ),
+          })
+          .from(salesShipments)
+          .leftJoin(
+            salesShipmentLines,
+            eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+          )
+          .leftJoin(
+            salesOrderLines,
+            eq(salesOrderLines.id, salesShipmentLines.salesOrderLineId)
+          )
+          .where(inArray(salesShipments.salesOrderId, orderIds))
+          .groupBy(
+            salesShipments.salesOrderId,
+            salesShipments.id,
+            salesShipments.shipmentNumber,
+            salesShipments.sequence,
+            salesShipments.status,
+            salesShipments.fulfillmentType,
+            salesShipments.scheduledDate,
+            salesShipments.shippedAt
+          )
+          .orderBy(
+            asc(salesShipments.salesOrderId),
+            asc(salesShipments.sequence),
+            asc(salesShipments.id)
+          );
+        const shipmentsBySalesOrderId = new Map<
+          string,
+          SalesOrderListRow["shipments"]
+        >();
+        shipmentSummaryRows.forEach((row) => {
+          const bucket = shipmentsBySalesOrderId.get(row.salesOrderId) ?? [];
+          bucket.push({
+            id: row.id,
+            shipmentNumber: row.shipmentNumber,
+            sequence: row.sequence,
+            status: row.status as SalesOrderListRow["shipments"][number]["status"],
+            fulfillmentType:
+              row.fulfillmentType as SalesOrderListRow["shipments"][number]["fulfillmentType"],
+            scheduledDate: row.scheduledDate,
+            shippedAt: row.shippedAt,
+            totalAmount: row.totalAmount,
+            lineCount: row.lineCount,
+          });
+          shipmentsBySalesOrderId.set(row.salesOrderId, bucket);
+        });
+
         const itemIds = [
           ...new Set(
             [...manufacturingSummaries.values()]
@@ -4070,6 +4133,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 allocationSummaryByLineId.get(line.salesOrderLineId)?.sourceSummary ?? "\u2014",
               unitName: line.unitName,
             })),
+            shipments: shipmentsBySalesOrderId.get(order.id) ?? [],
             fulfillmentSummary: (() => {
               const totals = summaryLines.reduce(
                 (acc, line) => {

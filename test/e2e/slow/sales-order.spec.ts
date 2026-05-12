@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { format } from "date-fns";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect, filterList, selectDate } from "../fixtures";
 import {
   customerCategories,
@@ -31,9 +32,38 @@ function salesOrderCard(page: Parameters<typeof filterList>[0], orderNumber: str
     .first();
 }
 
+async function dragToCenter(page: Page, source: Locator, target: Locator) {
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+
+  if (!sourceBox || !targetBox) {
+    throw new Error("Could not resolve drag source or target bounds.");
+  }
+
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2
+  );
+  await page.waitForTimeout(75);
+  await page.mouse.down();
+  await page.waitForTimeout(75);
+  await page.mouse.move(
+    (sourceBox.x + sourceBox.width / 2 + targetBox.x + targetBox.width / 2) / 2,
+    (sourceBox.y + sourceBox.height / 2 + targetBox.y + targetBox.height / 2) / 2,
+    { steps: 12 }
+  );
+  await page.waitForTimeout(75);
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    { steps: 24 }
+  );
+  await page.waitForTimeout(75);
+  await page.mouse.up();
+}
+
 async function showCancelledOrders(page: Parameters<typeof filterList>[0]) {
-  await page.getByRole("combobox", { name: "Filter by lane" }).click();
-  await page.getByRole("option", { name: "Cancelled" }).click();
+  await page.getByRole("button", { name: /Show cancelled orders lane/ }).click();
 }
 
 async function createDraftSalesOrder(payload: {
@@ -672,9 +702,25 @@ test.describe("Sales order flow", () => {
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", bulkOrder.orderNumber);
 
-    await salesOrderCard(page, bulkOrder.orderNumber)
-      .getByRole("button", { name: "Confirm", exact: true })
-      .click();
+    const draftCard = salesOrderCard(page, bulkOrder.orderNumber);
+    const confirmDropDialog = page.getByRole("alertdialog", {
+      name: `Confirm ${bulkOrder.orderNumber}?`,
+    });
+    const supplyNeededHeading = page
+      .locator('[data-slot="kanban-column"][data-value="supply_needed"]')
+      .getByRole("heading", { name: "Supply Needed" });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await dragToCenter(
+        page,
+        draftCard.getByTestId("sales-order-drag-handle"),
+        supplyNeededHeading
+      );
+      if (await confirmDropDialog.isVisible({ timeout: 1_500 }).catch(() => false)) {
+        break;
+      }
+    }
+    await expect(confirmDropDialog).toBeVisible({ timeout: 30_000 });
+    await confirmDropDialog.getByRole("button", { name: "Confirm Order" }).click();
 
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible({ timeout: 30000 });
@@ -944,13 +990,22 @@ test.describe("Sales order flow", () => {
     await filterList(page, "Search orders", shortOrder.orderNumber);
 
     const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
-    await expect(
-      confirmedRow.getByRole("button", { name: "Create MOs" })
-    ).toBeVisible();
-    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
     const createMoDialog = page.getByRole("dialog", {
       name: "Create Manufacturing Orders",
     });
+    const inProductionHeading = page
+      .locator('[data-slot="kanban-column"][data-value="in_production"]')
+      .getByRole("heading", { name: "In Production" });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await dragToCenter(
+        page,
+        confirmedRow.getByTestId("sales-order-drag-handle"),
+        inProductionHeading
+      );
+      if (await createMoDialog.isVisible({ timeout: 1_500 }).catch(() => false)) {
+        break;
+      }
+    }
     await expect(createMoDialog).toBeVisible();
     await expect(
       createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
