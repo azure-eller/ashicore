@@ -1306,7 +1306,6 @@ test.describe("Sales write-path smoke", () => {
     await expect(sheet).toContainText("Supply · Storage");
     await expect(sheet).toContainText("Demand · Orders");
     await expect(sheet.getByTestId("current-allocation-bucket")).toContainText("150");
-    await expect(sheet.getByTestId("current-allocation-bucket")).toContainText("Stock");
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
   });
@@ -1389,7 +1388,7 @@ test.describe("Sales write-path smoke", () => {
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
     const currentBucket = sheet.getByTestId("current-allocation-bucket");
-    const stockStack = sheet.getByRole("button", { name: "Allocate all from Stock" });
+    const stockStack = sheet.getByRole("button", { name: /Allocate all from INIT-/ });
     await expect(stockStack).toBeVisible();
 
     await stockStack.click();
@@ -1419,6 +1418,11 @@ test.describe("Sales write-path smoke", () => {
     await expect(currentBucket).toContainText(/Short\s*3/);
     await expect(competingBucket).toContainText(/Allocated\s*0/);
     await expect(competingBucket).toContainText(/Short\s*3/);
+
+    await currentBucket.click();
+    await sheet.getByText("On hand").click();
+    await expect(currentBucket).toContainText(/Allocated\s*0/);
+    await expect(currentBucket).toContainText(/Short\s*6/);
 
     await sheet.getByRole("button", { name: "Reset" }).click();
     await expect(currentBucket).toContainText(/Allocated\s*0/);
@@ -1469,6 +1473,7 @@ test.describe("Sales write-path smoke", () => {
         )
       );
     expect(allocations).toHaveLength(1);
+    expect(allocations[0].sourceType).toBe("lot");
     expect(Number(allocations[0].quantity)).toBe(6);
     const competingAllocations = await db
       .select()

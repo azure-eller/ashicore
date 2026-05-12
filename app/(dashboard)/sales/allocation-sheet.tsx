@@ -6,6 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
+  Cancel01Icon,
   ReloadIcon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -17,12 +18,23 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -84,6 +96,16 @@ type OutputAllocationData = {
     salesCustomerName?: string | null;
     status: string;
     remainingNeed: string;
+    assignedQty: string;
+    shortQty: string;
+  }>;
+  salesDestinations: Array<{
+    salesOrderLineId: string;
+    salesOrderId: string;
+    orderNumber: string;
+    customerName: string;
+    shipDate: string | null;
+    remainingQty: string;
     assignedQty: string;
     shortQty: string;
   }>;
@@ -245,6 +267,7 @@ function WorkspacePanel({
   children,
   footer,
   className,
+  onBodyClick,
 }: {
   title: string;
   count?: string;
@@ -252,6 +275,7 @@ function WorkspacePanel({
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  onBodyClick?: () => void;
 }) {
   return (
     <section
@@ -280,7 +304,10 @@ function WorkspacePanel({
           </span>
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
+        onClick={onBodyClick}
+      >
         {children}
       </div>
       {footer ? <div className="border-t bg-muted/20 p-3">{footer}</div> : null}
@@ -322,6 +349,97 @@ function DemandQuantityStacks({
       {Array.from({ length: emptyCount }).map((_, index) => (
         <span
           key={`empty-${index}`}
+          className="flex h-12 w-12 shrink-0 rounded-md border border-dashed bg-muted/15"
+          aria-hidden
+        />
+      ))}
+    </div>
+  );
+}
+
+function DemandAllocationStacks({
+  row,
+  draft,
+  sourceMetaByKey,
+  visual,
+  onPickSource,
+}: {
+  row: SalesAllocationSheetData["demandRows"][number];
+  draft: AllocationDraft;
+  sourceMetaByKey: Map<
+    string,
+    { source: SalesAllocationSource; index: number }
+  >;
+  visual: ReturnType<typeof itemVisual>;
+  onPickSource: (token: AllocationTokenData) => void;
+}) {
+  const allocatedEntries = Object.entries(draft)
+    .map(([sourceKeyValue, quantity]) => ({
+      sourceKeyValue,
+      quantity: readQuantity(quantity),
+      meta: sourceMetaByKey.get(sourceKeyValue),
+      parsed: parseAllocationKey(sourceKeyValue),
+    }))
+    .filter((entry) => entry.quantity > 0);
+  const allocatedQty = allocatedEntries.reduce(
+    (sum, entry) => sum + entry.quantity,
+    0
+  );
+  const shortQty = Math.max(0, readQuantity(row.remainingQty) - allocatedQty);
+  const shortStacks = splitQuantityStacks(
+    shortQty,
+    demandStackSize(Math.max(readQuantity(row.remainingQty), allocatedQty))
+  );
+
+  if (allocatedEntries.length === 0 && shortStacks.length === 0) {
+    return <div className="h-12" />;
+  }
+
+  return (
+    <div className="flex min-h-12 flex-wrap items-center gap-1.5">
+      {allocatedEntries.flatMap((entry) => {
+        const stackSize = demandStackSize(entry.quantity);
+        return splitQuantityStacks(entry.quantity, stackSize).map((quantity, index) => {
+          const source = entry.meta?.source;
+          const isProduction = entry.parsed.sourceType === "manufacturing_order";
+          return (
+            <button
+              key={`${entry.sourceKeyValue}-${index}-${quantity}`}
+              type="button"
+              className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={(event) => {
+                event.stopPropagation();
+                onPickSource({
+                  sourceKey: entry.sourceKeyValue,
+                  sourceType: entry.parsed.sourceType,
+                  sourceId: entry.parsed.sourceId,
+                  sourceLabel: source?.label ?? entry.meta?.source.label ?? "Source",
+                  sourceIndex: entry.meta?.index ?? 0,
+                  quantity,
+                  itemName: row.itemName,
+                  unitName: row.unitName,
+                  originLineId: row.salesOrderLineId,
+                });
+              }}
+              aria-label={`Pick up ${formatQuantity(toQuantityString(quantity))} from ${
+                source?.label ?? "source"
+              }`}
+            >
+              <ItemToken
+                kind={visual.kind}
+                color={visual.color}
+                state={isProduction ? "inbound" : "reserved"}
+                size="sm"
+                quantity={formatQuantity(toQuantityString(quantity))}
+                className="shadow-xs"
+              />
+            </button>
+          );
+        });
+      })}
+      {shortStacks.map((quantity, index) => (
+        <span
+          key={`empty-${index}-${quantity}`}
           className="flex h-12 w-12 shrink-0 rounded-md border border-dashed bg-muted/15"
           aria-hidden
         />
@@ -636,7 +754,8 @@ function SupplyStack({
         <button
           type="button"
           className={cn(stackClassName, "focus-visible:outline-none")}
-          onClick={() => {
+          onClick={(event) => {
+            event.stopPropagation();
             if (!onSelect(sourceKeyValue)) return;
             if (canReturn) {
               onReturn(sourceKeyValue);
@@ -690,7 +809,8 @@ function SupplyStack({
       <button
         type="button"
         className={cn(stackClassName, "focus-visible:outline-none focus-visible:ring-2")}
-        onClick={() => {
+        onClick={(event) => {
+          event.stopPropagation();
           if (!onSelect(sourceKeyValue)) return;
           if (canReturn) {
             onReturn(sourceKeyValue);
@@ -914,17 +1034,26 @@ function DemandCard({
   isTarget,
   allocatedQty,
   shortQty,
+  draft,
+  sourceMetaByKey,
   carried,
   onPlace,
   onPick,
+  onPickSource,
 }: {
   row: SalesAllocationSheetData["demandRows"][number];
   isTarget: boolean;
   allocatedQty: number;
   shortQty: number;
+  draft: AllocationDraft;
+  sourceMetaByKey: Map<
+    string,
+    { source: SalesAllocationSource; index: number }
+  >;
   carried: CarryState;
   onPlace: () => void;
   onPick: () => void;
+  onPickSource: (token: AllocationTokenData) => void;
 }) {
   const remaining = readQuantity(row.remainingQty);
   const canPlace = carried != null && shortQty > 0;
@@ -973,10 +1102,12 @@ function DemandCard({
       </div>
 
       <div className="mt-3 space-y-2">
-        <DemandQuantityStacks
-          total={remaining}
-          allocated={allocatedQty}
+        <DemandAllocationStacks
+          row={row}
+          draft={draft}
+          sourceMetaByKey={sourceMetaByKey}
           visual={visual}
+          onPickSource={onPickSource}
         />
         <ProgressBar value={allocatedQty} max={remaining} />
         <div className="flex justify-end gap-4 text-sm">
@@ -1000,10 +1131,12 @@ function OutputAllocationWorkspace({
   manufacturingOrderId,
   onBack,
   onOpenOutput,
+  onOpenSalesLine,
 }: {
   manufacturingOrderId: string;
   onBack: () => void;
   onOpenOutput: (id: string) => void;
+  onOpenSalesLine: (lineId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [selectedIngredientId, setSelectedIngredientId] = useState<string | null>(null);
@@ -1274,20 +1407,83 @@ function OutputAllocationWorkspace({
 
             <WorkspacePanel
               title="Demand · Orders"
-              count={`${data.productionDestinations.length} MO`}
+              count={`${data.salesDestinations.length} SO · ${data.productionDestinations.length} MO`}
               accent="production"
             >
-            {data.productionDestinations.length === 0 ? (
+            {data.salesDestinations.length === 0 &&
+            data.productionDestinations.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                No production orders currently need this output.
+                No orders currently need this output.
               </div>
             ) : (
-              data.productionDestinations.map((destination) => {
+              <>
+                {data.salesDestinations.map((destination) => {
+                  const allocated = readQuantity(destination.assignedQty);
+                  const remaining = readQuantity(destination.remainingQty);
+                  const shortQty = Math.max(0, remaining - allocated);
+                  return (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      key={destination.salesOrderLineId}
+                      aria-label={`Open allocation for ${destination.orderNumber}`}
+                      onClick={() => onOpenSalesLine(destination.salesOrderLineId)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onOpenSalesLine(destination.salesOrderLineId);
+                        }
+                      }}
+                      className="w-full cursor-pointer rounded-md border bg-background p-3 text-left shadow-xs transition hover:border-warning/50 hover:bg-warning/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <Badge className="rounded-sm bg-warning/10 text-warning">SO</Badge>
+                            <span className="font-semibold">{destination.orderNumber}</span>
+                            <span className="truncate text-muted-foreground">
+                              {destination.customerName}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Ship {destination.shipDate ? formatDate(destination.shipDate) : "\u2014"}
+                          </div>
+                        </div>
+                        <div className="text-right text-xs text-muted-foreground">
+                          Sales demand
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <DemandQuantityStacks
+                          total={remaining}
+                          allocated={allocated}
+                          visual={outputVisual}
+                        />
+                        <ProgressBar value={allocated} max={remaining} />
+                        <div className="flex justify-end gap-4 text-sm">
+                          <span>
+                            <span className="text-muted-foreground">Allocated </span>
+                            <span className="font-medium text-success">
+                              {formatQuantity(toQuantityString(allocated))}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">Short </span>
+                            <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
+                              {shortLabel(shortQty)}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {data.productionDestinations.map((destination) => {
                 const allocated = readQuantity(draft[destination.ingredientId]);
                 const remaining = readQuantity(destination.remainingNeed);
                 const shortQty = Math.max(0, remaining - allocated);
                 const selected = selectedIngredientId === destination.ingredientId;
-                return (
+                  return (
                   <div
                     role="button"
                     tabIndex={0}
@@ -1365,8 +1561,9 @@ function OutputAllocationWorkspace({
                       </div>
                     </div>
                   </div>
-                );
-              })
+                  );
+                })}
+              </>
             )}
             {mutation.error ? (
               <p className="text-sm text-destructive">{mutation.error.message}</p>
@@ -1411,6 +1608,7 @@ export function AllocationSheet({
     : internalOutputMoId;
   const [selectedSourceKey, setSelectedSourceKey] = useState<string | null>(null);
   const [carried, setCarried] = useState<CarryState>(null);
+  const [confirmUnallocateAllOpen, setConfirmUnallocateAllOpen] = useState(false);
   const [browseTarget, setBrowseTarget] = useState<{
     itemId: string;
     lineId: string | null;
@@ -1486,6 +1684,17 @@ export function AllocationSheet({
 
   function updateDrafts(nextDrafts: Record<string, AllocationDraft>) {
     setDraftState({ lineId, values: nextDrafts });
+  }
+
+  function unallocateAllVisibleDemand() {
+    setDraftState({
+      lineId,
+      values: Object.fromEntries(
+        (data?.demandRows ?? []).map((row) => [row.salesOrderLineId, {}])
+      ),
+    });
+    setCarried(null);
+    setSelectedSourceKey(null);
   }
 
   function getLineDraftTotal(salesOrderLineId: string) {
@@ -1817,8 +2026,16 @@ export function AllocationSheet({
     !totalOverRemaining &&
     !overAllocatedSource;
 
-  const onHandSources = (data?.supplySources ?? []).filter(
+  const rawOnHandSources = (data?.supplySources ?? []).filter(
     (source) => source.sourceType === "stock_pool" || source.sourceType === "lot"
+  );
+  const hasLotSources = rawOnHandSources.some((source) => source.sourceType === "lot");
+  const onHandSources = rawOnHandSources.filter(
+    (source) =>
+      source.sourceType !== "stock_pool" ||
+      !hasLotSources ||
+      readQuantity(source.currentTargetQty) > 0 ||
+      readQuantity(source.allocatedQty) > 0
   );
   const manufacturingSources = (data?.supplySources ?? []).filter(
     (source) => source.sourceType === "manufacturing_order"
@@ -1867,7 +2084,55 @@ export function AllocationSheet({
         onOpenChange(nextOpen);
       }}
     >
-      <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
+      <SheetContent
+        showCloseButton={false}
+        className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none"
+      >
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+          {!outputMoId ? (
+            <AlertDialog
+              open={confirmUnallocateAllOpen}
+              onOpenChange={setConfirmUnallocateAllOpen}
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmUnallocateAllOpen(true)}
+                disabled={mutation.isPending || !data}
+              >
+                Unallocate all
+              </Button>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Unallocate all sales orders?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This clears allocations for every sales order shown in this
+                    manager. Nothing changes permanently until you save.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep allocations</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => {
+                      unallocateAllVisibleDemand();
+                      setConfirmUnallocateAllOpen(false);
+                    }}
+                  >
+                    Unallocate all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
+          <SheetClose asChild>
+            <Button variant="ghost" size="icon-sm">
+              <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+              <span className="sr-only">Close</span>
+            </Button>
+          </SheetClose>
+        </div>
         <SheetHeader className="border-b">
           <SheetTitle>Allocation Manager</SheetTitle>
           <SheetDescription className="sr-only">
@@ -1951,6 +2216,13 @@ export function AllocationSheet({
               setOutputMoId(null);
             }}
             onOpenOutput={openOutputMo}
+            onOpenSalesLine={(nextLineId) => {
+              setCarried(null);
+              setSelectedSourceKey(null);
+              setBrowseTarget(null);
+              setOutputMoId(null);
+              onTargetLineChange(nextLineId);
+            }}
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
@@ -1978,6 +2250,11 @@ export function AllocationSheet({
                   title="Supply · Storage"
                   count={supplyPanelCount}
                   accent="supply"
+                  onBodyClick={() => {
+                    if (carried?.originLineId) {
+                      returnTokenToSource(carried.sourceKey);
+                    }
+                  }}
                 >
                   <div className="flex min-h-0 flex-col gap-4">
                     <div className="space-y-3">
@@ -2113,9 +2390,12 @@ export function AllocationSheet({
                             isTarget={isTarget}
                             allocatedQty={allocatedQty}
                             shortQty={shortQty}
+                            draft={draftsByLine[row.salesOrderLineId] ?? {}}
+                            sourceMetaByKey={sourceMetaByKey}
                             carried={carried}
                             onPlace={() => placeOnLine(row.salesOrderLineId)}
                             onPick={() => pickFirstTokenFromLine(row.salesOrderLineId)}
+                            onPickSource={pickToken}
                           />
                         );
                       })}
