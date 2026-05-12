@@ -23,6 +23,7 @@ import { deriveSalesOrderLane } from "./sales-order-lane-model";
 export function SalesOrderKanban({
   visibleLanes,
   ordersByLane,
+  selectedItemId,
   expandedOrderId,
   density,
   onToggleExpanded,
@@ -31,6 +32,7 @@ export function SalesOrderKanban({
 }: {
   visibleLanes: SalesOrderLaneDefinition[];
   ordersByLane: Record<SalesOrderLaneId, SalesOrderListRow[]>;
+  selectedItemId: string | null;
   expandedOrderId: string | null;
   density: "compact" | "comfortable";
   onToggleExpanded: (orderId: string) => void;
@@ -102,7 +104,8 @@ export function SalesOrderKanban({
               key={lane.id}
               lane={lane}
               orders={ordersByLane[lane.id]}
-              shipmentMarkers={shipmentMarkersByLane[lane.id]}
+              shipmentMarkers={selectedItemId ? [] : shipmentMarkersByLane[lane.id]}
+              selectedItemId={selectedItemId}
               expandedOrderId={expandedOrderId}
               density={density}
               onToggleExpanded={onToggleExpanded}
