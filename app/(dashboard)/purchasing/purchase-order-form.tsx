@@ -242,7 +242,9 @@ export function PurchaseOrderForm({
       return sum + quantity * cost;
     }, 0);
   }, [watchedLines]);
-  const legacyShippingCost = parseNonNegative(watchedShippingCost) ?? 0;
+  const additionalCostRows = watchedAdditionalCosts ?? [];
+  const legacyShippingCost =
+    additionalCostRows.length === 0 ? (parseNonNegative(watchedShippingCost) ?? 0) : 0;
   const additionalCostTotal = (watchedAdditionalCosts ?? []).reduce((sum, cost) => {
     const amount = parseNonNegative(cost?.amount);
     return sum + (amount ?? 0);
@@ -1013,29 +1015,6 @@ function PurchaseOrderAdditionalCostRow({
       <EditableLineGridCell>
         <Controller
           control={control}
-          name={`additionalCosts.${index}.xeroPurchaseAccountCode`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-xero-account`}>
-                Xero Account
-              </FieldLabel>
-              <XeroAccountInput
-                id={`${lineKey}-xero-account`}
-                value={field.value ?? ""}
-                accounts={xeroAccounts}
-                placeholder="PO default"
-                ariaInvalid={fieldState.invalid}
-                onChange={(value) => field.onChange(value || null)}
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
           name={`additionalCosts.${index}.costType`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
@@ -1057,6 +1036,29 @@ function PurchaseOrderAdditionalCostRow({
                   ))}
                 </SelectContent>
               </Select>
+              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+
+      <EditableLineGridCell>
+        <Controller
+          control={control}
+          name={`additionalCosts.${index}.xeroPurchaseAccountCode`}
+          render={({ field, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-xero-account`}>
+                Xero Account
+              </FieldLabel>
+              <XeroAccountInput
+                id={`${lineKey}-xero-account`}
+                value={field.value ?? ""}
+                accounts={xeroAccounts}
+                placeholder="PO default"
+                ariaInvalid={fieldState.invalid}
+                onChange={(value) => field.onChange(value || null)}
+              />
               {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
             </Field>
           )}

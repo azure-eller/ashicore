@@ -64,6 +64,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Xero rejected the connection. Double-check your client credentials and retry.",
   access_denied: "You declined the Xero authorization request.",
 };
+const XERO_PO_ACCOUNT_FALLBACK_VALUE = "__fallback__";
 
 const TAX_LABELS: Record<string, string> = {
   OUTPUT: "Output tax",
@@ -808,11 +809,21 @@ function PostingDefaultsDialog({
               <Field>
                 <FieldLabel htmlFor="xero-po-account-code">Account code</FieldLabel>
                 {accounts.length > 0 ? (
-                  <Select value={poAccountCode} onValueChange={setPoAccountCode}>
+                  <Select
+                    value={poAccountCode || XERO_PO_ACCOUNT_FALLBACK_VALUE}
+                    onValueChange={(value) =>
+                      setPoAccountCode(
+                        value === XERO_PO_ACCOUNT_FALLBACK_VALUE ? "" : value
+                      )
+                    }
+                  >
                     <SelectTrigger id="xero-po-account-code" className="w-full">
-                      <SelectValue placeholder="Choose account" />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={XERO_PO_ACCOUNT_FALLBACK_VALUE}>
+                        Use invoice account fallback
+                      </SelectItem>
                       {accounts.map((account) => (
                         <SelectItem key={account.code} value={account.code}>
                           {accountLabel(account.code)}
