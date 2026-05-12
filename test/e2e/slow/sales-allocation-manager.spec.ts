@@ -58,6 +58,13 @@ async function dragToCenter(page: Page, source: Locator, target: Locator) {
   await page.mouse.up();
 }
 
+function salesOrderCard(page: Page, orderNumber: string) {
+  return page
+    .locator('[data-testid="sales-order-card"]')
+    .filter({ hasText: orderNumber })
+    .first();
+}
+
 async function createCustomerFixture(namePrefix: string) {
   const result = await createCustomer({ name: unique(namePrefix) });
   expect(result.status).toBe(201);
@@ -242,17 +249,16 @@ async function openAllocationManager(params: {
   const { page, orderNumber, itemName } = params;
 
   await page.goto("/sales/orders");
-  await page.getByRole("radio", { name: "Show Draft status" }).click();
   await filterList(page, "Search orders", orderNumber);
-  const orderRow = page.getByRole("row", { name: new RegExp(orderNumber) });
-  await orderRow.getByRole("button", { name: "Expand order" }).click();
+  const orderCard = salesOrderCard(page, orderNumber);
+  await orderCard.locator(":scope > button").click();
 
   const expandedLine = page
-    .getByRole("row", { name: new RegExp(itemName) })
+    .locator('[data-testid="sales-order-line-row"]')
+    .filter({ hasText: itemName })
     .last();
-  await expandedLine
-    .getByRole("button", { name: new RegExp(`^Allocate ${itemName}$`) })
-    .click();
+  await expect(expandedLine).toBeVisible();
+  await orderCard.getByRole("button", { name: "Manage", exact: true }).click();
 
   const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
   await expect(sheet).toBeVisible();

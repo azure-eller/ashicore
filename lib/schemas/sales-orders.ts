@@ -186,7 +186,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     if (values.status === "confirmed" && !values.shipDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Ship date is required to confirm a sales order",
+        message: "Shipping date is required to confirm a sales order",
         path: ["shipDate"],
       });
     }
