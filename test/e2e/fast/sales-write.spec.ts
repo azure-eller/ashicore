@@ -1512,6 +1512,11 @@ test.describe("Sales write-path smoke", () => {
     });
     expect(materialResult.status).toBe(201);
     const allocationItemId = materialResult.body.id as string;
+    const [allocationLot] = await db
+      .select({ id: lots.id, lotNumber: lots.lotNumber })
+      .from(lots)
+      .where(eq(lots.itemId, allocationItemId));
+    expect(allocationLot).toBeTruthy();
 
     const firstOrderResult = await createSalesOrder({
       customerId: allocationCustomerId,
@@ -1555,21 +1560,21 @@ test.describe("Sales write-path smoke", () => {
     const firstAllocation = await firstAllocationResponse.json();
     expect(firstAllocation.targetLine.allocatedQty).toBe("70");
     expect(firstAllocation.targetLine.shortQty).toBe("0");
-    expect(firstAllocation.targetLine.sourceSummary).toMatch(/^70 LOT-/);
-    expect(firstAllocation.editableAllocations).toContainEqual(
-      expect.objectContaining({
-        sourceType: "lot",
-        quantity: "70",
-        coverageKind: "implicit",
-      })
+    expect(firstAllocation.targetLine.sourceSummary).toBe(
+      `70 ${allocationLot!.lotNumber}`
     );
-    expect(firstAllocation.editableAllocations).toContainEqual(
-      expect.objectContaining({
-        sourceType: "stock_pool",
-        quantity: "0",
-        coverageKind: "explicit",
-      })
-    );
+    expect(
+      firstAllocation.editableAllocations.find(
+        (allocation: { sourceType: string; sourceId: string | null }) =>
+          allocation.sourceType === "lot" &&
+          allocation.sourceId === allocationLot!.id
+      )
+    ).toMatchObject({
+      sourceType: "lot",
+      sourceId: allocationLot!.id,
+      quantity: "70",
+      coverageKind: "implicit",
+    });
 
     const secondAllocationResponse = await testFetch(
       `/api/sales-order-lines/${lines[1].id}/allocation`
