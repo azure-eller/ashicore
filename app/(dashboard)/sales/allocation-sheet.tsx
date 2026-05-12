@@ -6,7 +6,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
-  Cancel01Icon,
   Factory01Icon,
   PackageIcon,
   ReloadIcon,
@@ -25,12 +24,16 @@ import {
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { apiJson } from "@/lib/client/api";
-import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
+import {
+  formatCompactUnitLabel,
+  formatDate,
+  formatDateTime,
+  formatQuantity,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   SalesAllocationSheetData,
@@ -138,6 +141,10 @@ function shortLabel(value: number) {
   return value > 0 ? formatQuantity(toQuantityString(value)) : "\u2014";
 }
 
+function compactUnitName(unitName: string | null | undefined) {
+  return formatCompactUnitLabel({ name: unitName }) ?? unitName ?? "units";
+}
+
 function clampQuantity(value: number, max: number) {
   return Math.max(0, Math.min(readQuantity(toQuantityString(value)), max));
 }
@@ -182,13 +189,20 @@ function SectionTitle({
   title,
   count,
   icon,
+  className,
 }: {
   title: string;
   count?: string;
   icon?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+        className
+      )}
+    >
       <div className="flex items-center gap-2">
         {icon}
         <span>{title}</span>
@@ -216,7 +230,7 @@ function WorkspacePanel({
   return (
     <section
       className={cn(
-        "flex min-h-[34rem] flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
+        "flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
         className
       )}
     >
@@ -248,59 +262,119 @@ function WorkspacePanel({
   );
 }
 
+function HeaderMetric({
+  label,
+  free,
+  total,
+  tone,
+}: {
+  label: string;
+  free: number;
+  total: number;
+  tone: "success" | "primary";
+}) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "font-semibold tabular-nums",
+          tone === "success" && "text-success",
+          tone === "primary" && "text-primary"
+        )}
+      >
+        {formatQuantity(toQuantityString(free))}/{formatQuantity(toQuantityString(total))}
+      </span>
+    </div>
+  );
+}
+
+function CurrentItemButton({
+  itemName,
+  unitLabel,
+}: {
+  itemName: string;
+  unitLabel: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`${itemName} · ${unitLabel}`}
+        >
+          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {itemName} · {unitLabel}.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function CarryPanel({
   carried,
-  onClear,
   className,
 }: {
   carried: CarryState;
-  onClear: () => void;
   className?: string;
 }) {
   if (!carried) return null;
 
+  const isProduction = carried.sourceType === "manufacturing_order";
+
   return (
-    <TooltipProvider>
-      <div
-        className={cn(
-          "pointer-events-none absolute left-1/2 z-20 w-[min(34rem,calc(100%-2rem))] -translate-x-1/2",
-          className
-        )}
-      >
-        <div className="pointer-events-auto rounded-lg border bg-popover/95 p-3 text-popover-foreground shadow-xl ring-1 ring-primary/15 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-wide text-primary">
-                Picked up
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">
-                  {formatQuantity(toQuantityString(carried.quantity))}
-                </Badge>
-                <span className="truncate text-sm font-medium">{carried.sourceLabel}</span>
-              </div>
+    <div
+      className={cn(
+        "pointer-events-none absolute left-1/2 z-20 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-4 rounded-lg border bg-popover/95 p-2 text-popover-foreground shadow-xl ring-1 ring-primary/15 backdrop-blur">
+        <span className="sr-only">Picked up</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <div
+            className={cn(
+              "relative flex h-14 w-12 shrink-0 items-center justify-center rounded-md border bg-background shadow-xs",
+              isProduction
+                ? "border-primary/45 bg-primary/5 text-primary"
+                : "border-success/45 bg-success/5 text-success"
+            )}
+          >
+            <HugeiconsIcon
+              icon={isProduction ? Factory01Icon : PackageIcon}
+              strokeWidth={2}
+              className="size-8"
+            />
+            <span className="absolute bottom-1 right-1 rounded bg-background/95 px-1 text-xs font-semibold tabular-nums shadow-xs">
+              {formatQuantity(toQuantityString(carried.quantity))}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Picked up
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">H</kbd>
-              <span>split</span>
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">+/-</kbd>
-              <span>adjust</span>
-              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">Esc</kbd>
-              <span>clear</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" onClick={onClear}>
-                    <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-                    <span className="sr-only">Clear carried allocation</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Esc clears the carried quantity.</TooltipContent>
-              </Tooltip>
-            </div>
+            <div className="truncate text-sm font-medium">{carried.sourceLabel}</div>
+          </div>
+        </div>
+        <div className="grid shrink-0 gap-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">X</kbd>
+            <span>split</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">wheel</kbd>
+            <span>adjust</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">Esc</kbd>
+            <span>drop</span>
           </div>
         </div>
       </div>
-    </TooltipProvider>
+    </div>
   );
 }
 
@@ -310,7 +384,10 @@ function SupplyStack({
   sourceIndex,
   previewFree,
   isSelected,
+  carried,
   onPick,
+  onSelect,
+  onReturn,
   onOpenOutput,
 }: {
   source: SalesAllocationSource;
@@ -318,28 +395,55 @@ function SupplyStack({
   sourceIndex: number;
   previewFree: number;
   isSelected: boolean;
+  carried: CarryState;
   onPick: (token: AllocationTokenData) => void;
+  onSelect: (sourceKeyValue: string) => boolean;
+  onReturn: (sourceKeyValue: string) => void;
   onOpenOutput: (id: string) => void;
 }) {
   const isMo = source.sourceType === "manufacturing_order";
   const isLot = source.sourceType === "lot";
   const quantityLabel = formatQuantity(toQuantityString(previewFree));
   const canPick = previewFree > 0 && source.canAllocate;
+  const canReturn =
+    carried?.originLineId != null && carried.sourceKey === sourceKeyValue;
+  const toneClasses = isMo
+    ? {
+        selected: "border-primary/70 bg-primary/5 ring-2 ring-primary/25 shadow-md",
+        base: "border-primary/35 bg-primary/5",
+        hover: "hover:border-primary/50 hover:bg-primary/10",
+        icon: "bg-primary/10 text-primary",
+        label: "text-primary",
+      }
+    : {
+        selected: "border-success/70 bg-success/5 ring-2 ring-success/25 shadow-md",
+        base: "border-border bg-background",
+        hover: "hover:border-success/50 hover:bg-success/5",
+        icon: "bg-success/10 text-success",
+        label: "text-muted-foreground",
+      };
   const stackClassName = cn(
-    "group relative flex h-28 w-24 flex-col justify-between rounded-md border bg-background p-2 text-left shadow-xs transition",
-    "hover:border-primary/40 hover:bg-primary/5 focus-within:ring-2 focus-within:ring-ring",
-    isSelected && "border-primary/60 bg-primary/5 ring-2 ring-primary/25 shadow-md",
-    isMo && "border-primary/35 bg-primary/5",
+    "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md border text-left shadow-xs transition",
+    toneClasses.base,
+    toneClasses.hover,
+    "focus-within:ring-2 focus-within:ring-ring",
+    isSelected && toneClasses.selected,
+    canReturn && "border-success/60 bg-success/5",
     !canPick && "opacity-70"
   );
 
   if (isMo) {
     return (
-      <div className={stackClassName}>
+      <div className="flex w-20 flex-col items-center gap-1">
         <button
           type="button"
-          className="flex items-start justify-between gap-2 text-left focus-visible:outline-none"
+          className={cn(stackClassName, "focus-visible:outline-none")}
           onClick={() => {
+            if (!onSelect(sourceKeyValue)) return;
+            if (canReturn) {
+              onReturn(sourceKeyValue);
+              return;
+            }
             if (!canPick) return;
             onPick({
               sourceKey: sourceKeyValue,
@@ -350,85 +454,68 @@ function SupplyStack({
               quantity: previewFree,
             });
           }}
-          disabled={!canPick}
           aria-label={`Allocate all from ${source.label}`}
         >
-          <span className="inline-flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-4" />
+          <span className={cn("inline-flex size-12 items-center justify-center rounded-md", toneClasses.icon)}>
+            <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-8" />
           </span>
-          <span className="text-lg font-semibold tabular-nums text-foreground">
+          <span className="absolute bottom-1.5 right-1.5 rounded bg-background/95 px-1 text-sm font-semibold tabular-nums text-foreground shadow-xs">
             {quantityLabel}
           </span>
         </button>
-        <div className="min-w-0">
-          <button
-            type="button"
-            className="block max-w-full truncate text-xs font-semibold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => {
-              if (source.sourceId) onOpenOutput(source.sourceId);
-            }}
-            aria-label={`Open output allocation for ${source.label}`}
-          >
-            {source.label}
-          </button>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {statusLabel(source.status)}
-            {source.date ? ` · ${formatDate(source.date)}` : ""}
-          </div>
-        </div>
+        <button
+          type="button"
+          className="max-w-full truncate text-[11px] font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            if (source.sourceId) onOpenOutput(source.sourceId);
+          }}
+          aria-label={`Open output allocation for ${source.label}`}
+        >
+          {source.label}
+        </button>
         {source.sourceId ? (
-          <button
-            type="button"
-            className="text-left text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => onOpenOutput(source.sourceId!)}
-          >
-            Open output
-          </button>
+          <div className="max-w-full truncate text-[11px] text-muted-foreground">
+            {statusLabel(source.status)}
+          </div>
         ) : null}
       </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      className={cn(stackClassName, "focus-visible:outline-none focus-visible:ring-2")}
-      onClick={() => {
-        if (!canPick) return;
-        onPick({
-          sourceKey: sourceKeyValue,
-          sourceType: source.sourceType,
-          sourceId: source.sourceId,
-          sourceLabel: source.label,
-          sourceIndex,
-          quantity: previewFree,
-        });
-      }}
-      aria-label={`Allocate all from ${source.label}`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <span
-          className="inline-flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground"
-        >
-          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4" />
+    <div className="flex w-20 flex-col items-center gap-1">
+      <button
+        type="button"
+        className={cn(stackClassName, "focus-visible:outline-none focus-visible:ring-2")}
+        onClick={() => {
+          if (!onSelect(sourceKeyValue)) return;
+          if (canReturn) {
+            onReturn(sourceKeyValue);
+            return;
+          }
+          if (!canPick) return;
+          onPick({
+            sourceKey: sourceKeyValue,
+            sourceType: source.sourceType,
+            sourceId: source.sourceId,
+            sourceLabel: source.label,
+            sourceIndex,
+            quantity: previewFree,
+          });
+        }}
+        aria-label={`Allocate all from ${source.label}`}
+      >
+        <span className={cn("inline-flex size-12 items-center justify-center rounded-md", toneClasses.icon)}>
+          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-8" />
         </span>
-        <span className="text-lg font-semibold tabular-nums text-foreground">
+        <span className="absolute bottom-1.5 right-1.5 rounded bg-background/95 px-1 text-sm font-semibold tabular-nums text-foreground shadow-xs">
           {quantityLabel}
         </span>
+      </button>
+      <div className="max-w-full truncate text-center text-[11px] font-medium text-muted-foreground">
+        {isLot ? source.lotNumber ?? source.label : source.label}
       </div>
-      <div className="min-w-0">
-        <div className="truncate text-xs font-semibold">
-          {isLot ? source.lotNumber ?? source.label : source.label}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {isMo
-            ? `${statusLabel(source.status)}${source.date ? ` · ${formatDate(source.date)}` : ""}`
-            : source.date
-              ? `Received ${formatDate(source.date)}`
-              : sourceKindLabel(source)}
-        </div>
-      </div>
-    </button>
+    </div>
   );
 }
 
@@ -441,13 +528,7 @@ function SourceDetailPanel({
 }) {
   const organizationTimeZone = useOrganizationTimeZone();
 
-  if (!source) {
-    return (
-      <div className="rounded-lg border border-dashed bg-card p-3 text-sm text-muted-foreground">
-        Select a stack to inspect allocation details.
-      </div>
-    );
-  }
+  if (!source) return null;
 
   const total = readQuantity(source.totalQty);
   const allocated = readQuantity(source.allocatedQty);
@@ -523,6 +604,89 @@ function SourceDetailPanel({
   );
 }
 
+function OutputSourceDetailPanel({
+  data,
+  assignedProduction,
+  outputFree,
+}: {
+  data: OutputAllocationData;
+  assignedProduction: number;
+  outputFree: number;
+}) {
+  const planned = readQuantity(data.sourceMo.plannedQuantity);
+  const assignedSales = readQuantity(data.assignedSalesQty);
+  const allocated = assignedSales + assignedProduction;
+  const destinations = [
+    assignedSales > 0
+      ? { label: "Sales allocations", quantity: assignedSales, kind: "sales" as const }
+      : null,
+    ...data.productionDestinations
+      .map((destination) => ({
+        label: destination.orderNumber,
+        quantity: readQuantity(destination.assignedQty),
+        kind: "production" as const,
+      }))
+      .filter((destination) => destination.quantity > 0),
+  ].filter(Boolean) as Array<{ label: string; quantity: number; kind: "sales" | "production" }>;
+
+  return (
+    <div className="rounded-md border bg-background p-3 shadow-xs">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-4 text-muted-foreground" />
+            <h3 className="truncate text-sm font-semibold">{data.sourceMo.orderNumber}</h3>
+          </div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            {data.sourceMo.productName} · {statusLabel(data.sourceMo.status)}
+          </div>
+        </div>
+        <Badge variant="secondary">MO output</Badge>
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Assigned</span>
+          <ProgressBar value={allocated} max={Math.max(planned, allocated + outputFree)} tone="warning" />
+          <span className="text-right font-medium tabular-nums">
+            {formatQuantity(toQuantityString(allocated))}
+          </span>
+        </div>
+        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Free</span>
+          <ProgressBar value={outputFree} max={Math.max(planned, allocated + outputFree)} />
+          <span className="text-right font-medium tabular-nums">
+            {formatQuantity(toQuantityString(outputFree))}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 border-t pt-3">
+        {destinations.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No output assignments yet.</div>
+        ) : (
+          <div className="space-y-1">
+            {destinations.map((destination) => (
+              <div
+                key={`${destination.kind}:${destination.label}`}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span className="truncate text-muted-foreground">
+                  {destination.kind === "production" ? "Production" : "Sales"} ·{" "}
+                  {destination.label}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatQuantity(toQuantityString(destination.quantity))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DemandCard({
   row,
   isTarget,
@@ -531,6 +695,7 @@ function DemandCard({
   carried,
   children,
   onPlace,
+  onPick,
 }: {
   row: SalesAllocationSheetData["demandRows"][number];
   isTarget: boolean;
@@ -539,9 +704,11 @@ function DemandCard({
   carried: CarryState;
   children?: ReactNode;
   onPlace: () => void;
+  onPick: () => void;
 }) {
   const remaining = readQuantity(row.remainingQty);
   const canPlace = carried != null && shortQty > 0;
+  const unitLabel = compactUnitName(row.unitName);
 
   return (
     <div
@@ -555,29 +722,43 @@ function DemandCard({
         isTarget && "border-primary/25 bg-primary/5",
         canPlace && "hover:border-primary/50 hover:bg-primary/5"
       )}
-      onClick={onPlace}
+      onClick={() => {
+        if (carried) {
+          onPlace();
+          return;
+        }
+        onPick();
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onPlace();
+          if (carried) {
+            onPlace();
+          } else {
+            onPick();
+          }
         }
       }}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
             <Badge variant="secondary" className="rounded-sm">SO</Badge>
             <span>{row.orderNumber}</span>
             <span className="truncate text-muted-foreground">{row.customerName}</span>
             {isTarget ? <Badge variant="outline">This order</Badge> : null}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"} · {row.itemName}
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <span>Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"} ·</span>
+            <span className="truncate">{row.itemName}</span>
+            <Badge variant="outline" className="h-4 shrink-0 rounded-sm px-1 text-[10px] font-normal">
+              {unitLabel}
+            </Badge>
           </div>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
+        <div className="shrink-0 text-right text-xs text-muted-foreground">
           <div>{formatQuantity(row.remainingQty)} needed</div>
-          <div>{row.unitName}</div>
+          <div>{unitLabel}</div>
         </div>
       </div>
 
@@ -660,6 +841,7 @@ function OutputAllocationWorkspace({
 }) {
   const queryClient = useQueryClient();
   const [selectedIngredientId, setSelectedIngredientId] = useState<string | null>(null);
+  const [outputSelected, setOutputSelected] = useState(true);
   const [carriedQty, setCarriedQty] = useState<number | null>(null);
   const [draftState, setDraftState] = useState<{
     manufacturingOrderId: string | null;
@@ -747,7 +929,7 @@ function OutputAllocationWorkspace({
       if (carriedQty == null) return;
       if (event.key === "Escape") {
         setCarriedQty(null);
-      } else if (event.key.toLowerCase() === "h") {
+      } else if (event.key.toLowerCase() === "x") {
         setCarriedQty((current) =>
           current == null ? null : Math.max(1, Math.floor(current / 2))
         );
@@ -763,10 +945,27 @@ function OutputAllocationWorkspace({
         return;
       }
       event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [carriedQty, outputFree]);
+
+  useEffect(() => {
+    function handleWheel(event: WheelEvent) {
+      if (carriedQty == null) return;
+      event.preventDefault();
+      setCarriedQty((current) =>
+        current == null
+          ? null
+          : Math.max(1, clampQuantity(current + (event.deltaY < 0 ? 1 : -1), outputFree))
+      );
+    }
+
+    window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", handleWheel, { capture: true });
   }, [carriedQty, outputFree]);
 
   function updateDestination(ingredientId: string, quantity: number) {
@@ -823,48 +1022,54 @@ function OutputAllocationWorkspace({
           <div className="grid min-h-0 gap-4 xl:grid-cols-2">
             <WorkspacePanel
               title="Supply · Output"
-              count={data.sourceMo.orderNumber}
+              count="1 source"
               accent="supply"
             >
-              <div className="rounded-md border bg-background p-3 shadow-xs">
-              <div className="flex items-start gap-3">
-                <div className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary">
-                  <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold">{data.sourceMo.productName}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {statusLabel(data.sourceMo.status)}
+              <div className="flex min-h-0 flex-col gap-4">
+                <div className="space-y-3">
+                  <SectionTitle title="Manufacturing output" count="1 MO" />
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex w-20 flex-col items-center gap-1">
+                      <button
+                        type="button"
+                        className={cn(
+                          "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md border bg-primary/5 text-left shadow-xs transition",
+                          "hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          outputSelected && "border-primary/60 ring-2 ring-primary/25 shadow-md",
+                          outputFree <= 0 && "opacity-70"
+                        )}
+                        onClick={() => {
+                          if (outputSelected && carriedQty != null) {
+                            setOutputSelected(false);
+                            setCarriedQty(null);
+                            return;
+                          }
+                          setOutputSelected(true);
+                          setCarriedQty(outputFree > 0 ? outputFree : null);
+                        }}
+                        aria-label={`Pick up output from ${data.sourceMo.orderNumber}`}
+                      >
+                        <span className="inline-flex size-12 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-7" />
+                        </span>
+                        <span className="absolute bottom-1.5 right-1.5 rounded bg-background/95 px-1 text-sm font-semibold tabular-nums text-foreground shadow-xs">
+                          {formatQuantity(toQuantityString(outputFree))}
+                        </span>
+                      </button>
+                      <div className="max-w-full truncate text-center text-xs font-medium text-primary">
+                        {data.sourceMo.orderNumber}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="mt-4 grid gap-2 text-sm">
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Planned</span>
-                  <span className="font-medium">{formatQuantity(data.sourceMo.plannedQuantity)}</span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Sales</span>
-                  <span className="font-medium">{formatQuantity(data.assignedSalesQty)}</span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Production</span>
-                  <span className="font-medium">{formatQuantity(toQuantityString(assignedProduction))}</span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Unassigned</span>
-                  <span className="font-medium">{formatQuantity(toQuantityString(outputFree))}</span>
-                </div>
-              </div>
-              <Button
-                type="button"
-                className="mt-4 w-full"
-                variant={carriedQty != null ? "secondary" : "outline"}
-                onClick={() => setCarriedQty(outputFree > 0 ? outputFree : null)}
-                disabled={outputFree <= 0}
-              >
-                Pick up output
-              </Button>
+
+                {outputSelected ? (
+                  <OutputSourceDetailPanel
+                    data={data}
+                    assignedProduction={assignedProduction}
+                    outputFree={outputFree}
+                  />
+                ) : null}
               </div>
             </WorkspacePanel>
 
@@ -972,9 +1177,8 @@ function OutputAllocationWorkspace({
                     sourceLabel: data.sourceMo.orderNumber,
                     sourceIndex: 0,
                     quantity: carriedQty,
-                  }
+                }
             }
-            onClear={() => setCarriedQty(null)}
             className="bottom-6"
           />
         </>
@@ -1042,6 +1246,7 @@ export function AllocationSheet({
   );
   const targetLine = data?.targetLine ?? null;
   const targetLineId = targetLine?.salesOrderLineId ?? null;
+  const targetUnitLabel = compactUnitName(targetLine?.unitName);
 
   function setOutputMoId(id: string | null) {
     if (isOutputMoControlled) {
@@ -1093,6 +1298,66 @@ export function AllocationSheet({
   function pickToken(token: AllocationTokenData) {
     setCarried(token);
     setSelectedSourceKey(token.sourceKey);
+  }
+
+  function selectSource(sourceKeyValue: string) {
+    if (
+      selectedSourceKey === sourceKeyValue &&
+      carried?.sourceKey === sourceKeyValue &&
+      !carried.originLineId
+    ) {
+      setSelectedSourceKey(null);
+      setCarried(null);
+      return false;
+    }
+
+    setSelectedSourceKey(sourceKeyValue);
+    if (carried?.sourceKey !== sourceKeyValue) {
+      setCarried(null);
+    }
+    return true;
+  }
+
+  function pickFirstTokenFromLine(salesOrderLineId: string) {
+    const entries = Object.entries(draftsByLine[salesOrderLineId] ?? {});
+    const entry = entries.find(([, value]) => readQuantity(value) > 0);
+    if (!entry) return;
+    const [key, value] = entry;
+    const meta = sourceMetaByKey.get(key);
+    const parsed = parseAllocationKey(key);
+    pickToken({
+      sourceKey: key,
+      sourceType: parsed.sourceType,
+      sourceId: parsed.sourceId,
+      sourceLabel: meta?.source.label ?? "Source",
+      sourceIndex: meta?.index ?? 0,
+      quantity: readQuantity(value),
+      originLineId: salesOrderLineId,
+    });
+  }
+
+  function returnTokenToSource(sourceKeyValue: string) {
+    if (!carried?.originLineId || carried.sourceKey !== sourceKeyValue) return;
+    const originDraft = draftsByLine[carried.originLineId] ?? {};
+    const originQty = readQuantity(originDraft[carried.sourceKey]);
+    const quantity = Math.min(carried.quantity, originQty);
+    if (quantity <= 0) return;
+
+    updateDrafts({
+      ...draftsByLine,
+      [carried.originLineId]: {
+        ...originDraft,
+        [carried.sourceKey]: toQuantityString(originQty - quantity),
+      },
+    });
+    setCarried(
+      carried.quantity <= quantity
+        ? null
+        : {
+            ...carried,
+            quantity: readQuantity(toQuantityString(carried.quantity - quantity)),
+          }
+    );
   }
 
   function allocateTokenToLine(token: AllocationTokenData, salesOrderLineId: string) {
@@ -1186,7 +1451,7 @@ export function AllocationSheet({
             ? { ...current, quantity: getSourcePreviewFreeByKey(current.sourceKey) }
             : null
         );
-      } else if (event.key.toLowerCase() === "h") {
+      } else if (event.key.toLowerCase() === "x") {
         setCarried((current) =>
           current ? { ...current, quantity: Math.max(1, Math.floor(current.quantity / 2)) } : null
         );
@@ -1214,10 +1479,36 @@ export function AllocationSheet({
         return;
       }
       event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  });
+
+  useEffect(() => {
+    function handleWheel(event: WheelEvent) {
+      if (!carried) return;
+      event.preventDefault();
+      setCarried((current) =>
+        current
+          ? {
+              ...current,
+              quantity: Math.max(
+                1,
+                clampQuantity(
+                  current.quantity + (event.deltaY < 0 ? 1 : -1),
+                  Math.max(current.quantity, getSourcePreviewFreeByKey(current.sourceKey))
+                )
+              ),
+            }
+          : null
+      );
+    }
+
+    window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", handleWheel, { capture: true });
   });
 
   const totalOverRemaining = (data?.demandRows ?? []).some(
@@ -1304,10 +1595,28 @@ export function AllocationSheet({
   const manufacturingSources = (data?.supplySources ?? []).filter(
     (source) => source.sourceType === "manufacturing_order"
   );
+  const onHandTotal = onHandSources.reduce(
+    (sum, source) => sum + readQuantity(source.totalQty),
+    0
+  );
+  const onHandFree = onHandSources.reduce(
+    (sum, source) => sum + getSourcePreviewFree(source),
+    0
+  );
+  const productionTotal = manufacturingSources.reduce(
+    (sum, source) => sum + readQuantity(source.totalQty),
+    0
+  );
+  const productionFree = manufacturingSources.reduce(
+    (sum, source) => sum + getSourcePreviewFree(source),
+    0
+  );
+  const supplyPanelCount =
+    manufacturingSources.length > 0
+      ? `${onHandSources.length} on hand · ${manufacturingSources.length} inbound`
+      : `${onHandSources.length} on hand`;
   const selectedSource =
-    (selectedSourceKey ? sourceMetaByKey.get(selectedSourceKey)?.source : null) ??
-    data?.supplySources[0] ??
-    null;
+    selectedSourceKey ? sourceMetaByKey.get(selectedSourceKey)?.source ?? null : null;
 
   const sourceDestinations = selectedSource
     ? data?.demandRows.flatMap((row) => {
@@ -1342,8 +1651,11 @@ export function AllocationSheet({
                   <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4" />
                 </span>
                 <div className="min-w-0">
-                  <div className="truncate text-base font-semibold text-foreground">
-                    {targetLine.itemName}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-base font-semibold text-foreground">
+                    <span className="truncate">{targetLine.itemName}</span>
+                    <Badge variant="secondary" className="shrink-0">
+                      {targetUnitLabel}
+                    </Badge>
                   </div>
                   <div className="truncate text-sm text-muted-foreground">
                     {targetLine.orderNumber} · {targetLine.customerName}
@@ -1351,8 +1663,24 @@ export function AllocationSheet({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <Badge variant="secondary">{targetLine.unitName}</Badge>
-                <Badge variant="outline">{statusLabel(targetLine.orderStatus)}</Badge>
+                <CurrentItemButton
+                  itemName={targetLine.itemName}
+                  unitLabel={targetUnitLabel}
+                />
+                <HeaderMetric
+                  label="stock"
+                  free={onHandFree}
+                  total={onHandTotal}
+                  tone="success"
+                />
+                {productionTotal > 0 ? (
+                  <HeaderMetric
+                    label="production"
+                    free={productionFree}
+                    total={productionTotal}
+                    tone="primary"
+                  />
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -1394,7 +1722,7 @@ export function AllocationSheet({
               <div className="grid min-h-0 gap-4 xl:grid-cols-2">
                 <WorkspacePanel
                   title="Supply · Storage"
-                  count={`${onHandSources.length} on hand · ${manufacturingSources.length} inbound`}
+                  count={supplyPanelCount}
                   accent="supply"
                 >
                   <div className="flex min-h-0 flex-col gap-4">
@@ -1411,7 +1739,10 @@ export function AllocationSheet({
                               sourceIndex={sourceIndex}
                               previewFree={getSourcePreviewFree(source)}
                               isSelected={selectedSourceKey === key}
+                              carried={carried}
                               onPick={pickToken}
+                              onSelect={selectSource}
+                              onReturn={returnTokenToSource}
                               onOpenOutput={openOutputMo}
                             />
                           );
@@ -1419,36 +1750,42 @@ export function AllocationSheet({
                       </div>
                     </div>
 
-                    <div className="border-t pt-3">
-                      <SectionTitle
-                        title="Inbound from MFG"
-                        count={`${manufacturingSources.length} MOs`}
-                        icon={
-                          <HugeiconsIcon
-                            icon={ArrowDown01Icon}
-                            strokeWidth={2}
-                            className="size-3.5 text-primary"
-                          />
-                        }
-                      />
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {manufacturingSources.map((source, index) => {
-                          const key = allocationKey(source.sourceType, source.sourceId);
-                          return (
-                            <SupplyStack
-                              key={key}
-                              source={source}
-                              sourceKeyValue={key}
-                              sourceIndex={onHandSources.length + index}
-                              previewFree={getSourcePreviewFree(source)}
-                              isSelected={selectedSourceKey === key}
-                              onPick={pickToken}
-                              onOpenOutput={openOutputMo}
+                    {manufacturingSources.length > 0 ? (
+                      <div className="border-t pt-3">
+                        <SectionTitle
+                          title="Inbound from MFG"
+                          count={`${manufacturingSources.length} MOs`}
+                          className="text-primary"
+                          icon={
+                            <HugeiconsIcon
+                              icon={ArrowDown01Icon}
+                              strokeWidth={2}
+                              className="size-3.5"
                             />
-                          );
-                        })}
+                          }
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {manufacturingSources.map((source, index) => {
+                            const key = allocationKey(source.sourceType, source.sourceId);
+                            return (
+                              <SupplyStack
+                                key={key}
+                                source={source}
+                                sourceKeyValue={key}
+                                sourceIndex={onHandSources.length + index}
+                                previewFree={getSourcePreviewFree(source)}
+                                isSelected={selectedSourceKey === key}
+                                carried={carried}
+                                onPick={pickToken}
+                                onSelect={selectSource}
+                                onReturn={returnTokenToSource}
+                                onOpenOutput={openOutputMo}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    ) : null}
                   </div>
 
                   {targetLine && targetDraftShortQty > 0 ? (
@@ -1471,7 +1808,7 @@ export function AllocationSheet({
                           id: source.sourceId ?? source.label,
                           orderNumber: source.label,
                           itemName: targetLine.itemName,
-                          quantity: `${formatQuantity(source.totalQty)} ${targetLine.unitName}`,
+                          quantity: `${formatQuantity(source.totalQty)} ${targetUnitLabel}`,
                           plannedDate: source.date,
                           priorityRank: source.priorityRank,
                           status: statusLabel(source.status),
@@ -1485,10 +1822,12 @@ export function AllocationSheet({
                     />
                   ) : null}
 
-                  <SourceDetailPanel
-                    source={selectedSource}
-                    destinations={sourceDestinations}
-                  />
+                  {selectedSource ? (
+                    <SourceDetailPanel
+                      source={selectedSource}
+                      destinations={sourceDestinations}
+                    />
+                  ) : null}
                 </WorkspacePanel>
 
                 <WorkspacePanel
@@ -1516,6 +1855,7 @@ export function AllocationSheet({
                             shortQty={shortQty}
                             carried={carried}
                             onPlace={() => placeOnLine(row.salesOrderLineId)}
+                            onPick={() => pickFirstTokenFromLine(row.salesOrderLineId)}
                           >
                             {Object.entries(draftsByLine[row.salesOrderLineId] ?? {}).flatMap(
                               ([key, value]) => {
@@ -1559,7 +1899,6 @@ export function AllocationSheet({
             )}
             <CarryPanel
               carried={carried}
-              onClear={() => setCarried(null)}
               className="bottom-20"
             />
           </div>
@@ -1572,7 +1911,7 @@ export function AllocationSheet({
             ) : totalOverRemaining && targetLine ? (
               <p className="text-sm text-destructive">
                 Allocated quantity cannot exceed {formatQuantity(targetLine.remainingQty)}{" "}
-                {targetLine.unitName}.
+                {targetUnitLabel}.
               </p>
             ) : overAllocatedSource ? (
               <p className="text-sm text-destructive">
