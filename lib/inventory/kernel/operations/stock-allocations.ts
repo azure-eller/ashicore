@@ -8,6 +8,7 @@ import {
   salesShipmentLines,
   salesShipments,
   stockAllocations,
+  STOCK_ALLOCATION_DEMAND_TYPES,
   type StockAllocationDemandType,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -16,6 +17,10 @@ import { consumeSpecificLotInTx } from "./stock-core";
 
 function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
+}
+
+function isStockAllocationDemandType(value: string): value is StockAllocationDemandType {
+  return (STOCK_ALLOCATION_DEMAND_TYPES as readonly string[]).includes(value);
 }
 
 async function reduceOrCloseAllocationInTx(
@@ -205,6 +210,8 @@ async function getOpenDemandQtyForAllocationInTx(
       .for("update");
 
     baseRemainingQty = roundQuantity(parseFloat(ingredient?.remainingQty ?? "0"));
+  } else {
+    throw new Error(`Unsupported stock allocation demand type: ${params.demandType}`);
   }
 
   const activeHeldQty = await getActiveLotAllocationQtyForDemandInTx(tx, params);
@@ -385,7 +392,10 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
 
   for (const promise of promises) {
     if (remainingOutputQty <= 0) break;
-    const demandType = promise.demandType as StockAllocationDemandType;
+    if (!isStockAllocationDemandType(promise.demandType)) {
+      throw new Error(`Unsupported stock allocation demand type: ${promise.demandType}`);
+    }
+    const demandType = promise.demandType;
     const promiseQty = roundQuantity(parseFloat(promise.quantity));
     const openDemandQty = await getOpenDemandQtyForAllocationInTx(tx, {
       organizationId: params.organizationId,

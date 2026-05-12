@@ -28,6 +28,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -147,9 +148,9 @@ function sourceKindLabel(source: SalesAllocationSource) {
   return source.status === "draft" ? "Draft production" : "Released production";
 }
 
-function formatInstantDate(value: string | null | undefined) {
+function formatInstantDate(value: string | null | undefined, organizationTimeZone: string) {
   if (!value) return "\u2014";
-  return formatDateTime(value, "America/Denver").split(",")[0] ?? "\u2014";
+  return formatDateTime(value, organizationTimeZone).split(",")[0] ?? "\u2014";
 }
 
 function ProgressBar({
@@ -438,6 +439,8 @@ function SourceDetailPanel({
   source: SalesAllocationSource | null;
   destinations: Array<{ label: string; quantity: number; kind: "sales" | "production" }>;
 }) {
+  const organizationTimeZone = useOrganizationTimeZone();
+
   if (!source) {
     return (
       <div className="rounded-lg border border-dashed bg-card p-3 text-sm text-muted-foreground">
@@ -465,8 +468,8 @@ function SourceDetailPanel({
           <div className="mt-1 text-xs text-muted-foreground">
             {source.sourceType === "lot" ? (
               <>
-                Received {formatInstantDate(source.receivedAt ?? source.date)} · Created{" "}
-                {formatInstantDate(source.createdAt)}
+                Received {formatInstantDate(source.receivedAt ?? source.date, organizationTimeZone)} · Created{" "}
+                {formatInstantDate(source.createdAt, organizationTimeZone)}
               </>
             ) : source.sourceType === "manufacturing_order" ? (
               <>
