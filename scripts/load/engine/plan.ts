@@ -28,7 +28,11 @@ import type {
   UnitSeed,
 } from "./types";
 
-export async function planChanges(orgId: string, config: LoaderConfig): Promise<Report> {
+export async function planChanges(
+  orgId: string,
+  config: LoaderConfig,
+  idempotencyKeyPrefix?: string
+): Promise<Report> {
   const seedByKey = new Map(config.seeds.map((seed) => [seed.key, seed]));
   const unitByKey = new Map(config.units.map((unit) => [unit.key, unit]));
   const managedUnitSignatures = new Set(
@@ -92,6 +96,13 @@ export async function planChanges(orgId: string, config: LoaderConfig): Promise<
       seedByKey,
       config.initialStockByKey,
       config.openingLotPrefix,
+      orgId,
+      new Map(
+        [...matchedItemByKey.entries()]
+          .filter((entry): entry is [string, ExistingItem] => entry[1] != null)
+          .map(([key, item]) => [key, item.id])
+      ),
+      idempotencyKeyPrefix,
       report
     );
 

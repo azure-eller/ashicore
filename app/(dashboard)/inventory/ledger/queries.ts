@@ -609,8 +609,7 @@ export async function getInventoryLedger(
           PARTITION BY
             ${inventoryEvents.organizationId},
             ${inventoryEvents.locationId},
-            ${inventoryEvents.itemId},
-            ${inventoryEvents.lotId}
+            ${inventoryEvents.itemId}
           ORDER BY ${inventoryEvents.occurredAt} ASC, ${inventoryEvents.id} ASC
           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
         ), 0)`).as("onHandBefore"),
@@ -621,8 +620,7 @@ export async function getInventoryLedger(
           PARTITION BY
             ${inventoryEvents.organizationId},
             ${inventoryEvents.locationId},
-            ${inventoryEvents.itemId},
-            ${inventoryEvents.lotId}
+            ${inventoryEvents.itemId}
           ORDER BY ${inventoryEvents.occurredAt} ASC, ${inventoryEvents.id} ASC
           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )`).as("onHandAfter"),

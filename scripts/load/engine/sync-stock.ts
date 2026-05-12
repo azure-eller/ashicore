@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { inArray, sql } from "drizzle-orm";
-import { lots } from "@/lib/db/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { inventoryEvents, inventoryIdempotencyClaims, lots } from "@/lib/db/schema";
 import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -97,15 +97,48 @@ function buildLegacyLotNumberCandidates(
   return lotSuffix ? uniqueLotNumbers(buildLotNumbers(prefix, seed)) : [];
 }
 
-async function findExistingLotByNumberCandidates(tx: Tx, candidates: string[]) {
+async function findExistingLotByNumberCandidates(
+  tx: Tx,
+  candidates: string[],
+  itemId?: string | null
+) {
   if (candidates.length === 0) {
     return null;
+  }
+
+  const conditions = [inArray(lots.lotNumber, candidates)];
+  if (itemId) {
+    conditions.push(eq(lots.itemId, itemId));
   }
 
   const [existingLot] = await tx
     .select({ id: lots.id, lotNumber: lots.lotNumber })
     .from(lots)
-    .where(inArray(lots.lotNumber, candidates))
+    .where(and(...conditions))
+    .limit(1);
+
+  return existingLot ?? null;
+}
+
+async function findExistingLotByIdempotencyKey(
+  tx: Tx,
+  orgId: string,
+  idempotencyKey: string
+) {
+  const [existingLot] = await tx
+    .select({ id: lots.id, lotNumber: lots.lotNumber })
+    .from(inventoryIdempotencyClaims)
+    .innerJoin(
+      inventoryEvents,
+      eq(inventoryEvents.id, inventoryIdempotencyClaims.firstEventId)
+    )
+    .innerJoin(lots, eq(lots.id, inventoryEvents.lotId))
+    .where(
+      and(
+        eq(inventoryIdempotencyClaims.organizationId, orgId),
+        eq(inventoryIdempotencyClaims.idempotencyKey, idempotencyKey)
+      )
+    )
     .limit(1);
 
   return existingLot ?? null;
@@ -116,6 +149,9 @@ export async function planStockSyncInTx(
   seedByKey: Map<string, ItemSeed>,
   initialStockByKey: Record<string, InitialStockEntry>,
   openingLotPrefix: string,
+  orgId: string,
+  itemIdByKey: Map<string, string>,
+  idempotencyKeyPrefix: string | undefined,
   report: Report
 ) {
   const existingInitLots = await tx
@@ -153,8 +189,17 @@ export async function planStockSyncInTx(
       const openingUnitCost = resolveSeedOpeningUnitCost(seed, seedByKey);
       const { sourceLabel } = resolveSeedOpeningQuantity(seed, lotEntry);
       resolveSeedOpeningReceivedAt(lotEntry);
-      if (existingLotNumber) {
-        report.stockLotsExisting.push(`${seed.name} (${existingLotNumber})`);
+      const legacyIdempotencyKey =
+        idempotencyKeyPrefix && currentCandidates[0]
+          ? `${idempotencyKeyPrefix}:${currentCandidates[0]}`
+          : null;
+      const existingClaimLot = legacyIdempotencyKey && itemIdByKey.has(key)
+        ? await findExistingLotByIdempotencyKey(tx, orgId, legacyIdempotencyKey)
+        : null;
+      if (existingLotNumber || existingClaimLot) {
+        report.stockLotsExisting.push(
+          `${seed.name} (${existingClaimLot?.lotNumber ?? existingLotNumber})`
+        );
       } else if (openingUnitCost == null) {
         report.stockLotsSkippedMissingCost.push(
           `${seed.name}: missing current stock unit cost or default purchase price for opening stock`
@@ -193,7 +238,8 @@ export async function applyStockSyncInTx(
       );
       const existingCurrentLot = await findExistingLotByNumberCandidates(
         tx,
-        currentCandidates
+        currentCandidates,
+        itemId
       );
       const legacyCandidates = buildLegacyLotNumberCandidates(
         openingLotPrefix,
@@ -202,8 +248,13 @@ export async function applyStockSyncInTx(
       ).filter((candidate) => !claimedLegacyLotNumbers.has(candidate));
       const existingLegacyLot = existingCurrentLot
         ? null
-        : await findExistingLotByNumberCandidates(tx, legacyCandidates);
-      const existingLot = existingCurrentLot ?? existingLegacyLot;
+        : await findExistingLotByNumberCandidates(tx, legacyCandidates, itemId);
+      const legacyIdempotencyKey = `${idempotencyKeyPrefix}:${lotNumber}`;
+      const existingClaimLot =
+        existingCurrentLot || existingLegacyLot
+          ? null
+          : await findExistingLotByIdempotencyKey(tx, orgId, legacyIdempotencyKey);
+      const existingLot = existingCurrentLot ?? existingLegacyLot ?? existingClaimLot;
 
       if (existingLot) {
         if (existingLegacyLot) {
@@ -231,8 +282,7 @@ export async function applyStockSyncInTx(
         quantity: stockQuantity,
         unitCost: openingUnitCost,
         actorUserId,
-        idempotencyKey: `${idempotencyKeyPrefix}:${lotNumber}`,
-        lotNumber,
+        idempotencyKey: legacyIdempotencyKey,
         receivedAt,
       });
 

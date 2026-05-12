@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Calendar03Icon } from "@hugeicons/core-free-icons";
+import { Calendar03Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import { inferItemVisual, ItemToken } from "@/components/inventory-visuals";
 import type { ItemVisualState } from "@/components/inventory-visuals";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatDate, formatQuantity } from "@/lib/format";
 import type { SalesOrderListRow } from "../types";
-import { deriveSalesOrderLane } from "./sales-order-lane-model";
+import { deriveSalesOrderLane, readSalesOrderNumber } from "./sales-order-lane-model";
 import { getProductLensAggregate } from "./sales-order-product-lens";
 
 export function ProductLensOrderCard({
@@ -29,12 +29,21 @@ export function ProductLensOrderCard({
   if (!aggregate) return null;
 
   const lane = deriveSalesOrderLane(order);
-  const badgeLabel = `${formatQuantity(aggregate.allocatedQty)}/${formatQuantity(
-    aggregate.remainingQty
+  const badgeNumerator =
+    lane === "shipped" ? aggregate.shippedQty : aggregate.allocatedQty;
+  const badgeDenominator =
+    lane === "shipped" ? aggregate.quantity : aggregate.remainingQty;
+  const badgeVerb = lane === "shipped" ? "shipped" : "allocated";
+  const badgeNumeratorValue = readSalesOrderNumber(badgeNumerator);
+  const badgeDenominatorValue = readSalesOrderNumber(badgeDenominator);
+  const productIsResolved =
+    badgeDenominatorValue > 0 && badgeNumeratorValue >= badgeDenominatorValue;
+  const badgeLabel = `${formatQuantity(badgeNumerator)}/${formatQuantity(
+    badgeDenominator
   )}`;
-  const badgeTitle = `${formatQuantity(aggregate.allocatedQty)} / ${formatQuantity(
-    aggregate.remainingQty
-  )} ${aggregate.unitName} allocated`;
+  const badgeTitle = `${formatQuantity(badgeNumerator)} / ${formatQuantity(
+    badgeDenominator
+  )} ${aggregate.unitName} ${badgeVerb}`;
 
   return (
     <Card
@@ -48,7 +57,8 @@ export function ProductLensOrderCard({
         lane === "in_production" && "border-l-primary",
         lane === "ready_to_ship" && "border-l-success",
         lane === "shipped" && "border-l-info",
-        lane === "cancelled" && "border-l-destructive"
+        lane === "cancelled" && "border-l-destructive",
+        productIsResolved && "border-l-success bg-success/5 opacity-90"
       )}
     >
       <CardContent className="p-2.5">
@@ -58,6 +68,7 @@ export function ProductLensOrderCard({
             badgeLabel={badgeLabel}
             badgeTitle={badgeTitle}
             lane={lane}
+            resolved={productIsResolved}
           />
           <div className="min-w-0 flex-1">
             <Link
@@ -90,14 +101,16 @@ function ProductLensItemVisual({
   badgeLabel,
   badgeTitle,
   lane,
+  resolved,
 }: {
   label: string;
   badgeLabel: string;
   badgeTitle: string;
   lane: ReturnType<typeof deriveSalesOrderLane>;
+  resolved: boolean;
 }) {
   const visual = inferItemVisual({ name: label });
-  const state = getItemVisualState(lane);
+  const state = resolved ? "available" : getItemVisualState(lane);
 
   return (
     <div className="relative shrink-0">
@@ -109,11 +122,19 @@ function ProductLensItemVisual({
         title={label}
         className="size-12 rounded-lg"
       />
+      {resolved ? (
+        <span className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-success text-background shadow-xs ring-2 ring-background">
+          <HugeiconsIcon icon={CheckmarkCircle02Icon} strokeWidth={2} className="size-3.5" />
+        </span>
+      ) : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <Badge
             variant="secondary"
-            className="absolute -right-2 -bottom-1 h-5 max-w-16 px-1.5 text-[10px] shadow-xs"
+            className={cn(
+              "absolute -right-2 -bottom-1 h-5 max-w-16 px-1.5 text-[10px] shadow-xs",
+              resolved && "bg-success/90 text-background"
+            )}
           >
             <span className="truncate">{badgeLabel}</span>
           </Badge>

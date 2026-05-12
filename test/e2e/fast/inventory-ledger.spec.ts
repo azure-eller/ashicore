@@ -658,7 +658,7 @@ test.describe("Inventory ledger explorer", () => {
     });
   });
 
-  test("returns on-hand after from full event history, not only date-filtered rows", async () => {
+  test("returns item-level on-hand after from full event history, not only date-filtered rows", async () => {
     const today = balanceToday.toISOString().slice(0, 10);
     const todayResponse = await testFetch(
       `/api/inventory-ledger?itemId=${balanceItemId}&dateFrom=${today}&dateTo=${today}&timeZone=UTC`
@@ -675,8 +675,8 @@ test.describe("Inventory ledger explorer", () => {
     );
     expect(decreaseRow).toMatchObject({
       signedQuantity: "-3",
-      onHandBefore: "20",
-      onHandAfter: "17",
+      onHandBefore: "25",
+      onHandAfter: "22",
       lot: expect.objectContaining({ number: balanceLotANumber }),
     });
 
@@ -699,8 +699,8 @@ test.describe("Inventory ledger explorer", () => {
     });
     expect(increaseRow).toMatchObject({
       signedQuantity: "5",
-      onHandBefore: "0",
-      onHandAfter: "5",
+      onHandBefore: "20",
+      onHandAfter: "25",
       lot: expect.objectContaining({ number: balanceLotBNumber }),
     });
     expect(
@@ -708,7 +708,7 @@ test.describe("Inventory ledger explorer", () => {
     ).toBe(false);
     expect(
       allBody.rows.some(
-        (row: { onHandAfter: string | null }) => row.onHandAfter === "1016"
+        (row: { onHandAfter: string | null }) => row.onHandAfter === "1021"
       )
     ).toBe(false);
   });
@@ -733,8 +733,8 @@ test.describe("Inventory ledger explorer", () => {
       .filter({ hasText: balanceLotANumber })
       .first();
     await expect(decreaseRow.getByRole("cell").nth(6)).toHaveText("-3");
-    await expect(decreaseRow.getByRole("cell").nth(7)).toHaveText("20");
-    await expect(decreaseRow.getByRole("cell").nth(8)).toHaveText("17");
+    await expect(decreaseRow.getByRole("cell").nth(7)).toHaveText("25");
+    await expect(decreaseRow.getByRole("cell").nth(8)).toHaveText("22");
 
     const openingRow = tableBody
       .locator("tr")
@@ -751,9 +751,9 @@ test.describe("Inventory ledger explorer", () => {
       .filter({ hasText: balanceLotBNumber })
       .first();
     await expect(lotBRow.getByRole("cell").nth(6)).toHaveText("+5");
-    await expect(lotBRow.getByRole("cell").nth(7)).toHaveText("0");
-    await expect(lotBRow.getByRole("cell").nth(8)).toHaveText("5");
-    await expect(lotBRow.getByRole("cell").nth(8)).not.toHaveText("22");
+    await expect(lotBRow.getByRole("cell").nth(7)).toHaveText("20");
+    await expect(lotBRow.getByRole("cell").nth(8)).toHaveText("25");
+    await expect(lotBRow.getByRole("cell").nth(8)).not.toHaveText("5");
   });
 
   test("uses event id as a same-timestamp tie-breaker and dashes unknown balances", async ({
@@ -793,8 +793,8 @@ test.describe("Inventory ledger explorer", () => {
     const secondDataRow = page.locator("tbody > tr").nth(1);
     await expect(secondDataRow).toContainText("Manual stock decrease");
     await expect(secondDataRow.getByRole("cell").nth(6)).toHaveText("-3");
-    await expect(secondDataRow.getByRole("cell").nth(7)).toHaveText("20");
-    await expect(secondDataRow.getByRole("cell").nth(8)).toHaveText("17");
+    await expect(secondDataRow.getByRole("cell").nth(7)).toHaveText("25");
+    await expect(secondDataRow.getByRole("cell").nth(8)).toHaveText("22");
   });
 
   test("does not return another organization's ledger rows", async () => {

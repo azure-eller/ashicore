@@ -1,0 +1,2 @@
+DROP INDEX "inventory"."lots_org_lot_number_uidx";--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "lots_org_lot_number_uidx" ON "inventory"."lots" USING btree ("organization_id","item_id","lot_number");
