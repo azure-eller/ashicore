@@ -195,6 +195,56 @@ function SectionTitle({
   );
 }
 
+function WorkspacePanel({
+  title,
+  count,
+  accent = "default",
+  children,
+  footer,
+  className,
+}: {
+  title: string;
+  count?: string;
+  accent?: "default" | "supply" | "production";
+  children: ReactNode;
+  footer?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={cn(
+        "flex min-h-[34rem] flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={cn(
+              "size-2.5 shrink-0 rounded-[2px]",
+              accent === "supply" && "bg-success shadow-md",
+              accent === "production" && "bg-primary shadow-md",
+              accent === "default" && "bg-warning shadow-md"
+            )}
+          />
+          <h3 className="truncate text-sm font-semibold uppercase tracking-wide">
+            {title}
+          </h3>
+        </div>
+        {count ? (
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {count}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {children}
+      </div>
+      {footer ? <div className="border-t bg-muted/20 p-3">{footer}</div> : null}
+    </section>
+  );
+}
+
 function CarryPanel({
   carried,
   onClear,
@@ -204,20 +254,18 @@ function CarryPanel({
 }) {
   if (!carried) {
     return (
-      <div className="rounded-lg border border-dashed bg-card/70 p-3 text-sm text-muted-foreground">
-        Select a supply stack or active allocation, then choose a destination.
+      <div className="flex min-h-16 items-center justify-center rounded-md border border-dashed bg-muted/20 px-3 text-center text-sm font-medium text-muted-foreground">
+        Select a stack, then choose demand.
       </div>
     );
   }
 
   return (
     <TooltipProvider>
-      <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 shadow-sm">
+      <div className="rounded-md border border-primary/40 bg-primary/5 p-3 shadow-sm ring-2 ring-primary/10">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-wide text-primary">
-              Carrying
-            </div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-primary">Picked up</div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <Badge variant="secondary">{formatQuantity(toQuantityString(carried.quantity))}</Badge>
               <span className="truncate text-sm font-medium">{carried.sourceLabel}</span>
@@ -259,22 +307,75 @@ function SupplyStack({
   const isLot = source.sourceType === "lot";
   const quantityLabel = formatQuantity(toQuantityString(previewFree));
   const canPick = previewFree > 0 && source.canAllocate;
+  const stackClassName = cn(
+    "group relative flex h-28 w-24 flex-col justify-between rounded-md border bg-background p-2 text-left shadow-xs transition",
+    "hover:border-primary/40 hover:bg-primary/5 focus-within:ring-2 focus-within:ring-ring",
+    isSelected && "border-primary/60 bg-primary/5 ring-2 ring-primary/25 shadow-md",
+    isMo && "border-primary/35 bg-primary/5",
+    !canPick && "opacity-70"
+  );
+
+  if (isMo) {
+    return (
+      <div className={stackClassName}>
+        <button
+          type="button"
+          className="flex items-start justify-between gap-2 text-left focus-visible:outline-none"
+          onClick={() => {
+            if (!canPick) return;
+            onPick({
+              sourceKey: sourceKeyValue,
+              sourceType: source.sourceType,
+              sourceId: source.sourceId,
+              sourceLabel: source.label,
+              sourceIndex,
+              quantity: previewFree,
+            });
+          }}
+          disabled={!canPick}
+          aria-label={`Allocate all from ${source.label}`}
+        >
+          <span className="inline-flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-4" />
+          </span>
+          <span className="text-lg font-semibold tabular-nums text-foreground">
+            {quantityLabel}
+          </span>
+        </button>
+        <div className="min-w-0">
+          <button
+            type="button"
+            className="block max-w-full truncate text-xs font-semibold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => {
+              if (source.sourceId) onOpenOutput(source.sourceId);
+            }}
+            aria-label={`Open output allocation for ${source.label}`}
+          >
+            {source.label}
+          </button>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {statusLabel(source.status)}
+            {source.date ? ` · ${formatDate(source.date)}` : ""}
+          </div>
+        </div>
+        {source.sourceId ? (
+          <button
+            type="button"
+            className="text-left text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpenOutput(source.sourceId!)}
+          >
+            Open output
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <button
       type="button"
-      className={cn(
-        "group relative flex min-h-24 w-[7.25rem] flex-col justify-between rounded-md border bg-card p-2 text-left shadow-xs transition",
-        "hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        isSelected && "border-primary/50 bg-primary/5 ring-2 ring-primary/25 shadow-md",
-        isMo && "border-primary/25",
-        !canPick && "opacity-70"
-      )}
+      className={cn(stackClassName, "focus-visible:outline-none focus-visible:ring-2")}
       onClick={() => {
-        if (isMo && source.sourceId && previewFree <= 0) {
-          onOpenOutput(source.sourceId);
-          return;
-        }
         if (!canPick) return;
         onPick({
           sourceKey: sourceKeyValue,
@@ -287,21 +388,18 @@ function SupplyStack({
       }}
       aria-label={`Allocate all from ${source.label}`}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-start justify-between gap-2">
         <span
-          className={cn(
-            "inline-flex size-7 items-center justify-center rounded-md",
-            isMo ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-          )}
+          className="inline-flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground"
         >
-          <HugeiconsIcon icon={isMo ? Factory01Icon : PackageIcon} strokeWidth={2} className="size-4" />
+          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4" />
         </span>
-        <span className="text-base font-semibold tabular-nums text-foreground">
+        <span className="text-lg font-semibold tabular-nums text-foreground">
           {quantityLabel}
         </span>
       </div>
       <div className="min-w-0">
-        <div className="truncate text-sm font-medium">
+        <div className="truncate text-xs font-semibold">
           {isLot ? source.lotNumber ?? source.label : source.label}
         </div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -312,17 +410,6 @@ function SupplyStack({
               : sourceKindLabel(source)}
         </div>
       </div>
-      {isMo && source.sourceId ? (
-        <span
-          className="mt-2 text-xs font-medium text-primary underline-offset-4 hover:underline"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenOutput(source.sourceId!);
-          }}
-        >
-          Open output
-        </span>
-      ) : null}
     </button>
   );
 }
@@ -347,7 +434,7 @@ function SourceDetailPanel({
   const free = readQuantity(source.freeQty);
 
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-xs">
+    <div className="rounded-md border bg-background p-3 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -441,7 +528,7 @@ function DemandCard({
       type="button"
       data-testid={isTarget ? "current-allocation-bucket" : "readonly-allocation-bucket"}
       className={cn(
-        "w-full rounded-lg border bg-card p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isTarget && "border-primary/25 bg-primary/5",
         canPlace && "hover:border-primary/50 hover:bg-primary/5"
       )}
@@ -450,7 +537,7 @@ function DemandCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <Badge variant="secondary">SO</Badge>
+            <Badge variant="secondary" className="rounded-sm">SO</Badge>
             <span>{row.orderNumber}</span>
             <span className="truncate text-muted-foreground">{row.customerName}</span>
             {isTarget ? <Badge variant="outline">This order</Badge> : null}
@@ -466,6 +553,26 @@ function DemandCard({
       </div>
 
       <div className="mt-3 space-y-2">
+        <div className="flex flex-wrap gap-1">
+          {Array.from({ length: Math.min(12, Math.max(1, Math.ceil(remaining / 25))) }).map((_, index) => (
+            <span
+              key={index}
+              className={cn(
+                "flex size-7 items-center justify-center rounded border",
+                index < Math.ceil(allocatedQty / 25)
+                  ? "border-border bg-muted"
+                  : "border-dashed bg-transparent"
+              )}
+            >
+              {index < Math.ceil(allocatedQty / 25) ? (
+                <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-3.5 text-muted-foreground" />
+              ) : null}
+            </span>
+          ))}
+          {remaining > 300 ? (
+            <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
+          ) : null}
+        </div>
         <ProgressBar value={allocatedQty} max={remaining} />
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -527,11 +634,10 @@ function ActiveAllocationList({
   }>;
 }) {
   return (
-    <section className="flex min-h-0 flex-col gap-3 rounded-lg border bg-card p-3 shadow-xs">
-      <SectionTitle title="Active allocations" count={`${rows.length} active`} />
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {rows.length === 0 ? (
-        <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-          Select a stack, then choose a destination.
+        <div className="flex min-h-48 flex-1 items-center justify-center rounded-md border border-dashed bg-muted/10 p-4 text-center text-sm text-muted-foreground">
+          Allocations appear here.
         </div>
       ) : (
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
@@ -539,8 +645,8 @@ function ActiveAllocationList({
             <div
               key={row.id}
               className={cn(
-                "flex items-center justify-between gap-3 rounded-md border bg-background p-2 shadow-xs",
-                row.tone === "production" && "border-primary/35 bg-primary/5"
+                "flex items-center justify-between gap-3 rounded-md border bg-background p-3 shadow-xs",
+                row.tone === "production" && "border-primary/45 bg-primary/5"
               )}
             >
               <button
@@ -593,7 +699,7 @@ function ActiveAllocationList({
           ))}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -765,10 +871,13 @@ function OutputAllocationWorkspace({
       ) : outputQuery.isError ? (
         <p className="text-sm text-destructive">{outputQuery.error.message}</p>
       ) : data ? (
-        <div className="grid min-h-0 gap-4 xl:grid-cols-[18rem_minmax(18rem,0.9fr)_minmax(26rem,1.35fr)]">
-          <section className="space-y-3">
-            <SectionTitle title="Output" count={data.sourceMo.orderNumber} />
-            <div className="rounded-lg border bg-card p-3 shadow-xs">
+        <div className="grid min-h-0 gap-4 xl:grid-cols-3">
+          <WorkspacePanel
+            title="Supply · Output"
+            count={data.sourceMo.orderNumber}
+            accent="supply"
+          >
+            <div className="rounded-md border bg-background p-3 shadow-xs">
               <div className="flex items-start gap-3">
                 <div className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} />
@@ -808,50 +917,61 @@ function OutputAllocationWorkspace({
                 Pick up output
               </Button>
             </div>
-            <CarryPanel
-              carried={
-                carriedQty == null
-                  ? null
-                  : {
-                      sourceKey: "output",
-                      sourceType: "manufacturing_order",
-                      sourceId: manufacturingOrderId,
-                      sourceLabel: data.sourceMo.orderNumber,
-                      sourceIndex: 0,
-                      quantity: carriedQty,
-                    }
-              }
-              onClear={() => setCarriedQty(null)}
-            />
-          </section>
+          </WorkspacePanel>
 
-          <ActiveAllocationList
-            rows={data.productionDestinations.flatMap((destination) => {
-              const quantity = readQuantity(draft[destination.ingredientId]);
-              if (quantity <= 0) return [];
-              return [
-                {
-                  id: destination.ingredientId,
-                  from: data.sourceMo.orderNumber,
-                  to: destination.orderNumber,
-                  quantity,
-                  tone: "production" as const,
-                  onPick: () => {
-                    updateDestination(destination.ingredientId, 0);
-                    setCarriedQty(quantity);
-                    setSelectedIngredientId(destination.ingredientId);
+          <WorkspacePanel
+            title="Allocation Grid"
+            count={`${
+              data.productionDestinations.filter(
+                (destination) => readQuantity(draft[destination.ingredientId]) > 0
+              ).length
+            } active`}
+            footer={
+              <CarryPanel
+                carried={
+                  carriedQty == null
+                    ? null
+                    : {
+                        sourceKey: "output",
+                        sourceType: "manufacturing_order",
+                        sourceId: manufacturingOrderId,
+                        sourceLabel: data.sourceMo.orderNumber,
+                        sourceIndex: 0,
+                        quantity: carriedQty,
+                      }
+                }
+                onClear={() => setCarriedQty(null)}
+              />
+            }
+          >
+            <ActiveAllocationList
+              rows={data.productionDestinations.flatMap((destination) => {
+                const quantity = readQuantity(draft[destination.ingredientId]);
+                if (quantity <= 0) return [];
+                return [
+                  {
+                    id: destination.ingredientId,
+                    from: data.sourceMo.orderNumber,
+                    to: destination.orderNumber,
+                    quantity,
+                    tone: "production" as const,
+                    onPick: () => {
+                      updateDestination(destination.ingredientId, 0);
+                      setCarriedQty(quantity);
+                      setSelectedIngredientId(destination.ingredientId);
+                    },
+                    onRemove: () => updateDestination(destination.ingredientId, 0),
                   },
-                  onRemove: () => updateDestination(destination.ingredientId, 0),
-                },
-              ];
-            })}
-          />
-
-          <section className="space-y-3">
-            <SectionTitle
-              title="Allocate to"
-              count={`${data.productionDestinations.length} production orders`}
+                ];
+              })}
             />
+          </WorkspacePanel>
+
+          <WorkspacePanel
+            title="Demand · Orders"
+            count={`${data.productionDestinations.length} MO`}
+            accent="production"
+          >
             {data.productionDestinations.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 No production orders currently need this output.
@@ -868,7 +988,7 @@ function OutputAllocationWorkspace({
                     key={destination.ingredientId}
                     onClick={() => placeOnDestination(destination.ingredientId)}
                     className={cn(
-                      "w-full rounded-lg border bg-card p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       "border-primary/30 bg-primary/5",
                       selected && "ring-2 ring-primary/25"
                     )}
@@ -917,7 +1037,7 @@ function OutputAllocationWorkspace({
             {mutation.error ? (
               <p className="text-sm text-destructive">{mutation.error.message}</p>
             ) : null}
-          </section>
+          </WorkspacePanel>
         </div>
       ) : null}
     </div>
@@ -1308,23 +1428,23 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
             Allocate available stock and production to demand.
           </SheetDescription>
           {targetLine ? (
-            <div className="mt-2 rounded-lg border bg-card p-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex size-12 items-center justify-center rounded-md bg-muted">
-                  <HugeiconsIcon icon={PackageIcon} strokeWidth={2} />
-                </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+                  <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4" />
+                </span>
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-xl font-semibold text-foreground">
-                      {targetLine.itemName}
-                    </div>
-                    <Badge variant="secondary">{targetLine.unitName}</Badge>
+                  <div className="truncate text-base font-semibold text-foreground">
+                    {targetLine.itemName}
                   </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {targetLine.orderNumber} · {targetLine.customerName} ·{" "}
-                    {statusLabel(targetLine.orderStatus)}
+                  <div className="truncate text-sm text-muted-foreground">
+                    {targetLine.orderNumber} · {targetLine.customerName}
                   </div>
                 </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant="secondary">{targetLine.unitName}</Badge>
+                <Badge variant="outline">{statusLabel(targetLine.orderStatus)}</Badge>
               </div>
             </div>
           ) : null}
@@ -1344,10 +1464,13 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
             ) : query.isError ? (
               <p className="text-sm text-destructive">{query.error.message}</p>
             ) : data && targetLine ? (
-              <div className="grid min-h-0 gap-4 xl:grid-cols-[20rem_minmax(20rem,0.95fr)_minmax(28rem,1.35fr)]">
-                <section className="flex min-h-0 flex-col gap-3">
-                  <SectionTitle title="Supply" count={`${data.supplySources.length} sources`} />
-                  <div className="flex min-h-0 flex-col gap-4 rounded-lg border bg-card p-3 shadow-xs">
+              <div className="grid min-h-0 gap-4 xl:grid-cols-3">
+                <WorkspacePanel
+                  title="Supply · Storage"
+                  count={`${onHandSources.length} on hand · ${manufacturingSources.length} inbound`}
+                  accent="supply"
+                >
+                  <div className="flex min-h-0 flex-col gap-4">
                     <div className="space-y-3">
                       <SectionTitle title="On hand" count={`${onHandSources.length} sources`} />
                       <div className="flex flex-wrap gap-2">
@@ -1371,7 +1494,7 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
 
                     <div className="border-t pt-3">
                       <SectionTitle
-                        title="Inbound from manufacturing"
+                        title="Inbound from MFG"
                         count={`${manufacturingSources.length} MOs`}
                         icon={
                           <HugeiconsIcon
@@ -1439,17 +1562,21 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                     source={selectedSource}
                     destinations={sourceDestinations}
                   />
-                </section>
+                </WorkspacePanel>
 
-                <section className="flex min-h-0 flex-col gap-3">
-                  <CarryPanel carried={carried} onClear={() => setCarried(null)} />
+                <WorkspacePanel
+                  title="Allocation Grid"
+                  count={`${activeRows.length} active`}
+                  footer={<CarryPanel carried={carried} onClear={() => setCarried(null)} />}
+                >
                   <ActiveAllocationList rows={activeRows} />
-                </section>
+                </WorkspacePanel>
 
-                <section className="flex min-h-0 flex-col gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <SectionTitle title="Allocate to" count="Order by: Shipping Date" />
-                  </div>
+                <WorkspacePanel
+                  title="Demand · Orders"
+                  count={`${data.demandRows.length} SO · shipping date`}
+                  accent="default"
+                >
                   <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
                     {data.demandRows
                       .toSorted((a, b) => Number(b.isTarget) - Number(a.isTarget))
@@ -1501,7 +1628,7 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                         );
                       })}
                   </div>
-                </section>
+                </WorkspacePanel>
               </div>
             ) : null}
           </div>
