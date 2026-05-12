@@ -497,6 +497,8 @@ export type SalesAllocationSource = {
   label: string;
   status: "available" | "draft" | "released" | "completed";
   date: string | null;
+  receivedAt?: string | null;
+  createdAt?: string | null;
   priorityRank: number | null;
   lotNumber?: string | null;
   totalQty: string;
@@ -534,10 +536,37 @@ export type SalesAllocationDemandRow = {
   isTarget: boolean;
 };
 
+export type SalesAllocationVariantOption = {
+  itemId: string;
+  itemName: string;
+  unitName: string;
+  salesOrderLineId: string | null;
+  isCurrent: boolean;
+};
+
 export type SalesAllocationSheetData = {
-  targetLine: SalesAllocationDemandRow & {
-    allocationManagedAt: Date | null;
+  targetItem: {
+    itemId: string;
+    itemName: string;
+    unitName: string;
   };
+  targetLine:
+    | (SalesAllocationDemandRow & {
+        allocationManagedAt: Date | null;
+      })
+    | null;
+  variantOptions: SalesAllocationVariantOption[];
+  salesOrderItems: Array<{
+    itemId: string;
+    itemName: string;
+    unitName: string;
+    salesOrderLineId: string;
+    allocatedQty: string;
+    remainingQty: string;
+    shortQty: string;
+    isCurrent: boolean;
+    variantOptions: SalesAllocationVariantOption[];
+  }>;
   editableAllocations: Array<{
     sourceType: SalesAllocationSourceType;
     sourceId: string | null;

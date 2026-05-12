@@ -1,27 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  pointerWithin,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Factory01Icon,
-  PackageIcon,
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
   ReloadIcon,
 } from "@hugeicons/core-free-icons";
+import {
+  inferItemVisual,
+  ItemToken,
+} from "@/components/inventory-visuals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -33,8 +23,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { apiJson } from "@/lib/client/api";
-import { formatDate, formatQuantity } from "@/lib/format";
+import {
+  formatCompactUnitLabel,
+  formatDate,
+  formatDateTime,
+  formatQuantity,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   SalesAllocationSheetData,
@@ -56,21 +57,51 @@ type AllocationTokenData = {
   sourceLabel: string;
   sourceIndex: number;
   quantity: number;
-  all: boolean;
+  itemName?: string | null;
+  unitName?: string | null;
   originLineId?: string;
 };
 
-type SourceColor = "stock" | "blue" | "purple";
+type OutputAllocationData = {
+  sourceMo: {
+    id: string;
+    orderNumber: string;
+    productName: string;
+    plannedQuantity: string;
+    actualQuantity: string;
+    status: string;
+  };
+  productionDestinations: Array<{
+    ingredientId: string;
+    manufacturingOrderId: string;
+    orderNumber: string;
+    productName: string;
+    outputProductName?: string;
+    outputPlannedQuantity?: string;
+    outputUnitName?: string;
+    plannedDate?: string | null;
+    salesOrderNumber?: string | null;
+    salesCustomerName?: string | null;
+    status: string;
+    remainingNeed: string;
+    assignedQty: string;
+    shortQty: string;
+  }>;
+  assignedSalesQty: string;
+  assignedProductionQty: string;
+  unassignedQty: string;
+};
 
 type Props = {
   lineId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTargetLineChange: (lineId: string) => void;
+  outputManufacturingOrderId?: string | null;
+  onOutputManufacturingOrderChange?: (id: string | null) => void;
 };
 
-const ORDER_BUCKET_PREFIX = "order-bucket:";
-const SOURCE_BUCKET_PREFIX = "source-bucket:";
+type CarryState = AllocationTokenData | null;
 
 function allocationKey(sourceType: SalesAllocationSourceType, sourceId: string | null) {
   return `${sourceType}:${sourceId ?? "stock_pool"}`;
@@ -94,17 +125,14 @@ function statusLabel(status: string) {
     .join(" ");
 }
 
-function sourceLabel(label: string, date: string | null) {
-  return date ? `${label} · ${formatDate(date)}` : label;
-}
-
-function shortLabel(value: number) {
-  return value > 0 ? formatQuantity(toQuantityString(value)) : "\u2014";
-}
-
 function toQuantityString(value: number) {
   if (!Number.isFinite(value)) return "0";
   return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function readQuantity(value: string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function todayDateString() {
@@ -113,286 +141,1256 @@ function todayDateString() {
   return localDate.toISOString().slice(0, 10);
 }
 
-function readQuantity(value: string | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
+function shortLabel(value: number) {
+  return value > 0 ? formatQuantity(toQuantityString(value)) : "\u2014";
 }
 
-function sourceColor(sourceType: SalesAllocationSourceType, sourceIndex: number): SourceColor {
-  if (sourceType === "stock_pool") return "stock";
-  return sourceIndex % 2 === 0 ? "blue" : "purple";
+function compactUnitName(unitName: string | null | undefined) {
+  return formatCompactUnitLabel({ name: unitName }) ?? unitName ?? "units";
 }
 
-function tokenClassName(color: SourceColor, dragging = false) {
-  return cn(
-    "relative inline-flex h-12 min-w-12 select-none items-center justify-center rounded-md border px-3 text-sm font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-    "before:absolute before:inset-x-1 before:top-1 before:h-1.5 before:rounded-sm before:bg-background/45",
-    color === "stock" &&
-      "border-success/30 bg-success text-primary-foreground hover:bg-success/90",
-    color === "blue" &&
-      "border-primary/30 bg-primary text-primary-foreground hover:bg-primary/90",
-    color === "purple" &&
-      "border-warning/30 bg-warning text-primary-foreground hover:bg-warning/90",
-    dragging && "scale-105 shadow-lg"
-  );
+function itemVisual(name: string | null | undefined, unitName: string | null | undefined) {
+  return inferItemVisual({ name, unitName });
 }
 
-function softSourceClassName(color: SourceColor) {
-  return cn(
-    color === "stock" && "bg-success/10 text-success",
-    color === "blue" && "bg-primary/10 text-primary",
-    color === "purple" && "bg-warning/10 text-warning"
-  );
+function demandStackSize(quantity: number) {
+  if (quantity >= 50) return 50;
+  if (quantity >= 20) return 10;
+  if (quantity >= 5) return 5;
+  return 1;
 }
 
-function buildChunks(sourceType: SalesAllocationSourceType, freeQty: number) {
-  if (freeQty <= 0) return [];
+function splitQuantityStacks(quantity: number, stackSize: number) {
+  const normalized = readQuantity(toQuantityString(quantity));
+  if (normalized <= 0) return [];
 
-  const base =
-    sourceType === "stock_pool"
-      ? freeQty <= 5
-        ? [1]
-        : freeQty <= 20
-          ? [1, 5, 10]
-          : [1, 5, 10, 20]
-      : freeQty <= 5
-        ? [1]
-        : freeQty <= 20
-          ? [5, 10]
-          : [5, 10, 20];
+  const fullStackCount = Math.floor(normalized / stackSize);
+  const remainder = readQuantity(toQuantityString(normalized - fullStackCount * stackSize));
+  const stacks = Array.from({ length: fullStackCount }, () => stackSize);
+  if (remainder > 0) stacks.push(remainder);
+  return stacks;
+}
 
-  return [
-    ...base.filter((value) => value <= freeQty),
-    { all: true, quantity: freeQty },
-  ];
+function clampQuantity(value: number, max: number) {
+  return Math.max(0, Math.min(readQuantity(toQuantityString(value)), max));
 }
 
 function sourceKindLabel(source: SalesAllocationSource) {
   if (source.sourceType === "stock_pool") return "Stock";
-  if (source.sourceType === "lot") return "Usable lot";
+  if (source.sourceType === "lot") return "Lot";
   return source.status === "draft" ? "Draft production" : "Released production";
 }
 
-function SourceToken({
-  token,
-  color,
-  disabled,
-  onClick,
-  onPointerDownToken,
-}: {
-  token: AllocationTokenData;
-  color: SourceColor;
-  disabled?: boolean;
-  onClick?: () => void;
-  onPointerDownToken?: (token: AllocationTokenData) => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `${token.sourceKey}:${token.quantity}:${token.all ? "all" : "chunk"}`,
-    data: { token },
-    disabled,
-  });
-  const style = isDragging
-    ? { opacity: 0, transition: "none" }
-    : { transform: CSS.Translate.toString(transform) };
-
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      style={style}
-      className={tokenClassName(color, isDragging)}
-      disabled={disabled}
-      onClick={onClick}
-      aria-label={`Allocate ${token.all ? "all" : toQuantityString(token.quantity)} from ${token.sourceLabel}`}
-      {...attributes}
-      {...listeners}
-      onPointerDown={(event) => {
-        listeners?.onPointerDown?.(event);
-        onPointerDownToken?.(token);
-      }}
-    >
-      {formatQuantity(toQuantityString(token.quantity))}
-    </button>
-  );
+function formatInstantDate(value: string | null | undefined, organizationTimeZone: string) {
+  if (!value) return "\u2014";
+  return formatDateTime(value, organizationTimeZone).split(",")[0] ?? "\u2014";
 }
 
-function TokenPreview({
-  label,
-  quantity,
-  color,
-  token,
-  onPointerDownToken,
+function ProgressBar({
+  value,
+  max,
+  tone = "success",
 }: {
-  label: string;
-  quantity: number;
-  color: SourceColor;
-  token?: AllocationTokenData;
-  onPointerDownToken?: (token: AllocationTokenData) => void;
+  value: number;
+  max: number;
+  tone?: "success" | "primary" | "warning";
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: token
-      ? `allocated:${token.originLineId ?? "source"}:${token.sourceKey}`
-      : `preview:${label}:${quantity}`,
-    data: { token },
-    disabled: !token,
-  });
-  const style = token
-    ? isDragging
-      ? { opacity: 0, transition: "none" }
-      : { transform: CSS.Translate.toString(transform) }
-    : undefined;
-
+  const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        tokenClassName(color, isDragging),
-        token && "cursor-grab active:cursor-grabbing"
-      )}
-      aria-label={
-        token
-          ? `Move ${formatQuantity(toQuantityString(quantity))} from ${label}`
-          : undefined
-      }
-      {...attributes}
-      {...listeners}
-      onPointerDown={(event) => {
-        listeners?.onPointerDown?.(event);
-        if (token) onPointerDownToken?.(token);
-      }}
-    >
-      <span>{formatQuantity(toQuantityString(quantity))}</span>
+    <div className="h-2 overflow-hidden rounded-sm bg-muted">
+      <div
+        className={cn(
+          "h-full rounded-sm transition-all",
+          tone === "success" && "bg-success",
+          tone === "primary" && "bg-primary",
+          tone === "warning" && "bg-warning"
+        )}
+        style={{ width: `${pct}%` }}
+      />
     </div>
   );
 }
 
-function OrderBucket({
+function SectionTitle({
+  title,
+  count,
+  icon,
+  className,
+}: {
+  title: string;
+  count?: string;
+  icon?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+        className
+      )}
+    >
+      <div className="flex items-center gap-2">
+        {icon}
+        <span>{title}</span>
+      </div>
+      {count ? <span className="font-medium normal-case tracking-normal">{count}</span> : null}
+    </div>
+  );
+}
+
+function WorkspacePanel({
+  title,
+  count,
+  accent = "default",
+  children,
+  footer,
+  className,
+}: {
+  title: string;
+  count?: string;
+  accent?: "default" | "supply" | "production";
+  children: ReactNode;
+  footer?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={cn(
+        "flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={cn(
+              "size-2.5 shrink-0 rounded-[2px]",
+              accent === "supply" && "bg-success shadow-md",
+              accent === "production" && "bg-primary shadow-md",
+              accent === "default" && "bg-warning shadow-md"
+            )}
+          />
+          <h3 className="truncate text-sm font-semibold uppercase tracking-wide">
+            {title}
+          </h3>
+        </div>
+        {count ? (
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {count}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {children}
+      </div>
+      {footer ? <div className="border-t bg-muted/20 p-3">{footer}</div> : null}
+    </section>
+  );
+}
+
+function DemandQuantityStacks({
+  total,
+  allocated,
+  visual,
+}: {
+  total: number;
+  allocated: number;
+  visual: ReturnType<typeof itemVisual>;
+}) {
+  const stackSize = demandStackSize(Math.max(total, allocated));
+  const allocatedStacks = splitQuantityStacks(allocated, stackSize);
+  const totalStacks = splitQuantityStacks(total, stackSize);
+  const emptyCount = Math.max(0, totalStacks.length - allocatedStacks.length);
+
+  if (total <= 0 && allocated <= 0) {
+    return <div className="h-12" />;
+  }
+
+  return (
+    <div className="flex min-h-12 flex-wrap items-center gap-1.5">
+      {allocatedStacks.map((quantity, index) => (
+        <ItemToken
+          key={`filled-${index}-${quantity}`}
+          kind={visual.kind}
+          color={visual.color}
+          state="available"
+          size="sm"
+          quantity={formatQuantity(toQuantityString(quantity))}
+          className="shadow-xs"
+        />
+      ))}
+      {Array.from({ length: emptyCount }).map((_, index) => (
+        <span
+          key={`empty-${index}`}
+          className="flex h-12 w-12 shrink-0 rounded-md border border-dashed bg-muted/15"
+          aria-hidden
+        />
+      ))}
+    </div>
+  );
+}
+
+function HeaderMetric({
+  label,
+  free,
+  total,
+  tone,
+}: {
+  label: string;
+  free: number;
+  total: number;
+  tone: "success" | "primary";
+}) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "font-semibold tabular-nums",
+          tone === "success" && "text-success",
+          tone === "primary" && "text-primary"
+        )}
+      >
+        {formatQuantity(toQuantityString(free))}/{formatQuantity(toQuantityString(total))}
+      </span>
+    </div>
+  );
+}
+
+function VariantSwitcher({
+  options,
+  salesOrderItems = [],
+  fallbackItemName,
+  fallbackUnitLabel,
+  onSelectLine,
+  onSelectItem,
+}: {
+  options: SalesAllocationSheetData["variantOptions"];
+  salesOrderItems?: SalesAllocationSheetData["salesOrderItems"];
+  fallbackItemName: string;
+  fallbackUnitLabel: string;
+  onSelectLine: (lineId: string) => void;
+  onSelectItem: (itemId: string) => void;
+}) {
+  if (salesOrderItems.length > 0) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {salesOrderItems.map((item) => {
+          const remaining = readQuantity(item.remainingQty);
+          const short = readQuantity(item.shortQty);
+          const isComplete = remaining > 0 && short <= 0;
+          const unitLabel = compactUnitName(item.unitName);
+          const visual = itemVisual(item.itemName, item.unitName);
+
+          return (
+            <div key={item.salesOrderLineId} className="group relative">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "relative flex size-10 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      item.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20",
+                      !item.isCurrent && isComplete && "border-success/70 bg-success/5",
+                      !item.isCurrent && !isComplete && short > 0 && "border-warning/70 bg-warning/5"
+                    )}
+                    aria-label={`${item.itemName} · ${unitLabel}`}
+                      onClick={() => onSelectLine(item.salesOrderLineId)}
+                    >
+                      <ItemToken
+                        kind={visual.kind}
+                        color={visual.color}
+                        state={isComplete ? "reserved" : short > 0 ? "shortage" : "available"}
+                        selected={item.isCurrent}
+                        size="xs"
+                        className="border-0 bg-transparent p-0 shadow-none ring-0"
+                      />
+                      <span className="absolute bottom-0.5 right-0.5 rounded bg-background/95 px-0.5 text-[9px] font-semibold tabular-nums shadow-xs">
+                        {formatQuantity(item.allocatedQty)}/{formatQuantity(item.remainingQty)}
+                      </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {item.itemName} · {unitLabel} · {formatQuantity(item.allocatedQty)}/
+                  {formatQuantity(item.remainingQty)} allocated.
+                </TooltipContent>
+              </Tooltip>
+              <div className="invisible absolute left-1/2 top-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-1 rounded-md border bg-popover p-1 text-popover-foreground opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                  {item.variantOptions.map((option) => {
+                    const optionUnitLabel = compactUnitName(option.unitName);
+                    const optionVisual = itemVisual(option.itemName, option.unitName);
+                    return (
+                    <Tooltip key={option.itemId}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            option.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20"
+                          )}
+                          aria-label={`${option.itemName} · ${optionUnitLabel}`}
+                          onClick={() => {
+                            if (option.salesOrderLineId) {
+                              onSelectLine(option.salesOrderLineId);
+                              return;
+                            }
+                            onSelectItem(option.itemId);
+                            }}
+                          >
+                            <ItemToken
+                              kind={optionVisual.kind}
+                              color={optionVisual.color}
+                              selected={option.isCurrent}
+                              size="xs"
+                              className="border-0 bg-transparent p-0 shadow-none ring-0"
+                            />
+                          </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        {option.itemName} · {optionUnitLabel}.
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const visibleOptions =
+    options.length > 0
+      ? options
+      : [
+          {
+            itemId: "current",
+            itemName: fallbackItemName,
+            unitName: fallbackUnitLabel,
+            salesOrderLineId: null,
+            isCurrent: true,
+          },
+        ];
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {visibleOptions.map((option) => {
+        const unitLabel = compactUnitName(option.unitName);
+        const visual = itemVisual(option.itemName, option.unitName);
+        return (
+          <Tooltip key={option.itemId}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  option.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20"
+                )}
+                aria-label={`${option.itemName} · ${unitLabel}`}
+                onClick={() => {
+                  if (option.salesOrderLineId && !option.isCurrent) {
+                    onSelectLine(option.salesOrderLineId);
+                    return;
+                  }
+                    onSelectItem(option.itemId);
+                  }}
+                >
+                  <ItemToken
+                    kind={visual.kind}
+                    color={visual.color}
+                    selected={option.isCurrent}
+                    size="xs"
+                    className="border-0 bg-transparent p-0 shadow-none ring-0"
+                  />
+                </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {option.itemName} · {unitLabel}.
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
+
+function CarryPanel({
+  carried,
+  className,
+}: {
+  carried: CarryState;
+  className?: string;
+}) {
+  if (!carried) return null;
+
+  const isProduction = carried.sourceType === "manufacturing_order";
+  const visual = itemVisual(carried.itemName ?? carried.sourceLabel, carried.unitName);
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute left-1/2 z-20 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-4 rounded-lg border bg-popover/95 p-2 text-popover-foreground shadow-xl ring-1 ring-primary/15 backdrop-blur">
+        <span className="sr-only">Picked up</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <ItemToken
+            kind={visual.kind}
+            color={visual.color}
+            state={isProduction ? "inbound" : "available"}
+            selected
+            size="sm"
+            quantity={formatQuantity(toQuantityString(carried.quantity))}
+          />
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Picked up
+            </div>
+            <div className="truncate text-sm font-medium">{carried.sourceLabel}</div>
+          </div>
+        </div>
+        <div className="grid shrink-0 gap-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">X</kbd>
+            <span>split</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">wheel</kbd>
+            <span>adjust</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">Esc</kbd>
+            <span>drop</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SupplyStack({
+  source,
+  itemName,
+  unitName,
+  sourceKeyValue,
+  sourceIndex,
+  previewFree,
+  isSelected,
+  carried,
+  onPick,
+  onSelect,
+  onReturn,
+  onOpenOutput,
+}: {
+  source: SalesAllocationSource;
+  itemName: string | null | undefined;
+  unitName: string | null | undefined;
+  sourceKeyValue: string;
+  sourceIndex: number;
+  previewFree: number;
+  isSelected: boolean;
+  carried: CarryState;
+  onPick: (token: AllocationTokenData) => void;
+  onSelect: (sourceKeyValue: string) => boolean;
+  onReturn: (sourceKeyValue: string) => void;
+  onOpenOutput: (id: string) => void;
+}) {
+  const isMo = source.sourceType === "manufacturing_order";
+  const isLot = source.sourceType === "lot";
+  const quantityLabel = formatQuantity(toQuantityString(previewFree));
+  const visual = itemVisual(itemName, unitName);
+  const canPick = previewFree > 0 && source.canAllocate;
+  const canReturn =
+    carried?.originLineId != null && carried.sourceKey === sourceKeyValue;
+  const toneClasses = isMo
+    ? {
+        selected: "border-primary/70 bg-primary/5 ring-2 ring-primary/25 shadow-md",
+        base: "border-primary/35 bg-primary/5",
+        hover: "hover:border-primary/50 hover:bg-primary/10",
+        icon: "bg-primary/10 text-primary",
+        label: "text-primary",
+      }
+    : {
+        selected: "border-success/70 bg-success/5 ring-2 ring-success/25 shadow-md",
+        base: "border-border bg-background",
+        hover: "hover:border-success/50 hover:bg-success/5",
+        icon: "bg-success/10 text-success",
+        label: "text-muted-foreground",
+      };
+  const stackClassName = cn(
+    "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md border text-left shadow-xs transition",
+    toneClasses.base,
+    toneClasses.hover,
+    "focus-within:ring-2 focus-within:ring-ring",
+    isSelected && toneClasses.selected,
+    canReturn && "border-success/60 bg-success/5",
+    !canPick && "opacity-70"
+  );
+
+  if (isMo) {
+    return (
+      <div className="flex w-20 flex-col items-center gap-1">
+        <button
+          type="button"
+          className={cn(stackClassName, "focus-visible:outline-none")}
+          onClick={() => {
+            if (!onSelect(sourceKeyValue)) return;
+            if (canReturn) {
+              onReturn(sourceKeyValue);
+              return;
+            }
+            if (!canPick) return;
+            onPick({
+              sourceKey: sourceKeyValue,
+              sourceType: source.sourceType,
+              sourceId: source.sourceId,
+              sourceLabel: source.label,
+              sourceIndex,
+              quantity: previewFree,
+              itemName,
+              unitName,
+            });
+          }}
+          aria-label={`Allocate all from ${source.label}`}
+        >
+          <ItemToken
+            kind={visual.kind}
+            color={visual.color}
+            state="inbound"
+            selected={isSelected}
+            size="md"
+            quantity={quantityLabel}
+            className="border-0 bg-transparent p-0 shadow-none ring-0"
+          />
+        </button>
+        <button
+          type="button"
+          className="max-w-full truncate text-[11px] font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            if (source.sourceId) onOpenOutput(source.sourceId);
+          }}
+          aria-label={`Open output allocation for ${source.label}`}
+        >
+          {source.label}
+        </button>
+        {source.sourceId ? (
+          <div className="max-w-full truncate text-[11px] text-muted-foreground">
+            {statusLabel(source.status)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-20 flex-col items-center gap-1">
+      <button
+        type="button"
+        className={cn(stackClassName, "focus-visible:outline-none focus-visible:ring-2")}
+        onClick={() => {
+          if (!onSelect(sourceKeyValue)) return;
+          if (canReturn) {
+            onReturn(sourceKeyValue);
+            return;
+          }
+          if (!canPick) return;
+          onPick({
+            sourceKey: sourceKeyValue,
+            sourceType: source.sourceType,
+            sourceId: source.sourceId,
+            sourceLabel: source.label,
+            sourceIndex,
+            quantity: previewFree,
+            itemName,
+            unitName,
+          });
+        }}
+        aria-label={`Allocate all from ${source.label}`}
+      >
+        <ItemToken
+          kind={visual.kind}
+          color={visual.color}
+          state="available"
+          selected={isSelected}
+          size="md"
+          quantity={quantityLabel}
+          className="border-0 bg-transparent p-0 shadow-none ring-0"
+        />
+      </button>
+      <div className="max-w-full truncate text-center text-[11px] font-medium text-muted-foreground">
+        {isLot ? source.lotNumber ?? source.label : source.label}
+      </div>
+    </div>
+  );
+}
+
+function SourceDetailPanel({
+  source,
+  itemName,
+  unitName,
+  destinations,
+}: {
+  source: SalesAllocationSource | null;
+  itemName: string | null | undefined;
+  unitName: string | null | undefined;
+  destinations: Array<{ label: string; quantity: number; kind: "sales" | "production" }>;
+}) {
+  const organizationTimeZone = useOrganizationTimeZone();
+
+  if (!source) return null;
+
+  const total = readQuantity(source.totalQty);
+  const allocated = readQuantity(source.allocatedQty);
+  const free = readQuantity(source.freeQty);
+  const visual = itemVisual(itemName, unitName);
+
+  return (
+    <div className="rounded-md border bg-background p-3 shadow-xs">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <ItemToken
+              kind={visual.kind}
+              color={visual.color}
+              state={source.sourceType === "manufacturing_order" ? "inbound" : "available"}
+              size="xs"
+              className="size-5 rounded-sm"
+            />
+            <h3 className="truncate text-sm font-semibold">{source.label}</h3>
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {source.sourceType === "lot" ? (
+              <>
+                Received {formatInstantDate(source.receivedAt ?? source.date, organizationTimeZone)} · Created{" "}
+                {formatInstantDate(source.createdAt, organizationTimeZone)}
+              </>
+            ) : source.sourceType === "manufacturing_order" ? (
+              <>
+                {statusLabel(source.status)}
+                {source.date ? ` · ${formatDate(source.date)}` : ""}
+              </>
+            ) : (
+              "Available stock pool"
+            )}
+          </div>
+        </div>
+        <Badge variant="secondary">{sourceKindLabel(source)}</Badge>
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</span>
+          <ProgressBar value={allocated} max={Math.max(total, allocated + free)} tone="warning" />
+          <span className="text-right font-medium tabular-nums">{formatQuantity(source.allocatedQty)}</span>
+        </div>
+        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Free</span>
+          <ProgressBar value={free} max={Math.max(total, allocated + free)} />
+          <span className="text-right font-medium tabular-nums">{formatQuantity(source.freeQty)}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 border-t pt-3">
+        {destinations.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No allocations from this source.</div>
+        ) : (
+          <div className="space-y-1">
+            {destinations.map((destination) => (
+              <div
+                key={`${destination.kind}:${destination.label}`}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span className="truncate text-muted-foreground">
+                  {destination.kind === "production" ? "Production" : "Sales"} ·{" "}
+                  {destination.label}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatQuantity(toQuantityString(destination.quantity))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OutputSourceDetailPanel({
+  data,
+  assignedProduction,
+  outputFree,
+}: {
+  data: OutputAllocationData;
+  assignedProduction: number;
+  outputFree: number;
+}) {
+  const planned = readQuantity(data.sourceMo.plannedQuantity);
+  const assignedSales = readQuantity(data.assignedSalesQty);
+  const allocated = assignedSales + assignedProduction;
+  const visual = itemVisual(data.sourceMo.productName, null);
+  const destinations = [
+    assignedSales > 0
+      ? { label: "Sales allocations", quantity: assignedSales, kind: "sales" as const }
+      : null,
+    ...data.productionDestinations
+      .map((destination) => ({
+        label: destination.orderNumber,
+        quantity: readQuantity(destination.assignedQty),
+        kind: "production" as const,
+      }))
+      .filter((destination) => destination.quantity > 0),
+  ].filter(Boolean) as Array<{ label: string; quantity: number; kind: "sales" | "production" }>;
+
+  return (
+    <div className="rounded-md border bg-background p-3 shadow-xs">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <ItemToken
+              kind={visual.kind}
+              color={visual.color}
+              state="inbound"
+              size="xs"
+              className="size-5 rounded-sm"
+            />
+            <h3 className="truncate text-sm font-semibold">{data.sourceMo.orderNumber}</h3>
+          </div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            {data.sourceMo.productName} · {statusLabel(data.sourceMo.status)}
+          </div>
+        </div>
+        <Badge variant="secondary">MO output</Badge>
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Assigned</span>
+          <ProgressBar value={allocated} max={Math.max(planned, allocated + outputFree)} tone="warning" />
+          <span className="text-right font-medium tabular-nums">
+            {formatQuantity(toQuantityString(allocated))}
+          </span>
+        </div>
+        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Free</span>
+          <ProgressBar value={outputFree} max={Math.max(planned, allocated + outputFree)} />
+          <span className="text-right font-medium tabular-nums">
+            {formatQuantity(toQuantityString(outputFree))}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 border-t pt-3">
+        {destinations.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No output assignments yet.</div>
+        ) : (
+          <div className="space-y-1">
+            {destinations.map((destination) => (
+              <div
+                key={`${destination.kind}:${destination.label}`}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span className="truncate text-muted-foreground">
+                  {destination.kind === "production" ? "Production" : "Sales"} ·{" "}
+                  {destination.label}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatQuantity(toQuantityString(destination.quantity))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DemandCard({
   row,
   isTarget,
   allocatedQty,
   shortQty,
-  children,
-  onTokenDrop,
+  carried,
+  onPlace,
+  onPick,
 }: {
   row: SalesAllocationSheetData["demandRows"][number];
   isTarget: boolean;
   allocatedQty: number;
   shortQty: number;
-  children?: React.ReactNode;
-  onTokenDrop?: () => void;
+  carried: CarryState;
+  onPlace: () => void;
+  onPick: () => void;
 }) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `${ORDER_BUCKET_PREFIX}${row.salesOrderLineId}`,
-  });
-  const slotCount = Math.max(4, Math.min(7, Math.ceil((allocatedQty + shortQty) / 5)));
+  const remaining = readQuantity(row.remainingQty);
+  const canPlace = carried != null && shortQty > 0;
+  const visual = itemVisual(row.itemName, row.unitName);
 
   return (
     <div
-      ref={setNodeRef}
-      onPointerUp={onTokenDrop}
-      onMouseUp={onTokenDrop}
-      data-allocation-drop-line-id={row.salesOrderLineId}
-      className={cn(
-        "rounded-lg border bg-card p-3 shadow-xs transition",
-        isTarget && "border-primary/20 bg-primary/5",
-        isTarget && isOver && "border-primary bg-primary/10 ring-2 ring-primary/15",
-        !isTarget && isOver && "border-primary/60 bg-primary/5 ring-2 ring-primary/10"
-      )}
+      role="button"
+      tabIndex={0}
+      aria-label={`Allocate to ${row.orderNumber}`}
       data-testid={isTarget ? "current-allocation-bucket" : "readonly-allocation-bucket"}
+      className={cn(
+        "cursor-pointer",
+        "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        isTarget && "border-primary/25 bg-primary/5",
+        canPlace && "hover:border-primary/50 hover:bg-primary/5"
+      )}
+      onClick={() => {
+        if (carried) {
+          onPlace();
+          return;
+        }
+        onPick();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (carried) {
+            onPlace();
+          } else {
+            onPick();
+          }
+        }
+      }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <span>{row.orderNumber}</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="truncate">{row.customerName}</span>
-            {isTarget ? <Badge variant="secondary">This Order</Badge> : null}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"}
-          </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <Badge className="rounded-sm bg-warning/10 text-warning">SO</Badge>
+          <span className="font-semibold">{row.orderNumber}</span>
+          <span className="truncate text-muted-foreground">{row.customerName}</span>
+          {isTarget ? <Badge variant="outline">This order</Badge> : null}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"}
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3">
-        <div
-          className={cn(
-            "flex min-h-16 flex-wrap items-center gap-2 rounded-lg border border-dashed bg-background/70 p-2",
-            isTarget ? "border-primary/25" : "border-border"
-          )}
-        >
-          {children}
-          {Array.from({ length: slotCount }).map((_, index) => (
-            <div
-              key={index}
-              className="h-12 min-w-12 rounded-md border border-dashed bg-muted/30"
-              aria-hidden
-            />
-          ))}
-        </div>
-        <div className="grid min-w-24 gap-1 text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Allocated</span>
-            <span className="font-medium text-success">
-              {formatQuantity(toQuantityString(allocatedQty))}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted-foreground">Short</span>
+      <div className="mt-3 space-y-2">
+        <DemandQuantityStacks
+          total={remaining}
+          allocated={allocatedQty}
+          visual={visual}
+        />
+        <ProgressBar value={allocatedQty} max={remaining} />
+        <div className="flex justify-end gap-4 text-sm">
+          <span>
+            <span className="text-muted-foreground">Allocated </span>
+            <span className="font-medium text-success">{formatQuantity(toQuantityString(allocatedQty))}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Short </span>
             <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
               {shortLabel(shortQty)}
             </span>
-          </div>
+          </span>
         </div>
       </div>
     </div>
   );
 }
 
-function SourceDropCard({
-  sourceKey,
-  color,
-  canReturn,
-  children,
-  onTokenDrop,
+function OutputAllocationWorkspace({
+  manufacturingOrderId,
+  onBack,
+  onOpenOutput,
 }: {
-  sourceKey: string;
-  color: SourceColor;
-  canReturn: boolean;
-  children: React.ReactNode;
-  onTokenDrop?: () => void;
+  manufacturingOrderId: string;
+  onBack: () => void;
+  onOpenOutput: (id: string) => void;
 }) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `${SOURCE_BUCKET_PREFIX}${sourceKey}`,
-    disabled: !canReturn,
+  const queryClient = useQueryClient();
+  const [selectedIngredientId, setSelectedIngredientId] = useState<string | null>(null);
+  const [outputSelected, setOutputSelected] = useState(true);
+  const [carriedQty, setCarriedQty] = useState<number | null>(null);
+  const [draftState, setDraftState] = useState<{
+    manufacturingOrderId: string | null;
+    values: Record<string, string>;
+  }>({ manufacturingOrderId: null, values: {} });
+  const outputQuery = useQuery<OutputAllocationData>({
+    queryKey: ["manufacturing-output-allocation", manufacturingOrderId],
+    queryFn: () =>
+      apiJson<OutputAllocationData>(
+        `/api/manufacturing-orders/${manufacturingOrderId}/output-allocation`,
+        { fallbackError: "Failed to load output allocation." }
+      ),
+  });
+  const data = outputQuery.data ?? null;
+  const defaultDraft = useMemo(
+    () =>
+      Object.fromEntries(
+        data?.productionDestinations.map((destination) => [
+          destination.ingredientId,
+          formatQuantity(destination.assignedQty),
+        ]) ?? []
+      ),
+    [data]
+  );
+  const draft =
+    draftState.manufacturingOrderId === manufacturingOrderId
+      ? draftState.values
+      : defaultDraft;
+  const assignedProduction = Object.values(draft).reduce(
+    (sum, value) => sum + readQuantity(value),
+    0
+  );
+  const outputFree = data
+    ? Math.max(
+        0,
+        readQuantity(data.sourceMo.plannedQuantity) -
+          readQuantity(data.assignedSalesQty) -
+          assignedProduction
+      )
+    : 0;
+  const outputVisual = data
+    ? itemVisual(data.sourceMo.productName, null)
+    : itemVisual(null, null);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiJson<OutputAllocationData>(
+        `/api/manufacturing-orders/${manufacturingOrderId}/output-allocation`,
+        {
+          method: "PUT",
+          body: {
+            productionAllocations: Object.entries(draft)
+              .map(([ingredientId, quantity]) => ({ ingredientId, quantity }))
+              .filter((allocation) => readQuantity(allocation.quantity) > 0),
+          },
+          fallbackError: "Failed to save output allocation.",
+        }
+      ),
+    onSuccess: async (nextData) => {
+      setDraftState({
+        manufacturingOrderId,
+        values: Object.fromEntries(
+          nextData.productionDestinations.map((destination) => [
+            destination.ingredientId,
+            formatQuantity(destination.assignedQty),
+          ])
+        ),
+      });
+      setCarriedQty(null);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["manufacturing-output-allocation", manufacturingOrderId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["sales-line-allocation"] }),
+        queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
+      ]);
+    },
   });
 
+  const canSave =
+    !!data &&
+    !outputQuery.isLoading &&
+    !mutation.isPending &&
+    JSON.stringify(draft) !== JSON.stringify(defaultDraft);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (carriedQty == null) return;
+      if (event.key === "Escape") {
+        setCarriedQty(null);
+      } else if (event.key.toLowerCase() === "x") {
+        setCarriedQty((current) =>
+          current == null ? null : Math.max(1, Math.floor(current / 2))
+        );
+      } else if (event.key === "+" || event.key === "=") {
+        setCarriedQty((current) =>
+          current == null ? null : clampQuantity(current + (event.shiftKey ? 5 : 1), outputFree)
+        );
+      } else if (event.key === "-") {
+        setCarriedQty((current) =>
+          current == null ? null : Math.max(1, current - (event.shiftKey ? 5 : 1))
+        );
+      } else {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    }
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [carriedQty, outputFree]);
+
+  useEffect(() => {
+    function handleWheel(event: WheelEvent) {
+      if (carriedQty == null) return;
+      event.preventDefault();
+      setCarriedQty((current) =>
+        current == null
+          ? null
+          : Math.max(1, clampQuantity(current + (event.deltaY < 0 ? 1 : -1), outputFree))
+      );
+    }
+
+    window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", handleWheel, { capture: true });
+  }, [carriedQty, outputFree]);
+
+  function updateDestination(ingredientId: string, quantity: number) {
+    setDraftState((current) => ({
+      manufacturingOrderId,
+      values: {
+        ...(current.manufacturingOrderId === manufacturingOrderId
+          ? current.values
+          : defaultDraft),
+        [ingredientId]: toQuantityString(quantity),
+      },
+    }));
+  }
+
+  function placeOnDestination(ingredientId: string) {
+    if (carriedQty == null || !data) return;
+    const destination = data.productionDestinations.find(
+      (candidate) => candidate.ingredientId === ingredientId
+    );
+    if (!destination) return;
+    const current = readQuantity(draft[ingredientId]);
+    const remaining = Math.max(0, readQuantity(destination.remainingNeed) - current);
+    const quantity = Math.min(carriedQty, remaining, outputFree);
+    if (quantity <= 0) return;
+    updateDestination(ingredientId, current + quantity);
+    setCarriedQty((currentCarry) =>
+      currentCarry == null || currentCarry <= quantity
+        ? null
+        : readQuantity(toQuantityString(currentCarry - quantity))
+    );
+    setSelectedIngredientId(ingredientId);
+  }
+
   return (
-    <div
-      ref={setNodeRef}
-      onPointerUp={canReturn ? onTokenDrop : undefined}
-      onMouseUp={canReturn ? onTokenDrop : undefined}
-      data-allocation-drop-source-key={sourceKey}
-      className={cn(
-        "rounded-lg border bg-card p-3 shadow-xs transition",
-        canReturn && "border-dashed",
-        canReturn &&
-          isOver &&
-          color === "stock" &&
-          "border-success/50 bg-success/5 ring-2 ring-success/15",
-        canReturn &&
-          isOver &&
-          color === "blue" &&
-          "border-primary/50 bg-primary/5 ring-2 ring-primary/15",
-        canReturn &&
-          isOver &&
-          color === "purple" &&
-          "border-warning/50 bg-warning/5 ring-2 ring-warning/15"
-      )}
-      data-testid="source-allocation-bucket"
-    >
-      {children}
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+          <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
+          Back
+        </Button>
+        <Button type="button" onClick={() => mutation.mutate()} disabled={!canSave}>
+          {mutation.isPending ? "Saving..." : "Save allocation"}
+        </Button>
+      </div>
+
+      {outputQuery.isLoading ? (
+        <div className="flex min-h-48 items-center justify-center">
+          <Spinner className="text-foreground" />
+        </div>
+      ) : outputQuery.isError ? (
+        <p className="text-sm text-destructive">{outputQuery.error.message}</p>
+      ) : data ? (
+        <>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <ItemToken
+                kind={outputVisual.kind}
+                color={outputVisual.color}
+                state="inbound"
+                size="xs"
+              />
+              <div className="min-w-0">
+                <div className="truncate text-base font-semibold text-foreground">
+                  {data.sourceMo.orderNumber}
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="truncate">{data.sourceMo.productName}</span>
+                  <Badge variant="secondary" className="shrink-0">
+                    {statusLabel(data.sourceMo.status)}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+            <HeaderMetric
+              label="output"
+              free={outputFree}
+              total={readQuantity(data.sourceMo.plannedQuantity)}
+              tone="primary"
+            />
+          </div>
+          <div className="grid min-h-0 gap-4 xl:grid-cols-2">
+            <WorkspacePanel
+              title="Supply · Output"
+              count="1 source"
+              accent="supply"
+            >
+              <div className="flex min-h-0 flex-col gap-4">
+                <div className="space-y-3">
+                  <SectionTitle title="Manufacturing output" count="1 MO" />
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex w-20 flex-col items-center gap-1">
+                      <button
+                        type="button"
+                        className={cn(
+                          "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md border bg-primary/5 text-left shadow-xs transition",
+                          "hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          outputSelected && "border-primary/60 ring-2 ring-primary/25 shadow-md",
+                          outputFree <= 0 && "opacity-70"
+                        )}
+                        onClick={() => {
+                          if (outputSelected && carriedQty != null) {
+                            setOutputSelected(false);
+                            setCarriedQty(null);
+                            return;
+                          }
+                          setOutputSelected(true);
+                          setCarriedQty(outputFree > 0 ? outputFree : null);
+                        }}
+                        aria-label={`Pick up output from ${data.sourceMo.orderNumber}`}
+                      >
+                        <ItemToken
+                          kind={outputVisual.kind}
+                          color={outputVisual.color}
+                          state="inbound"
+                          selected={outputSelected}
+                          size="md"
+                          quantity={formatQuantity(toQuantityString(outputFree))}
+                          className="border-0 bg-transparent p-0 shadow-none ring-0"
+                        />
+                      </button>
+                      <div className="max-w-full truncate text-center text-xs font-medium text-primary">
+                        {data.sourceMo.orderNumber}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {outputSelected ? (
+                  <OutputSourceDetailPanel
+                    data={data}
+                    assignedProduction={assignedProduction}
+                    outputFree={outputFree}
+                  />
+                ) : null}
+              </div>
+            </WorkspacePanel>
+
+            <WorkspacePanel
+              title="Demand · Orders"
+              count={`${data.productionDestinations.length} MO`}
+              accent="production"
+            >
+            {data.productionDestinations.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No production orders currently need this output.
+              </div>
+            ) : (
+              data.productionDestinations.map((destination) => {
+                const allocated = readQuantity(draft[destination.ingredientId]);
+                const remaining = readQuantity(destination.remainingNeed);
+                const shortQty = Math.max(0, remaining - allocated);
+                const selected = selectedIngredientId === destination.ingredientId;
+                return (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    key={destination.ingredientId}
+                    aria-label={`Allocate output to ${destination.orderNumber}`}
+                    onClick={() => placeOnDestination(destination.ingredientId)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        placeOnDestination(destination.ingredientId);
+                      }
+                    }}
+                    className={cn(
+                      "cursor-pointer",
+                      "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "border-primary/30 bg-primary/5",
+                      selected && "ring-2 ring-primary/25"
+                    )}
+                  >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <Badge className="rounded-sm bg-primary/10 text-primary">MO</Badge>
+                            <span className="font-semibold">{destination.orderNumber}</span>
+                            <span className="truncate text-muted-foreground">
+                              produces {formatQuantity(destination.outputPlannedQuantity ?? "")}{" "}
+                              {destination.outputProductName ?? destination.productName}
+                              {destination.salesOrderNumber
+                                ? ` \u2192 ${destination.salesOrderNumber}`
+                                : ""}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            consumes {data.sourceMo.productName}
+                            {destination.salesCustomerName
+                              ? ` · ${destination.salesCustomerName}`
+                              : ""}
+                          </div>
+                        </div>
+                      <div className="text-right text-xs text-muted-foreground">
+                        <div>{destination.plannedDate ? formatDate(destination.plannedDate) : "\u2014"}</div>
+                        <div>{statusLabel(destination.status)}</div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 h-7 px-2 text-primary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenOutput(destination.manufacturingOrderId);
+                          }}
+                        >
+                          Open output
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      <DemandQuantityStacks
+                        total={remaining}
+                        allocated={allocated}
+                        visual={outputVisual}
+                      />
+                        <ProgressBar value={allocated} max={remaining} tone="primary" />
+                      <div className="flex justify-end gap-4 text-sm">
+                        <span>
+                          <span className="text-muted-foreground">Allocated </span>
+                          <span className="font-medium text-success">{formatQuantity(toQuantityString(allocated))}</span>
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground">Short </span>
+                          <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
+                            {shortLabel(shortQty)}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            {mutation.error ? (
+              <p className="text-sm text-destructive">{mutation.error.message}</p>
+            ) : null}
+            </WorkspacePanel>
+          </div>
+          <CarryPanel
+            carried={
+              carriedQty == null
+                ? null
+                : {
+                    sourceKey: "output",
+                    sourceType: "manufacturing_order",
+                    sourceId: manufacturingOrderId,
+                      sourceLabel: data.sourceMo.orderNumber,
+                      sourceIndex: 0,
+                      quantity: carriedQty,
+                      itemName: data.sourceMo.productName,
+                  }
+            }
+            className="bottom-6"
+          />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -401,44 +1399,43 @@ export function AllocationSheet({
   lineId,
   open,
   onOpenChange,
+  onTargetLineChange,
+  outputManufacturingOrderId,
+  onOutputManufacturingOrderChange,
 }: Props) {
   const queryClient = useQueryClient();
-  const pointerDropHandledRef = useRef(false);
-  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
-  const activeTokenRef = useRef<AllocationTokenData | null>(null);
+  const [internalOutputMoId, setInternalOutputMoId] = useState<string | null>(null);
+  const isOutputMoControlled = outputManufacturingOrderId !== undefined;
+  const outputMoId = isOutputMoControlled
+    ? outputManufacturingOrderId
+    : internalOutputMoId;
+  const [selectedSourceKey, setSelectedSourceKey] = useState<string | null>(null);
+  const [carried, setCarried] = useState<CarryState>(null);
+  const [browseTarget, setBrowseTarget] = useState<{
+    itemId: string;
+    lineId: string | null;
+  } | null>(null);
   const [draftState, setDraftState] = useState<AllocationDraftState>({
     lineId: null,
     values: {},
   });
-  const [activeToken, setActiveToken] = useState<AllocationTokenData | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-    useSensor(KeyboardSensor)
-  );
+  const activeItemId = browseTarget?.lineId === lineId ? browseTarget.itemId : null;
   const query = useQuery<SalesAllocationSheetData>({
-    queryKey: ["sales-line-allocation", lineId],
-    queryFn: () =>
-      apiJson<SalesAllocationSheetData>(
+    queryKey: ["allocation-workspace", lineId, activeItemId],
+    queryFn: () => {
+      if (activeItemId) {
+        return apiJson<SalesAllocationSheetData>(
+          `/api/items/${activeItemId}/allocation`,
+          { fallbackError: "Failed to load allocation." }
+        );
+      }
+      return apiJson<SalesAllocationSheetData>(
         `/api/sales-order-lines/${lineId}/allocation`,
         { fallbackError: "Failed to load allocation." }
-      ),
-    enabled: open && lineId != null,
+      );
+    },
+    enabled: open && (lineId != null || activeItemId != null) && outputMoId == null,
   });
-
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent | MouseEvent) {
-      lastPointerRef.current = { x: event.clientX, y: event.clientY };
-    }
-
-    window.addEventListener("pointermove", handlePointerMove, { passive: true });
-    window.addEventListener("mousemove", handlePointerMove, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("mousemove", handlePointerMove);
-    };
-  }, []);
 
   const data = query.data ?? null;
   const defaultDraftsByLine = useMemo(
@@ -458,7 +1455,6 @@ export function AllocationSheet({
   );
   const draftsByLine =
     draftState.lineId === lineId ? draftState.values : defaultDraftsByLine;
-
   const sourceMetaByKey = useMemo(
     () =>
       new Map(
@@ -469,9 +1465,28 @@ export function AllocationSheet({
       ),
     [data]
   );
-
   const targetLine = data?.targetLine ?? null;
   const targetLineId = targetLine?.salesOrderLineId ?? null;
+  const targetItem = data?.targetItem ?? null;
+  const targetUnitLabel = compactUnitName(targetLine?.unitName ?? targetItem?.unitName);
+  const targetVisual = itemVisual(targetItem?.itemName, targetItem?.unitName);
+
+  function setOutputMoId(id: string | null) {
+    if (isOutputMoControlled) {
+      onOutputManufacturingOrderChange?.(id);
+      return;
+    }
+    setInternalOutputMoId(id);
+  }
+
+  function openOutputMo(id: string) {
+    setCarried(null);
+    setOutputMoId(id);
+  }
+
+  function updateDrafts(nextDrafts: Record<string, AllocationDraft>) {
+    setDraftState({ lineId, values: nextDrafts });
+  }
 
   function getLineDraftTotal(salesOrderLineId: string) {
     return Object.values(draftsByLine[salesOrderLineId] ?? {}).reduce(
@@ -495,28 +1510,82 @@ export function AllocationSheet({
     );
   }
 
-  const totalOverRemaining = (data?.demandRows ?? []).some(
-    (row) => getLineDraftTotal(row.salesOrderLineId) > readQuantity(row.remainingQty)
-  );
-  const overAllocatedSource = data?.supplySources.find((source) => {
-    const key = allocationKey(source.sourceType, source.sourceId);
-    return getSourceDraftTotal(key) > readQuantity(source.totalQty);
-  });
-  const targetDraftTotal = targetLineId ? getLineDraftTotal(targetLineId) : 0;
-  const targetDraftShortQty = Math.max(
-    0,
-    readQuantity(targetLine?.remainingQty) - targetDraftTotal
-  );
-  const hasChanges =
-    JSON.stringify(draftsByLine) !== JSON.stringify(defaultDraftsByLine);
-
-  function updateDrafts(nextDrafts: Record<string, AllocationDraft>) {
-    setDraftState({ lineId, values: nextDrafts });
+  function getSourcePreviewFreeByKey(sourceKeyValue: string) {
+    const source = data?.supplySources.find(
+      (candidate) => allocationKey(candidate.sourceType, candidate.sourceId) === sourceKeyValue
+    );
+    if (!source) return 0;
+    return getSourcePreviewFree(source);
   }
 
-  function primePointerToken(token: AllocationTokenData) {
-    pointerDropHandledRef.current = false;
-    activeTokenRef.current = token;
+  function pickToken(token: AllocationTokenData) {
+    setCarried(token);
+    setSelectedSourceKey(token.sourceKey);
+  }
+
+  function selectSource(sourceKeyValue: string) {
+    if (
+      selectedSourceKey === sourceKeyValue &&
+      carried?.sourceKey === sourceKeyValue &&
+      !carried.originLineId
+    ) {
+      setSelectedSourceKey(null);
+      setCarried(null);
+      return false;
+    }
+
+    setSelectedSourceKey(sourceKeyValue);
+    if (carried?.sourceKey !== sourceKeyValue) {
+      setCarried(null);
+    }
+    return true;
+  }
+
+  function pickFirstTokenFromLine(salesOrderLineId: string) {
+    const entries = Object.entries(draftsByLine[salesOrderLineId] ?? {});
+    const entry = entries.find(([, value]) => readQuantity(value) > 0);
+    if (!entry) return;
+    const [key, value] = entry;
+    const meta = sourceMetaByKey.get(key);
+    const parsed = parseAllocationKey(key);
+    const row = data?.demandRows.find(
+      (demandRow) => demandRow.salesOrderLineId === salesOrderLineId
+    );
+    pickToken({
+      sourceKey: key,
+      sourceType: parsed.sourceType,
+      sourceId: parsed.sourceId,
+      sourceLabel: meta?.source.label ?? "Source",
+      sourceIndex: meta?.index ?? 0,
+      quantity: readQuantity(value),
+      itemName: row?.itemName,
+      unitName: row?.unitName,
+      originLineId: salesOrderLineId,
+    });
+  }
+
+  function returnTokenToSource(sourceKeyValue: string) {
+    if (!carried?.originLineId || carried.sourceKey !== sourceKeyValue) return;
+    const originDraft = draftsByLine[carried.originLineId] ?? {};
+    const originQty = readQuantity(originDraft[carried.sourceKey]);
+    const quantity = Math.min(carried.quantity, originQty);
+    if (quantity <= 0) return;
+
+    updateDrafts({
+      ...draftsByLine,
+      [carried.originLineId]: {
+        ...originDraft,
+        [carried.sourceKey]: toQuantityString(originQty - quantity),
+      },
+    });
+    setCarried(
+      carried.quantity <= quantity
+        ? null
+        : {
+            ...carried,
+            quantity: readQuantity(toQuantityString(carried.quantity - quantity)),
+          }
+    );
   }
 
   function allocateTokenToLine(token: AllocationTokenData, salesOrderLineId: string) {
@@ -533,7 +1602,6 @@ export function AllocationSheet({
     );
     const sourceFree = Math.max(0, getSourcePreviewFreeByKey(token.sourceKey));
     const quantity = Math.min(token.quantity, lineShortQty, sourceFree);
-
     if (quantity <= 0) return;
 
     updateDrafts({
@@ -543,6 +1611,11 @@ export function AllocationSheet({
         [token.sourceKey]: toQuantityString(currentQty + quantity),
       },
     });
+    setCarried(
+      token.quantity <= quantity
+        ? null
+        : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
+    );
   }
 
   function moveAllocatedTokenToLine(
@@ -566,7 +1639,6 @@ export function AllocationSheet({
       readQuantity(targetRow.remainingQty) - getLineDraftTotal(targetSalesOrderLineId)
     );
     const quantity = Math.min(token.quantity, originQty, targetShortQty);
-
     if (quantity <= 0) return;
 
     updateDrafts({
@@ -580,145 +1652,107 @@ export function AllocationSheet({
         [token.sourceKey]: toQuantityString(targetCurrentQty + quantity),
       },
     });
-  }
-
-  function returnAllocatedTokenToSource(token: AllocationTokenData, sourceKey: string) {
-    const originLineId = token.originLineId;
-    if (!originLineId || sourceKey !== token.sourceKey) return;
-
-    const originDraft = draftsByLine[originLineId] ?? {};
-    const remainingOriginDraft = { ...originDraft };
-    delete remainingOriginDraft[token.sourceKey];
-
-    updateDrafts({
-      ...draftsByLine,
-      [originLineId]: remainingOriginDraft,
-    });
-  }
-
-  function getSourcePreviewFreeByKey(sourceKeyValue: string) {
-    const source = data?.supplySources.find(
-      (candidate) => allocationKey(candidate.sourceType, candidate.sourceId) === sourceKeyValue
+    setCarried(
+      token.quantity <= quantity
+        ? null
+        : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
     );
-    if (!source) return 0;
-    return getSourcePreviewFree(source);
   }
 
-  function handleDragStart(event: DragStartEvent) {
-    const token = event.active.data.current?.token as AllocationTokenData | undefined;
-    pointerDropHandledRef.current = false;
-    activeTokenRef.current = token ?? null;
-    setActiveToken(token ?? null);
-  }
-
-  function getPointerDropTarget() {
-    if (typeof document === "undefined" || !lastPointerRef.current) {
-      return { salesOrderLineId: null, sourceKey: null };
-    }
-
-    const elements = document.elementsFromPoint(
-      lastPointerRef.current.x,
-      lastPointerRef.current.y
-    );
-
-    for (const element of elements) {
-      const dropElement =
-        element instanceof HTMLElement
-          ? element.closest<HTMLElement>(
-              "[data-allocation-drop-line-id], [data-allocation-drop-source-key]"
-            )
-          : null;
-
-      if (dropElement?.dataset.allocationDropLineId) {
-        return {
-          salesOrderLineId: dropElement.dataset.allocationDropLineId,
-          sourceKey: null,
-        };
-      }
-
-      if (dropElement?.dataset.allocationDropSourceKey) {
-        return {
-          salesOrderLineId: null,
-          sourceKey: dropElement.dataset.allocationDropSourceKey,
-        };
-      }
-    }
-
-    return { salesOrderLineId: null, sourceKey: null };
-  }
-
-  function applyTokenDrop(
-    token: AllocationTokenData | undefined,
-    targetSalesOrderLineId: string | null,
-    targetSourceKey: string | null
-  ) {
-    if (token && targetSourceKey && token.originLineId) {
-      returnAllocatedTokenToSource(token, targetSourceKey);
-    } else if (token && targetSalesOrderLineId) {
-      if (token.originLineId) {
-        moveAllocatedTokenToLine(token, targetSalesOrderLineId);
-      } else {
-        allocateTokenToLine(token, targetSalesOrderLineId);
-      }
-    }
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    if (pointerDropHandledRef.current) {
-      pointerDropHandledRef.current = false;
-      activeTokenRef.current = null;
-      setActiveToken(null);
+  function placeOnLine(salesOrderLineId: string) {
+    if (!carried) return;
+    if (carried.originLineId) {
+      moveAllocatedTokenToLine(carried, salesOrderLineId);
       return;
     }
-
-    const token = event.active.data.current?.token as AllocationTokenData | undefined;
-    const overId = event.over?.id ? String(event.over.id) : null;
-    const pointerTarget = getPointerDropTarget();
-    const targetSalesOrderLineId =
-      pointerTarget.salesOrderLineId ??
-      (overId?.startsWith(ORDER_BUCKET_PREFIX)
-        ? overId.slice(ORDER_BUCKET_PREFIX.length)
-        : null);
-    const targetSourceKey =
-      token?.originLineId && pointerTarget.sourceKey
-        ? pointerTarget.sourceKey
-        : overId?.startsWith(SOURCE_BUCKET_PREFIX)
-          ? overId.slice(SOURCE_BUCKET_PREFIX.length)
-          : null;
-
-    applyTokenDrop(token, targetSalesOrderLineId, targetSourceKey);
-    activeTokenRef.current = null;
-    setActiveToken(null);
+    allocateTokenToLine(carried, salesOrderLineId);
   }
 
   useEffect(() => {
-    function handlePointerUp(event: PointerEvent | MouseEvent) {
-      const token = activeTokenRef.current;
-      if (!token) return;
-
-      lastPointerRef.current = { x: event.clientX, y: event.clientY };
-      const pointerTarget = getPointerDropTarget();
-      if (!pointerTarget.salesOrderLineId && !pointerTarget.sourceKey) {
-        activeTokenRef.current = null;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!carried) return;
+      if (event.key === "Escape") {
+        setCarried(null);
+      } else if (event.key.toLowerCase() === "a") {
+        setCarried((current) =>
+          current
+            ? { ...current, quantity: getSourcePreviewFreeByKey(current.sourceKey) }
+            : null
+        );
+      } else if (event.key.toLowerCase() === "x") {
+        setCarried((current) =>
+          current ? { ...current, quantity: Math.max(1, Math.floor(current.quantity / 2)) } : null
+        );
+      } else if (event.key === "+" || event.key === "=") {
+        setCarried((current) =>
+          current
+            ? {
+                ...current,
+                quantity: clampQuantity(
+                  current.quantity + (event.shiftKey ? 5 : 1),
+                  Math.max(current.quantity, getSourcePreviewFreeByKey(current.sourceKey))
+                ),
+              }
+            : null
+        );
+      } else if (event.key === "-") {
+        setCarried((current) =>
+          current
+            ? { ...current, quantity: Math.max(1, current.quantity - (event.shiftKey ? 5 : 1)) }
+            : null
+        );
+      } else if (event.key === "Enter" && targetLineId) {
+        placeOnLine(targetLineId);
+      } else {
         return;
       }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    }
 
-      pointerDropHandledRef.current = true;
-      activeTokenRef.current = null;
-      applyTokenDrop(
-        token,
-        pointerTarget.salesOrderLineId,
-        token.originLineId ? pointerTarget.sourceKey : null
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  });
+
+  useEffect(() => {
+    function handleWheel(event: WheelEvent) {
+      if (!carried) return;
+      event.preventDefault();
+      setCarried((current) =>
+        current
+          ? {
+              ...current,
+              quantity: Math.max(
+                1,
+                clampQuantity(
+                  current.quantity + (event.deltaY < 0 ? 1 : -1),
+                  Math.max(current.quantity, getSourcePreviewFreeByKey(current.sourceKey))
+                )
+              ),
+            }
+          : null
       );
     }
 
-    window.addEventListener("pointerup", handlePointerUp, true);
-    window.addEventListener("mouseup", handlePointerUp, true);
-    return () => {
-      window.removeEventListener("pointerup", handlePointerUp, true);
-      window.removeEventListener("mouseup", handlePointerUp, true);
-    };
+    window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", handleWheel, { capture: true });
   });
+
+  const totalOverRemaining = (data?.demandRows ?? []).some(
+    (row) => getLineDraftTotal(row.salesOrderLineId) > readQuantity(row.remainingQty)
+  );
+  const overAllocatedSource = data?.supplySources.find((source) => {
+    const key = allocationKey(source.sourceType, source.sourceId);
+    return getSourceDraftTotal(key) > readQuantity(source.totalQty);
+  });
+  const targetDraftTotal = targetLineId ? getLineDraftTotal(targetLineId) : 0;
+  const targetDraftShortQty = Math.max(
+    0,
+    readQuantity(targetLine?.remainingQty) - targetDraftTotal
+  );
+  const hasChanges =
+    JSON.stringify(draftsByLine) !== JSON.stringify(defaultDraftsByLine);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -771,6 +1805,7 @@ export function AllocationSheet({
         queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
       ]);
       setDraftState({ lineId: null, values: {} });
+      setCarried(null);
     },
   });
 
@@ -782,166 +1817,233 @@ export function AllocationSheet({
     !totalOverRemaining &&
     !overAllocatedSource;
 
+  const onHandSources = (data?.supplySources ?? []).filter(
+    (source) => source.sourceType === "stock_pool" || source.sourceType === "lot"
+  );
+  const manufacturingSources = (data?.supplySources ?? []).filter(
+    (source) => source.sourceType === "manufacturing_order"
+  );
+  const onHandTotal = onHandSources.reduce(
+    (sum, source) => sum + readQuantity(source.totalQty),
+    0
+  );
+  const onHandFree = onHandSources.reduce(
+    (sum, source) => sum + getSourcePreviewFree(source),
+    0
+  );
+  const productionTotal = manufacturingSources.reduce(
+    (sum, source) => sum + readQuantity(source.totalQty),
+    0
+  );
+  const productionFree = manufacturingSources.reduce(
+    (sum, source) => sum + getSourcePreviewFree(source),
+    0
+  );
+  const supplyPanelCount =
+    manufacturingSources.length > 0
+      ? `${onHandSources.length} on hand · ${manufacturingSources.length} inbound`
+      : `${onHandSources.length} on hand`;
+  const selectedSource =
+    selectedSourceKey ? sourceMetaByKey.get(selectedSourceKey)?.source ?? null : null;
+
+  const sourceDestinations = selectedSource
+    ? data?.demandRows.flatMap((row) => {
+        const key = allocationKey(selectedSource.sourceType, selectedSource.sourceId);
+        const quantity = readQuantity(draftsByLine[row.salesOrderLineId]?.[key]);
+        if (quantity <= 0) return [];
+        return [{ label: row.orderNumber, quantity, kind: "sales" as const }];
+      }) ?? []
+    : [];
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(94vw,76rem)] data-[side=right]:sm:max-w-none">
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setOutputMoId(null);
+          setCarried(null);
+          setBrowseTarget(null);
+        }
+        onOpenChange(nextOpen);
+      }}
+    >
+      <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
         <SheetHeader className="border-b">
           <SheetTitle>Allocation Manager</SheetTitle>
           <SheetDescription className="sr-only">
-            Allocate available stock and production to sales order lines.
+            Allocate available stock and production to demand.
           </SheetDescription>
-          {targetLine ? (
-            <div className="mt-2 rounded-lg border bg-card p-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex size-12 items-center justify-center rounded-md bg-muted">
-                  <HugeiconsIcon icon={PackageIcon} strokeWidth={2} />
-                </div>
+          {targetItem ? (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <ItemToken
+                  kind={targetVisual.kind}
+                  color={targetVisual.color}
+                  state="available"
+                  size="xs"
+                />
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-xl font-semibold text-foreground">
-                      {targetLine.itemName}
-                    </div>
-                    <Badge variant="secondary">{targetLine.unitName}</Badge>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-base font-semibold text-foreground">
+                    <span className="truncate">
+                      {targetLine
+                        ? `${targetLine.orderNumber} · ${targetLine.customerName}`
+                        : targetItem.itemName}
+                    </span>
+                    {targetLine ? <Badge variant="outline">Sales order</Badge> : null}
                   </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {targetLine.orderNumber} · {targetLine.customerName} ·{" "}
-                    {statusLabel(targetLine.orderStatus)}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span className="truncate">
+                      {targetLine ? targetItem.itemName : "Item allocation"}
+                    </span>
+                    <Badge variant="secondary" className="shrink-0">
+                      {targetUnitLabel}
+                    </Badge>
                   </div>
                 </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <VariantSwitcher
+                  options={data?.variantOptions ?? []}
+                  salesOrderItems={data?.salesOrderItems ?? []}
+                  fallbackItemName={targetItem.itemName}
+                  fallbackUnitLabel={targetUnitLabel}
+                  onSelectLine={(nextLineId) => {
+                    setCarried(null);
+                    setSelectedSourceKey(null);
+                    setBrowseTarget(null);
+                    setOutputMoId(null);
+                    onTargetLineChange(nextLineId);
+                  }}
+                  onSelectItem={(itemId) => {
+                    setCarried(null);
+                    setSelectedSourceKey(null);
+                    setBrowseTarget({ itemId, lineId });
+                    setOutputMoId(null);
+                  }}
+                />
+                <HeaderMetric
+                  label="stock"
+                  free={onHandFree}
+                  total={onHandTotal}
+                  tone="success"
+                />
+                {productionTotal > 0 ? (
+                  <HeaderMetric
+                    label="production"
+                    free={productionFree}
+                    total={productionTotal}
+                    tone="primary"
+                  />
+                ) : null}
               </div>
             </div>
           ) : null}
         </SheetHeader>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={pointerWithin}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => {
-            pointerDropHandledRef.current = false;
-            setActiveToken(null);
-          }}
-        >
+        {outputMoId ? (
+          <OutputAllocationWorkspace
+            manufacturingOrderId={outputMoId}
+            onBack={() => {
+              if (lineId == null) {
+                onOpenChange(false);
+                return;
+              }
+              setOutputMoId(null);
+            }}
+            onOpenOutput={openOutputMo}
+          />
+        ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
-            {query.isLoading ? (
+            {lineId == null && activeItemId == null ? (
+              <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
+                <p className="text-sm font-medium">Choose a sales line or MO output first.</p>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              </div>
+            ) : query.isLoading ? (
               <div className="flex min-h-48 items-center justify-center">
                 <Spinner className="text-foreground" />
               </div>
             ) : query.isError ? (
-              <p className="text-sm text-destructive">{query.error.message}</p>
-            ) : data && targetLine ? (
-              <div className="grid min-h-0 gap-4 lg:grid-cols-[0.92fr_1.25fr]">
-                <section className="flex flex-col gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">Available Supply</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Drag blocks to allocate
-                    </p>
-                  </div>
+              <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
+                <p className="text-sm text-destructive">{query.error.message}</p>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              </div>
+            ) : data && targetItem ? (
+              <div className="grid min-h-0 gap-4 xl:grid-cols-2">
+                <WorkspacePanel
+                  title="Supply · Storage"
+                  count={supplyPanelCount}
+                  accent="supply"
+                >
+                  <div className="flex min-h-0 flex-col gap-4">
+                    <div className="space-y-3">
+                      <SectionTitle title="On hand" count={`${onHandSources.length} sources`} />
+                      <div className="flex flex-wrap gap-2">
+                        {onHandSources.map((source, sourceIndex) => {
+                          const key = allocationKey(source.sourceType, source.sourceId);
+                          return (
+                            <SupplyStack
+                              key={key}
+                              source={source}
+                              itemName={targetItem.itemName}
+                              unitName={targetItem.unitName}
+                              sourceKeyValue={key}
+                              sourceIndex={sourceIndex}
+                              previewFree={getSourcePreviewFree(source)}
+                              isSelected={selectedSourceKey === key}
+                              carried={carried}
+                              onPick={pickToken}
+                              onSelect={selectSource}
+                              onReturn={returnTokenToSource}
+                              onOpenOutput={openOutputMo}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
 
-                  <div className="flex flex-col gap-3">
-                    {data.supplySources.map((source, sourceIndex) => {
-                      const key = allocationKey(source.sourceType, source.sourceId);
-                      const previewFree = getSourcePreviewFree(source);
-                      const color = sourceColor(source.sourceType, sourceIndex);
-                      const chunks = buildChunks(source.sourceType, previewFree);
-
-                      return (
-                        <SourceDropCard
-                          key={key}
-                          sourceKey={key}
-                          color={color}
-                          canReturn={
-                            activeToken?.originLineId != null &&
-                            activeToken.sourceKey === key
+                    {manufacturingSources.length > 0 ? (
+                      <div className="border-t pt-3">
+                        <SectionTitle
+                          title="Inbound from MFG"
+                          count={`${manufacturingSources.length} MOs`}
+                          className="text-primary"
+                          icon={
+                            <HugeiconsIcon
+                              icon={ArrowDown01Icon}
+                              strokeWidth={2}
+                              className="size-3.5"
+                            />
                           }
-                          onTokenDrop={() => {
-                            const token = activeTokenRef.current ?? activeToken;
-                            if (token?.originLineId) {
-                              pointerDropHandledRef.current = true;
-                              activeTokenRef.current = null;
-                              returnAllocatedTokenToSource(token, key);
-                            }
-                          }}
-                        >
-                          <div className="mb-3 flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={cn(
-                                  "flex size-7 items-center justify-center rounded-md",
-                                  softSourceClassName(color)
-                                )}
-                              >
-                                <HugeiconsIcon
-                                  icon={
-                                    source.sourceType === "stock_pool" ||
-                                    source.sourceType === "lot"
-                                      ? PackageIcon
-                                      : Factory01Icon
-                                  }
-                                  strokeWidth={2}
-                                  className="size-4"
-                                />
-                              </div>
-                              <div>
-                                <div className="font-medium">{source.label}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {sourceLabel(sourceKindLabel(source), source.date)}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {formatQuantity(toQuantityString(previewFree))} Free
-                            </div>
-                          </div>
-                          <div className="flex min-h-14 flex-wrap items-center gap-2">
-                            {chunks.length ? (
-                              chunks.map((chunk) => {
-                                const quantity =
-                                  typeof chunk === "number" ? chunk : chunk.quantity;
-                                const token: AllocationTokenData = {
-                                  sourceKey: key,
-                                  sourceType: source.sourceType,
-                                  sourceId: source.sourceId,
-                                  sourceLabel: source.label,
-                                  sourceIndex,
-                                  quantity,
-                                  all: typeof chunk !== "number" && chunk.all,
-                                };
-                                return (
-                                  <SourceToken
-                                    key={`${key}-${token.all ? "all" : quantity}`}
-                                    token={token}
-                                    color={color}
-                                    disabled={previewFree <= 0}
-                                    onPointerDownToken={primePointerToken}
-                                    onClick={() =>
-                                      targetLineId
-                                        ? allocateTokenToLine(token, targetLineId)
-                                        : undefined
-                                    }
-                                  />
-                                );
-                              })
-                            ) : (
-                              <span className="text-sm text-muted-foreground">
-                                No free supply
-                              </span>
-                            )}
-                            {Array.from({ length: Math.max(0, 4 - chunks.length) }).map(
-                              (_, index) => (
-                                <div
-                                  key={index}
-                                  className="h-12 min-w-12 rounded-md border border-dashed bg-muted/20"
-                                  aria-hidden
-                                />
-                              )
-                            )}
-                          </div>
-                        </SourceDropCard>
-                      );
-                    })}
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {manufacturingSources.map((source, index) => {
+                            const key = allocationKey(source.sourceType, source.sourceId);
+                            return (
+                              <SupplyStack
+                                key={key}
+                                source={source}
+                                itemName={targetItem.itemName}
+                                unitName={targetItem.unitName}
+                                sourceKeyValue={key}
+                                sourceIndex={onHandSources.length + index}
+                                previewFree={getSourcePreviewFree(source)}
+                                isSelected={selectedSourceKey === key}
+                                carried={carried}
+                                onPick={pickToken}
+                                onSelect={selectSource}
+                                onReturn={returnTokenToSource}
+                                onOpenOutput={openOutputMo}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   {targetLine && targetDraftShortQty > 0 ? (
@@ -951,7 +2053,7 @@ export function AllocationSheet({
                       buttonLabel="Add MO"
                       buttonVariant="outline"
                       buttonSize="lg"
-                      buttonClassName="h-24 w-full flex-col border-dashed bg-card text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground [&_svg]:size-5"
+                      buttonClassName="h-20 w-full flex-col border-dashed bg-card text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground [&_svg]:size-5"
                       initialPlannedDate={todayDateString()}
                       openManufacturingOrders={data.supplySources
                         .filter(
@@ -964,7 +2066,7 @@ export function AllocationSheet({
                           id: source.sourceId ?? source.label,
                           orderNumber: source.label,
                           itemName: targetLine.itemName,
-                          quantity: `${formatQuantity(source.totalQty)} ${targetLine.unitName}`,
+                          quantity: `${formatQuantity(source.totalQty)} ${targetUnitLabel}`,
                           plannedDate: source.date,
                           priorityRank: source.priorityRank,
                           status: statusLabel(source.status),
@@ -977,26 +2079,27 @@ export function AllocationSheet({
                       ]}
                     />
                   ) : null}
-                </section>
 
-                <section className="flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold">Allocate to Orders</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Fill buckets to allocate
-                      </p>
-                    </div>
-                    <Button type="button" variant="ghost" size="sm" disabled>
-                      Order by: Shipping Date
-                    </Button>
-                  </div>
+                  {selectedSource ? (
+                    <SourceDetailPanel
+                      source={selectedSource}
+                      itemName={targetItem.itemName}
+                      unitName={targetItem.unitName}
+                      destinations={sourceDestinations}
+                    />
+                  ) : null}
+                </WorkspacePanel>
 
-                  <div className="flex flex-col gap-3">
+                <WorkspacePanel
+                  title="Demand · Orders"
+                  count={`${data.demandRows.length} SO · shipping date`}
+                  accent="default"
+                >
+                  <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
                     {data.demandRows
                       .toSorted((a, b) => Number(b.isTarget) - Number(a.isTarget))
                       .map((row) => {
-                        const isTarget = row.salesOrderLineId === targetLine.salesOrderLineId;
+                        const isTarget = row.salesOrderLineId === targetLineId;
                         const allocatedQty = getLineDraftTotal(row.salesOrderLineId);
                         const shortQty = Math.max(
                           0,
@@ -1004,121 +2107,84 @@ export function AllocationSheet({
                         );
 
                         return (
-                          <OrderBucket
+                          <DemandCard
                             key={row.salesOrderLineId}
                             row={row}
                             isTarget={isTarget}
                             allocatedQty={allocatedQty}
                             shortQty={shortQty}
-                            onTokenDrop={() => {
-                              const token = activeTokenRef.current ?? activeToken;
-                              if (!token) return;
-                              pointerDropHandledRef.current = true;
-                              activeTokenRef.current = null;
-                              if (token.originLineId) {
-                                moveAllocatedTokenToLine(
-                                  token,
-                                  row.salesOrderLineId
-                                );
-                                return;
-                              }
-                              allocateTokenToLine(token, row.salesOrderLineId);
-                            }}
-                          >
-                            {Object.entries(draftsByLine[row.salesOrderLineId] ?? {}).flatMap(
-                              ([key, value]) => {
-                                const quantity = readQuantity(value);
-                                if (quantity <= 0) return [];
-                                const meta = sourceMetaByKey.get(key);
-                                const parsed = parseAllocationKey(key);
-                                const color = sourceColor(
-                                  parsed.sourceType,
-                                  meta?.index ?? 0
-                                );
-                                return (
-                                  <TokenPreview
-                                    key={key}
-                                    label={meta?.source.label ?? "Source"}
-                                    quantity={quantity}
-                                    color={color}
-                                    token={{
-                                      sourceKey: key,
-                                      sourceType: parsed.sourceType,
-                                      sourceId: parsed.sourceId,
-                                      sourceLabel: meta?.source.label ?? "Source",
-                                      sourceIndex: meta?.index ?? 0,
-                                      quantity,
-                                      all: false,
-                                      originLineId: row.salesOrderLineId,
-                                    }}
-                                    onPointerDownToken={primePointerToken}
-                                  />
-                                );
-                              }
-                            )}
-                          </OrderBucket>
+                            carried={carried}
+                            onPlace={() => placeOnLine(row.salesOrderLineId)}
+                            onPick={() => pickFirstTokenFromLine(row.salesOrderLineId)}
+                          />
                         );
                       })}
                   </div>
-                </section>
+                </WorkspacePanel>
               </div>
-            ) : null}
+            ) : (
+              <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
+                <p className="text-sm font-medium">No allocatable line found.</p>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              </div>
+            )}
+            <CarryPanel
+              carried={carried}
+              className="bottom-20"
+            />
           </div>
+        )}
 
-          <DragOverlay>
-            {activeToken ? (
-              <TokenPreview
-                label={activeToken.sourceLabel}
-                quantity={activeToken.quantity}
-                color={sourceColor(activeToken.sourceType, activeToken.sourceIndex)}
-              />
+        {!outputMoId ? (
+          <SheetFooter className="border-t">
+            {mutation.error ? (
+              <p className="text-sm text-destructive">{mutation.error.message}</p>
+            ) : totalOverRemaining && targetLine ? (
+              <p className="text-sm text-destructive">
+                Allocated quantity cannot exceed {formatQuantity(targetLine.remainingQty)}{" "}
+                {targetUnitLabel}.
+              </p>
+            ) : overAllocatedSource ? (
+              <p className="text-sm text-destructive">
+                {overAllocatedSource.label} only has{" "}
+                {formatQuantity(overAllocatedSource.totalQty)} total.
+              </p>
             ) : null}
-          </DragOverlay>
-        </DndContext>
-
-        <SheetFooter className="border-t">
-          {mutation.error ? (
-            <p className="text-sm text-destructive">{mutation.error.message}</p>
-          ) : totalOverRemaining && targetLine ? (
-            <p className="text-sm text-destructive">
-              Allocated quantity cannot exceed {formatQuantity(targetLine.remainingQty)}{" "}
-              {targetLine.unitName}.
-            </p>
-          ) : overAllocatedSource ? (
-            <p className="text-sm text-destructive">
-              {overAllocatedSource.label} only has{" "}
-              {formatQuantity(overAllocatedSource.totalQty)} total.
-            </p>
-          ) : null}
-          <div className="flex flex-wrap justify-between gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setDraftState({ lineId, values: defaultDraftsByLine })}
-              disabled={!hasChanges || mutation.isPending}
-            >
-              <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
-              Reset
-            </Button>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-between gap-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={mutation.isPending}
+                onClick={() => {
+                  setDraftState({ lineId, values: defaultDraftsByLine });
+                  setCarried(null);
+                }}
+                disabled={!hasChanges || mutation.isPending}
               >
-                Cancel
+                <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
+                Reset
               </Button>
-              <Button
-                type="button"
-                onClick={() => mutation.mutate()}
-                disabled={!canSave}
-              >
-                {mutation.isPending ? "Saving..." : "Save allocation"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={mutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => mutation.mutate()}
+                  disabled={!canSave}
+                >
+                  {mutation.isPending ? "Saving..." : "Save allocation"}
+                </Button>
+              </div>
             </div>
-          </div>
-        </SheetFooter>
+          </SheetFooter>
+        ) : null}
       </SheetContent>
     </Sheet>
   );
