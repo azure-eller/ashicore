@@ -261,6 +261,7 @@ async function getUsableLotSourcesInTx(tx: Tx, orgId: string, itemId: string) {
       lotNumber: lots.lotNumber,
       quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
       receivedAt: lots.receivedAt,
+      createdAt: lots.createdAt,
     })
     .from(inventoryLotBalances)
     .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
@@ -575,6 +576,8 @@ export async function getSalesAllocationReadModelForItemInTx(
       label: lot.lotNumber,
       status: "available",
       date: lot.receivedAt.toISOString().slice(0, 10),
+      receivedAt: lot.receivedAt.toISOString(),
+      createdAt: lot.createdAt.toISOString(),
       priorityRank: null,
       lotNumber: lot.lotNumber,
       totalQty: quantityString(totalQty),

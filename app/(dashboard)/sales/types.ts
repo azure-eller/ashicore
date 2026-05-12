@@ -444,6 +444,8 @@ export type SalesAllocationSource = {
   label: string;
   status: "available" | "draft" | "released" | "completed";
   date: string | null;
+  receivedAt?: string | null;
+  createdAt?: string | null;
   priorityRank: number | null;
   lotNumber?: string | null;
   totalQty: string;

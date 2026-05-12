@@ -4034,6 +4034,14 @@ async function getManufacturingOutputAllocationInTx(
         manufacturingOrderId: manufacturingOrders.id,
         orderNumber: manufacturingOrders.orderNumber,
         productName: items.name,
+        outputProductName: items.name,
+        outputPlannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+          "outputPlannedQuantity"
+        ),
+        outputUnitName: manufacturingOrders.unitName,
+        plannedDate: manufacturingOrders.plannedDate,
+        salesOrderNumber: manufacturingOrders.salesOrderNumber,
+        salesCustomerName: manufacturingOrders.salesCustomerName,
         plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
           "plannedQuantity"
         ),
@@ -4090,6 +4098,12 @@ async function getManufacturingOutputAllocationInTx(
           manufacturingOrderId: candidate.manufacturingOrderId,
           orderNumber: candidate.orderNumber,
           productName: candidate.productName,
+          outputProductName: candidate.outputProductName,
+          outputPlannedQuantity: candidate.outputPlannedQuantity,
+          outputUnitName: candidate.outputUnitName,
+          plannedDate: candidate.plannedDate,
+          salesOrderNumber: candidate.salesOrderNumber,
+          salesCustomerName: candidate.salesCustomerName,
           status: candidate.status,
           remainingNeed: normalizeNumeric(remainingNeed),
           assignedQty: normalizeNumeric(assignedQty),

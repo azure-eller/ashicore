@@ -1,5 +1,5 @@
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { test, expect, filterList } from "../fixtures";
 import {
   inventoryDemandSummary,
@@ -26,36 +26,6 @@ function unique(prefix: string) {
 
 function sku(prefix: string) {
   return unique(prefix).toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 48);
-}
-
-async function dragToCenter(page: Page, source: Locator, target: Locator) {
-  const sourceBox = await source.boundingBox();
-  const targetBox = await target.boundingBox();
-
-  if (!sourceBox || !targetBox) {
-    throw new Error("Could not resolve drag source or target bounds.");
-  }
-
-  await page.mouse.move(
-    sourceBox.x + sourceBox.width / 2,
-    sourceBox.y + sourceBox.height / 2
-  );
-  await page.waitForTimeout(75);
-  await page.mouse.down();
-  await page.waitForTimeout(75);
-  await page.mouse.move(
-    (sourceBox.x + sourceBox.width / 2 + targetBox.x + targetBox.width / 2) / 2,
-    (sourceBox.y + sourceBox.height / 2 + targetBox.y + targetBox.height / 2) / 2,
-    { steps: 12 }
-  );
-  await page.waitForTimeout(75);
-  await page.mouse.move(
-    targetBox.x + targetBox.width / 2,
-    targetBox.y + targetBox.height / 2,
-    { steps: 24 }
-  );
-  await page.waitForTimeout(75);
-  await page.mouse.up();
 }
 
 async function createCustomerFixture(namePrefix: string) {
@@ -306,18 +276,16 @@ test.describe("Sales allocation manager slow flow", () => {
       .filter({ hasText: competingOrderNumber });
 
     await sheet.getByRole("button", { name: "Allocate all from Stock" }).click();
-    await expect(currentBucket).toContainText("Allocated6");
-    await expect(currentBucket).toContainText("Short—");
+    await currentBucket.click();
+    await expect(currentBucket).toContainText(/Allocated\s*6/);
+    await expect(currentBucket).toContainText(/Short\s*—/);
 
-    await dragToCenter(
-      page,
-      currentBucket.getByLabel("Move 6 from Stock"),
-      competingBucket
-    );
-    await expect(currentBucket).toContainText("Allocated1");
-    await expect(currentBucket).toContainText("Short5");
-    await expect(competingBucket).toContainText("Allocated5");
-    await expect(competingBucket).toContainText("Short—");
+    await currentBucket.getByLabel("Move 6 from Stock").click();
+    await competingBucket.click();
+    await expect(currentBucket).toContainText(/Allocated\s*1/);
+    await expect(currentBucket).toContainText(/Short\s*5/);
+    await expect(competingBucket).toContainText(/Allocated\s*5/);
+    await expect(competingBucket).toContainText(/Short\s*—/);
 
     await saveAllocation(page);
 
@@ -426,8 +394,9 @@ test.describe("Sales allocation manager slow flow", () => {
       .click();
 
     const currentBucket = sheet.getByTestId("current-allocation-bucket");
-    await expect(currentBucket).toContainText("Allocated8");
-    await expect(currentBucket).toContainText("Short—");
+    await currentBucket.click();
+    await expect(currentBucket).toContainText(/Allocated\s*8/);
+    await expect(currentBucket).toContainText(/Short\s*—/);
     await saveAllocation(page);
 
     const line = await getLine(db, orderId);
