@@ -289,28 +289,139 @@ function HeaderMetric({
   );
 }
 
-function CurrentItemButton({
-  itemName,
-  unitLabel,
+function VariantSwitcher({
+  options,
+  salesOrderItems = [],
+  fallbackItemName,
+  fallbackUnitLabel,
+  onSelectLine,
+  onSelectItem,
 }: {
-  itemName: string;
-  unitLabel: string;
+  options: SalesAllocationSheetData["variantOptions"];
+  salesOrderItems?: SalesAllocationSheetData["salesOrderItems"];
+  fallbackItemName: string;
+  fallbackUnitLabel: string;
+  onSelectLine: (lineId: string) => void;
+  onSelectItem: (itemId: string) => void;
 }) {
+  if (salesOrderItems.length > 0) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {salesOrderItems.map((item) => {
+          const remaining = readQuantity(item.remainingQty);
+          const short = readQuantity(item.shortQty);
+          const isComplete = remaining > 0 && short <= 0;
+          const unitLabel = compactUnitName(item.unitName);
+
+          return (
+            <div key={item.salesOrderLineId} className="group relative">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "relative flex size-10 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      item.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20",
+                      !item.isCurrent && isComplete && "border-success/70 bg-success/5",
+                      !item.isCurrent && !isComplete && short > 0 && "border-warning/70 bg-warning/5"
+                    )}
+                    aria-label={`${item.itemName} · ${unitLabel}`}
+                    onClick={() => onSelectLine(item.salesOrderLineId)}
+                  >
+                    <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
+                    <span className="absolute bottom-0.5 right-0.5 rounded bg-background/95 px-0.5 text-[9px] font-semibold tabular-nums shadow-xs">
+                      {formatQuantity(item.allocatedQty)}/{formatQuantity(item.remainingQty)}
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {item.itemName} · {unitLabel} · {formatQuantity(item.allocatedQty)}/
+                  {formatQuantity(item.remainingQty)} allocated.
+                </TooltipContent>
+              </Tooltip>
+              <div className="invisible absolute left-1/2 top-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-1 rounded-md border bg-popover p-1 text-popover-foreground opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                {item.variantOptions.map((option) => {
+                  const optionUnitLabel = compactUnitName(option.unitName);
+                  return (
+                    <Tooltip key={option.itemId}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            option.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20"
+                          )}
+                          aria-label={`${option.itemName} · ${optionUnitLabel}`}
+                          onClick={() => {
+                            if (option.salesOrderLineId) {
+                              onSelectLine(option.salesOrderLineId);
+                              return;
+                            }
+                            onSelectItem(option.itemId);
+                          }}
+                        >
+                          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        {option.itemName} · {optionUnitLabel}.
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const visibleOptions =
+    options.length > 0
+      ? options
+      : [
+          {
+            itemId: "current",
+            itemName: fallbackItemName,
+            unitName: fallbackUnitLabel,
+            salesOrderLineId: null,
+            isCurrent: true,
+          },
+        ];
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={`${itemName} · ${unitLabel}`}
-        >
-          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        {itemName} · {unitLabel}.
-      </TooltipContent>
-    </Tooltip>
+    <div className="flex items-center gap-1.5">
+      {visibleOptions.map((option) => {
+        const unitLabel = compactUnitName(option.unitName);
+        return (
+          <Tooltip key={option.itemId}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  option.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20"
+                )}
+                aria-label={`${option.itemName} · ${unitLabel}`}
+                onClick={() => {
+                  if (option.salesOrderLineId && !option.isCurrent) {
+                    onSelectLine(option.salesOrderLineId);
+                    return;
+                  }
+                  onSelectItem(option.itemId);
+                }}
+              >
+                <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {option.itemName} · {unitLabel}.
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1191,6 +1302,7 @@ export function AllocationSheet({
   lineId,
   open,
   onOpenChange,
+  onTargetLineChange,
   outputManufacturingOrderId,
   onOutputManufacturingOrderChange,
 }: Props) {
@@ -1202,18 +1314,30 @@ export function AllocationSheet({
     : internalOutputMoId;
   const [selectedSourceKey, setSelectedSourceKey] = useState<string | null>(null);
   const [carried, setCarried] = useState<CarryState>(null);
+  const [browseTarget, setBrowseTarget] = useState<{
+    itemId: string;
+    lineId: string | null;
+  } | null>(null);
   const [draftState, setDraftState] = useState<AllocationDraftState>({
     lineId: null,
     values: {},
   });
+  const activeItemId = browseTarget?.lineId === lineId ? browseTarget.itemId : null;
   const query = useQuery<SalesAllocationSheetData>({
-    queryKey: ["sales-line-allocation", lineId],
-    queryFn: () =>
-      apiJson<SalesAllocationSheetData>(
+    queryKey: ["allocation-workspace", lineId, activeItemId],
+    queryFn: () => {
+      if (activeItemId) {
+        return apiJson<SalesAllocationSheetData>(
+          `/api/items/${activeItemId}/allocation`,
+          { fallbackError: "Failed to load allocation." }
+        );
+      }
+      return apiJson<SalesAllocationSheetData>(
         `/api/sales-order-lines/${lineId}/allocation`,
         { fallbackError: "Failed to load allocation." }
-      ),
-    enabled: open && lineId != null && outputMoId == null,
+      );
+    },
+    enabled: open && (lineId != null || activeItemId != null) && outputMoId == null,
   });
 
   const data = query.data ?? null;
@@ -1246,7 +1370,8 @@ export function AllocationSheet({
   );
   const targetLine = data?.targetLine ?? null;
   const targetLineId = targetLine?.salesOrderLineId ?? null;
-  const targetUnitLabel = compactUnitName(targetLine?.unitName);
+  const targetItem = data?.targetItem ?? null;
+  const targetUnitLabel = compactUnitName(targetLine?.unitName ?? targetItem?.unitName);
 
   function setOutputMoId(id: string | null) {
     if (isOutputMoControlled) {
@@ -1634,6 +1759,7 @@ export function AllocationSheet({
         if (!nextOpen) {
           setOutputMoId(null);
           setCarried(null);
+          setBrowseTarget(null);
         }
         onOpenChange(nextOpen);
       }}
@@ -1644,7 +1770,7 @@ export function AllocationSheet({
           <SheetDescription className="sr-only">
             Allocate available stock and production to demand.
           </SheetDescription>
-          {targetLine ? (
+          {targetItem ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
@@ -1652,20 +1778,37 @@ export function AllocationSheet({
                 </span>
                 <div className="min-w-0">
                   <div className="flex min-w-0 flex-wrap items-center gap-2 text-base font-semibold text-foreground">
-                    <span className="truncate">{targetLine.itemName}</span>
+                    <span className="truncate">{targetItem.itemName}</span>
                     <Badge variant="secondary" className="shrink-0">
                       {targetUnitLabel}
                     </Badge>
                   </div>
                   <div className="truncate text-sm text-muted-foreground">
-                    {targetLine.orderNumber} · {targetLine.customerName}
+                    {targetLine
+                      ? `${targetLine.orderNumber} · ${targetLine.customerName}`
+                      : "Item allocation"}
                   </div>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <CurrentItemButton
-                  itemName={targetLine.itemName}
-                  unitLabel={targetUnitLabel}
+                <VariantSwitcher
+                  options={data?.variantOptions ?? []}
+                  salesOrderItems={data?.salesOrderItems ?? []}
+                  fallbackItemName={targetItem.itemName}
+                  fallbackUnitLabel={targetUnitLabel}
+                  onSelectLine={(nextLineId) => {
+                    setCarried(null);
+                    setSelectedSourceKey(null);
+                    setBrowseTarget(null);
+                    setOutputMoId(null);
+                    onTargetLineChange(nextLineId);
+                  }}
+                  onSelectItem={(itemId) => {
+                    setCarried(null);
+                    setSelectedSourceKey(null);
+                    setBrowseTarget({ itemId, lineId });
+                    setOutputMoId(null);
+                  }}
                 />
                 <HeaderMetric
                   label="stock"
@@ -1700,7 +1843,7 @@ export function AllocationSheet({
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
-            {lineId == null ? (
+            {lineId == null && activeItemId == null ? (
               <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
                 <p className="text-sm font-medium">Choose a sales line or MO output first.</p>
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -1718,7 +1861,7 @@ export function AllocationSheet({
                   Close
                 </Button>
               </div>
-            ) : data && targetLine ? (
+            ) : data && targetItem ? (
               <div className="grid min-h-0 gap-4 xl:grid-cols-2">
                 <WorkspacePanel
                   title="Supply · Storage"
@@ -1839,7 +1982,7 @@ export function AllocationSheet({
                     {data.demandRows
                       .toSorted((a, b) => Number(b.isTarget) - Number(a.isTarget))
                       .map((row) => {
-                        const isTarget = row.salesOrderLineId === targetLine.salesOrderLineId;
+                        const isTarget = row.salesOrderLineId === targetLineId;
                         const allocatedQty = getLineDraftTotal(row.salesOrderLineId);
                         const shortQty = Math.max(
                           0,

@@ -218,6 +218,18 @@ export type SalesOrderListLine = {
   unitName: string;
 };
 
+export type SalesOrderListShipment = {
+  id: string;
+  shipmentNumber: string;
+  sequence: number;
+  status: "draft" | "shipped" | "cancelled";
+  fulfillmentType: "delivery" | "pickup";
+  scheduledDate: string | null;
+  shippedAt: Date | null;
+  totalAmount: string;
+  lineCount: number;
+};
+
 export type SalesAllocationCoverageKind = "explicit" | "implicit";
 export type SalesAllocationSourceType = "stock_pool" | "lot" | "manufacturing_order";
 
@@ -274,6 +286,7 @@ export type SalesOrderListRow = {
   totalAmount: string;
   itemSummary: string;
   lines: SalesOrderListLine[];
+  shipments: SalesOrderListShipment[];
   fulfillmentSummary: SalesOrderFulfillmentSummary;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
@@ -483,10 +496,37 @@ export type SalesAllocationDemandRow = {
   isTarget: boolean;
 };
 
+export type SalesAllocationVariantOption = {
+  itemId: string;
+  itemName: string;
+  unitName: string;
+  salesOrderLineId: string | null;
+  isCurrent: boolean;
+};
+
 export type SalesAllocationSheetData = {
-  targetLine: SalesAllocationDemandRow & {
-    allocationManagedAt: Date | null;
+  targetItem: {
+    itemId: string;
+    itemName: string;
+    unitName: string;
   };
+  targetLine:
+    | (SalesAllocationDemandRow & {
+        allocationManagedAt: Date | null;
+      })
+    | null;
+  variantOptions: SalesAllocationVariantOption[];
+  salesOrderItems: Array<{
+    itemId: string;
+    itemName: string;
+    unitName: string;
+    salesOrderLineId: string;
+    allocatedQty: string;
+    remainingQty: string;
+    shortQty: string;
+    isCurrent: boolean;
+    variantOptions: SalesAllocationVariantOption[];
+  }>;
   editableAllocations: Array<{
     sourceType: SalesAllocationSourceType;
     sourceId: string | null;

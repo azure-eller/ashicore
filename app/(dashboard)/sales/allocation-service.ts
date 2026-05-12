@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryLotBalances,
@@ -12,6 +12,7 @@ import {
   salesShipmentLines,
   salesShipments,
   stockAllocations,
+  unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -28,6 +29,7 @@ import type {
   SalesAllocationSheetData,
   SalesAllocationSource,
   SalesAllocationSourceType,
+  SalesAllocationVariantOption,
 } from "./types";
 
 const ACTIVE_ORDER_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
@@ -63,6 +65,8 @@ type EffectiveAllocation = {
   quantity: number;
   coverageKind: SalesAllocationCoverageKind;
 };
+
+type AllocationVariantOption = SalesAllocationVariantOption;
 
 export type SaveSalesLineAllocationInput = {
   allocations: Array<{
@@ -229,6 +233,213 @@ async function getActiveDemandLinesForItemInTx(tx: Tx, itemId: string) {
     })
     .filter((line) => line.remainingQty > 0)
     .sort(sortDemandLines);
+}
+
+async function getAllocationVariantOptionsInTx({
+  tx,
+  targetItemId,
+  salesOrderId,
+  currentSalesOrderLineId,
+}: {
+  tx: Tx;
+  targetItemId: string;
+  salesOrderId?: string | null;
+  currentSalesOrderLineId?: string | null;
+}): Promise<AllocationVariantOption[]> {
+  const [targetItem] = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      isMaster: items.isMaster,
+      parentId: items.parentId,
+      variantAxes: items.variantAxes,
+      variantAttrs: items.variantAttrs,
+      unitName: unitDefinitions.name,
+    })
+    .from(items)
+    .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .where(eq(items.id, targetItemId));
+
+  if (!targetItem) return [];
+
+  const familyId = targetItem.parentId ?? targetItem.id;
+  const [masterItem] = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      variantAxes: items.variantAxes,
+    })
+    .from(items)
+    .where(eq(items.id, familyId));
+
+  const siblingRows = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      variantAttrs: items.variantAttrs,
+      unitName: unitDefinitions.name,
+      createdAt: items.createdAt,
+    })
+    .from(items)
+    .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .where(
+      and(
+        targetItem.parentId == null
+          ? targetItem.isMaster
+            ? eq(items.parentId, targetItem.id)
+            : or(eq(items.id, targetItem.id), eq(items.parentId, targetItem.id))
+          : eq(items.parentId, familyId),
+        isNull(items.deletedAt)
+      )
+    )
+    .orderBy(asc(items.createdAt), asc(items.id));
+
+  const itemIds = siblingRows.map((row) => row.id);
+  if (itemIds.length === 0) return [];
+
+  const orderLineRows =
+    salesOrderId == null
+      ? []
+      : await tx
+          .select({
+            id: salesOrderLines.id,
+            itemId: salesOrderLines.itemId,
+            sortOrder: salesOrderLines.sortOrder,
+          })
+          .from(salesOrderLines)
+          .where(
+            and(
+              eq(salesOrderLines.salesOrderId, salesOrderId),
+              inArray(salesOrderLines.itemId, itemIds)
+            )
+          )
+          .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.id));
+  const lineByItemId = new Map(orderLineRows.map((row) => [row.itemId, row.id]));
+
+  return siblingRows.map((row) => {
+    const display = resolveVariantDisplay(
+      row.name,
+      masterItem == null
+        ? null
+        : { name: masterItem.name, variantAxes: masterItem.variantAxes },
+      row.variantAttrs
+    );
+
+    return {
+      itemId: row.id,
+      itemName: display.masterName,
+      unitName: row.unitName ?? "units",
+      salesOrderLineId: lineByItemId.get(row.id) ?? null,
+      isCurrent: row.id === targetItemId || lineByItemId.get(row.id) === currentSalesOrderLineId,
+    };
+  });
+}
+
+async function getAllocationTargetItemInTx(tx: Tx, itemId: string) {
+  const masterItems = alias(items, "allocation_target_master_items");
+  const [row] = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      variantAttrs: items.variantAttrs,
+      unitName: unitDefinitions.name,
+      masterName: masterItems.name,
+      masterVariantAxes: masterItems.variantAxes,
+    })
+    .from(items)
+    .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+    .where(eq(items.id, itemId));
+
+  if (!row) return null;
+
+  const display = resolveVariantDisplay(
+    row.name,
+    row.masterName == null
+      ? null
+      : { name: row.masterName, variantAxes: row.masterVariantAxes },
+    row.variantAttrs
+  );
+
+  return {
+    itemId: row.id,
+    itemName: display.masterName,
+    unitName: row.unitName ?? "units",
+  };
+}
+
+async function getSalesOrderAllocationItemsInTx({
+  tx,
+  orgId,
+  salesOrderId,
+  currentItemId,
+  currentSalesOrderLineId,
+}: {
+  tx: Tx;
+  orgId: string;
+  salesOrderId: string;
+  currentItemId: string;
+  currentSalesOrderLineId: string;
+}): Promise<SalesAllocationSheetData["salesOrderItems"]> {
+  const masterItems = alias(items, "allocation_order_master_items");
+  const lineRows = await tx
+    .select({
+      salesOrderLineId: salesOrderLines.id,
+      itemId: salesOrderLines.itemId,
+      itemName: salesOrderLines.itemName,
+      unitName: salesOrderLines.unitName,
+      variantAttrs: items.variantAttrs,
+      masterName: masterItems.name,
+      masterVariantAxes: masterItems.variantAxes,
+      sortOrder: salesOrderLines.sortOrder,
+    })
+    .from(salesOrderLines)
+    .leftJoin(items, eq(salesOrderLines.itemId, items.id))
+    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+    .where(eq(salesOrderLines.salesOrderId, salesOrderId))
+    .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.id));
+
+  const rows = await Promise.all(
+    lineRows.map(async (line) => {
+      const model = await getSalesAllocationReadModelForItemInTx(
+        tx,
+        orgId,
+        line.itemId,
+        { targetLineId: line.salesOrderLineId }
+      );
+      const demand = model.demandRows.find(
+        (row) => row.salesOrderLineId === line.salesOrderLineId
+      );
+      const display = resolveVariantDisplay(
+        line.itemName,
+        line.masterName == null
+          ? null
+          : { name: line.masterName, variantAxes: line.masterVariantAxes },
+        line.variantAttrs
+      );
+
+      return {
+        itemId: line.itemId,
+        itemName: display.masterName,
+        unitName: line.unitName,
+        salesOrderLineId: line.salesOrderLineId,
+        allocatedQty: demand?.allocatedQty ?? "0",
+        remainingQty: demand?.remainingQty ?? "0",
+        shortQty: demand?.shortQty ?? "0",
+        isCurrent:
+          line.itemId === currentItemId ||
+          line.salesOrderLineId === currentSalesOrderLineId,
+        variantOptions: await getAllocationVariantOptionsInTx({
+          tx,
+          targetItemId: line.itemId,
+          salesOrderId,
+          currentSalesOrderLineId,
+        }),
+      };
+    })
+  );
+
+  return rows;
 }
 
 async function getUsableStockQtyInTx(tx: Tx, orgId: string, itemId: string) {
@@ -656,6 +867,7 @@ export async function getSalesAllocationSheetData(
     const [target] = await tx
       .select({
         itemId: salesOrderLines.itemId,
+        salesOrderId: salesOrderLines.salesOrderId,
         allocationManagedAt: salesOrderLines.allocationManagedAt,
       })
       .from(salesOrderLines)
@@ -679,6 +891,23 @@ export async function getSalesAllocationSheetData(
 
     if (!targetLine) return null;
 
+    const targetItem = await getAllocationTargetItemInTx(tx, target.itemId);
+    if (!targetItem) return null;
+
+    const variantOptions = await getAllocationVariantOptionsInTx({
+      tx,
+      targetItemId: target.itemId,
+      salesOrderId: target.salesOrderId,
+      currentSalesOrderLineId: salesOrderLineId,
+    });
+    const salesOrderItems = await getSalesOrderAllocationItemsInTx({
+      tx,
+      orgId,
+      salesOrderId: target.salesOrderId,
+      currentItemId: target.itemId,
+      currentSalesOrderLineId: salesOrderLineId,
+    });
+
     const editableAllocations = model.supplySources
       .filter((source) => source.canAllocate || toQuantity(source.currentTargetQty) > 0)
       .map((source) => {
@@ -701,11 +930,40 @@ export async function getSalesAllocationSheetData(
       });
 
     return {
+      targetItem,
       targetLine: {
         ...targetLine,
         allocationManagedAt: target.allocationManagedAt,
       },
+      variantOptions,
+      salesOrderItems,
       editableAllocations,
+      supplySources: model.supplySources,
+      demandRows: model.demandRows,
+      uncoveredDemandQty: model.uncoveredDemandQty,
+    };
+  });
+}
+
+export async function getItemAllocationSheetData(
+  itemId: string
+): Promise<SalesAllocationSheetData | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const targetItem = await getAllocationTargetItemInTx(tx, itemId);
+    if (!targetItem) return null;
+
+    const model = await getSalesAllocationReadModelForItemInTx(tx, orgId, itemId);
+    const variantOptions = await getAllocationVariantOptionsInTx({
+      tx,
+      targetItemId: itemId,
+    });
+
+    return {
+      targetItem,
+      targetLine: null,
+      variantOptions,
+      salesOrderItems: [],
+      editableAllocations: [],
       supplySources: model.supplySources,
       demandRows: model.demandRows,
       uncoveredDemandQty: model.uncoveredDemandQty,
@@ -942,11 +1200,32 @@ export async function saveSalesLineAllocation(
       throw new SalesAllocationError("Sales order line has no remaining demand.", 400);
     }
 
+    const targetItem = await getAllocationTargetItemInTx(tx, target.itemId);
+    if (!targetItem) {
+      throw new SalesAllocationError("Item not found.", 404);
+    }
+    const variantOptions = await getAllocationVariantOptionsInTx({
+      tx,
+      targetItemId: target.itemId,
+      salesOrderId: target.salesOrderId,
+      currentSalesOrderLineId: salesOrderLineId,
+    });
+    const salesOrderItems = await getSalesOrderAllocationItemsInTx({
+      tx,
+      orgId,
+      salesOrderId: target.salesOrderId,
+      currentItemId: target.itemId,
+      currentSalesOrderLineId: salesOrderLineId,
+    });
+
     return {
+      targetItem,
       targetLine: {
         ...refreshedTarget,
         allocationManagedAt: now,
       },
+      variantOptions,
+      salesOrderItems,
       editableAllocations: refreshed.supplySources
         .filter((source) => source.canAllocate || toQuantity(source.currentTargetQty) > 0)
         .map((source) => ({
