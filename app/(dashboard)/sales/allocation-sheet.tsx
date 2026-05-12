@@ -544,15 +544,24 @@ function DemandCard({
   const canPlace = carried != null && shortQty > 0;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Allocate to ${row.orderNumber}`}
       data-testid={isTarget ? "current-allocation-bucket" : "readonly-allocation-bucket"}
       className={cn(
+        "cursor-pointer",
         "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isTarget && "border-primary/25 bg-primary/5",
         canPlace && "hover:border-primary/50 hover:bg-primary/5"
       )}
       onClick={onPlace}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onPlace();
+        }
+      }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -610,7 +619,7 @@ function DemandCard({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
