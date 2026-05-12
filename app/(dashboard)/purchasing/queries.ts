@@ -1,9 +1,14 @@
 import "server-only";
 
-import { normalizeNumeric, summarizeItems } from "@/lib/format";
+import {
+  normalizeAddressFields,
+  normalizeNumeric,
+  summarizeItems,
+} from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   items,
+  purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
   suppliers,
@@ -58,7 +63,18 @@ type PreparedPurchaseOrderLine = {
   stockQuantityReceived: string;
   unitCost: string;
   stockUnitCost: string;
+  xeroPurchaseAccountCode: string | null;
   lineTotal: string;
+  sortOrder: number;
+};
+
+type PreparedPurchaseOrderAdditionalCost = {
+  organizationId: string;
+  costType: "shipping" | "customs" | "other";
+  reference: string | null;
+  distributionMethod: "by_value" | "not_distributed";
+  xeroPurchaseAccountCode: string | null;
+  amount: string;
   sortOrder: number;
 };
 
@@ -71,15 +87,55 @@ type MaterialValidationRow = {
   purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
   currentStockUnitCost: string | null;
+  xeroPurchaseAccountCode: string | null;
 };
 
-type PurchaseOrderLineInput = InsertPurchaseOrder["lines"][number] & {
+export type PurchaseOrderLineInput = Omit<
+  InsertPurchaseOrder["lines"][number],
+  "xeroPurchaseAccountCode"
+> & {
+  xeroPurchaseAccountCode?: string | null;
   purchaseUnitDefinitionId?: string | null;
   purchaseToStockFactor?: string | null;
 };
 
-type PurchaseOrderPayload = Omit<InsertPurchaseOrder, "lines"> & {
+export type PurchaseOrderAdditionalCostInput = Omit<
+  InsertPurchaseOrder["additionalCosts"][number],
+  "xeroPurchaseAccountCode"
+> & {
+  xeroPurchaseAccountCode?: string | null;
+};
+
+export type PurchaseOrderPayload = Omit<
+  InsertPurchaseOrder,
+  | "lines"
+  | "shippingCost"
+  | "additionalCosts"
+  | "xeroPurchaseAccountCode"
+  | "shipLine1"
+  | "shipLine2"
+  | "shipCity"
+  | "shipRegion"
+  | "shipPostcode"
+  | "shipCountry"
+> & {
+  shippingCost?: string | null;
+  xeroPurchaseAccountCode?: string | null;
+  shipLine1?: string | null;
+  shipLine2?: string | null;
+  shipCity?: string | null;
+  shipRegion?: string | null;
+  shipPostcode?: string | null;
+  shipCountry?: string | null;
   lines: PurchaseOrderLineInput[];
+  additionalCosts?: PurchaseOrderAdditionalCostInput[];
+};
+
+export type CreatePurchaseOrderDraftOptions = {
+  orderNumber?: string;
+  xeroPurchaseOrderId?: string | null;
+  xeroPurchaseOrderNumber?: string | null;
+  xeroPushStatus?: "pushed" | "pending" | "failed" | null;
 };
 
 export class PurchasingError extends DomainError {
@@ -167,6 +223,7 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
       currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
         "currentStockUnitCost"
       ),
+      xeroPurchaseAccountCode: items.xeroPurchaseAccountCode,
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -209,6 +266,7 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       ),
       unitCost: trimScale(purchaseOrderLines.unitCost).as("unitCost"),
       stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as("stockUnitCost"),
+      xeroPurchaseAccountCode: purchaseOrderLines.xeroPurchaseAccountCode,
       lineTotal: trimScale(purchaseOrderLines.lineTotal).as("lineTotal"),
       sortOrder: purchaseOrderLines.sortOrder,
       createdAt: purchaseOrderLines.createdAt,
@@ -219,16 +277,74 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
     .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
 }
 
+async function getPurchaseOrderAdditionalCostsInTx(tx: Tx, purchaseOrderId: string) {
+  return tx
+    .select({
+      id: purchaseOrderAdditionalCosts.id,
+      costType: purchaseOrderAdditionalCosts.costType,
+      reference: purchaseOrderAdditionalCosts.reference,
+      distributionMethod: purchaseOrderAdditionalCosts.distributionMethod,
+      xeroPurchaseAccountCode: purchaseOrderAdditionalCosts.xeroPurchaseAccountCode,
+      amount: trimScale(purchaseOrderAdditionalCosts.amount).as("amount"),
+      sortOrder: purchaseOrderAdditionalCosts.sortOrder,
+      createdAt: purchaseOrderAdditionalCosts.createdAt,
+      updatedAt: purchaseOrderAdditionalCosts.updatedAt,
+    })
+    .from(purchaseOrderAdditionalCosts)
+    .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, purchaseOrderId))
+    .orderBy(
+      asc(purchaseOrderAdditionalCosts.sortOrder),
+      asc(purchaseOrderAdditionalCosts.createdAt)
+    );
+}
+
+function normalizeAdditionalCostInputs(payload: PurchaseOrderPayload | UpdatePurchaseOrder) {
+  const rows = [...(payload.additionalCosts ?? [])];
+  const legacyShippingCost = Number(payload.shippingCost ?? "0");
+  if (rows.length === 0 && Number.isFinite(legacyShippingCost) && legacyShippingCost > 0) {
+    rows.push({
+      costType: "shipping",
+      reference: null,
+      distributionMethod: "by_value",
+      xeroPurchaseAccountCode: null,
+      amount: normalizeNumeric(legacyShippingCost),
+    });
+  }
+  return rows;
+}
+
+function allocateAdditionalCostByValue(params: {
+  lineSubtotal: number;
+  materialSubtotal: number;
+  distributedAdditionalCostTotal: number;
+}) {
+  if (params.materialSubtotal <= 0 || params.distributedAdditionalCostTotal <= 0) {
+    return 0;
+  }
+  return (params.lineSubtotal / params.materialSubtotal) *
+    params.distributedAdditionalCostTotal;
+}
+
 async function preparePurchaseOrderPayload(
   tx: Tx,
+  orgId: string,
   payload: PurchaseOrderPayload | UpdatePurchaseOrder
 ): Promise<{
   supplierId: string;
   supplierName: string;
   expectedDate: string | null;
   notes: string | null;
+  xeroPurchaseAccountCode: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  shippingCost: string;
   totalAmount: string;
   preparedLines: PreparedPurchaseOrderLine[];
+  preparedAdditionalCosts: PreparedPurchaseOrderAdditionalCost[];
   affectedItemIds: string[];
 }> {
   const supplier = await getValidatedSupplierInTx(tx, payload.supplierId);
@@ -256,6 +372,34 @@ async function preparePurchaseOrderPayload(
     purchaseUnitRows.map((unit) => [unit.id, unit.name])
   );
 
+  const additionalCostInputs = normalizeAdditionalCostInputs(payload);
+  const preparedAdditionalCosts = additionalCostInputs.map((cost, index) => ({
+    organizationId: orgId,
+    costType: cost.costType,
+    reference: cost.reference?.trim() || null,
+    distributionMethod: cost.distributionMethod,
+    xeroPurchaseAccountCode: cost.xeroPurchaseAccountCode?.trim() || null,
+    amount: normalizeNumeric(Number(cost.amount)),
+    sortOrder: index,
+  }));
+  const distributedAdditionalCostTotal = preparedAdditionalCosts
+    .filter((cost) => cost.distributionMethod === "by_value")
+    .reduce((sum, cost) => sum + Number(cost.amount), 0);
+  const additionalCostTotal = preparedAdditionalCosts.reduce(
+    (sum, cost) => sum + Number(cost.amount),
+    0
+  );
+  const shippingCost = preparedAdditionalCosts
+    .filter((cost) => cost.costType === "shipping")
+    .reduce((sum, cost) => sum + Number(cost.amount), 0);
+
+  const lineBases = payload.lines.map((line) => {
+    const quantityOrdered = Number(line.quantityOrdered);
+    const unitCost = Number(line.unitCost);
+    return quantityOrdered * unitCost;
+  });
+  const totalAmount = lineBases.reduce((sum, lineTotal) => sum + lineTotal, 0);
+
   const preparedLines = payload.lines.map((line, index) => {
     const material = materials.get(line.itemId);
 
@@ -265,7 +409,13 @@ async function preparePurchaseOrderPayload(
 
     const quantityOrdered = Number(line.quantityOrdered);
     const unitCost = Number(line.unitCost);
-    const lineTotal = quantityOrdered * unitCost;
+    const lineTotal = lineBases[index];
+    const allocatedAdditionalCost = allocateAdditionalCostByValue({
+      lineSubtotal: lineTotal,
+      materialSubtotal: totalAmount,
+      distributedAdditionalCostTotal,
+    });
+    const landedLineTotal = lineTotal + allocatedAdditionalCost;
     const overrideFactor =
       "purchaseToStockFactor" in line ? line.purchaseToStockFactor : null;
     const overrideUnitId =
@@ -274,7 +424,7 @@ async function preparePurchaseOrderPayload(
       overrideFactor ?? material.purchaseToStockFactor ?? "1"
     );
     const stockQuantityOrdered = quantityOrdered * purchaseToStockFactor;
-    const stockUnitCost = unitCost / purchaseToStockFactor;
+    const stockUnitCost = landedLineTotal / stockQuantityOrdered;
 
     return {
       itemId: material.id,
@@ -292,23 +442,39 @@ async function preparePurchaseOrderPayload(
       stockQuantityReceived: "0",
       unitCost: normalizeNumeric(unitCost),
       stockUnitCost: normalizeStockUnitCost(stockUnitCost),
+      xeroPurchaseAccountCode:
+        line.xeroPurchaseAccountCode?.trim() ||
+        material.xeroPurchaseAccountCode ||
+        null,
       lineTotal: normalizeNumeric(lineTotal),
       sortOrder: index,
     };
   });
-
-  const totalAmount = preparedLines.reduce(
-    (sum, line) => sum + parseFloat(line.lineTotal),
-    0
-  );
+  const address = normalizeAddressFields({
+    line1: payload.shipLine1,
+    line2: payload.shipLine2,
+    city: payload.shipCity,
+    region: payload.shipRegion,
+    postcode: payload.shipPostcode,
+    country: payload.shipCountry,
+  });
 
   return {
     supplierId: supplier.id,
     supplierName: supplier.name,
     expectedDate: payload.expectedDate,
     notes: payload.notes,
-    totalAmount: normalizeNumeric(totalAmount),
+    xeroPurchaseAccountCode: payload.xeroPurchaseAccountCode?.trim() || null,
+    shipLine1: address.line1,
+    shipLine2: address.line2,
+    shipCity: address.city,
+    shipRegion: address.region,
+    shipPostcode: address.postcode,
+    shipCountry: address.country,
+    shippingCost: normalizeNumeric(shippingCost),
+    totalAmount: normalizeNumeric(totalAmount + additionalCostTotal),
     preparedLines,
+    preparedAdditionalCosts,
     affectedItemIds: preparedLines.map((line) => line.itemId),
   };
 }
@@ -473,6 +639,7 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
           "currentStockUnitCost"
         ),
+        xeroPurchaseAccountCode: items.xeroPurchaseAccountCode,
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -493,6 +660,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
             supplierName: purchaseOrders.supplierName,
             status: purchaseOrders.status,
             expectedDate: purchaseOrders.expectedDate,
+            shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
             totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
             deletedAt: purchaseOrders.deletedAt,
             createdAt: purchaseOrders.createdAt,
@@ -569,6 +737,14 @@ export async function getPurchaseOrder(
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
+        xeroPurchaseAccountCode: purchaseOrders.xeroPurchaseAccountCode,
+        shipLine1: purchaseOrders.shipLine1,
+        shipLine2: purchaseOrders.shipLine2,
+        shipCity: purchaseOrders.shipCity,
+        shipRegion: purchaseOrders.shipRegion,
+        shipPostcode: purchaseOrders.shipPostcode,
+        shipCountry: purchaseOrders.shipCountry,
+        shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
         totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
@@ -596,7 +772,17 @@ export async function getPurchaseOrder(
       return null;
     }
 
-    const lines = await getPurchaseOrderLinesInTx(tx, id);
+    const [lines, additionalCosts] = await Promise.all([
+      getPurchaseOrderLinesInTx(tx, id),
+      getPurchaseOrderAdditionalCostsInTx(tx, id),
+    ]);
+    const materialSubtotal = lines.reduce(
+      (sum, line) => sum + Number(line.lineTotal),
+      0
+    );
+    const distributedAdditionalCostTotal = additionalCosts
+      .filter((cost) => cost.distributionMethod === "by_value")
+      .reduce((sum, cost) => sum + Number(cost.amount), 0);
 
     return {
       ...order,
@@ -607,6 +793,21 @@ export async function getPurchaseOrder(
         order.xeroPoEmailStatus as PurchaseOrderDetail["xeroPoEmailStatus"],
       lines: lines.map((line) => ({
         ...line,
+        allocatedAdditionalCost: normalizeNumeric(
+          allocateAdditionalCostByValue({
+            lineSubtotal: Number(line.lineTotal),
+            materialSubtotal,
+            distributedAdditionalCostTotal,
+          })
+        ),
+        landedCost: normalizeNumeric(
+          Number(line.lineTotal) +
+            allocateAdditionalCostByValue({
+              lineSubtotal: Number(line.lineTotal),
+              materialSubtotal,
+              distributedAdditionalCostTotal,
+            })
+        ),
         quantityRemaining: normalizeNumeric(
           parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
         ),
@@ -614,6 +815,12 @@ export async function getPurchaseOrder(
           parseFloat(line.stockQuantityOrdered) - parseFloat(line.stockQuantityReceived)
         ),
       })) as PurchaseOrderDetailLine[],
+      additionalCosts: additionalCosts.map((cost) => ({
+        ...cost,
+        costType: cost.costType as PurchaseOrderDetail["additionalCosts"][number]["costType"],
+        distributionMethod:
+          cost.distributionMethod as PurchaseOrderDetail["additionalCosts"][number]["distributionMethod"],
+      })),
     };
   });
 }
@@ -629,6 +836,14 @@ export async function getEditablePurchaseOrder(
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
+        xeroPurchaseAccountCode: purchaseOrders.xeroPurchaseAccountCode,
+        shipLine1: purchaseOrders.shipLine1,
+        shipLine2: purchaseOrders.shipLine2,
+        shipCity: purchaseOrders.shipCity,
+        shipRegion: purchaseOrders.shipRegion,
+        shipPostcode: purchaseOrders.shipPostcode,
+        shipCountry: purchaseOrders.shipCountry,
+        shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
       })
       .from(purchaseOrders)
       .where(
@@ -643,7 +858,10 @@ export async function getEditablePurchaseOrder(
       return null;
     }
 
-    const lines = await getPurchaseOrderLinesInTx(tx, id);
+    const [lines, additionalCosts] = await Promise.all([
+      getPurchaseOrderLinesInTx(tx, id),
+      getPurchaseOrderAdditionalCostsInTx(tx, id),
+    ]);
 
     return {
       ...order,
@@ -652,6 +870,15 @@ export async function getEditablePurchaseOrder(
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
         unitCost: line.unitCost,
+        xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+      })),
+      additionalCosts: additionalCosts.map((cost) => ({
+        costType: cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
+        reference: cost.reference,
+        distributionMethod:
+          cost.distributionMethod as PurchaseOrderEditData["additionalCosts"][number]["distributionMethod"],
+        xeroPurchaseAccountCode: cost.xeroPurchaseAccountCode,
+        amount: cost.amount,
       })),
     };
   });
@@ -660,10 +887,11 @@ export async function getEditablePurchaseOrder(
 export async function createPurchaseOrderInTx(
   tx: Tx,
   orgId: string,
-  data: PurchaseOrderPayload
+  data: PurchaseOrderPayload,
+  options: CreatePurchaseOrderDraftOptions = {}
 ) {
-  const prepared = await preparePurchaseOrderPayload(tx, data);
-  const orderNumber = await generateOrderNumber(tx);
+  const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
+  const orderNumber = options.orderNumber ?? (await generateOrderNumber(tx));
 
   const [order] = await tx
     .insert(purchaseOrders)
@@ -675,7 +903,20 @@ export async function createPurchaseOrderInTx(
       status: "draft",
       expectedDate: prepared.expectedDate,
       notes: prepared.notes,
+      xeroPurchaseAccountCode: prepared.xeroPurchaseAccountCode,
+      shipLine1: prepared.shipLine1,
+      shipLine2: prepared.shipLine2,
+      shipCity: prepared.shipCity,
+      shipRegion: prepared.shipRegion,
+      shipPostcode: prepared.shipPostcode,
+      shipCountry: prepared.shipCountry,
+      shippingCost: prepared.shippingCost,
       totalAmount: prepared.totalAmount,
+      xeroPurchaseOrderId: options.xeroPurchaseOrderId ?? null,
+      xeroPurchaseOrderNumber: options.xeroPurchaseOrderNumber ?? null,
+      xeroPushStatus: options.xeroPushStatus ?? null,
+      xeroPushedAt:
+        options.xeroPushStatus === "pushed" ? new Date() : null,
     })
     .returning({ id: purchaseOrders.id });
 
@@ -685,6 +926,15 @@ export async function createPurchaseOrderInTx(
       ...line,
     }))
   );
+
+  if (prepared.preparedAdditionalCosts.length > 0) {
+    await tx.insert(purchaseOrderAdditionalCosts).values(
+      prepared.preparedAdditionalCosts.map((cost) => ({
+        purchaseOrderId: order.id,
+        ...cost,
+      }))
+    );
+  }
 
   return order;
 }
@@ -705,17 +955,33 @@ export async function duplicatePurchaseOrder(id: string) {
   return createPurchaseOrder({
     supplierId: order.supplierId,
     expectedDate: order.expectedDate,
+    shippingCost: order.shippingCost,
     notes: order.notes,
+    xeroPurchaseAccountCode: order.xeroPurchaseAccountCode,
+    shipLine1: order.shipLine1,
+    shipLine2: order.shipLine2,
+    shipCity: order.shipCity,
+    shipRegion: order.shipRegion,
+    shipPostcode: order.shipPostcode,
+    shipCountry: order.shipCountry,
     lines: order.lines.map((line) => ({
       itemId: line.itemId,
       quantityOrdered: line.quantityOrdered,
       unitCost: line.unitCost,
+      xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+    })),
+    additionalCosts: order.additionalCosts.map((cost) => ({
+      costType: cost.costType,
+      reference: cost.reference,
+      distributionMethod: cost.distributionMethod,
+      xeroPurchaseAccountCode: cost.xeroPurchaseAccountCode,
+      amount: cost.amount,
     })),
   });
 }
 
 export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
@@ -726,11 +992,14 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
       throw new PurchasingError("Only draft purchase orders can be edited.", 400);
     }
 
-    const prepared = await preparePurchaseOrderPayload(tx, data);
+    const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
 
     await tx
       .delete(purchaseOrderLines)
       .where(eq(purchaseOrderLines.purchaseOrderId, id));
+    await tx
+      .delete(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, id));
 
     await tx.insert(purchaseOrderLines).values(
       prepared.preparedLines.map((line) => ({
@@ -738,6 +1007,14 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         ...line,
       }))
     );
+    if (prepared.preparedAdditionalCosts.length > 0) {
+      await tx.insert(purchaseOrderAdditionalCosts).values(
+        prepared.preparedAdditionalCosts.map((cost) => ({
+          purchaseOrderId: id,
+          ...cost,
+        }))
+      );
+    }
 
     await tx
       .update(purchaseOrders)
@@ -746,6 +1023,14 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         supplierName: prepared.supplierName,
         expectedDate: prepared.expectedDate,
         notes: prepared.notes,
+        xeroPurchaseAccountCode: prepared.xeroPurchaseAccountCode,
+        shipLine1: prepared.shipLine1,
+        shipLine2: prepared.shipLine2,
+        shipCity: prepared.shipCity,
+        shipRegion: prepared.shipRegion,
+        shipPostcode: prepared.shipPostcode,
+        shipCountry: prepared.shipCountry,
+        shippingCost: prepared.shippingCost,
         totalAmount: prepared.totalAmount,
         updatedAt: new Date(),
       })

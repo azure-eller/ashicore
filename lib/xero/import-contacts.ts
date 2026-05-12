@@ -691,7 +691,9 @@ async function loadUndoPreviewInTx(
     .from(xeroImportRunRows)
     .where(eq(xeroImportRunRows.runId, runId));
 
-  const ids = rows.map((row) => row.localRecordId);
+  const ids = rows
+    .map((row) => row.localRecordId)
+    .filter((id): id is string => id != null);
   const blockedIds =
     ids.length === 0
       ? new Set<string>()
@@ -699,7 +701,7 @@ async function loadUndoPreviewInTx(
         ? await loadReferencedCustomerIdsInTx(tx, ids)
         : await loadReferencedSupplierIdsInTx(tx, ids);
   const blockedNames = rows
-    .filter((row) => blockedIds.has(row.localRecordId))
+    .filter((row) => row.localRecordId != null && blockedIds.has(row.localRecordId))
     .map((row) => row.localName);
 
   return {
@@ -819,7 +821,9 @@ export async function undoXeroImportRun(
     await lockUndoTargetRowsInTx(
       tx,
       lockedRun.entityType,
-      rows.map((row) => row.localRecordId)
+      rows
+        .map((row) => row.localRecordId)
+        .filter((id): id is string => id != null)
     );
 
     const preview = await loadUndoPreviewInTx(tx, runId);
@@ -835,6 +839,10 @@ export async function undoXeroImportRun(
     let restoredUpdatedRows = 0;
 
     for (const row of rows) {
+      if (!row.localRecordId) {
+        continue;
+      }
+
       if (lockedRun.entityType === "customers") {
         if (row.action === "created") {
           await tx

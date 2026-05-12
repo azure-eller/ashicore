@@ -1,4 +1,8 @@
-import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
+import type {
+  PurchaseOrderAdditionalCostDistributionMethod,
+  PurchaseOrderAdditionalCostType,
+  PurchaseOrderStatus,
+} from "@/lib/schemas/purchase-orders";
 
 export type SupplierRow = {
   id: string;
@@ -36,6 +40,7 @@ export type PurchaseOrderMaterialOption = {
   purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
   currentStockUnitCost: string | null;
+  xeroPurchaseAccountCode: string | null;
 };
 
 export type PurchaseOrderListRow = {
@@ -45,6 +50,7 @@ export type PurchaseOrderListRow = {
   status: PurchaseOrderStatus;
   expectedDate: string | null;
   totalAmount: string;
+  shippingCost: string;
   itemSummary: string;
   deletedAt: Date | null;
   createdAt: Date;
@@ -68,7 +74,22 @@ export type PurchaseOrderDetailLine = {
   stockQuantityRemaining: string;
   unitCost: string;
   stockUnitCost: string;
+  landedCost: string;
+  xeroPurchaseAccountCode: string | null;
   lineTotal: string;
+  allocatedAdditionalCost: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type PurchaseOrderAdditionalCost = {
+  id: string;
+  costType: PurchaseOrderAdditionalCostType;
+  reference: string | null;
+  distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
+  xeroPurchaseAccountCode: string | null;
+  amount: string;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -83,6 +104,14 @@ export type PurchaseOrderDetail = {
   status: PurchaseOrderStatus;
   expectedDate: string | null;
   notes: string | null;
+  xeroPurchaseAccountCode: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  shippingCost: string;
   totalAmount: string;
   orderedAt: Date | null;
   receivedAt: Date | null;
@@ -102,6 +131,7 @@ export type PurchaseOrderDetail = {
   createdAt: Date;
   updatedAt: Date;
   lines: PurchaseOrderDetailLine[];
+  additionalCosts: PurchaseOrderAdditionalCost[];
 };
 
 export type PurchaseOrderEditData = {
@@ -110,9 +140,25 @@ export type PurchaseOrderEditData = {
   status: Extract<PurchaseOrderStatus, "draft">;
   expectedDate: string | null;
   notes: string | null;
+  xeroPurchaseAccountCode: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  shippingCost: string;
   lines: Array<{
     itemId: string;
     quantityOrdered: string;
     unitCost: string;
+    xeroPurchaseAccountCode: string | null;
+  }>;
+  additionalCosts: Array<{
+    costType: PurchaseOrderAdditionalCostType;
+    reference: string | null;
+    distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
+    xeroPurchaseAccountCode: string | null;
+    amount: string;
   }>;
 };

@@ -13,19 +13,53 @@ export const PURCHASE_ORDER_STATUSES = [
 
 export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
 
+export const PURCHASE_ORDER_ADDITIONAL_COST_TYPES = [
+  "shipping",
+  "customs",
+  "other",
+] as const;
+
+export const PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS = [
+  "by_value",
+  "not_distributed",
+] as const;
+
+export type PurchaseOrderAdditionalCostType =
+  (typeof PURCHASE_ORDER_ADDITIONAL_COST_TYPES)[number];
+export type PurchaseOrderAdditionalCostDistributionMethod =
+  (typeof PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS)[number];
+
 const rawLineSchema = z.object({
   itemId: z.string().default(""),
   quantityOrdered: nullableString,
   unitCost: nullableString,
+  xeroPurchaseAccountCode: nullableString,
+});
+
+const rawAdditionalCostSchema = z.object({
+  costType: z.enum(PURCHASE_ORDER_ADDITIONAL_COST_TYPES).default("shipping"),
+  reference: nullableString,
+  distributionMethod: z
+    .enum(PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS)
+    .default("by_value"),
+  xeroPurchaseAccountCode: nullableString,
+  amount: nullableString,
 });
 
 type RawLine = z.input<typeof rawLineSchema>;
+type RawAdditionalCost = z.input<typeof rawAdditionalCostSchema>;
 
 function isBlankLine(line: RawLine) {
   const itemId = typeof line.itemId === "string" ? line.itemId.trim() : "";
   const quantityOrdered = line.quantityOrdered?.trim() ?? "";
   const unitCost = line.unitCost?.trim() ?? "";
   return itemId === "" && quantityOrdered === "" && unitCost === "";
+}
+
+function isBlankAdditionalCost(cost: RawAdditionalCost) {
+  const reference = cost.reference?.trim() ?? "";
+  const amount = cost.amount?.trim() ?? "";
+  return reference === "" && amount === "";
 }
 
 const cleanedLinesSchema = z
@@ -100,13 +134,58 @@ const cleanedLinesSchema = z
     });
   });
 
+const cleanedAdditionalCostsSchema = z
+  .array(rawAdditionalCostSchema)
+  .default([])
+  .transform((costs) => costs.filter((cost) => !isBlankAdditionalCost(cost)))
+  .superRefine((costs, ctx) => {
+    costs.forEach((cost, index) => {
+      const amount = cost.amount?.trim() ?? "";
+      if (!amount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Amount is required",
+          path: [index, "amount"],
+        });
+        return;
+      }
+
+      const parsed = Number(amount);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Amount must be 0 or greater",
+          path: [index, "amount"],
+        });
+      }
+    });
+  });
+
 const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   supplierId: z.string().min(1, "Supplier is required"),
   expectedDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),
     "Expected date must be a real date in YYYY-MM-DD format"
   ),
+  shippingCost: nullableString.superRefine((value, ctx) => {
+    const normalized = value?.trim() ?? "";
+    if (!normalized) return;
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Shipping cost must be 0 or greater",
+      });
+    }
+  }),
   notes: nullableString,
+  xeroPurchaseAccountCode: nullableString,
+  shipLine1: nullableString,
+  shipLine2: nullableString,
+  shipCity: nullableString,
+  shipRegion: nullableString,
+  shipPostcode: nullableString,
+  shipCountry: nullableString,
 }).omit({
   id: true,
   organizationId: true,
@@ -122,6 +201,7 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   updatedAt: true,
 }).extend({
   lines: cleanedLinesSchema,
+  additionalCosts: cleanedAdditionalCostsSchema,
 });
 
 export const insertPurchaseOrderSchema = basePurchaseOrderSchema;
@@ -176,12 +256,22 @@ export type ReceivePurchaseOrder = z.infer<typeof receivePurchaseOrderSchema>;
 export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
   supplierId: "",
   expectedDate: null,
+  shippingCost: "0",
   notes: null,
+  xeroPurchaseAccountCode: null,
+  shipLine1: null,
+  shipLine2: null,
+  shipCity: null,
+  shipRegion: null,
+  shipPostcode: null,
+  shipCountry: null,
   lines: [
     {
       itemId: "",
       quantityOrdered: null,
       unitCost: null,
+      xeroPurchaseAccountCode: null,
     },
   ],
+  additionalCosts: [],
 };

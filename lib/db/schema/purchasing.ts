@@ -4,6 +4,7 @@ import {
   integer,
   numeric,
   boolean,
+  check,
   pgPolicy,
   pgSchema,
   text,
@@ -124,6 +125,18 @@ export const purchaseOrders = purchasingSchema
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       expectedDate: date("expected_date", { mode: "string" }),
       notes: text("notes"),
+      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
+        length: 20,
+      }),
+      shipLine1: varchar("ship_line1", { length: 255 }),
+      shipLine2: varchar("ship_line2", { length: 255 }),
+      shipCity: varchar("ship_city", { length: 120 }),
+      shipRegion: varchar("ship_region", { length: 120 }),
+      shipPostcode: varchar("ship_postcode", { length: 30 }),
+      shipCountry: varchar("ship_country", { length: 120 }),
+      shippingCost: numeric("shipping_cost", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
       totalAmount: numeric("total_amount", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
@@ -205,6 +218,9 @@ export const purchaseOrderLines = purchasingSchema
         .default("0"),
       unitCost: numeric("unit_cost", { precision: 10, scale: 4 }).notNull(),
       stockUnitCost: numeric("stock_unit_cost", { precision: 18, scale: 6 }).notNull(),
+      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
+        length: 20,
+      }),
       lineTotal: numeric("line_total", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -230,6 +246,48 @@ export const purchaseOrderLines = purchasingSchema
           FROM purchasing.purchase_orders
           WHERE organization_id = current_setting('app.current_org_id', true)
         )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const purchaseOrderAdditionalCosts = purchasingSchema
+  .table(
+    "purchase_order_additional_costs",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      purchaseOrderId: uuid("purchase_order_id")
+        .notNull()
+        .references(() => purchaseOrders.id, { onDelete: "cascade" }),
+      costType: varchar("cost_type", { length: 20 }).notNull(),
+      reference: varchar("reference", { length: 120 }),
+      distributionMethod: varchar("distribution_method", { length: 20 }).notNull(),
+      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
+        length: 20,
+      }),
+      amount: numeric("amount", { precision: 12, scale: 4 }).notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("purchase_order_additional_costs_org_id_idx").on(table.organizationId),
+      index("purchase_order_additional_costs_order_id_idx").on(table.purchaseOrderId),
+      check(
+        "purchase_order_additional_costs_type_check",
+        sql`cost_type IN ('shipping', 'customs', 'other')`
+      ),
+      check(
+        "purchase_order_additional_costs_distribution_check",
+        sql`distribution_method IN ('by_value', 'not_distributed')`
+      ),
+      check("purchase_order_additional_costs_amount_check", sql`amount >= 0`),
+      pgPolicy("purchase_order_additional_costs_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
       }),
     ]
   )

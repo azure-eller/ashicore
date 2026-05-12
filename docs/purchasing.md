@@ -22,12 +22,22 @@ Purchasing v1 includes:
 Purchasing v1 does not include:
 
 - invoices or payments
-- taxes, discounts, or landed cost
+- taxes or discounts
 - alternate vendor units or pack conversions
 - receiving locations
 - supplier lot numbers or expiry dates
 
 ## Purchase Units And Inventory Cost
+
+Purchase orders may store additional costs for `shipping`, `customs`, and
+`other`.
+
+- `by_value` additional costs are landed cost and are allocated to material
+  lines by each line's share of the material subtotal
+- `not_distributed` additional costs increase the PO total only and do not
+  change line `stockUnitCost`, receipt lot cost, or inventory valuation
+- receipt lots use the saved PO line `stockUnitCost`, so distributed additional
+  costs affect material running stock cost through the normal receipt flow
 
 - `defaultPurchasePrice` is the price of one purchase unit, not one stock unit
 - `purchaseToStockFactor` means "stock units per 1 purchase unit"

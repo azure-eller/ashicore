@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import {
   purchaseOrders,
   salesOrders,
@@ -93,7 +93,7 @@ export async function getRecentXeroImportRuns(
   limit = 8
 ): Promise<XeroImportRunSummary[]> {
   return withAuthedOrgContext(async (tx) => {
-    return tx
+    const rows = await tx
       .select({
         id: xeroImportRuns.id,
         entityType: xeroImportRuns.entityType,
@@ -107,8 +107,14 @@ export async function getRecentXeroImportRuns(
         undoneAt: xeroImportRuns.undoneAt,
       })
       .from(xeroImportRuns)
+      .where(inArray(xeroImportRuns.entityType, ["customers", "suppliers"]))
       .orderBy(desc(xeroImportRuns.createdAt))
       .limit(limit);
+
+    return rows.map((row) => ({
+      ...row,
+      entityType: row.entityType as XeroImportRunSummary["entityType"],
+    }));
   });
 }
 

@@ -104,6 +104,7 @@ interface ItemDetailProps {
     purchaseUnitUom: string | null;
     purchaseToStockFactor: string | null;
     defaultPurchasePrice: string | null;
+    xeroPurchaseAccountCode: string | null;
     currentStockUnitCost: string | null;
     defaultSellingPrice: string | null;
     sellable?: boolean | null;
@@ -535,6 +536,12 @@ function ItemInfoCards({
                       mono: true,
                       dim: item.defaultPurchasePrice == null,
                       tooltip: PURCHASE_PRICE_TOOLTIP,
+                    },
+                    {
+                      label: "Xero purchase account",
+                      value: item.xeroPurchaseAccountCode ?? "\u2014",
+                      mono: true,
+                      dim: item.xeroPurchaseAccountCode == null,
                     },
                   ]
                 : []),

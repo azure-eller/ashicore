@@ -1131,6 +1131,7 @@ export async function getItem(id: string) {
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
+        xeroPurchaseAccountCode: items.xeroPurchaseAccountCode,
         currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
           "currentStockUnitCost"
         ),

@@ -62,7 +62,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDate, formatDateTime, formatPrice, formatQuantity, getFieldArrayError } from "@/lib/format";
+import {
+  formatAddressLines,
+  formatDate,
+  formatDateTime,
+  formatPrice,
+  formatQuantity,
+  getFieldArrayError,
+} from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
@@ -87,6 +94,22 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
+const ADDITIONAL_COST_TYPE_LABELS: Record<
+  PurchaseOrderDetailType["additionalCosts"][number]["costType"],
+  string
+> = {
+  shipping: "Shipping",
+  customs: "Customs",
+  other: "Other",
+};
+
+const ADDITIONAL_COST_DISTRIBUTION_LABELS: Record<
+  PurchaseOrderDetailType["additionalCosts"][number]["distributionMethod"],
+  string
+> = {
+  by_value: "By value",
+  not_distributed: "Not distributed",
+};
 
 type ReceiveFormValues = z.input<typeof receivePurchaseOrderSchema>;
 
@@ -152,6 +175,18 @@ export function PurchaseOrderDetail({
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
   const accountingDocument = purchaseOrderAccountingDocument(order);
+  const additionalCostTotal = order.additionalCosts.reduce(
+    (sum, cost) => sum + Number(cost.amount),
+    0
+  );
+  const deliveryAddressLines = formatAddressLines({
+    line1: order.shipLine1,
+    line2: order.shipLine2,
+    city: order.shipCity,
+    region: order.shipRegion,
+    postcode: order.shipPostcode,
+    country: order.shipCountry,
+  });
 
   const receiveForm = useForm<ReceiveFormValues>({
     resolver: zodResolver(receivePurchaseOrderSchema),
@@ -662,6 +697,16 @@ export function PurchaseOrderDetail({
           compact
         />
 
+        {order.status === "draft" && order.xeroPurchaseOrderId ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <Badge variant="secondary">Imported from Xero</Badge>
+            <span>{order.xeroPurchaseOrderNumber ?? order.xeroPurchaseOrderId}</span>
+            {order.xeroPushedAt ? (
+              <span>{formatDateTime(order.xeroPushedAt, timeZone)}</span>
+            ) : null}
+          </div>
+        ) : null}
+
         <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Supplier</dt>
@@ -691,6 +736,32 @@ export function PurchaseOrderDetail({
               <TooltipHeader label="Total" tooltip={ORDER_TOTAL_TOOLTIP} />
             </dt>
             <dd className="mt-1 text-sm">{formatPrice(order.totalAmount) ?? "\u2014"}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">
+              Additional Costs
+            </dt>
+            <dd className="mt-1 text-sm">
+              {formatPrice(additionalCostTotal.toFixed(4)) ?? "\u2014"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">
+              Xero Default Account
+            </dt>
+            <dd className="mt-1 text-sm font-mono">
+              {order.xeroPurchaseAccountCode ?? "\u2014"}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-sm font-medium text-muted-foreground">
+              Delivery Address
+            </dt>
+            <dd className="mt-1 text-sm">
+              {deliveryAddressLines.length > 0
+                ? deliveryAddressLines.map((line) => <div key={line}>{line}</div>)
+                : "\u2014"}
+            </dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Created</dt>
@@ -750,6 +821,9 @@ export function PurchaseOrderDetail({
                   <TableHead className="text-right">
                     <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
                   </TableHead>
+                  <TableHead>Xero Account</TableHead>
+                  <TableHead className="text-right">Allocated Costs</TableHead>
+                  <TableHead className="text-right">Landed Cost</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -793,8 +867,62 @@ export function PurchaseOrderDetail({
                     <TableCell className="text-right">
                       {formatPrice(line.lineTotal) ?? "\u2014"}
                     </TableCell>
+                    <TableCell className="font-mono">
+                      {line.xeroPurchaseAccountCode ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(line.allocatedAdditionalCost) ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(line.landedCost) ?? "\u2014"}
+                    </TableCell>
                   </TableRow>
                 ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold tracking-tight">Additional Costs</h2>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cost</TableHead>
+                  <TableHead>Reference</TableHead>
+                  <TableHead>Distribution</TableHead>
+                  <TableHead>Xero Account</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {order.additionalCosts.length > 0 ? (
+                  order.additionalCosts.map((cost) => (
+                    <TableRow key={cost.id}>
+                      <TableCell>{ADDITIONAL_COST_TYPE_LABELS[cost.costType]}</TableCell>
+                      <TableCell>{cost.reference ?? "\u2014"}</TableCell>
+                      <TableCell>
+                        {ADDITIONAL_COST_DISTRIBUTION_LABELS[cost.distributionMethod]}
+                      </TableCell>
+                      <TableCell className="font-mono">
+                        {cost.xeroPurchaseAccountCode ?? "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatPrice(cost.amount) ?? "\u2014"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="py-6 text-center text-sm text-muted-foreground"
+                    >
+                      No additional costs.
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </div>

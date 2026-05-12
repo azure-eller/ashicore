@@ -8,10 +8,12 @@ import {
 } from "xero-node";
 import {
   organization,
+  purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
   suppliers,
 } from "@/lib/db/schema";
+import { formatAddress } from "@/lib/format";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
 import { sendTransactionalEmail } from "@/lib/email/send";
@@ -34,6 +36,13 @@ type OrderForPush = {
   supplierName: string;
   expectedDate: string | null;
   notes: string | null;
+  xeroPurchaseAccountCode: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
   totalAmount: string;
   orderedAt: Date | null;
   xeroPurchaseOrderId: string | null;
@@ -63,7 +72,15 @@ type LineForPush = {
   purchaseUnitName: string;
   quantityOrdered: string;
   unitCost: string;
+  xeroPurchaseAccountCode: string | null;
   lineTotal: string;
+};
+
+type AdditionalCostForPush = {
+  costType: "shipping" | "customs" | "other";
+  reference: string | null;
+  xeroPurchaseAccountCode: string | null;
+  amount: string;
 };
 
 export type PushPurchaseOrderResult = {
@@ -106,6 +123,7 @@ async function loadOrderForPushInTx(
   order: OrderForPush;
   supplier: SupplierForPush;
   lines: LineForPush[];
+  additionalCosts: AdditionalCostForPush[];
 } | null> {
   const [order] = await tx
     .select({
@@ -116,6 +134,13 @@ async function loadOrderForPushInTx(
       supplierName: purchaseOrders.supplierName,
       expectedDate: purchaseOrders.expectedDate,
       notes: purchaseOrders.notes,
+      xeroPurchaseAccountCode: purchaseOrders.xeroPurchaseAccountCode,
+      shipLine1: purchaseOrders.shipLine1,
+      shipLine2: purchaseOrders.shipLine2,
+      shipCity: purchaseOrders.shipCity,
+      shipRegion: purchaseOrders.shipRegion,
+      shipPostcode: purchaseOrders.shipPostcode,
+      shipCountry: purchaseOrders.shipCountry,
       totalAmount: purchaseOrders.totalAmount,
       orderedAt: purchaseOrders.orderedAt,
       xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
@@ -161,13 +186,35 @@ async function loadOrderForPushInTx(
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       quantityOrdered: purchaseOrderLines.quantityOrdered,
       unitCost: purchaseOrderLines.unitCost,
+      xeroPurchaseAccountCode: purchaseOrderLines.xeroPurchaseAccountCode,
       lineTotal: purchaseOrderLines.lineTotal,
     })
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))
     .orderBy(purchaseOrderLines.sortOrder);
 
-  return { order, supplier, lines };
+  const additionalCosts = await tx
+    .select({
+      costType: purchaseOrderAdditionalCosts.costType,
+      reference: purchaseOrderAdditionalCosts.reference,
+      xeroPurchaseAccountCode: purchaseOrderAdditionalCosts.xeroPurchaseAccountCode,
+      amount: purchaseOrderAdditionalCosts.amount,
+    })
+    .from(purchaseOrderAdditionalCosts)
+    .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId))
+    .orderBy(purchaseOrderAdditionalCosts.sortOrder);
+
+  return {
+    order,
+    supplier,
+    lines,
+    additionalCosts: additionalCosts.map((cost) => ({
+      costType: cost.costType as AdditionalCostForPush["costType"],
+      reference: cost.reference,
+      xeroPurchaseAccountCode: cost.xeroPurchaseAccountCode,
+      amount: cost.amount,
+    })),
+  };
 }
 
 async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
@@ -277,6 +324,12 @@ function decidePurchaseOrderEmail(params: {
   }
   return { action: "send", reason: null };
 }
+
+const ADDITIONAL_COST_TYPE_LABELS: Record<AdditionalCostForPush["costType"], string> = {
+  shipping: "Shipping",
+  customs: "Customs",
+  other: "Other",
+};
 
 async function persistPurchaseOrderEmailOutcome(
   orgId: string,
@@ -432,14 +485,6 @@ export async function pushPurchaseOrderToXero(
   const authed = await getAuthedXeroClient(orgId);
   const connection = authed.connection;
 
-  const accountCode =
-    connection.purchaseOrderDefaultAccountCode ?? connection.defaultAccountCode;
-  if (!accountCode) {
-    throw new XeroError(
-      "Set a default Xero purchase order account code in settings before pushing.",
-      400
-    );
-  }
   const taxType =
     connection.purchaseOrderDefaultTaxType ?? connection.defaultTaxType;
 
@@ -453,17 +498,54 @@ export async function pushPurchaseOrderToXero(
   await markPushAttempt(orgId, orderId);
 
   const accountingApi = authed.client.accountingApi;
+  const fallbackAccountCode =
+    data.order.xeroPurchaseAccountCode ??
+    connection.purchaseOrderDefaultAccountCode ??
+    connection.defaultAccountCode;
+
+  const missingAccountLine = data.lines.find(
+    (line) => !(line.xeroPurchaseAccountCode ?? fallbackAccountCode)
+  );
+  const missingAccountCost = data.additionalCosts.find(
+    (cost) => !(cost.xeroPurchaseAccountCode ?? fallbackAccountCode)
+  );
+  if (missingAccountLine || missingAccountCost) {
+    throw new XeroError(
+      "Set Xero purchase account codes on the purchase order lines or defaults before pushing.",
+      400
+    );
+  }
+
+  const deliveryAddress = formatAddress({
+    line1: data.order.shipLine1,
+    line2: data.order.shipLine2,
+    city: data.order.shipCity,
+    region: data.order.shipRegion,
+    postcode: data.order.shipPostcode,
+    country: data.order.shipCountry,
+  }) || undefined;
 
   const lineItems: LineItem[] = data.lines.map((line) => ({
-    description: line.itemSku
-      ? `${line.itemName} (${line.itemSku})`
-      : line.itemName,
+    itemCode: line.itemSku ?? undefined,
+    description: line.itemName,
     quantity: parseFloat(line.quantityOrdered),
     unitAmount: parseFloat(line.unitCost),
-    accountCode,
+    accountCode: line.xeroPurchaseAccountCode ?? fallbackAccountCode ?? undefined,
     taxType: taxType ?? undefined,
     lineAmount: parseFloat(line.lineTotal),
   }));
+  lineItems.push(
+    ...data.additionalCosts.map((cost) => ({
+      description: cost.reference
+        ? `${ADDITIONAL_COST_TYPE_LABELS[cost.costType]} - ${cost.reference}`
+        : ADDITIONAL_COST_TYPE_LABELS[cost.costType],
+      quantity: 1,
+      unitAmount: parseFloat(cost.amount),
+      accountCode: cost.xeroPurchaseAccountCode ?? fallbackAccountCode ?? undefined,
+      taxType: taxType ?? undefined,
+      lineAmount: parseFloat(cost.amount),
+    }))
+  );
 
   const statusPref = resolveStatusPreference(
     connection.purchaseOrderStatusPreference
@@ -480,14 +562,17 @@ export async function pushPurchaseOrderToXero(
     statusPref,
     orderedDate,
     deliveryDate,
+    deliveryAddress,
     totalAmount: data.order.totalAmount,
-    accountCode,
+    fallbackAccountCode,
     taxType,
     lines: lineItems.map((line) => ({
+      itemCode: line.itemCode,
       description: line.description,
       quantity: line.quantity,
       unitAmount: line.unitAmount,
       lineAmount: line.lineAmount,
+      accountCode: line.accountCode,
     })),
   });
 
@@ -542,6 +627,7 @@ export async function pushPurchaseOrderToXero(
         lineItems,
         date: orderedDate,
         deliveryDate,
+        deliveryAddress,
         purchaseOrderNumber: data.order.orderNumber,
         reference: data.order.orderNumber,
         status: statusPref,
