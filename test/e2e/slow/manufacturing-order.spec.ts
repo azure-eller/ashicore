@@ -1680,7 +1680,7 @@ test.describe("Manufacturing order flow", () => {
     await expect(allocationDialog.getByText("Demand · Orders")).toBeVisible();
     await expect(allocationDialog.getByText(new RegExp(`produces.*${bagName}`))).toBeVisible();
     await allocationDialog.getByRole("button", { name: "Open output" }).click();
-    await expect(allocationDialog.getByText(bagName)).toBeVisible();
+    await expect(allocationDialog.getByText(bagName).first()).toBeVisible();
     await page.keyboard.press("Escape");
 
     const allocationResponse = await testFetch(
