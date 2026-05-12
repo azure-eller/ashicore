@@ -248,38 +248,53 @@ function WorkspacePanel({
 function CarryPanel({
   carried,
   onClear,
+  className,
 }: {
   carried: CarryState;
   onClear: () => void;
+  className?: string;
 }) {
-  if (!carried) {
-    return (
-      <div className="flex min-h-16 items-center justify-center rounded-md border border-dashed bg-muted/20 px-3 text-center text-sm font-medium text-muted-foreground">
-        Select a stack, then choose demand.
-      </div>
-    );
-  }
+  if (!carried) return null;
 
   return (
     <TooltipProvider>
-      <div className="rounded-md border border-primary/40 bg-primary/5 p-3 shadow-sm ring-2 ring-primary/10">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-wide text-primary">Picked up</div>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{formatQuantity(toQuantityString(carried.quantity))}</Badge>
-              <span className="truncate text-sm font-medium">{carried.sourceLabel}</span>
+      <div
+        className={cn(
+          "pointer-events-none absolute left-1/2 z-20 w-[min(34rem,calc(100%-2rem))] -translate-x-1/2",
+          className
+        )}
+      >
+        <div className="pointer-events-auto rounded-lg border bg-popover/95 p-3 text-popover-foreground shadow-xl ring-1 ring-primary/15 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                Picked up
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">
+                  {formatQuantity(toQuantityString(carried.quantity))}
+                </Badge>
+                <span className="truncate text-sm font-medium">{carried.sourceLabel}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">H</kbd>
+              <span>split</span>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">+/-</kbd>
+              <span>adjust</span>
+              <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">Esc</kbd>
+              <span>clear</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" onClick={onClear}>
+                    <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+                    <span className="sr-only">Clear carried allocation</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Esc clears the carried quantity.</TooltipContent>
+              </Tooltip>
             </div>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" onClick={onClear}>
-                <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-                <span className="sr-only">Clear carried allocation</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Esc clears the carried quantity.</TooltipContent>
-          </Tooltip>
         </div>
       </div>
     </TooltipProvider>
@@ -620,89 +635,6 @@ function AllocationChip({
   );
 }
 
-function ActiveAllocationList({
-  rows,
-}: {
-  rows: Array<{
-    id: string;
-    from: string;
-    to: string;
-    quantity: number;
-    tone: "sales" | "production";
-    onPick: () => void;
-    onRemove: () => void;
-  }>;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {rows.length === 0 ? (
-        <div className="flex min-h-48 flex-1 items-center justify-center rounded-md border border-dashed bg-muted/10 p-4 text-center text-sm text-muted-foreground">
-          Allocations appear here.
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
-          {rows.map((row) => (
-            <div
-              key={row.id}
-              className={cn(
-                "flex items-center justify-between gap-3 rounded-md border bg-background p-3 shadow-xs",
-                row.tone === "production" && "border-primary/45 bg-primary/5"
-              )}
-            >
-              <button
-                type="button"
-                onClick={row.onPick}
-                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-              >
-                <span
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-md",
-                    row.tone === "production"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">
-                    {row.from} - {row.to}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Stack of {formatQuantity(toQuantityString(row.quantity))}
-                  </span>
-                </span>
-              </button>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-semibold tabular-nums">
-                  {formatQuantity(toQuantityString(row.quantity))}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={row.onPick}
-                >
-                  Split
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={row.onRemove}
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-                  <span className="sr-only">Remove allocation</span>
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function OutputAllocationWorkspace({
   manufacturingOrderId,
   onBack,
@@ -871,13 +803,14 @@ function OutputAllocationWorkspace({
       ) : outputQuery.isError ? (
         <p className="text-sm text-destructive">{outputQuery.error.message}</p>
       ) : data ? (
-        <div className="grid min-h-0 gap-4 xl:grid-cols-3">
-          <WorkspacePanel
-            title="Supply · Output"
-            count={data.sourceMo.orderNumber}
-            accent="supply"
-          >
-            <div className="rounded-md border bg-background p-3 shadow-xs">
+        <>
+          <div className="grid min-h-0 gap-4 xl:grid-cols-2">
+            <WorkspacePanel
+              title="Supply · Output"
+              count={data.sourceMo.orderNumber}
+              accent="supply"
+            >
+              <div className="rounded-md border bg-background p-3 shadow-xs">
               <div className="flex items-start gap-3">
                 <div className="flex size-10 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} />
@@ -916,62 +849,14 @@ function OutputAllocationWorkspace({
               >
                 Pick up output
               </Button>
-            </div>
-          </WorkspacePanel>
+              </div>
+            </WorkspacePanel>
 
-          <WorkspacePanel
-            title="Allocation Grid"
-            count={`${
-              data.productionDestinations.filter(
-                (destination) => readQuantity(draft[destination.ingredientId]) > 0
-              ).length
-            } active`}
-            footer={
-              <CarryPanel
-                carried={
-                  carriedQty == null
-                    ? null
-                    : {
-                        sourceKey: "output",
-                        sourceType: "manufacturing_order",
-                        sourceId: manufacturingOrderId,
-                        sourceLabel: data.sourceMo.orderNumber,
-                        sourceIndex: 0,
-                        quantity: carriedQty,
-                      }
-                }
-                onClear={() => setCarriedQty(null)}
-              />
-            }
-          >
-            <ActiveAllocationList
-              rows={data.productionDestinations.flatMap((destination) => {
-                const quantity = readQuantity(draft[destination.ingredientId]);
-                if (quantity <= 0) return [];
-                return [
-                  {
-                    id: destination.ingredientId,
-                    from: data.sourceMo.orderNumber,
-                    to: destination.orderNumber,
-                    quantity,
-                    tone: "production" as const,
-                    onPick: () => {
-                      updateDestination(destination.ingredientId, 0);
-                      setCarriedQty(quantity);
-                      setSelectedIngredientId(destination.ingredientId);
-                    },
-                    onRemove: () => updateDestination(destination.ingredientId, 0),
-                  },
-                ];
-              })}
-            />
-          </WorkspacePanel>
-
-          <WorkspacePanel
-            title="Demand · Orders"
-            count={`${data.productionDestinations.length} MO`}
-            accent="production"
-          >
+            <WorkspacePanel
+              title="Demand · Orders"
+              count={`${data.productionDestinations.length} MO`}
+              accent="production"
+            >
             {data.productionDestinations.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 No production orders currently need this output.
@@ -1037,8 +922,25 @@ function OutputAllocationWorkspace({
             {mutation.error ? (
               <p className="text-sm text-destructive">{mutation.error.message}</p>
             ) : null}
-          </WorkspacePanel>
-        </div>
+            </WorkspacePanel>
+          </div>
+          <CarryPanel
+            carried={
+              carriedQty == null
+                ? null
+                : {
+                    sourceKey: "output",
+                    sourceType: "manufacturing_order",
+                    sourceId: manufacturingOrderId,
+                    sourceLabel: data.sourceMo.orderNumber,
+                    sourceIndex: 0,
+                    quantity: carriedQty,
+                  }
+            }
+            onClear={() => setCarriedQty(null)}
+            className="bottom-6"
+          />
+        </>
       ) : null}
     </div>
   );
@@ -1204,20 +1106,6 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
     );
   }
 
-  function returnAllocatedTokenToSource(token: AllocationTokenData) {
-    const originLineId = token.originLineId;
-    if (!originLineId) return;
-
-    const originDraft = draftsByLine[originLineId] ?? {};
-    const remainingOriginDraft = { ...originDraft };
-    delete remainingOriginDraft[token.sourceKey];
-
-    updateDrafts({
-      ...draftsByLine,
-      [originLineId]: remainingOriginDraft,
-    });
-  }
-
   function placeOnLine(salesOrderLineId: string) {
     if (!carried) return;
     if (carried.originLineId) {
@@ -1370,46 +1258,6 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
       }) ?? []
     : [];
 
-  const activeRows =
-    data?.demandRows.flatMap((row) =>
-      Object.entries(draftsByLine[row.salesOrderLineId] ?? {}).flatMap(([key, value]) => {
-        const quantity = readQuantity(value);
-        if (quantity <= 0) return [];
-        const meta = sourceMetaByKey.get(key);
-        const parsed = parseAllocationKey(key);
-        return [
-          {
-            id: `${row.salesOrderLineId}:${key}`,
-            from: meta?.source.label ?? "Source",
-            to: row.orderNumber,
-            quantity,
-            tone: "sales" as const,
-            onPick: () => {
-              pickToken({
-                sourceKey: key,
-                sourceType: parsed.sourceType,
-                sourceId: parsed.sourceId,
-                sourceLabel: meta?.source.label ?? "Source",
-                sourceIndex: meta?.index ?? 0,
-                quantity,
-                originLineId: row.salesOrderLineId,
-              });
-            },
-            onRemove: () =>
-              returnAllocatedTokenToSource({
-                sourceKey: key,
-                sourceType: parsed.sourceType,
-                sourceId: parsed.sourceId,
-                sourceLabel: meta?.source.label ?? "Source",
-                sourceIndex: meta?.index ?? 0,
-                quantity,
-                originLineId: row.salesOrderLineId,
-              }),
-          },
-        ];
-      })
-    ) ?? [];
-
   return (
     <Sheet
       open={open}
@@ -1421,7 +1269,7 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
         onOpenChange(nextOpen);
       }}
     >
-      <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
+      <SheetContent className="relative overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
         <SheetHeader className="border-b">
           <SheetTitle>Allocation Manager</SheetTitle>
           <SheetDescription className="sr-only">
@@ -1464,7 +1312,7 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
             ) : query.isError ? (
               <p className="text-sm text-destructive">{query.error.message}</p>
             ) : data && targetLine ? (
-              <div className="grid min-h-0 gap-4 xl:grid-cols-3">
+              <div className="grid min-h-0 gap-4 xl:grid-cols-2">
                 <WorkspacePanel
                   title="Supply · Storage"
                   count={`${onHandSources.length} on hand · ${manufacturingSources.length} inbound`}
@@ -1565,14 +1413,6 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                 </WorkspacePanel>
 
                 <WorkspacePanel
-                  title="Allocation Grid"
-                  count={`${activeRows.length} active`}
-                  footer={<CarryPanel carried={carried} onClear={() => setCarried(null)} />}
-                >
-                  <ActiveAllocationList rows={activeRows} />
-                </WorkspacePanel>
-
-                <WorkspacePanel
                   title="Demand · Orders"
                   count={`${data.demandRows.length} SO · shipping date`}
                   accent="default"
@@ -1631,6 +1471,11 @@ export function AllocationSheet({ lineId, open, onOpenChange }: Props) {
                 </WorkspacePanel>
               </div>
             ) : null}
+            <CarryPanel
+              carried={carried}
+              onClear={() => setCarried(null)}
+              className="bottom-20"
+            />
           </div>
         )}
 
