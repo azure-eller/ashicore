@@ -42,6 +42,7 @@ export function SalesOrdersBoard({
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [showUnallocateAllDialog, setShowUnallocateAllDialog] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const boardCommands = useSalesOrderBoardCommands();
 
@@ -84,6 +85,16 @@ export function SalesOrdersBoard({
     () => groupSalesOrdersByLane(filteredOrders),
     [filteredOrders]
   );
+  const allocatedLineCount = useMemo(
+    () =>
+      orders
+        .filter((order) =>
+          ["draft", "confirmed", "partially_shipped"].includes(order.status)
+        )
+        .flatMap((order) => order.lines)
+        .filter((line) => Number(line.allocatedQty ?? 0) > 0).length,
+    [orders]
+  );
 
   const deleteMutation = useMutation({
     mutationFn: async (target: NonNullable<DeleteTarget>) => {
@@ -103,6 +114,29 @@ export function SalesOrdersBoard({
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
       setDeleteTarget(null);
+    },
+    onError: (error) => {
+      setFormError(error.message);
+    },
+  });
+
+  const unallocateAllMutation = useMutation({
+    mutationFn: async () => {
+      await apiJson<void>("/api/sales-orders/allocations", {
+        method: "DELETE",
+        idempotencyKey: "sales-orders-unallocate-all",
+        fallbackError: "Failed to unallocate sales orders.",
+      });
+    },
+    onMutate: () => {
+      setFormError(null);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setShowUnallocateAllDialog(false);
     },
     onError: (error) => {
       setFormError(error.message);
@@ -138,6 +172,9 @@ export function SalesOrdersBoard({
           showCancelled={showCancelled}
           onShowCancelledChange={setShowCancelled}
           cancelledCount={cancelledCount}
+          allocatedLineCount={allocatedLineCount}
+          onUnallocateAll={() => setShowUnallocateAllDialog(true)}
+          isUnallocatingAll={unallocateAllMutation.isPending}
         />
 
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
@@ -167,6 +204,32 @@ export function SalesOrdersBoard({
       </div>
 
       {boardCommands.dialogs}
+
+      <AlertDialog
+        open={showUnallocateAllDialog}
+        onOpenChange={(open) => {
+          if (!open) setShowUnallocateAllDialog(false);
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unallocate all sales orders?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This clears allocations for all open sales orders on the board.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep allocations</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={unallocateAllMutation.isPending}
+              onClick={() => unallocateAllMutation.mutate()}
+            >
+              {unallocateAllMutation.isPending ? "Unallocating..." : "Unallocate all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={deleteTarget != null}

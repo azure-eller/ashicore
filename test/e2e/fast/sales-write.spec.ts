@@ -1555,12 +1555,21 @@ test.describe("Sales write-path smoke", () => {
     const firstAllocation = await firstAllocationResponse.json();
     expect(firstAllocation.targetLine.allocatedQty).toBe("70");
     expect(firstAllocation.targetLine.shortQty).toBe("0");
-    expect(firstAllocation.targetLine.sourceSummary).toBe("70 Stock");
-    expect(firstAllocation.editableAllocations[0]).toMatchObject({
-      sourceType: "stock_pool",
-      quantity: "70",
-      coverageKind: "implicit",
-    });
+    expect(firstAllocation.targetLine.sourceSummary).toMatch(/^70 LOT-/);
+    expect(firstAllocation.editableAllocations).toContainEqual(
+      expect.objectContaining({
+        sourceType: "lot",
+        quantity: "70",
+        coverageKind: "implicit",
+      })
+    );
+    expect(firstAllocation.editableAllocations).toContainEqual(
+      expect.objectContaining({
+        sourceType: "stock_pool",
+        quantity: "0",
+        coverageKind: "explicit",
+      })
+    );
 
     const secondAllocationResponse = await testFetch(
       `/api/sales-order-lines/${lines[1].id}/allocation`

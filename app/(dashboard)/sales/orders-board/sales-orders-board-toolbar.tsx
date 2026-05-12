@@ -4,6 +4,7 @@ import Link from "next/link";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CancelCircleIcon,
+  PackageRemoveIcon,
   PackageSearchIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
@@ -34,6 +35,9 @@ export function SalesOrdersBoardToolbar({
   showCancelled,
   onShowCancelledChange,
   cancelledCount,
+  allocatedLineCount,
+  onUnallocateAll,
+  isUnallocatingAll,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -43,6 +47,9 @@ export function SalesOrdersBoardToolbar({
   showCancelled: boolean;
   onShowCancelledChange: (value: boolean) => void;
   cancelledCount: number;
+  allocatedLineCount: number;
+  onUnallocateAll: () => void;
+  isUnallocatingAll: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -86,6 +93,23 @@ export function SalesOrdersBoardToolbar({
         </Select>
       </div>
       <div className="ml-auto flex items-center justify-end gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={allocatedLineCount === 0 || isUnallocatingAll}
+              onClick={onUnallocateAll}
+            >
+              <HugeiconsIcon icon={PackageRemoveIcon} strokeWidth={2} className="size-4" />
+              Unallocate all
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            Clear allocations for open sales orders.
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

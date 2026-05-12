@@ -1371,3 +1371,97 @@ export async function saveSalesLineAllocation(
     };
   });
 }
+
+export async function unallocateAllSalesOrderAllocations() {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const openLines = await tx
+      .select({
+        id: salesOrderLines.id,
+        itemId: salesOrderLines.itemId,
+        orderStatus: salesOrders.status,
+      })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesOrders.organizationId, orgId),
+          isNull(salesOrders.deletedAt),
+          inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES]),
+          sql`${salesOrderLines.quantity} - ${salesOrderLines.cancelledQuantity} > 0`
+        )
+      )
+      .for("update");
+
+    if (openLines.length === 0) {
+      return { lineCount: 0, allocationCount: 0 };
+    }
+
+    const lineIds = openLines.map((line) => line.id);
+    const itemIds = [...new Set(openLines.map((line) => line.itemId))];
+
+    await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(inArray(items.id, itemIds))
+      .for("update");
+
+    await tx
+      .select({ id: stockAllocations.id })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.organizationId, orgId),
+          eq(stockAllocations.demandType, "sales_order_line"),
+          inArray(stockAllocations.demandId, lineIds),
+          eq(stockAllocations.status, "active")
+        )
+      )
+      .for("update");
+
+    const now = new Date();
+    const cancelledAllocations = await tx
+      .update(stockAllocations)
+      .set({
+        status: "cancelled",
+        cancelledAt: now,
+        cancelledBy: userId,
+        updatedBy: userId,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(stockAllocations.organizationId, orgId),
+          eq(stockAllocations.demandType, "sales_order_line"),
+          inArray(stockAllocations.demandId, lineIds),
+          eq(stockAllocations.status, "active")
+        )
+      )
+      .returning({ id: stockAllocations.id });
+
+    await tx
+      .update(salesOrderLines)
+      .set({
+        allocationManagedAt: now,
+        allocationManagedBy: userId,
+        updatedAt: now,
+      })
+      .where(inArray(salesOrderLines.id, lineIds));
+
+    for (const line of openLines) {
+      if (line.orderStatus === "confirmed" || line.orderStatus === "partially_shipped") {
+        await setSalesLineStockReservationInTx(tx, {
+          organizationId: orgId,
+          salesOrderLineId: line.id,
+          itemId: line.itemId,
+          quantity: 0,
+          actorUserId: userId,
+        });
+      }
+    }
+
+    return {
+      lineCount: openLines.length,
+      allocationCount: cancelledAllocations.length,
+    };
+  });
+}
