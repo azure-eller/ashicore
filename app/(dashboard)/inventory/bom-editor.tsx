@@ -4,21 +4,13 @@ import { useMemo } from "react";
 import { useFieldArray, useWatch, Controller, type Control } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import {
   EditableLineGrid,
   EditableLineGridCell,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
-import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import {
@@ -57,13 +49,16 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
     name: "bom",
   });
 
-  const componentIds = useMemo(
-    () => availableComponents.map((c) => c.id),
-    [availableComponents]
-  );
-
   const componentMap = useMemo(
     () => new Map(availableComponents.map((c) => [c.id, c])),
+    [availableComponents]
+  );
+  const componentOptions = useMemo(
+    () =>
+      availableComponents.map((component) => ({
+        ...component,
+        unitName: component.unit,
+      })),
     [availableComponents]
   );
 
@@ -92,7 +87,7 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
                 lineKey={field.id}
                 index={index}
                 control={control}
-                componentIds={componentIds}
+                componentOptions={componentOptions}
                 componentMap={componentMap}
                 onRemove={() => remove(index)}
               />
@@ -133,14 +128,14 @@ function BomRow({
   lineKey,
   index,
   control,
-  componentIds,
+  componentOptions,
   componentMap,
   onRemove,
 }: {
   lineKey: string;
   index: number;
   control: Control<ItemFormValues>;
-  componentIds: string[];
+  componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
   onRemove: () => void;
 }) {
@@ -167,37 +162,29 @@ function BomRow({
               <FieldLabel className="sr-only" htmlFor={`${lineKey}-component`}>
                 Component
               </FieldLabel>
-              <Combobox
-                items={componentIds}
+              <InventoryItemCombobox
+                options={componentOptions}
                 value={f.value ?? ""}
                 onValueChange={(id) => f.onChange(id ?? "")}
-                itemToStringLabel={(id) => componentMap.get(id)?.displayName ?? ""}
-              >
-                <ComboboxInput
-                  id={`${lineKey}-component`}
-                  aria-invalid={fieldState.invalid}
-                  className="w-full min-w-0"
-                  placeholder="Search items..."
-                />
-                <ComboboxContent className="w-[min(32rem,calc(100vw-2rem))]">
-                  <ComboboxEmpty>No items found</ComboboxEmpty>
-                  <ComboboxList>
-                    {(id: string) => {
-                      const comp = componentMap.get(id);
-                      return (
-                        <ComboboxItem key={id} value={id}>
-                          <span>{comp?.displayName ?? comp?.name ?? id}</span>
-                          {comp && (
-                            <Badge variant="outline" className="ml-auto text-xs">
-                              {comp.itemType}
-                            </Badge>
-                          )}
-                        </ComboboxItem>
-                      );
-                    }}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
+                inputId={`${lineKey}-component`}
+                inputAriaInvalid={fieldState.invalid}
+                inputClassName="w-full min-w-0"
+                placeholder="Search items..."
+                emptyMessage="No items found"
+                contentClassName="w-[min(32rem,calc(100vw-2rem))]"
+                showTypeBadge
+                createLinks={[
+                  {
+                    href: "/inventory/products/new",
+                    label: "Create product",
+                  },
+                  {
+                    href: "/inventory/materials/new",
+                    label: "Create material",
+                  },
+                ]}
+                getSecondaryText={(component) => component.unit}
+              />
               {fieldState.invalid && (
                 <FieldError errors={[fieldState.error]} />
               )}

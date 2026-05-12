@@ -123,7 +123,15 @@ export async function apiJson<T>(
   }: ApiJsonOptions = {}
 ): Promise<T> {
   const requestHeaders = new Headers(headers);
-  const init: RequestInit = { method, headers: requestHeaders };
+  if (!requestHeaders.has("Accept")) {
+    requestHeaders.set("Accept", "application/json");
+  }
+
+  const init: RequestInit = {
+    method,
+    headers: requestHeaders,
+    credentials: "same-origin",
+  };
 
   if (idempotencyKey) {
     applyIdempotencyHeader(requestHeaders, idempotencyKey);

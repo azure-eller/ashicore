@@ -416,6 +416,7 @@ export function OrdersTable({
           table={table}
           options={MANUFACTURING_STATUS_FILTER_OPTIONS}
           ariaLabel="Filter manufacturing orders by status"
+          showAll={false}
         />
       )}
       initialSorting={[{ id: "priorityRank", desc: false }]}

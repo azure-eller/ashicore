@@ -126,6 +126,10 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     "Order number must be 32 characters or fewer"
   ),
   customerId: z.string().min(1, "Customer is required"),
+  customerProjectId: nullableString.refine(
+    (value) => value == null || z.string().uuid().safeParse(value).success,
+    "Invalid project"
+  ),
   status: z.enum(["draft", "confirmed"]),
   orderDate: z
     .string()
@@ -186,7 +190,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     if (values.status === "confirmed" && !values.shipDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Ship date is required to confirm a sales order",
+        message: "Shipping date is required to confirm a sales order",
         path: ["shipDate"],
       });
     }
@@ -243,7 +247,7 @@ export const saveSalesLineAllocationSchema = z.object({
   allocations: z
     .array(
       z.object({
-        sourceType: z.enum(["stock_pool", "manufacturing_order"]),
+        sourceType: z.enum(["stock_pool", "lot", "manufacturing_order"]),
         sourceId: z
           .string()
           .uuid("Select a valid source")
@@ -364,6 +368,7 @@ export type SalesShipmentCostsInput = z.infer<
 export const salesOrderDefaultValues: InsertSalesOrder = {
   orderNumber: null,
   customerId: "",
+  customerProjectId: null,
   status: "draft",
   orderDate: new Date().toISOString().slice(0, 10),
   shipDate: null,

@@ -94,6 +94,9 @@ function AllocationChips({
   const stockQty = line.allocationSources
     .filter((source) => source.sourceType === "stock_pool")
     .reduce((sum, source) => sum + Number(source.quantity), 0);
+  const lotSources = line.allocationSources.filter(
+    (source) => source.sourceType === "lot"
+  );
   const productionSources = line.allocationSources.filter(
     (source) => source.sourceType === "manufacturing_order"
   );
@@ -105,6 +108,9 @@ function AllocationChips({
 
   if (stockQty > 0) {
     chips.push(`${formatQuantity(stockQty.toString())} Stock`);
+  }
+  for (const source of lotSources) {
+    chips.push(`${source.label} · ${formatQuantity(source.quantity)}`);
   }
   if (productionQty > 0) {
     const uniqueLabels = [...new Set(productionSources.map((source) => source.label))];

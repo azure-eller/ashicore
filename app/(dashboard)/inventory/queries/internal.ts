@@ -22,6 +22,7 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
+  stockAllocations,
   stocktakeItems,
   stocktakes,
   unitDefinitions,
@@ -1584,6 +1585,36 @@ export async function getCategories(): Promise<string[]> {
 
 export async function getLots(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
+    const allocationRows = await tx
+      .select({
+        lotId: stockAllocations.sourceId,
+        orderNumber: salesOrders.orderNumber,
+        quantity: trimScale(stockAllocations.quantity).as("quantity"),
+      })
+      .from(stockAllocations)
+      .innerJoin(salesOrderLines, eq(stockAllocations.demandId, salesOrderLines.id))
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.status, "active"),
+          eq(stockAllocations.itemId, itemId),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .orderBy(asc(salesOrders.orderNumber));
+    const allocationsByLotId = new Map<
+      string,
+      Array<{ label: string; quantity: string }>
+    >();
+    for (const row of allocationRows) {
+      if (!row.lotId) continue;
+      const current = allocationsByLotId.get(row.lotId) ?? [];
+      current.push({ label: row.orderNumber, quantity: row.quantity });
+      allocationsByLotId.set(row.lotId, current);
+    }
+
     const realizedRows = await tx
       .select({
         lotId: inventoryEvents.lotId,
@@ -1675,6 +1706,10 @@ export async function getLots(itemId: string) {
         realizedGrossProfit: string | null;
         realizedMarginPercent: string | null;
         receivedAt: Date;
+        allocations: Array<{
+          label: string;
+          quantity: string;
+        }>;
         dispositionBalances: Array<{
           disposition: InventoryDisposition;
           quantity: string;
@@ -1696,6 +1731,7 @@ export async function getLots(itemId: string) {
         quantity: "0",
         costPerUnit: row.costPerUnit,
         receivedAt: row.receivedAt,
+        allocations: allocationsByLotId.get(row.id) ?? [],
         dispositionBalances: [],
       };
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -63,14 +64,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
-import {
   Field,
   FieldError,
   FieldGroup,
@@ -81,7 +74,8 @@ import {
   EditableLineGridCell,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
-import { ComboboxCreateLinks } from "@/components/combobox-create-links";
+import { EntityCombobox } from "@/components/entity-combobox";
+import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -223,21 +217,8 @@ function SalesOrderSection({
 const SALES_ORDER_LINE_GRID_COLUMNS =
   "2.5rem minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem";
 
-function salesItemSearchLabel(item: SalesOrderItemOption | undefined) {
-  if (!item) return "";
-
-  return [
-    item.displayName,
-    item.name !== item.displayName ? item.name : null,
-    item.sku,
-    item.itemType === "material" ? "material" : "product",
-    item.unitName,
-  ]
-    .filter((part): part is string => part != null && part.trim() !== "")
-    .join(" ");
-}
-
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
+const NO_PROJECT_VALUE = "__no_project__";
 
 type ApiError = {
   status?: number;
@@ -366,10 +347,14 @@ export function OrderForm({
   customers,
   items,
   initialData,
+  initialCustomerId,
+  initialCustomerProjectId,
 }: {
   customers: CustomerOption[];
   items: SalesOrderItemOption[];
   initialData?: SalesOrderEditData;
+  initialCustomerId?: string | null;
+  initialCustomerProjectId?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -385,17 +370,9 @@ export function OrderForm({
     () => false
   );
 
-  const customerIds = useMemo(
-    () => customers.map((customer) => customer.id),
-    [customers]
-  );
   const customerMap = useMemo(
     () => new Map(customers.map((customer) => [customer.id, customer])),
     [customers]
-  );
-  const itemIds = useMemo(
-    () => items.map((item) => item.id),
-    [items]
   );
   const itemMap = useMemo(
     () => new Map(items.map((item) => [item.id, item])),
@@ -431,6 +408,7 @@ export function OrderForm({
       ? {
           orderNumber: initialData.orderNumber,
           customerId: initialData.customerId,
+          customerProjectId: initialData.customerProjectId,
           status: initialData.status,
           orderDate: initialData.orderDate,
           shipDate: initialData.shipDate,
@@ -451,6 +429,8 @@ export function OrderForm({
         }
       : {
           ...salesOrderDefaultValues,
+          customerId: initialCustomerId ?? "",
+          customerProjectId: initialCustomerProjectId ?? null,
           orderDate: todayInTimeZone(timeZone),
         },
   });
@@ -463,10 +443,19 @@ export function OrderForm({
     control: form.control,
     name: "customerId",
   });
+  const customerProjectId = useWatch({
+    control: form.control,
+    name: "customerProjectId",
+  });
   const status = useWatch({
     control: form.control,
     name: "status",
   });
+  const selectedCustomer = customerId ? customerMap.get(customerId) : undefined;
+  const projectOptions = useMemo(
+    () => selectedCustomer?.projects ?? [],
+    [selectedCustomer]
+  );
   const isConfirmedEdit = initialData?.status === "confirmed";
 
   const { fields, append, move, remove } = useFieldArray({
@@ -486,6 +475,19 @@ export function OrderForm({
   const [linePricingState, setLinePricingState] = useState<
     Record<string, LinePricingState>
   >({});
+
+  useEffect(() => {
+    if (!customerProjectId) return;
+    const projectBelongsToCustomer = projectOptions.some(
+      (project) => project.id === customerProjectId
+    );
+    if (!projectBelongsToCustomer) {
+      form.setValue("customerProjectId", null, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [customerProjectId, form, projectOptions]);
 
   function updateLinePricingState(
     lineKey: string,
@@ -777,12 +779,16 @@ export function OrderForm({
                           Customer
                         </FieldLabelWithMarker>
                       </FieldLabel>
-                      <Combobox
-                        items={customerIds}
+                      <EntityCombobox
+                        options={customers}
                         value={field.value ?? ""}
                         onValueChange={(value) => {
                           const nextValue = value ?? "";
                           field.onChange(nextValue);
+                          form.setValue("customerProjectId", null, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
                           if (!nextValue) return;
 
                           const nextShipAddress = getShipAddressFromCustomer(
@@ -814,28 +820,68 @@ export function OrderForm({
                           setShipAddress(form.setValue, nextShipAddress);
                           lastAutoFilledShipAddressRef.current = nextShipAddress;
                         }}
-                        itemToStringLabel={(value) => customerMap.get(value)?.name ?? ""}
+                        placeholder="Search customers..."
+                        emptyMessage="No customers found"
+                        createLinks={[
+                          {
+                            href: "/sales/customers/new",
+                            label: "Create customer",
+                          },
+                        ]}
+                      />
+                      {field.value ? (
+                        <Button variant="link" size="sm" className="h-auto px-0" asChild>
+                          <Link href={`/sales/customers/${field.value}`} target="_blank">
+                            Open customer
+                          </Link>
+                        </Button>
+                      ) : null}
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+
+                <Controller
+                  control={form.control}
+                  name="customerProjectId"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Project / Job</FieldLabel>
+                      <Select
+                        key={`${customerId ?? "none"}-${field.value ?? "none"}`}
+                        name={field.name}
+                        value={field.value ?? NO_PROJECT_VALUE}
+                        onValueChange={(value) =>
+                          field.onChange(value === NO_PROJECT_VALUE ? null : value)
+                        }
+                        disabled={!customerId || projectOptions.length === 0}
                       >
-                        <ComboboxInput placeholder="Search customers..." />
-                        <ComboboxContent>
-                          <ComboboxEmpty>No customers found</ComboboxEmpty>
-                          <ComboboxList>
-                            {(value: string) => (
-                              <ComboboxItem key={value} value={value}>
-                                {customerMap.get(value)?.name ?? value}
-                              </ComboboxItem>
-                            )}
-                          </ComboboxList>
-                          <ComboboxCreateLinks
-                            links={[
-                              {
-                                href: "/sales/customers/new",
-                                label: "Create customer",
-                              },
-                            ]}
+                        <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                          <SelectValue
+                            placeholder={
+                              customerId ? "No project" : "Select a customer first"
+                            }
                           />
-                        </ComboboxContent>
-                      </Combobox>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_PROJECT_VALUE}>No project</SelectItem>
+                          {projectOptions.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {field.value ? (
+                        <Button variant="link" size="sm" className="h-auto px-0" asChild>
+                          <Link
+                            href={`/sales/customers/${customerId}?project=${field.value}#projects`}
+                            target="_blank"
+                          >
+                            Open project
+                          </Link>
+                        </Button>
+                      ) : null}
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}
@@ -1051,7 +1097,7 @@ export function OrderForm({
                           initialCustomerId={initialData?.customerId}
                           initialLine={initialLineByFieldId.get(field.id)}
                           setValue={form.setValue}
-                          itemIds={itemIds}
+                          items={items}
                           itemMap={itemMap}
                           pricingState={getLinePricingState(field.id, index)}
                           onPricingStateChange={updateLinePricingState}
@@ -1276,7 +1322,7 @@ function OrderLineRow({
   initialCustomerId,
   initialLine,
   setValue,
-  itemIds,
+  items,
   itemMap,
   pricingState,
   onPricingStateChange,
@@ -1290,7 +1336,7 @@ function OrderLineRow({
   initialCustomerId?: string | null;
   initialLine?: SalesOrderEditData["lines"][number];
   setValue: UseFormSetValue<OrderFormValues>;
-  itemIds: string[];
+  items: SalesOrderItemOption[];
   itemMap: Map<string, SalesOrderItemOption>;
   pricingState: LinePricingState | undefined;
   onPricingStateChange: (
@@ -1458,69 +1504,40 @@ function OrderLineRow({
               <FieldLabel className="sr-only" htmlFor={`${lineKey}-item`}>
                 Item
               </FieldLabel>
-              <Combobox
-                items={itemIds}
+              <InventoryItemCombobox
+                options={items}
                 value={field.value ?? ""}
                 onValueChange={(value) => onItemChange(value ?? "")}
-                itemToStringLabel={(value) => salesItemSearchLabel(itemMap.get(value))}
-              >
-                <ComboboxInput
-                  id={`${lineKey}-item`}
-                  aria-invalid={fieldState.invalid}
-                  className="w-full min-w-0"
-                  placeholder="Search items..."
-                />
-                <ComboboxContent className="w-[min(36rem,calc(100vw-2rem))]">
-                  <ComboboxEmpty>No items found</ComboboxEmpty>
-                  <ComboboxList>
-                    {(value: string) => {
-                      const current = itemMap.get(value);
-                      const metadata = [
-                        current ? (current.itemType === "material" ? "Material" : "Product") : null,
-                      ]
-                        .filter((part): part is string => part != null)
-                        .join(" · ");
-
-                      return (
-                        <ComboboxItem key={value} value={value}>
-                          <span className="min-w-0">
-                            <span className="block truncate">
-                              {current?.displayName ?? value}
-                            </span>
-                            {current ? (
-                              <span className="block truncate text-xs text-muted-foreground">
-                                {current.sku ? `${current.sku} · ` : ""}
-                                {current.unitName}
-                                {current.defaultSellingPrice
-                                  ? ` · ${formatPrice(current.defaultSellingPrice) ?? "\u2014"}`
-                                  : ""}
-                                {` · Available ${current.availableQty}`}
-                              </span>
-                            ) : null}
-                          </span>
-                          {metadata && (
-                            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                              {metadata}
-                            </span>
-                          )}
-                        </ComboboxItem>
-                      );
-                    }}
-                  </ComboboxList>
-                  <ComboboxCreateLinks
-                    links={[
-                      {
-                        href: "/inventory/products/new",
-                        label: "Create product",
-                      },
-                      {
-                        href: "/inventory/materials/new",
-                        label: "Create material",
-                      },
-                    ]}
-                  />
-                </ComboboxContent>
-              </Combobox>
+                inputId={`${lineKey}-item`}
+                inputAriaInvalid={fieldState.invalid}
+                inputClassName="w-full min-w-0"
+                placeholder="Search items..."
+                emptyMessage="No items found"
+                contentClassName="w-[min(36rem,calc(100vw-2rem))]"
+                showTypeBadge
+                createLinks={[
+                  {
+                    href: "/inventory/products/new",
+                    label: "Create product",
+                  },
+                  {
+                    href: "/inventory/materials/new",
+                    label: "Create material",
+                  },
+                ]}
+                getSecondaryText={(current) =>
+                  [
+                    current.sku,
+                    current.unitName,
+                    current.defaultSellingPrice
+                      ? formatPrice(current.defaultSellingPrice) ?? "\u2014"
+                      : null,
+                    `Available ${current.availableQty}`,
+                  ]
+                    .filter((part): part is string => part != null && part !== "")
+                    .join(" · ")
+                }
+              />
               {item ? (
                 <p className="mt-1 truncate text-xs text-muted-foreground">
                   {item.sku ? `${item.sku} · ` : ""}

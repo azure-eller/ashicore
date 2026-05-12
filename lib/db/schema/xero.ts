@@ -39,7 +39,13 @@ export const xeroConnections = xeroSchema
         length: 20,
       })
         .notNull()
-        .default("AUTHORISED"),
+        .default("DRAFT"),
+      autoPushSalesInvoices: boolean("auto_push_sales_invoices")
+        .notNull()
+        .default(true),
+      autoPushPurchaseOrders: boolean("auto_push_purchase_orders")
+        .notNull()
+        .default(true),
       autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
         .notNull()
         .default(false),

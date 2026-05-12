@@ -34,6 +34,9 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   salesOrderId: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
   initialOrder?: SalesOrderDetail;
   salesOrderLabel?: string;
   buttonLabel?: string;
@@ -78,6 +81,9 @@ function formatOpenManufacturingOrders(
 
 export function CreateManufacturingOrdersDialog({
   salesOrderId,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  showTrigger = true,
   initialOrder,
   salesOrderLabel,
   buttonLabel = "Create MOs",
@@ -90,7 +96,8 @@ export function CreateManufacturingOrdersDialog({
 }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
   const [plannedDate, setPlannedDate] = useState<string | null | undefined>(
     undefined
   );
@@ -187,7 +194,8 @@ export function CreateManufacturingOrdersDialog({
         fallbackError: "Failed to create manufacturing orders.",
       }),
     onSuccess: async () => {
-      setOpen(false);
+      controlledOnOpenChange?.(false);
+      if (controlledOpen === undefined) setUncontrolledOpen(false);
       resetForm();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
@@ -211,7 +219,10 @@ export function CreateManufacturingOrdersDialog({
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
-    setOpen(nextOpen);
+    controlledOnOpenChange?.(nextOpen);
+    if (controlledOpen === undefined) {
+      setUncontrolledOpen(nextOpen);
+    }
     if (!nextOpen) {
       resetForm();
     }
@@ -245,16 +256,18 @@ export function CreateManufacturingOrdersDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button
-          variant={buttonVariant}
-          size={buttonSize}
-          className={cn(buttonClassName)}
-        >
-          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" strokeWidth={2} />
-          {buttonLabel}
-        </Button>
-      </DialogTrigger>
+      {showTrigger ? (
+        <DialogTrigger asChild>
+          <Button
+            variant={buttonVariant}
+            size={buttonSize}
+            className={cn(buttonClassName)}
+          >
+            <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" strokeWidth={2} />
+            {buttonLabel}
+          </Button>
+        </DialogTrigger>
+      ) : null}
       <DialogContent
         size="3xl"
         className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
@@ -497,7 +510,7 @@ export function CreateManufacturingOrdersDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={() => setOpen(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={mutation.isPending}
           >
             Cancel

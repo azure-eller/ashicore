@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -19,6 +19,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,7 @@ import {
 import { cn } from "@/lib/utils";
 import type {
   XeroConnectionSummary,
+  XeroExportHistoryRow,
   XeroImportRunSummary,
 } from "@/lib/dal/xero";
 import { XeroImportSection } from "./integrations/xero-import-section";
@@ -87,6 +89,22 @@ const TAX_DESCRIPTIONS: Record<string, string> = {
   NONE: "Use when this Xero organisation should not apply tax.",
 };
 
+const SALES_TAX_OPTIONS = [
+  "OUTPUT",
+  "OUTPUT2",
+  "ZERORATEDOUTPUT",
+  "EXEMPTOUTPUT",
+  "NONE",
+] as const;
+
+const PURCHASE_TAX_OPTIONS = [
+  "INPUT",
+  "INPUT2",
+  "ZERORATEDINPUT",
+  "EXEMPTINPUT",
+  "NONE",
+] as const;
+
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",
   SUBMITTED: "Awaiting approval",
@@ -107,6 +125,11 @@ type DialogKey =
   | "history"
   | null;
 
+type AutoPushChange = {
+  key: "autoPushSalesInvoices" | "autoPushPurchaseOrders";
+  value: boolean;
+} | null;
+
 function FriendlyTax({ value }: { value: string | null }) {
   if (!value) return <span>Not set</span>;
   return <span>{TAX_LABELS[value] ?? value}</span>;
@@ -114,6 +137,38 @@ function FriendlyTax({ value }: { value: string | null }) {
 
 function FriendlyStatus({ value }: { value: string }) {
   return <span>{STATUS_LABELS[value] ?? value}</span>;
+}
+
+function TaxSelect({
+  id,
+  value,
+  options,
+  onValueChange,
+}: {
+  id: string;
+  value: string;
+  options: readonly string[];
+  onValueChange: (value: string) => void;
+}) {
+  const normalizedValue = value || "NONE";
+  const selectOptions = options.includes(normalizedValue)
+    ? options
+    : [normalizedValue, ...options];
+
+  return (
+    <Select value={normalizedValue} onValueChange={onValueChange}>
+      <SelectTrigger id={id}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {selectOptions.map((option) => (
+          <SelectItem key={option} value={option}>
+            {TAX_LABELS[option] ?? option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function DotBadge({
@@ -153,31 +208,20 @@ function DefaultChip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ExportVisibilityRow({
-  label,
-  description,
-}: {
-  label: string;
-  description: string;
-}) {
-  return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 border-t py-3 first:border-t-0">
-      <span className="mt-1 size-2 rounded-full bg-muted-foreground/50 shadow-[0_0_0_3px_hsl(var(--muted-foreground)/0.12)]" />
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-      </div>
-    </div>
-  );
-}
-
 function PostingDefaultsSummary({
   connection,
   onEdit,
+  onHistory,
+  onToggleAutoPush,
   canManageConnection,
 }: {
   connection: XeroConnectionSummary;
   onEdit: () => void;
+  onHistory: () => void;
+  onToggleAutoPush: (
+    key: "autoPushSalesInvoices" | "autoPushPurchaseOrders",
+    value: boolean
+  ) => void;
   canManageConnection: boolean;
 }) {
   const salesAccount = connection.defaultAccountCode;
@@ -192,51 +236,88 @@ function PostingDefaultsSummary({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
-            Posting defaults
+            Export to Xero
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Used when records auto-export. Override per record at any time.
+            Xero automation and posting defaults for ERP workflows.
           </p>
         </div>
-        {canManageConnection ? (
-          <Button variant="outline" size="sm" onClick={onEdit}>
-            <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-            Edit defaults
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={onHistory}>
+            <HugeiconsIcon icon={TimelineListIcon} strokeWidth={2} />
+            Export history
           </Button>
-        ) : null}
+          {canManageConnection ? (
+            <Button variant="outline" size="sm" onClick={onEdit}>
+              <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+              Edit defaults
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="mt-4 space-y-4">
-        <div>
-          <p className="text-xs font-semibold text-foreground">Sales invoices</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <div className="mt-4 rounded-lg border bg-muted/20">
+        <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <label className="flex min-w-0 gap-3">
+            <Checkbox
+              checked={connection.autoPushSalesInvoices}
+              disabled={!canManageConnection}
+              onCheckedChange={(value) =>
+                onToggleAutoPush("autoPushSalesInvoices", value === true)
+              }
+              aria-label="Auto-export sales invoices"
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Sales invoices
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Check to automatically push shipped or manually invoiced sales
+                orders to Xero.
+              </span>
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
             <DefaultChip>
               <span className="font-mono">{salesAccount ?? "Account"}</span>
             </DefaultChip>
-            <span>·</span>
             <DefaultChip>
               <FriendlyTax value={salesTax} />
             </DefaultChip>
-            <span>·</span>
-            <span>push as</span>
             <DefaultChip>
               <FriendlyStatus value={connection.invoiceStatusPreference} />
             </DefaultChip>
           </div>
         </div>
-
-        <div>
-          <p className="text-xs font-semibold text-foreground">Purchase orders</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div className="grid gap-3 border-t p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <label className="flex min-w-0 gap-3">
+            <Checkbox
+              checked={connection.autoPushPurchaseOrders}
+              disabled={!canManageConnection}
+              onCheckedChange={(value) =>
+                onToggleAutoPush("autoPushPurchaseOrders", value === true)
+              }
+              aria-label="Auto-export purchase orders"
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Purchase orders
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Check to automatically push submitted ERP purchase orders to
+                Xero.
+              </span>
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
             <DefaultChip>
               <span className="font-mono">{purchaseAccount ?? "Account"}</span>
             </DefaultChip>
-            <span>·</span>
             <DefaultChip>
               <FriendlyTax value={purchaseTax} />
             </DefaultChip>
-            <span>·</span>
-            <span>push as</span>
             <DefaultChip>
               <FriendlyStatus value={connection.purchaseOrderStatusPreference} />
             </DefaultChip>
@@ -265,7 +346,7 @@ function ImportFromXeroSection({
   return (
     <div className="border-t p-5">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">Import from Xero</h3>
+        <h3 className="text-sm font-semibold text-foreground">Import to Xero</h3>
         <p className="mt-1 text-xs text-muted-foreground">
           One-time pull to bring existing contacts into the ERP.
         </p>
@@ -284,38 +365,6 @@ function ImportFromXeroSection({
   );
 }
 
-function ExportActivitySection({ onHistory }: { onHistory: () => void }) {
-  return (
-    <div className="border-t p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            Accounting exports
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Invoices and purchase orders export when ERP workflows reach Xero.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={onHistory}>
-          <HugeiconsIcon icon={TimelineListIcon} strokeWidth={2} />
-          Export history
-        </Button>
-      </div>
-
-      <div className="mt-3 rounded-lg border bg-muted/20 px-3">
-        <ExportVisibilityRow
-          label="Sales invoices"
-          description="Created in Xero when sales orders are shipped and invoiced."
-        />
-        <ExportVisibilityRow
-          label="Purchase orders"
-          description="Created in Xero when purchase orders are submitted."
-        />
-      </div>
-    </div>
-  );
-}
-
 function XeroRow({
   connection,
   error,
@@ -325,6 +374,7 @@ function XeroRow({
   canResetCustomerImports,
   canResetSupplierImports,
   importRuns,
+  exportRows,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
@@ -334,11 +384,13 @@ function XeroRow({
   canResetCustomerImports: boolean;
   canResetSupplierImports: boolean;
   importRuns: XeroImportRunSummary[];
+  exportRows: XeroExportHistoryRow[];
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [openDialog, setOpenDialog] = useState<DialogKey>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [autoPushChange, setAutoPushChange] = useState<AutoPushChange>(null);
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
@@ -347,6 +399,44 @@ function XeroRow({
     },
     onSuccess: () => {
       setOpenDialog(null);
+      router.refresh();
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => setFormError((err as Error).message),
+  });
+
+  const autoPushMutation = useMutation({
+    mutationFn: async (change: NonNullable<AutoPushChange>) => {
+      if (!connection) throw new Error("Xero is not connected.");
+      const res = await fetch("/api/xero/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          defaultAccountCode: connection.defaultAccountCode,
+          defaultTaxType: connection.defaultTaxType,
+          invoiceStatusPreference: connection.invoiceStatusPreference,
+          autoPushSalesInvoices:
+            change.key === "autoPushSalesInvoices"
+              ? change.value
+              : connection.autoPushSalesInvoices,
+          autoPushPurchaseOrders:
+            change.key === "autoPushPurchaseOrders"
+              ? change.value
+              : connection.autoPushPurchaseOrders,
+          autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
+          autoEmailPurchaseOrders: connection.autoEmailPurchaseOrders,
+          purchaseOrderDefaultAccountCode: connection.purchaseOrderDefaultAccountCode,
+          purchaseOrderDefaultTaxType: connection.purchaseOrderDefaultTaxType,
+          purchaseOrderStatusPreference: connection.purchaseOrderStatusPreference,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to save Xero settings.");
+      }
+    },
+    onSuccess: () => {
+      setAutoPushChange(null);
       router.refresh();
       queryClient.invalidateQueries();
     },
@@ -445,11 +535,16 @@ function XeroRow({
 
       {isConnected ? (
         <>
-          <ExportActivitySection onHistory={() => setOpenDialog("history")} />
           <PostingDefaultsSummary
             connection={connection}
             canManageConnection={canManageConnection}
             onEdit={() => setOpenDialog("defaults")}
+            onHistory={() => setOpenDialog("history")}
+            onToggleAutoPush={(key, value) => {
+              if (connection[key] === value) return;
+              setFormError(null);
+              setAutoPushChange({ key, value });
+            }}
           />
           <ImportFromXeroSection
             canImportCustomers={canImportCustomers}
@@ -482,7 +577,22 @@ function XeroRow({
 
       <ExportHistoryDialog
         open={openDialog === "history"}
+        rows={exportRows}
         onOpenChange={(open) => setOpenDialog(open ? "history" : null)}
+      />
+      <AutoPushConfirmDialog
+        change={autoPushChange}
+        pending={autoPushMutation.isPending}
+        error={formError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAutoPushChange(null);
+            setFormError(null);
+          }
+        }}
+        onConfirm={() => {
+          if (autoPushChange) autoPushMutation.mutate(autoPushChange);
+        }}
       />
       {openDialog === "disconnect" ? (
         <DisconnectDialog
@@ -521,7 +631,7 @@ function PostingDefaultsDialog({
   const [taxType, setTaxType] = useState(connection.defaultTaxType ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState<"DRAFT" | "AUTHORISED">(
     (connection.invoiceStatusPreference as "DRAFT" | "AUTHORISED") ??
-      "AUTHORISED"
+      "DRAFT"
   );
   const [poAccountCode, setPoAccountCode] = useState(
     connection.purchaseOrderDefaultAccountCode ?? ""
@@ -565,6 +675,8 @@ function PostingDefaultsDialog({
           defaultAccountCode: accountCode.trim() || null,
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
+          autoPushSalesInvoices: connection.autoPushSalesInvoices,
+          autoPushPurchaseOrders: connection.autoPushPurchaseOrders,
           autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
           autoEmailPurchaseOrders: connection.autoEmailPurchaseOrders,
           purchaseOrderDefaultAccountCode: poAccountCode.trim() || null,
@@ -665,11 +777,11 @@ function PostingDefaultsDialog({
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="xero-tax-type">Tax treatment</FieldLabel>
-                  <Input
+                  <TaxSelect
                     id="xero-tax-type"
                     value={taxType}
-                    onChange={(event) => setTaxType(event.target.value)}
-                    placeholder="NONE"
+                    options={SALES_TAX_OPTIONS}
+                    onValueChange={setTaxType}
                   />
                 </Field>
                 <Field>
@@ -684,8 +796,8 @@ function PostingDefaultsDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="AUTHORISED">Approved</SelectItem>
                       <SelectItem value="DRAFT">Draft</SelectItem>
+                      <SelectItem value="AUTHORISED">Approved</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
@@ -724,11 +836,11 @@ function PostingDefaultsDialog({
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="xero-po-tax-type">Tax treatment</FieldLabel>
-                  <Input
+                  <TaxSelect
                     id="xero-po-tax-type"
                     value={poTaxType}
-                    onChange={(event) => setPoTaxType(event.target.value)}
-                    placeholder="Falls back to invoice tax"
+                    options={PURCHASE_TAX_OPTIONS}
+                    onValueChange={setPoTaxType}
                   />
                 </Field>
                 <Field>
@@ -848,6 +960,48 @@ function DisconnectDialog({
             onClick={onDisconnect}
           >
             {pending ? "Disconnecting..." : "Disconnect Xero"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AutoPushConfirmDialog({
+  change,
+  pending,
+  error,
+  onOpenChange,
+  onConfirm,
+}: {
+  change: AutoPushChange;
+  pending: boolean;
+  error: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const isSales = change?.key === "autoPushSalesInvoices";
+  const documentLabel = isSales ? "sales invoices" : "purchase orders";
+  const actionLabel = change?.value ? "Turn on" : "Turn off";
+
+  return (
+    <Dialog open={change != null} onOpenChange={onOpenChange}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>{actionLabel} auto-export?</DialogTitle>
+          <DialogDescription>
+            {change?.value
+              ? `New ${documentLabel} will be created in Xero automatically when the ERP workflow reaches export.`
+              : `New ${documentLabel} will stay in ERP until someone creates the Xero record manually.`}
+          </DialogDescription>
+        </DialogHeader>
+        {error ? <FieldError>{error}</FieldError> : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={pending}>
+            {pending ? "Saving..." : actionLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1020,13 +1174,13 @@ function ConnectDialog({
 
 function ExportHistoryDialog({
   open,
+  rows,
   onOpenChange,
 }: {
   open: boolean;
+  rows: XeroExportHistoryRow[];
   onOpenChange: (open: boolean) => void;
 }) {
-  const rows = useMemo(() => [], []);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="2xl">
@@ -1049,7 +1203,48 @@ function ExportHistoryDialog({
               Exported invoices and purchase orders will appear here.
             </p>
           </div>
-        ) : null}
+        ) : (
+          <div className="max-h-[420px] overflow-auto rounded-lg border">
+            {rows.map((row) => (
+              <div
+                key={`${row.sourceType}-${row.id}`}
+                className="grid gap-2 border-t p-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {row.sourceNumber}
+                    </p>
+                    <Badge
+                      variant={
+                        row.xeroPushStatus === "pushed"
+                          ? "success"
+                          : row.xeroPushStatus === "failed"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                    >
+                      {row.xeroPushStatus ?? "pending"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {row.sourceType === "purchase_order"
+                      ? "Purchase order"
+                      : "Sales invoice"}{" "}
+                    · {row.partyName}
+                    {row.xeroDocumentNumber ? ` · Xero ${row.xeroDocumentNumber}` : ""}
+                  </p>
+                  {row.xeroPushError ? (
+                    <p className="mt-1 text-xs text-destructive">{row.xeroPushError}</p>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(row.xeroPushedAt ?? row.updatedAt).toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
 
         <DialogFooter showCloseButton />
       </DialogContent>
@@ -1066,6 +1261,7 @@ export function IntegrationsSection({
   canResetCustomerImports,
   canResetSupplierImports,
   importRuns,
+  exportRows,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
@@ -1075,6 +1271,7 @@ export function IntegrationsSection({
   canResetCustomerImports: boolean;
   canResetSupplierImports: boolean;
   importRuns: XeroImportRunSummary[];
+  exportRows: XeroExportHistoryRow[];
 }) {
   return (
     <section id="integrations" className="scroll-mt-24">
@@ -1090,6 +1287,7 @@ export function IntegrationsSection({
         canResetCustomerImports={canResetCustomerImports}
         canResetSupplierImports={canResetSupplierImports}
         importRuns={importRuns}
+        exportRows={exportRows}
       />
     </section>
   );

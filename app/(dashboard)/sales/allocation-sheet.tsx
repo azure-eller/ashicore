@@ -169,6 +169,7 @@ function buildChunks(sourceType: SalesAllocationSourceType, freeQty: number) {
 
 function sourceKindLabel(source: SalesAllocationSource) {
   if (source.sourceType === "stock_pool") return "Stock";
+  if (source.sourceType === "lot") return "Usable lot";
   return source.status === "draft" ? "Draft production" : "Released production";
 }
 
@@ -874,7 +875,8 @@ export function AllocationSheet({
                               >
                                 <HugeiconsIcon
                                   icon={
-                                    source.sourceType === "stock_pool"
+                                    source.sourceType === "stock_pool" ||
+                                    source.sourceType === "lot"
                                       ? PackageIcon
                                       : Factory01Icon
                                   }

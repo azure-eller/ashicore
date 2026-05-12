@@ -4,6 +4,7 @@ import {
   inventoryDemandSummary,
   inventoryReservationsSummary,
   salesOrderLines,
+  stockAllocations,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
@@ -16,6 +17,7 @@ import {
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel/operations/common";
 import {
+  consumeSpecificLotInTx,
   consumeStockFifoInTx,
   getCurrentAvailableQtyAtLocationInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
@@ -464,6 +466,68 @@ export async function consumeForShipmentInTx(
   const reservedByLineId = new Map(
     existingReservationRows.map((row) => [row.referenceId, parseFloat(row.quantity)])
   );
+  const lineStateRows = await tx
+    .select({
+      id: salesOrderLines.id,
+      allocationManagedAt: salesOrderLines.allocationManagedAt,
+    })
+    .from(salesOrderLines)
+    .where(
+      inArray(
+        salesOrderLines.id,
+        params.lines.map((line) => line.salesOrderLineId)
+      )
+    );
+  const managedLineIds = new Set(
+    lineStateRows
+      .filter((row) => row.allocationManagedAt != null)
+      .map((row) => row.id)
+  );
+  const allocationRows = await tx
+    .select({
+      demandId: stockAllocations.demandId,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      quantity: stockAllocations.quantity,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.status, "active"),
+        inArray(
+          stockAllocations.demandId,
+          params.lines.map((line) => line.salesOrderLineId)
+        )
+      )
+    );
+  const allocationsByLineId = new Map<string, typeof allocationRows>();
+  for (const allocation of allocationRows) {
+    const current = allocationsByLineId.get(allocation.demandId) ?? [];
+    current.push(allocation);
+    allocationsByLineId.set(allocation.demandId, current);
+  }
+  const lotAllocationRows = await tx
+    .select({
+      demandId: stockAllocations.demandId,
+      itemId: stockAllocations.itemId,
+      lotId: stockAllocations.sourceId,
+      quantity: stockAllocations.quantity,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.sourceType, "lot"),
+        eq(stockAllocations.status, "active"),
+        inArray(
+          stockAllocations.itemId,
+          [...new Set(params.lines.map((line) => line.itemId))]
+        )
+      )
+    );
   const availableByItem = new Map<string, number>();
 
   for (const line of params.lines) {
@@ -495,26 +559,107 @@ export async function consumeForShipmentInTx(
     );
   }
 
+  const consumedLotAllocationQty = new Map<string, number>();
   for (const [index, line] of params.lines.entries()) {
-    const consumed = await consumeStockFifoInTx(tx, {
-      organizationId: params.organizationId,
-      locationId: location.id,
-      itemId: line.itemId,
-      quantity: line.quantity,
-      eventType: "sales_consumption",
-      eventSubtype: "sales_ship",
-      referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
-      referenceId: params.salesShipmentId ?? params.salesOrderId,
-      actorUserId: params.actorUserId ?? null,
-      idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
-      occurredAt: params.shippedAt,
-      metadata: {
-        salesOrderId: params.salesOrderId,
-        salesOrderLineId: line.salesOrderLineId,
-        salesShipmentId: params.salesShipmentId ?? null,
-      },
-    });
-    eventIds.push(...consumed.eventIds);
+    const metadata = {
+      salesOrderId: params.salesOrderId,
+      salesOrderLineId: line.salesOrderLineId,
+      salesShipmentId: params.salesShipmentId ?? null,
+    };
+    let remaining = roundQuantity(line.quantity);
+    const lineAllocations = managedLineIds.has(line.salesOrderLineId)
+      ? allocationsByLineId.get(line.salesOrderLineId) ?? []
+      : [];
+    const allocatedQty = roundQuantity(
+      lineAllocations.reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
+    );
+
+    if (managedLineIds.has(line.salesOrderLineId) && allocatedQty < line.quantity) {
+      throw new InsufficientStockError({
+        itemId: line.itemId,
+        available: allocatedQty,
+        requested: line.quantity,
+      });
+    }
+
+    let idempotencyUsed = false;
+    for (const allocation of lineAllocations.filter(
+      (candidate) => candidate.sourceType === "lot"
+    )) {
+      if (remaining <= 0) break;
+      if (!allocation.sourceId) continue;
+      const quantity = Math.min(remaining, parseFloat(allocation.quantity));
+      if (quantity <= 0) continue;
+      const consumed = await consumeSpecificLotInTx(tx, {
+        organizationId: params.organizationId,
+        locationId: location.id,
+        itemId: line.itemId,
+        lotId: allocation.sourceId,
+        quantity,
+        eventType: "sales_consumption",
+        eventSubtype: "sales_ship",
+        referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
+        referenceId: params.salesShipmentId ?? params.salesOrderId,
+        actorUserId: params.actorUserId ?? null,
+        idempotencyKey:
+          index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
+        occurredAt: params.shippedAt,
+        metadata,
+      });
+      idempotencyUsed = idempotencyUsed || consumed.eventIds.length > 0;
+      remaining = roundQuantity(remaining - quantity);
+      eventIds.push(...consumed.eventIds);
+      const consumedKey = `${line.salesOrderLineId}:${allocation.sourceId}`;
+      consumedLotAllocationQty.set(
+        consumedKey,
+        roundQuantity((consumedLotAllocationQty.get(consumedKey) ?? 0) + quantity)
+      );
+    }
+
+    if (remaining > 0) {
+      const unavailableByLotId = new Map<string, number>();
+      for (const allocation of lotAllocationRows) {
+        if (
+          allocation.itemId !== line.itemId ||
+          allocation.demandId === line.salesOrderLineId ||
+          !allocation.lotId
+        ) {
+          continue;
+        }
+        const consumedQty =
+          consumedLotAllocationQty.get(`${allocation.demandId}:${allocation.lotId}`) ??
+          0;
+        const stillAllocatedQty = roundQuantity(
+          parseFloat(allocation.quantity) - consumedQty
+        );
+        if (stillAllocatedQty <= 0) {
+          continue;
+        }
+        unavailableByLotId.set(
+          allocation.lotId,
+          roundQuantity(
+            (unavailableByLotId.get(allocation.lotId) ?? 0) + stillAllocatedQty
+          )
+        );
+      }
+      const consumed = await consumeStockFifoInTx(tx, {
+        organizationId: params.organizationId,
+        locationId: location.id,
+        itemId: line.itemId,
+        quantity: remaining,
+        eventType: "sales_consumption",
+        eventSubtype: "sales_ship",
+        referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
+        referenceId: params.salesShipmentId ?? params.salesOrderId,
+        actorUserId: params.actorUserId ?? null,
+        idempotencyKey:
+          index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
+        occurredAt: params.shippedAt,
+        metadata,
+        unavailableByLotId,
+      });
+      eventIds.push(...consumed.eventIds);
+    }
   }
 
   await applyDemandReferenceDeltasInTx(tx, {

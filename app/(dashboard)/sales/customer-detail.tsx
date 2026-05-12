@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -91,9 +91,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { DetailPageActions } from "@/components/detail-page-actions";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { cn } from "@/lib/utils";
-import { formatAddress, formatDate, formatDateTime } from "@/lib/format";
+import { formatAddress, formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
+import { SalesOrderStatusBadge } from "./status-badge";
 import type {
   CustomerContactRole,
   CustomerContactRow,
@@ -183,6 +184,22 @@ const projectStatuses: Array<{ value: CustomerProjectStatus; label: string }> = 
   { value: "done", label: "Complete" },
 ];
 
+const accountStateLabels = {
+  onboarding: "Onboarding",
+  active: "Active",
+  growth: "Growth",
+  at_risk: "At risk",
+  dormant: "Dormant",
+  former: "Former",
+} as const;
+
+const accountPriorityLabels = {
+  strategic: "Strategic",
+  high: "High",
+  standard: "Standard",
+  low: "Low",
+} as const;
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -231,6 +248,40 @@ function ProjectStatusBadge({ status }: { status: CustomerProjectStatus }) {
           : "secondary";
 
   return <Badge variant={variant}>{label}</Badge>;
+}
+
+function AccountPriorityBadge({
+  priority,
+}: {
+  priority: CustomerDetailData["accountPriority"];
+}) {
+  const variant =
+    priority === "strategic"
+      ? "default"
+      : priority === "high"
+        ? "success"
+        : priority === "low"
+          ? "outline"
+          : "secondary";
+
+  return <Badge variant={variant}>{accountPriorityLabels[priority]}</Badge>;
+}
+
+function AccountStateBadge({
+  state,
+}: {
+  state: CustomerDetailData["accountState"];
+}) {
+  const variant =
+    state === "at_risk"
+      ? "warning"
+      : state === "former"
+        ? "outline"
+        : state === "growth"
+          ? "success"
+          : "secondary";
+
+  return <Badge variant={variant}>{accountStateLabels[state]}</Badge>;
 }
 
 function activityTypeConfig(type: CustomerCorrespondenceType) {
@@ -384,17 +435,27 @@ function CustomerDetailTabs({
   );
 }
 
+function getInitialCustomerTab(): CustomerDetailTab {
+  if (typeof window === "undefined") return "overview";
+  return window.location.hash === "#projects" ? "projects" : "overview";
+}
+
+function getInitialProjectId() {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("project");
+}
+
 export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
   const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [detail, setDetail] = useState(customer);
-  const [activeTab, setActiveTab] = useState<CustomerDetailTab>("overview");
+  const [activeTab, setActiveTab] = useState<CustomerDetailTab>(getInitialCustomerTab);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [contactForm, setContactForm] = useState<ContactFormState | null>(null);
   const [projectForm, setProjectForm] = useState<ProjectFormState | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(
-    detail.projects[0]?.id ?? null
+    getInitialProjectId() ?? detail.projects[0]?.id ?? null
   );
   const [activityForm, setActivityForm] = useState<ActivityFormState>(emptyActivityForm);
   const [activityFilter, setActivityFilter] = useState<CustomerCorrespondenceType | "all">("all");
@@ -412,6 +473,14 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
     detail.projects.find((project) => project.id === activeProjectId) ??
     detail.projects[0] ??
     null;
+
+  useEffect(() => {
+    if (activeTab === "projects") {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#projects`);
+    } else if (window.location.hash) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+  }, [activeTab]);
   const filteredContacts = detail.contacts.filter((contact) => {
     const q = contactSearch.trim().toLowerCase();
     if (!q) return true;
@@ -423,6 +492,9 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
     activityFilter === "all"
       ? detail.correspondence
       : detail.correspondence.filter((entry) => entry.type === activityFilter);
+  const openSalesOrders = detail.salesOrders.filter((order) =>
+    ["draft", "confirmed", "partially_shipped"].includes(order.status)
+  );
   const groupedActivity = useMemo(
     () => groupActivity(filteredActivity),
     [filteredActivity]
@@ -679,6 +751,8 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-semibold tracking-tight">{detail.name}</h1>
+                <AccountPriorityBadge priority={detail.accountPriority} />
+                <AccountStateBadge state={detail.accountState} />
                 {isDeleted ? <Badge variant="outline">Deleted</Badge> : null}
               </div>
               {detail.notes ? (
@@ -719,6 +793,18 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                             label={detail.customerCategoryName ?? "Everyone"}
                             tooltip={CUSTOMER_PRICING_TOOLTIP}
                           />
+                        </DetailField>
+                        <DetailField label="Priority">
+                          <AccountPriorityBadge priority={detail.accountPriority} />
+                        </DetailField>
+                        <DetailField label="State">
+                          <AccountStateBadge state={detail.accountState} />
+                        </DetailField>
+                        <DetailField label="Open Orders">
+                          {detail.openOrderCount} · {formatPrice(detail.openOrderValue)}
+                        </DetailField>
+                        <DetailField label="Latest Order">
+                          {formatDate(detail.latestOrderDate)}
                         </DetailField>
                         <DetailField label="Email">{detail.email ?? "\u2014"}</DetailField>
                         <DetailField label="Phone">{detail.phone ?? "\u2014"}</DetailField>
@@ -869,6 +955,44 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                               ) : null}
                             </div>
                           </button>
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Open orders</CardTitle>
+                      <CardAction>
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/sales/orders/new?customerId=${detail.id}`}>
+                            New order
+                          </Link>
+                        </Button>
+                      </CardAction>
+                    </CardHeader>
+                    <CardContent className="space-y-2 pt-0">
+                      {openSalesOrders.length === 0 ? (
+                        <EmptyState message="No open orders." />
+                      ) : (
+                        openSalesOrders.slice(0, 4).map((order) => (
+                          <Link
+                            key={order.id}
+                            href={`/sales/orders/${order.id}`}
+                            className="block rounded-lg border p-3 hover:bg-muted/50"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium">{order.orderNumber}</span>
+                              <SalesOrderStatusBadge status={order.status} />
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                              <span>{formatPrice(order.totalAmount)}</span>
+                              {order.customerProjectName ? (
+                                <span>{order.customerProjectName}</span>
+                              ) : null}
+                              {order.shipDate ? <span>{formatDate(order.shipDate)}</span> : null}
+                            </div>
+                          </Link>
                         ))
                       )}
                     </CardContent>
@@ -1300,6 +1424,60 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                               </p>
                             </CardContent>
                           ) : null}
+                        </Card>
+
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>Sales orders</CardTitle>
+                            <CardAction>
+                              <Button variant="outline" size="sm" asChild>
+                                <Link
+                                  href={`/sales/orders/new?customerId=${detail.id}&projectId=${activeProject.id}`}
+                                >
+                                  New order
+                                </Link>
+                              </Button>
+                            </CardAction>
+                          </CardHeader>
+                          <CardContent className="pt-0">
+                            {activeProject.salesOrders.length === 0 ? (
+                              <EmptyState message="No linked orders yet." />
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Order</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Ship</TableHead>
+                                    <TableHead>Delivery</TableHead>
+                                    <TableHead className="text-right">Total</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {activeProject.salesOrders.map((order) => (
+                                    <TableRow key={order.id}>
+                                      <TableCell>
+                                        <Link
+                                          href={`/sales/orders/${order.id}`}
+                                          className="font-medium hover:underline"
+                                        >
+                                          {order.orderNumber}
+                                        </Link>
+                                      </TableCell>
+                                      <TableCell>
+                                        <SalesOrderStatusBadge status={order.status} />
+                                      </TableCell>
+                                      <TableCell>{formatDate(order.shipDate)}</TableCell>
+                                      <TableCell>{formatDate(order.requestedDate)}</TableCell>
+                                      <TableCell className="text-right">
+                                        {formatPrice(order.totalAmount)}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            )}
+                          </CardContent>
                         </Card>
 
                         <Card>
