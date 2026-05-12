@@ -11,6 +11,8 @@ export type ProductLensAggregate = {
   itemId: string;
   label: string;
   unitName: string;
+  quantity: string;
+  shippedQty: string;
   allocatedQty: string;
   remainingQty: string;
   shortQty: string;
@@ -55,6 +57,14 @@ export function getProductLensAggregate(
     (sum, line) => sum + readSalesOrderNumber(line.allocatedQty),
     0
   );
+  const quantity = matchingLines.reduce(
+    (sum, line) => sum + readSalesOrderNumber(line.quantity),
+    0
+  );
+  const shippedQty = matchingLines.reduce(
+    (sum, line) => sum + readSalesOrderNumber(line.shippedQuantity),
+    0
+  );
   const remainingQty = matchingLines.reduce(
     (sum, line) =>
       sum + readSalesOrderNumber(line.remainingQty ?? line.quantity),
@@ -73,6 +83,8 @@ export function getProductLensAggregate(
     itemId,
     label: getLineLabel(firstLine.masterName, firstLine.attrs),
     unitName: firstLine.unitName,
+    quantity: toQuantityString(quantity),
+    shippedQty: toQuantityString(shippedQty),
     allocatedQty: toQuantityString(allocatedQty),
     remainingQty: toQuantityString(remainingQty),
     shortQty: toQuantityString(shortQty),

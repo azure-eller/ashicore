@@ -312,6 +312,7 @@ test.describe("Sales order board pure helpers", () => {
           masterName: "Lens Mix",
           attrs: ["1yd tote"],
           quantity: "10",
+          shippedQuantity: "1",
           remainingQty: "8",
           allocatedQty: "3",
           shortQty: "5",
@@ -325,6 +326,7 @@ test.describe("Sales order board pure helpers", () => {
           masterName: "Lens Mix",
           attrs: ["1yd tote"],
           quantity: "5",
+          shippedQuantity: "2",
           remainingQty: "4",
           allocatedQty: "2",
           shortQty: "2",
@@ -375,11 +377,46 @@ test.describe("Sales order board pure helpers", () => {
       "Other Mix",
     ]);
     expect(getProductLensAggregate(mixed, selectedItemId)).toMatchObject({
+      quantity: "15",
+      shippedQty: "3",
       allocatedQty: "5",
       remainingQty: "12",
       shortQty: "7",
       statusLabel: "partial · short 7",
       unitName: "totes",
+    });
+    expect(
+      getProductLensAggregate(
+        boardLogicOrder({
+          id: "00000000-0000-0000-0000-000000000025",
+          orderNumber: "SO-25",
+          status: "shipped",
+          shippingReadiness: { state: "shipped", message: "Shipped", blockers: [] },
+          lines: [
+            {
+              id: "line-5",
+              itemId: selectedItemId,
+              masterName: "Lens Mix",
+              attrs: ["1yd tote"],
+              quantity: "15",
+              shippedQuantity: "15",
+              remainingQty: "0",
+              allocatedQty: "0",
+              shortQty: "0",
+              sourceSummary: "—",
+              allocationStatus: "ready",
+              unitName: "totes",
+            },
+          ],
+        }),
+        selectedItemId
+      )
+    ).toMatchObject({
+      quantity: "15",
+      shippedQty: "15",
+      allocatedQty: "0",
+      remainingQty: "0",
+      statusLabel: "shipped",
     });
   });
 });
