@@ -1388,7 +1388,7 @@ test.describe("Sales write-path smoke", () => {
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
     const currentBucket = sheet.getByTestId("current-allocation-bucket");
-    const stockStack = sheet.getByRole("button", { name: /Allocate all from INIT-/ });
+    const stockStack = sheet.getByRole("button", { name: /Allocate all from/ }).first();
     await expect(stockStack).toBeVisible();
 
     await stockStack.click();

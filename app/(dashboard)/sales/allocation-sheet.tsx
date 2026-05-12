@@ -421,7 +421,7 @@ function DemandAllocationStacks({
                   originLineId: row.salesOrderLineId,
                 });
               }}
-              aria-label={`Pick up ${formatQuantity(toQuantityString(quantity))} from ${
+              aria-label={`Move ${formatQuantity(toQuantityString(quantity))} from ${
                 source?.label ?? "source"
               }`}
             >
