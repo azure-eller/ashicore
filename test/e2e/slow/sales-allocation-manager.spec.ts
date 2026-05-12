@@ -288,7 +288,7 @@ test.describe("Sales allocation manager slow flow", () => {
     await expect(currentBucket).toContainText(/Allocated\s*6/);
     await expect(currentBucket).toContainText(/Short\s*—/);
 
-    await currentBucket.getByLabel(/Move 6 from/).click();
+    await currentBucket.getByLabel(/Move 5 from/).click();
     await competingBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*1/);
     await expect(currentBucket).toContainText(/Short\s*5/);
@@ -320,8 +320,8 @@ test.describe("Sales allocation manager slow flow", () => {
       .toEqual({
         currentManaged: true,
         competingManaged: true,
-        current: ["stock_pool:1.0000"],
-        competing: ["stock_pool:5.0000"],
+        current: ["lot:1.0000"],
+        competing: ["lot:5.0000"],
       });
 
     const draftBalance = await getItemBalance(db, item.id);
