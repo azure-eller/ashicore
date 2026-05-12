@@ -820,6 +820,8 @@ function DemandCard({
   const remaining = readQuantity(row.remainingQty);
   const canPlace = carried != null && shortQty > 0;
   const unitLabel = compactUnitName(row.unitName);
+  const slotCount = Math.min(14, Math.max(1, Math.ceil(remaining / 25)));
+  const filledSlots = Math.min(slotCount, Math.ceil(allocatedQty / 25));
 
   return (
     <div
@@ -854,17 +856,13 @@ function DemandCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <Badge variant="secondary" className="rounded-sm">SO</Badge>
-            <span>{row.orderNumber}</span>
+            <Badge className="rounded-sm bg-warning/10 text-warning">SO</Badge>
+            <span className="font-semibold">{row.orderNumber}</span>
             <span className="truncate text-muted-foreground">{row.customerName}</span>
             {isTarget ? <Badge variant="outline">This order</Badge> : null}
           </div>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <span>Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"} ·</span>
-            <span className="truncate">{row.itemName}</span>
-            <Badge variant="outline" className="h-4 shrink-0 rounded-sm px-1 text-[10px] font-normal">
-              {unitLabel}
-            </Badge>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Ship {row.shipDate ? formatDate(row.shipDate) : "\u2014"}
           </div>
         </div>
         <div className="shrink-0 text-right text-xs text-muted-foreground">
@@ -875,22 +873,22 @@ function DemandCard({
 
       <div className="mt-3 space-y-2">
         <div className="flex flex-wrap gap-1">
-          {Array.from({ length: Math.min(12, Math.max(1, Math.ceil(remaining / 25))) }).map((_, index) => (
+          {Array.from({ length: slotCount }).map((_, index) => (
             <span
               key={index}
               className={cn(
-                "flex size-7 items-center justify-center rounded border",
-                index < Math.ceil(allocatedQty / 25)
-                  ? "border-border bg-muted"
-                  : "border-dashed bg-transparent"
+                "flex size-8 items-center justify-center rounded border",
+                index < filledSlots
+                  ? "border-success/25 bg-success/10"
+                  : "border-dashed bg-muted/20"
               )}
             >
-              {index < Math.ceil(allocatedQty / 25) ? (
-                <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-3.5 text-muted-foreground" />
+              {index < filledSlots ? (
+                <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4 text-success" />
               ) : null}
             </span>
           ))}
-          {remaining > 300 ? (
+          {remaining > 350 ? (
             <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
           ) : null}
         </div>
@@ -1223,6 +1221,8 @@ function OutputAllocationWorkspace({
                 const remaining = readQuantity(destination.remainingNeed);
                 const shortQty = Math.max(0, remaining - allocated);
                 const selected = selectedIngredientId === destination.ingredientId;
+                const slotCount = Math.min(14, Math.max(1, Math.ceil(remaining / 25)));
+                const filledSlots = Math.min(slotCount, Math.ceil(allocated / 25));
                 return (
                   <div
                     role="button"
@@ -1243,23 +1243,26 @@ function OutputAllocationWorkspace({
                       selected && "ring-2 ring-primary/25"
                     )}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                          <Badge variant="secondary">MO</Badge>
-                          <span>{destination.orderNumber}</span>
-                          <span className="truncate text-muted-foreground">
-                            produces {formatQuantity(destination.outputPlannedQuantity ?? "")}{" "}
-                            {destination.outputProductName ?? destination.productName}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          Input: {data.sourceMo.productName}
-                          {destination.salesOrderNumber
-                            ? ` · for ${destination.salesOrderNumber} ${destination.salesCustomerName ?? ""}`
-                            : ""}
-                        </div>
-                      </div>
+	                    <div className="flex items-start justify-between gap-3">
+	                      <div className="min-w-0">
+	                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+	                          <Badge className="rounded-sm bg-primary/10 text-primary">MO</Badge>
+	                          <span className="font-semibold">{destination.orderNumber}</span>
+	                          <span className="truncate text-muted-foreground">
+	                            produces {formatQuantity(destination.outputPlannedQuantity ?? "")}{" "}
+	                            {destination.outputProductName ?? destination.productName}
+	                            {destination.salesOrderNumber
+	                              ? ` \u2192 ${destination.salesOrderNumber}`
+	                              : ""}
+	                          </span>
+	                        </div>
+	                        <div className="mt-1 text-xs text-muted-foreground">
+	                          consumes {data.sourceMo.productName}
+	                          {destination.salesCustomerName
+	                            ? ` · ${destination.salesCustomerName}`
+	                            : ""}
+	                        </div>
+	                      </div>
                       <div className="text-right text-xs text-muted-foreground">
                         <div>{destination.plannedDate ? formatDate(destination.plannedDate) : "\u2014"}</div>
                         <div>{statusLabel(destination.status)}</div>
@@ -1277,8 +1280,28 @@ function OutputAllocationWorkspace({
                         </Button>
                       </div>
                     </div>
-                    <div className="mt-3 space-y-2">
-                      <ProgressBar value={allocated} max={remaining} tone="primary" />
+	                    <div className="mt-3 space-y-2">
+	                      <div className="flex flex-wrap gap-1">
+	                        {Array.from({ length: slotCount }).map((_, index) => (
+	                          <span
+	                            key={index}
+	                            className={cn(
+	                              "flex size-8 items-center justify-center rounded border",
+	                              index < filledSlots
+	                                ? "border-primary/25 bg-primary/10"
+	                                : "border-dashed bg-muted/20"
+	                            )}
+	                          >
+	                            {index < filledSlots ? (
+	                              <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4 text-primary" />
+	                            ) : null}
+	                          </span>
+	                        ))}
+	                        {remaining > 350 ? (
+	                          <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
+	                        ) : null}
+	                      </div>
+	                      <ProgressBar value={allocated} max={remaining} tone="primary" />
                       <div className="flex justify-end gap-4 text-sm">
                         <span>
                           <span className="text-muted-foreground">Allocated </span>
