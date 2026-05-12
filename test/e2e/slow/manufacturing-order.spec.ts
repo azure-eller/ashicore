@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
@@ -12,6 +12,7 @@ import {
   manufacturingOrders,
   salesOrderLines,
   salesOrders,
+  stockAllocations,
 } from "../../../lib/db/schema";
 import {
   createItem,
@@ -1592,6 +1593,177 @@ test.describe("Manufacturing order flow", () => {
         (movement) => movement.referenceType === "manufacturing_order"
       )
     ).toBe(true);
+  });
+
+  test("materializes MO output allocation promises into lot holds for downstream picks", async ({
+    db,
+    page,
+  }) => {
+    const allocationTs = Date.now();
+    const category = `MO Output Allocation ${allocationTs}`;
+    const baseCreate = await createItem({
+      name: `Allocation Base ${allocationTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-ALLOC-${allocationTs}`,
+      category,
+      description: "Base material for output allocation coverage",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(baseCreate.status).toBe(201);
+    const baseId = baseCreate.body.id as string;
+
+    const toteCreate = await createItem({
+      name: `Allocation Tote ${allocationTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-ALLOC-TOTE-${allocationTs}`,
+      category,
+      description: "Upstream product output",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: baseId, quantity: "1" }],
+    });
+    expect(toteCreate.status).toBe(201);
+    const toteId = toteCreate.body.id as string;
+
+    const bagName = `Allocation Bag ${allocationTs}`;
+    const bagCreate = await createItem({
+      name: bagName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-ALLOC-BAG-${allocationTs}`,
+      category,
+      description: "Downstream product consuming upstream output",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: toteId, quantity: "1" }],
+    });
+    expect(bagCreate.status).toBe(201);
+    const bagId = bagCreate.body.id as string;
+
+    const sourceOrderId = await createManufacturingOrder({
+      productId: toteId,
+      plannedQuantity: "5",
+      notes: "Output allocation source",
+      ingredients: [{ itemId: baseId, quantityPerUnit: "1" }],
+    });
+    const downstreamOrderId = await createManufacturingOrder({
+      productId: bagId,
+      plannedQuantity: "5",
+      notes: "Output allocation destination",
+      ingredients: [{ itemId: toteId, quantityPerUnit: "1" }],
+    });
+    const [downstreamIngredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, downstreamOrderId));
+    expect(downstreamIngredient?.id).toBeTruthy();
+
+    await page.goto(`/manufacturing/orders/${sourceOrderId}`);
+    await page.waitForLoadState("networkidle");
+    const manageOutputAllocation = page.getByRole("button", { name: "Manage allocation" });
+    await expect(manageOutputAllocation).toBeEnabled();
+    await page.waitForTimeout(500);
+    await manageOutputAllocation.click();
+    const allocationDialog = page.getByRole("dialog", { name: "Allocation Manager" });
+    await expect(allocationDialog).toBeVisible();
+    await expect(allocationDialog.getByText("Supply · Output")).toBeVisible();
+    await expect(allocationDialog.getByText("Demand · Orders")).toBeVisible();
+    await expect(allocationDialog.getByText(new RegExp(`produces.*${bagName}`))).toBeVisible();
+    await allocationDialog.getByRole("button", { name: "Open output" }).click();
+    await expect(allocationDialog.getByText(bagName).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const allocationResponse = await testFetch(
+      `/api/manufacturing-orders/${sourceOrderId}/output-allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          productionAllocations: [
+            { ingredientId: downstreamIngredient.id, quantity: "5" },
+          ],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+
+    const [promiseBeforeOutput] = await db
+      .select({
+        quantity: stockAllocations.quantity,
+        status: stockAllocations.status,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          eq(stockAllocations.demandId, downstreamIngredient.id),
+          eq(stockAllocations.sourceType, "manufacturing_order"),
+          eq(stockAllocations.sourceId, sourceOrderId)
+        )
+      );
+    expect(promiseBeforeOutput?.status).toBe("active");
+    expect(promiseBeforeOutput?.quantity).toBe("5.0000");
+
+    await releaseManufacturingOrder(sourceOrderId);
+    await pickAllManufacturingIngredients(sourceOrderId);
+    const sourceComplete = await completeManufacturingOrder(sourceOrderId, "5");
+    expect(sourceComplete.status).toBe(200);
+
+    const sourcePromiseRows = await db
+      .select({ status: stockAllocations.status })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          eq(stockAllocations.demandId, downstreamIngredient.id),
+          eq(stockAllocations.sourceType, "manufacturing_order"),
+          eq(stockAllocations.sourceId, sourceOrderId),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(sourcePromiseRows).toHaveLength(0);
+
+    const [lotHold] = await db
+      .select({
+        quantity: stockAllocations.quantity,
+        status: stockAllocations.status,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          eq(stockAllocations.demandId, downstreamIngredient.id),
+          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(lotHold?.status).toBe("active");
+    expect(lotHold?.quantity).toBe("5.0000");
+
+    await releaseManufacturingOrder(downstreamOrderId);
+    await pickAllManufacturingIngredients(downstreamOrderId);
+
+    const activeHoldsAfterPick = await db
+      .select({ id: stockAllocations.id })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          eq(stockAllocations.demandId, downstreamIngredient.id),
+          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(activeHoldsAfterPick).toHaveLength(0);
   });
 
   test("completes decimal ingredient quantities without a false shortage", async ({

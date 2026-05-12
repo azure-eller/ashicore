@@ -13,7 +13,10 @@ import { sql } from "drizzle-orm";
 import { inventorySchema } from "./units";
 import { items } from "./items";
 
-export const STOCK_ALLOCATION_DEMAND_TYPES = ["sales_order_line"] as const;
+export const STOCK_ALLOCATION_DEMAND_TYPES = [
+  "sales_order_line",
+  "manufacturing_order_ingredient",
+] as const;
 export type StockAllocationDemandType =
   (typeof STOCK_ALLOCATION_DEMAND_TYPES)[number];
 
@@ -92,7 +95,7 @@ export const stockAllocations = inventorySchema
         .where(sql`status = 'active' AND source_type <> 'stock_pool'`),
       check(
         "stock_allocations_demand_type_check",
-        sql`${table.demandType} IN ('sales_order_line')`
+        sql`${table.demandType} IN ('sales_order_line', 'manufacturing_order_ingredient')`
       ),
       check(
         "stock_allocations_source_type_check",
