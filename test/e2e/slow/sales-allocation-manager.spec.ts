@@ -283,12 +283,12 @@ test.describe("Sales allocation manager slow flow", () => {
       .getByTestId("readonly-allocation-bucket")
       .filter({ hasText: competingOrderNumber });
 
-    await sheet.getByRole("button", { name: "Allocate all from Stock" }).click();
+    await sheet.getByRole("button", { name: /Allocate all from/ }).first().click();
     await currentBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*6/);
     await expect(currentBucket).toContainText(/Short\s*—/);
 
-    await currentBucket.getByLabel("Move 6 from Stock").click();
+    await currentBucket.getByLabel(/Move 6 from/).click();
     await competingBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*1/);
     await expect(currentBucket).toContainText(/Short\s*5/);

@@ -517,6 +517,13 @@ async function getActiveAllocationRowsForItemInTx(
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
       )
+    )
+    .orderBy(
+      asc(salesOrders.shipDate),
+      asc(salesOrders.orderNumber),
+      asc(salesOrderLines.sortOrder),
+      asc(stockAllocations.createdAt),
+      asc(stockAllocations.id)
     );
 }
 
@@ -610,39 +617,114 @@ export async function getSalesAllocationReadModelForItemInTx(
     itemId
   );
   const manufacturingSources = await getManufacturingSourcesInTx(tx, itemId);
+  const explicitLotAllocatedQtyById = new Map<string, number>();
+  for (const row of activeAllocationSourceRows) {
+    if (row.sourceType !== "lot" || !row.sourceId) continue;
+    explicitLotAllocatedQtyById.set(
+      row.sourceId,
+      roundQuantity((explicitLotAllocatedQtyById.get(row.sourceId) ?? 0) + toQuantity(row.quantity))
+    );
+  }
+  function createStockPoolLotRemainingById() {
+    return new Map(
+      lotSources.map((lot) => [
+        lot.id,
+        Math.max(
+          0,
+          roundQuantity(
+            toQuantity(lot.quantity) - (explicitLotAllocatedQtyById.get(lot.id) ?? 0)
+          )
+        ),
+      ])
+    );
+  }
+  function takeStockPoolLotSlices(
+    quantity: number,
+    remainingByLotId: Map<string, number>
+  ): EffectiveAllocation[] {
+    let remaining = roundQuantity(quantity);
+    const slices: EffectiveAllocation[] = [];
+
+    for (const lot of lotSources) {
+      if (remaining <= 0) break;
+      const lotFreeQty = remainingByLotId.get(lot.id) ?? 0;
+      if (lotFreeQty <= 0) continue;
+      const sliceQty = Math.min(remaining, lotFreeQty);
+      slices.push({
+        sourceType: "lot",
+        sourceId: lot.id,
+        label: lot.lotNumber,
+        quantity: sliceQty,
+        coverageKind: "explicit",
+      });
+      remainingByLotId.set(lot.id, roundQuantity(lotFreeQty - sliceQty));
+      remaining = roundQuantity(remaining - sliceQty);
+    }
+
+    if (remaining > 0) {
+      slices.push({
+        sourceType: "stock_pool",
+        sourceId: null,
+        label: "Stock",
+        quantity: remaining,
+        coverageKind: "explicit",
+      });
+    }
+
+    return slices;
+  }
 
   const demandLineIds = new Set(demandLines.map((line) => line.salesOrderLineId));
   const effectiveByLine = new Map<string, EffectiveAllocation[]>();
   const explicitByLine = new Map<string, EffectiveAllocation[]>();
   const allocatedBySource = new Map<AllocationSourceKey, number>();
+  const displayStockPoolLotRemainingById = createStockPoolLotRemainingById();
 
   for (const row of activeAllocationRows) {
     if (!demandLineIds.has(row.salesOrderLineId)) continue;
     const sourceType = row.sourceType as SalesAllocationSourceType;
     const sourceId = row.sourceId;
-    const label =
-      sourceType === "stock_pool"
-        ? "Stock"
-        : sourceType === "lot"
-          ? lotById.get(sourceId ?? "")?.lotNumber ?? "Lot"
-        : manufacturingSources.get(sourceId ?? "")?.label ?? "Production";
     const quantity = toQuantity(row.quantity);
-    const allocation: EffectiveAllocation = {
-      sourceType,
-      sourceId,
-      label,
-      quantity,
-      coverageKind: "explicit",
-    };
+    const allocations =
+      sourceType === "stock_pool" && lotSources.length > 0
+        ? takeStockPoolLotSlices(quantity, displayStockPoolLotRemainingById)
+        : [
+            {
+              sourceType,
+              sourceId,
+              label:
+                sourceType === "stock_pool"
+                  ? "Stock"
+                  : sourceType === "lot"
+                    ? lotById.get(sourceId ?? "")?.lotNumber ?? "Lot"
+                  : manufacturingSources.get(sourceId ?? "")?.label ?? "Production",
+              quantity,
+              coverageKind: "explicit" as const,
+            },
+          ];
     const lineAllocations = effectiveByLine.get(row.salesOrderLineId) ?? [];
-    lineAllocations.push(allocation);
+    lineAllocations.push(...allocations);
     effectiveByLine.set(row.salesOrderLineId, lineAllocations);
     explicitByLine.set(row.salesOrderLineId, lineAllocations);
 
   }
 
+  const allocatedStockPoolLotRemainingById = createStockPoolLotRemainingById();
   for (const row of activeAllocationSourceRows) {
     const sourceType = row.sourceType as SalesAllocationSourceType;
+    if (sourceType === "stock_pool" && lotSources.length > 0) {
+      for (const slice of takeStockPoolLotSlices(
+        toQuantity(row.quantity),
+        allocatedStockPoolLotRemainingById
+      )) {
+        const key = sourceKey(slice.sourceType, slice.sourceId);
+        allocatedBySource.set(
+          key,
+          roundQuantity((allocatedBySource.get(key) ?? 0) + slice.quantity)
+        );
+      }
+      continue;
+    }
     const key = sourceKey(sourceType, row.sourceId);
     allocatedBySource.set(
       key,
@@ -653,11 +735,29 @@ export async function getSalesAllocationReadModelForItemInTx(
   const allocatedFromLotsQty = [...allocatedBySource.entries()]
     .filter(([key]) => key.startsWith("lot:"))
     .reduce((sum, [, quantity]) => roundQuantity(sum + quantity), 0);
-  let remainingImplicitStockQty = roundQuantity(
-    stockTotalQty -
-      (allocatedBySource.get(sourceKey("stock_pool", null)) ?? 0) -
-      allocatedFromLotsQty
+  const implicitLotFreeQtyById = new Map(
+    lotSources.map((lot) => {
+      const key = sourceKey("lot", lot.id);
+      return [
+        lot.id,
+        Math.max(
+          0,
+          roundQuantity(toQuantity(lot.quantity) - (allocatedBySource.get(key) ?? 0))
+        ),
+      ] as const;
+    })
   );
+  let remainingImplicitStockQty =
+    lotSources.length > 0
+      ? [...implicitLotFreeQtyById.values()].reduce(
+          (sum, quantity) => roundQuantity(sum + quantity),
+          0
+        )
+      : roundQuantity(
+          stockTotalQty -
+            (allocatedBySource.get(sourceKey("stock_pool", null)) ?? 0) -
+            allocatedFromLotsQty
+        );
 
   for (const line of demandLines) {
     const hasExplicitAllocations = (explicitByLine.get(line.salesOrderLineId)?.length ?? 0) > 0;
@@ -671,23 +771,51 @@ export async function getSalesAllocationReadModelForItemInTx(
     if (line.allocationManagedAt != null || hasExplicitAllocations) continue;
     if (remainingImplicitStockQty <= 0) continue;
 
-    const implicitQty = Math.min(line.remainingQty, remainingImplicitStockQty);
+    const lineAllocations = effectiveByLine.get(line.salesOrderLineId) ?? [];
+    let implicitQty = Math.min(line.remainingQty, remainingImplicitStockQty);
     if (implicitQty <= 0) continue;
 
-    const allocation: EffectiveAllocation = {
-      sourceType: "stock_pool",
-      sourceId: null,
-      label: "Stock",
-      quantity: implicitQty,
-      coverageKind: "implicit",
-    };
-    const lineAllocations = effectiveByLine.get(line.salesOrderLineId) ?? [];
-    lineAllocations.push(allocation);
-    effectiveByLine.set(line.salesOrderLineId, lineAllocations);
-    remainingImplicitStockQty = roundQuantity(remainingImplicitStockQty - implicitQty);
+    if (lotSources.length > 0) {
+      for (const lot of lotSources) {
+        if (implicitQty <= 0) break;
+        const lotFreeQty = implicitLotFreeQtyById.get(lot.id) ?? 0;
+        if (lotFreeQty <= 0) continue;
+        const quantity = Math.min(implicitQty, lotFreeQty);
+        lineAllocations.push({
+          sourceType: "lot",
+          sourceId: lot.id,
+          label: lot.lotNumber,
+          quantity,
+          coverageKind: "implicit",
+        });
+        implicitLotFreeQtyById.set(lot.id, roundQuantity(lotFreeQty - quantity));
+        implicitQty = roundQuantity(implicitQty - quantity);
+        remainingImplicitStockQty = roundQuantity(remainingImplicitStockQty - quantity);
 
-    const key = sourceKey("stock_pool", null);
-    allocatedBySource.set(key, roundQuantity((allocatedBySource.get(key) ?? 0) + implicitQty));
+        const key = sourceKey("lot", lot.id);
+        allocatedBySource.set(
+          key,
+          roundQuantity((allocatedBySource.get(key) ?? 0) + quantity)
+        );
+      }
+    } else {
+      const allocation: EffectiveAllocation = {
+        sourceType: "stock_pool",
+        sourceId: null,
+        label: "Stock",
+        quantity: implicitQty,
+        coverageKind: "implicit",
+      };
+      lineAllocations.push(allocation);
+      remainingImplicitStockQty = roundQuantity(remainingImplicitStockQty - implicitQty);
+
+      const key = sourceKey("stock_pool", null);
+      allocatedBySource.set(
+        key,
+        roundQuantity((allocatedBySource.get(key) ?? 0) + implicitQty)
+      );
+    }
+    effectiveByLine.set(line.salesOrderLineId, lineAllocations);
   }
 
   const lineSummaries = new Map<string, SalesAllocationLineSummary>();

@@ -32,6 +32,8 @@ import {
   stockAllocations,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -4122,6 +4124,7 @@ async function getManufacturingOutputAllocationInTx(
     const activeSourceAllocations = await tx
       .select({
         demandType: stockAllocations.demandType,
+        demandId: stockAllocations.demandId,
         quantity: trimScale(stockAllocations.quantity).as("quantity"),
       })
       .from(stockAllocations)
@@ -4154,6 +4157,75 @@ async function getManufacturingOutputAllocationInTx(
         (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
         0
       );
+    const salesAllocationQtyByLineId = new Map<string, number>();
+    activeSourceAllocations
+      .filter((allocation) => allocation.demandType === "sales_order_line")
+      .forEach((allocation) => {
+        salesAllocationQtyByLineId.set(
+          allocation.demandId,
+          normalizeQuantityNumber(
+            (salesAllocationQtyByLineId.get(allocation.demandId) ?? 0) +
+              Number(allocation.quantity)
+          )
+        );
+      });
+    const salesCandidates = await tx
+      .select({
+        salesOrderLineId: salesOrderLines.id,
+        salesOrderId: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+        shipDate: salesOrders.shipDate,
+        orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
+        cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
+        shippedQty: sql<string>`COALESCE((
+          SELECT SUM(${salesShipmentLines.quantity})
+          FROM ${salesShipmentLines}
+          INNER JOIN ${salesShipments}
+            ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
+          WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
+            AND ${salesShipments.status} = 'shipped'
+        ), 0)`,
+      })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(
+        and(
+          eq(salesOrders.organizationId, orgId),
+          eq(salesOrderLines.itemId, order.productId),
+          isNull(salesOrders.deletedAt),
+          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
+        )
+      )
+      .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber));
+    const salesDestinations = salesCandidates
+      .map((candidate) => {
+        const remainingQty = Math.max(
+          0,
+          normalizeQuantityNumber(
+            Number(candidate.orderedQty) -
+              Number(candidate.cancelledQty) -
+              Number(candidate.shippedQty)
+          )
+        );
+        const assignedQty =
+          salesAllocationQtyByLineId.get(candidate.salesOrderLineId) ?? 0;
+
+        return {
+          salesOrderLineId: candidate.salesOrderLineId,
+          salesOrderId: candidate.salesOrderId,
+          orderNumber: candidate.orderNumber,
+          customerName: candidate.customerName,
+          shipDate: candidate.shipDate,
+          remainingQty: normalizeNumeric(remainingQty),
+          assignedQty: normalizeNumeric(assignedQty),
+          shortQty: normalizeNumeric(Math.max(0, remainingQty - assignedQty)),
+        };
+      })
+      .filter(
+        (destination) =>
+          Number(destination.remainingQty) > 0 || Number(destination.assignedQty) > 0
+      );
     const unassignedQty = Math.max(
       0,
       normalizeQuantityNumber(Number(order.plannedQuantity) - assignedTotalQty)
@@ -4162,6 +4234,7 @@ async function getManufacturingOutputAllocationInTx(
     return {
       sourceMo: order,
       productionDestinations,
+      salesDestinations,
       assignedSalesQty: normalizeNumeric(assignedSalesQty),
       assignedProductionQty: normalizeNumeric(assignedProductionQty),
       unassignedQty: normalizeNumeric(unassignedQty),
