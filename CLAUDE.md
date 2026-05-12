@@ -596,6 +596,7 @@ See `docs/manufacturing.md`. Critical:
 - `items.expectedQty` is inbound supply, not a manual counter. Recompute from active released MOs + active ordered/partial POs after every status-changing write via `recomputeExpectedQty(tx, affectedItemIds)`. Batch-mode MOs contribute only unfinished planned output.
 - Round derived quantities to 4 decimals before shortage checks or stock deltas. Use `multiplyQuantity(...)` — never raw JS float multiplication.
 - MOs store `requestedQuantity` (user input) separately from `plannedQuantity` (batch-rounded). Forms edit `requestedQuantity`; execution math uses `plannedQuantity`.
+- Manual batch MOs may use decimal batch counts; store integer execution rows and scale the final batch's planned output/ingredients.
 - Release may warn `409` + shortage payload and continue after `confirmShortage: true`. Completion hard-blocks on shortages before any stock mutation.
 - Discrete orders pick every ingredient before `/complete`. Completion reuses persisted pick allocations — never deduct stock again. Detail/history pages link into `/execute`; the actual work lives in execution queue/detail routes.
 - Batch-mode orders create execution batches on release, pick/complete one batch at a time, stay `released` until the final batch completes, and produce one lot per batch. Direct parent completion is invalid for batch-mode.

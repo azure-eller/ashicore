@@ -101,7 +101,7 @@ For quantities, store both:
 - `requested_quantity`: what the user or sales line asked for
 - `planned_quantity`: what execution will actually run
 
-Discrete orders keep these values the same. Batch-mode orders may round `planned_quantity` up to full-batch output while preserving `requested_quantity`.
+Discrete orders keep these values the same. Batch-mode orders may round `planned_quantity` up to full-batch output while preserving `requested_quantity`. Manual batch entry may use decimal batch counts; execution still stores an integer row count and scales the final batch's planned output and ingredients.
 
 ## Release Behavior
 

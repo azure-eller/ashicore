@@ -351,7 +351,7 @@ function getPickProgressPercent(rows: IngredientProgressRow[]) {
 function computeBatchPlanning(
   product: ProductSnapshot,
   desiredQuantity: number,
-  options: { numberOfBatches?: number | null } = {}
+  options: { batchCount?: number | null; numberOfBatches?: number | null } = {}
 ): {
   plannedQuantity: number;
   numberOfBatches: number | null;
@@ -360,16 +360,34 @@ function computeBatchPlanning(
   if (product.manufacturingMode === "batch" && product.expectedBatchYield != null) {
     const yield_ = parseFloat(product.expectedBatchYield);
     if (yield_ > 0) {
-      const submittedBatchCount = options.numberOfBatches;
+      const submittedBatchCount = options.batchCount;
       if (
         submittedBatchCount != null &&
-        (!Number.isInteger(submittedBatchCount) || submittedBatchCount <= 0)
+        (!Number.isFinite(submittedBatchCount) || submittedBatchCount <= 0)
+      ) {
+        throw new ManufacturingError("Enter a positive number of batches.", 400, {
+          errors: { plannedQuantity: ["Enter a positive number of batches."] },
+        });
+      }
+
+      if (submittedBatchCount != null) {
+        return {
+          plannedQuantity: normalizeQuantityNumber(submittedBatchCount * yield_),
+          numberOfBatches: Math.ceil(submittedBatchCount),
+          ingredientMultiplier: submittedBatchCount,
+        };
+      }
+
+      const submittedWholeBatchCount = options.numberOfBatches;
+      if (
+        submittedWholeBatchCount != null &&
+        (!Number.isInteger(submittedWholeBatchCount) || submittedWholeBatchCount <= 0)
       ) {
         throw new ManufacturingError("Enter a whole number of batches.", 400, {
           errors: { plannedQuantity: ["Enter a whole number of batches."] },
         });
       }
-      const numberOfBatches = submittedBatchCount ?? Math.ceil(desiredQuantity / yield_);
+      const numberOfBatches = submittedWholeBatchCount ?? Math.ceil(desiredQuantity / yield_);
       return {
         plannedQuantity: normalizeQuantityNumber(numberOfBatches * yield_),
         numberOfBatches,
@@ -1417,15 +1435,29 @@ async function ensureBatchExecutionRowsInTx(
     return [];
   }
 
+  const expectedBatchYield = parseFloat(order.expectedBatchYield);
+  const plannedOutputQuantity = parseFloat(order.plannedQuantity);
+  let remainingOutputQuantity = plannedOutputQuantity;
+
+  const batchRows = Array.from({ length: order.numberOfBatches }, (_, index) => {
+    const plannedQuantity =
+      index === order.numberOfBatches! - 1
+        ? remainingOutputQuantity
+        : Math.min(expectedBatchYield, remainingOutputQuantity);
+    remainingOutputQuantity = normalizeQuantityNumber(
+      remainingOutputQuantity - plannedQuantity
+    );
+
+    return {
+      manufacturingOrderId: order.id,
+      batchNumber: index + 1,
+      plannedQuantity: normalizeNumeric(plannedQuantity),
+    };
+  });
+
   const insertedBatches = await tx
     .insert(manufacturingOrderBatches)
-    .values(
-      Array.from({ length: order.numberOfBatches }, (_, index) => ({
-        manufacturingOrderId: order.id,
-        batchNumber: index + 1,
-        plannedQuantity: order.expectedBatchYield!,
-      }))
-    )
+    .values(batchRows)
     .returning({
       id: manufacturingOrderBatches.id,
       batchNumber: manufacturingOrderBatches.batchNumber,
@@ -1434,8 +1466,13 @@ async function ensureBatchExecutionRowsInTx(
       ),
     });
 
-  const batchIngredientInputs = insertedBatches.flatMap((batch) =>
-    templateIngredients.map((ingredient) => ({
+  const batchIngredientInputs = insertedBatches.flatMap((batch) => {
+    const batchMultiplier =
+      expectedBatchYield > 0
+        ? normalizeQuantityNumber(parseFloat(batch.plannedQuantity) / expectedBatchYield)
+        : 1;
+
+    return templateIngredients.map((ingredient) => ({
       constraints: ingredient.constraints,
       values: {
         manufacturingOrderId: order.id,
@@ -1446,11 +1483,14 @@ async function ensureBatchExecutionRowsInTx(
         itemType: ingredient.itemType,
         unitName: ingredient.unitName,
         quantityPerUnit: ingredient.quantityPerUnit,
-        plannedQuantity: ingredient.quantityPerUnit,
+        plannedQuantity: multiplyQuantityString(
+          ingredient.quantityPerUnit,
+          batchMultiplier
+        ),
         sortOrder: ingredient.sortOrder,
       },
-    }))
-  );
+    }));
+  });
 
   const insertedIngredients = await tx
     .insert(manufacturingOrderIngredients)
@@ -2839,6 +2879,8 @@ export async function createManufacturingOrderInTx(
   const product = await getValidatedProductInTx(tx, payload.productId);
   const { plannedQuantity, numberOfBatches, ingredientMultiplier } =
     computeBatchPlanning(product, Number(payload.plannedQuantity), {
+      batchCount:
+        payload.batchCount != null ? Number(payload.batchCount) : undefined,
       numberOfBatches: payload.numberOfBatches,
     });
 

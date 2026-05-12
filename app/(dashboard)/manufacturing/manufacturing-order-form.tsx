@@ -349,13 +349,12 @@ export function ManufacturingOrderForm({
         if (
           !Number.isFinite(batchCount) ||
           batchCount <= 0 ||
-          !Number.isInteger(batchCount) ||
           batchYield == null ||
           batchYield <= 0
         ) {
           throw {
             errors: {
-              plannedQuantity: ["Enter a whole number of batches."],
+              plannedQuantity: ["Enter a positive number of batches."],
             },
           } satisfies ApiError;
         }
@@ -381,7 +380,8 @@ export function ManufacturingOrderForm({
             salesOrderId: null,
             salesOrderLineId: null,
             plannedQuantity,
-            numberOfBatches: manualBatchCount,
+            batchCount:
+              manualBatchCount != null ? normalizeNumeric(manualBatchCount) : undefined,
             priorityRank: values.priorityRank,
             plannedDate: values.plannedDate,
             notes: values.notes,
@@ -805,7 +805,7 @@ export function ManufacturingOrderForm({
                           id={field.name}
                           value={field.value ?? ""}
                           aria-invalid={fieldState.invalid}
-                          inputMode={isManualBatchCreate ? "numeric" : "decimal"}
+                          inputMode="decimal"
                           autoComplete="off"
                           placeholder="0"
                         />

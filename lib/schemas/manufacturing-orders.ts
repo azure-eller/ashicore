@@ -103,6 +103,7 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   })
   .extend({
     plannedQuantity: positiveDecimalString("Planned quantity"),
+    batchCount: positiveDecimalString("Batches").optional(),
     ingredients: ingredientsSchema,
     confirmShortage: z.boolean().optional(),
   });
