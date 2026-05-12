@@ -174,7 +174,7 @@ Discrete completion must reuse persisted pick allocations and must not deduct in
 
 ### Lot Numbers
 
-Auto-created inventory lots use the received business date as their display number. The first lot for an item/date is `YYYY-MM-DD`; additional lots for the same item/date use `YYYY-MM-DD-01`, `YYYY-MM-DD-02`, and so on. The uniqueness boundary is `organization_id + item_id + lot_number`, so different products may share the same date lot number.
+Auto-created inventory lots use the received business date as their display number. The first lot for an item/date is `LOT-YYYY-MM-DD`; additional lots for the same item/date use `LOT-YYYY-MM-DD-01`, `LOT-YYYY-MM-DD-02`, and so on. The uniqueness boundary is `organization_id + item_id + lot_number`, so different products may share the same date lot number.
 
 Use explicit `lotNumber` only when preserving an external/source lot identifier. Normal purchase receipts, manufacturing output, manual gains, stocktake gains, and loader opening balances should let the inventory kernel generate the date lot number from `receivedAt` / `occurredAt`.
 

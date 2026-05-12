@@ -400,7 +400,7 @@ return deriveBomIngredientCost(...)
 
 ### Lot numbers
 
-Auto-created lots use the received business date as the lot number per product: `YYYY-MM-DD`, then `YYYY-MM-DD-01`, `YYYY-MM-DD-02`. Do not pass explicit loader-style lot numbers unless importing a source lot number that must be preserved.
+Auto-created lots use the received business date as the lot number per product: `LOT-YYYY-MM-DD`, then `LOT-YYYY-MM-DD-01`, `LOT-YYYY-MM-DD-02`. Do not pass explicit loader-style lot numbers unless importing a source lot number that must be preserved.
 
 ### Material running stock cost
 

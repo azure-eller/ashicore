@@ -92,7 +92,7 @@ function nextLotNumber(baseLotNumber: string, used: Set<string>) {
 function planRenames(
   rows: LotRow[],
   timeZone: string,
-  formatLotDate: (value: Date, timeZone: string) => string
+  formatDateLotNumber: (value: Date, timeZone: string) => string
 ) {
   const rowsByItem = new Map<string, LotRow[]>();
   for (const row of rows) {
@@ -105,7 +105,7 @@ function planRenames(
   for (const itemRows of rowsByItem.values()) {
     const rowsByDate = new Map<string, LotRow[]>();
     for (const row of itemRows) {
-      const baseLotNumber = formatLotDate(row.receivedAt, timeZone);
+      const baseLotNumber = formatDateLotNumber(row.receivedAt, timeZone);
       const bucket = rowsByDate.get(baseLotNumber) ?? [];
       bucket.push(row);
       rowsByDate.set(baseLotNumber, bucket);
@@ -118,7 +118,7 @@ function planRenames(
           .filter(
             (lotNumber) =>
               lotNumber === baseLotNumber ||
-              new RegExp(`^${baseLotNumber}-\\d{2}$`).test(lotNumber)
+              new RegExp(`^${baseLotNumber}-\\d+$`).test(lotNumber)
           )
       );
       const sortedRows = dateRows.toSorted((left, right) => {
@@ -156,7 +156,7 @@ async function main() {
   const { db } = await import("@/lib/db");
   const { inventoryEvents, items, lots, organization } = await import("@/lib/db/schema");
   const { withOrgContext } = await import("@/lib/db/with-org-context");
-  const { formatLotDate } = await import("@/lib/inventory/lot-numbers");
+  const { formatDateLotNumber } = await import("@/lib/inventory/lot-numbers");
   const { resolveOrganization } = await import("./load/engine/org");
 
   const org = await resolveOrganization(args.orgRef);
@@ -189,7 +189,7 @@ async function main() {
       .orderBy(asc(items.name), asc(lots.receivedAt), asc(lots.createdAt), asc(lots.id))
       .for("update");
 
-    const renames = planRenames(rows, timeZone, formatLotDate);
+    const renames = planRenames(rows, timeZone, formatDateLotNumber);
     const eventUpdates: Array<{ lotId: string; updatedEvents: number }> = [];
 
     if (args.apply && renames.length > 0) {

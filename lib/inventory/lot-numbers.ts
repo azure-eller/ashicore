@@ -4,6 +4,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { isValidTimeZone } from "@/lib/time-zone";
 
 const DEFAULT_LOT_TIME_ZONE = "America/Denver";
+const LOT_NUMBER_PREFIX = "LOT-";
 
 export function formatLotDate(value: Date, timeZone: string) {
   const effectiveTimeZone = isValidTimeZone(timeZone)
@@ -24,6 +25,10 @@ export function formatLotDate(value: Date, timeZone: string) {
   }
 
   return `${year}-${month}-${day}`;
+}
+
+export function formatDateLotNumber(value: Date, timeZone: string) {
+  return `${LOT_NUMBER_PREFIX}${formatLotDate(value, timeZone)}`;
 }
 
 function nextDateLotNumber(baseLotNumber: string, existingLotNumbers: string[]) {
@@ -60,7 +65,7 @@ export async function generateDateLotNumberInTx(
   }
 ) {
   const timeZone = await getOrganizationTimeZoneInTx(tx, params.organizationId);
-  const baseLotNumber = formatLotDate(params.receivedAt, timeZone);
+  const baseLotNumber = formatDateLotNumber(params.receivedAt, timeZone);
   const existingLots = await tx
     .select({ lotNumber: lots.lotNumber })
     .from(lots)
