@@ -294,6 +294,20 @@ export type RecordManufacturingOutput = z.infer<
   typeof recordManufacturingOutputSchema
 >;
 
+export const saveManufacturingOutputAllocationSchema = z.object({
+  productionAllocations: z
+    .array(
+      z.object({
+        ingredientId: z.string().uuid("Manufacturing ingredient is required"),
+        quantity: positiveDecimalString("Quantity"),
+      })
+    )
+    .default([]),
+});
+export type SaveManufacturingOutputAllocation = z.infer<
+  typeof saveManufacturingOutputAllocationSchema
+>;
+
 export const createManufacturingOrdersFromSalesOrderSchema = z.object({
   plannedDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),

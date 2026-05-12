@@ -17,10 +17,13 @@ import {
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel/operations/common";
 import {
-  consumeSpecificLotInTx,
   consumeStockFifoInTx,
   getCurrentAvailableQtyAtLocationInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
+import {
+  consumeLotAllocationsForDemandInTx,
+  getUnavailableLotAllocationQtyByLotIdInTx,
+} from "@/lib/inventory/kernel/operations/stock-allocations";
 
 export async function reserveForSalesInTx(
   tx: Tx,
@@ -508,26 +511,6 @@ export async function consumeForShipmentInTx(
     current.push(allocation);
     allocationsByLineId.set(allocation.demandId, current);
   }
-  const lotAllocationRows = await tx
-    .select({
-      demandId: stockAllocations.demandId,
-      itemId: stockAllocations.itemId,
-      lotId: stockAllocations.sourceId,
-      quantity: stockAllocations.quantity,
-    })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.sourceType, "lot"),
-        eq(stockAllocations.status, "active"),
-        inArray(
-          stockAllocations.itemId,
-          [...new Set(params.lines.map((line) => line.itemId))]
-        )
-      )
-    );
   const availableByItem = new Map<string, number>();
 
   for (const line of params.lines) {
@@ -559,7 +542,6 @@ export async function consumeForShipmentInTx(
     );
   }
 
-  const consumedLotAllocationQty = new Map<string, number>();
   for (const [index, line] of params.lines.entries()) {
     const metadata = {
       salesOrderId: params.salesOrderId,
@@ -583,19 +565,14 @@ export async function consumeForShipmentInTx(
     }
 
     let idempotencyUsed = false;
-    for (const allocation of lineAllocations.filter(
-      (candidate) => candidate.sourceType === "lot"
-    )) {
-      if (remaining <= 0) break;
-      if (!allocation.sourceId) continue;
-      const quantity = Math.min(remaining, parseFloat(allocation.quantity));
-      if (quantity <= 0) continue;
-      const consumed = await consumeSpecificLotInTx(tx, {
+    if (lineAllocations.some((candidate) => candidate.sourceType === "lot")) {
+      const consumed = await consumeLotAllocationsForDemandInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,
+        demandType: "sales_order_line",
+        demandId: line.salesOrderLineId,
         itemId: line.itemId,
-        lotId: allocation.sourceId,
-        quantity,
+        quantity: remaining,
         eventType: "sales_consumption",
         eventSubtype: "sales_ship",
         referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
@@ -607,41 +584,19 @@ export async function consumeForShipmentInTx(
         metadata,
       });
       idempotencyUsed = idempotencyUsed || consumed.eventIds.length > 0;
-      remaining = roundQuantity(remaining - quantity);
+      remaining = consumed.remainingQuantity;
       eventIds.push(...consumed.eventIds);
-      const consumedKey = `${line.salesOrderLineId}:${allocation.sourceId}`;
-      consumedLotAllocationQty.set(
-        consumedKey,
-        roundQuantity((consumedLotAllocationQty.get(consumedKey) ?? 0) + quantity)
-      );
     }
 
     if (remaining > 0) {
-      const unavailableByLotId = new Map<string, number>();
-      for (const allocation of lotAllocationRows) {
-        if (
-          allocation.itemId !== line.itemId ||
-          allocation.demandId === line.salesOrderLineId ||
-          !allocation.lotId
-        ) {
-          continue;
-        }
-        const consumedQty =
-          consumedLotAllocationQty.get(`${allocation.demandId}:${allocation.lotId}`) ??
-          0;
-        const stillAllocatedQty = roundQuantity(
-          parseFloat(allocation.quantity) - consumedQty
-        );
-        if (stillAllocatedQty <= 0) {
-          continue;
-        }
-        unavailableByLotId.set(
-          allocation.lotId,
-          roundQuantity(
-            (unavailableByLotId.get(allocation.lotId) ?? 0) + stillAllocatedQty
-          )
-        );
-      }
+      const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
+        organizationId: params.organizationId,
+        itemId: line.itemId,
+        excludeDemand: {
+          demandType: "sales_order_line",
+          demandId: line.salesOrderLineId,
+        },
+      });
       const consumed = await consumeStockFifoInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,

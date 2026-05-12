@@ -26,6 +26,11 @@ import {
   getCurrentAvailableQtyAtLocationInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
+import {
+  consumeLotAllocationsForDemandInTx,
+  getUnavailableLotAllocationQtyByLotIdInTx,
+  materializeManufacturingOrderSourceAllocationsForLotInTx,
+} from "@/lib/inventory/kernel/operations/stock-allocations";
 
 export async function addExpectedFromManufacturingInTx(
   tx: Tx,
@@ -378,9 +383,11 @@ export async function pickManufacturingIngredientInTx(
     });
   }
 
-  const consumed = await consumeStockFifoInTx(tx, {
+  const heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
+    demandType: "manufacturing_order_ingredient",
+    demandId: params.ingredientId,
     itemId: params.itemId,
     quantity: params.quantity,
     eventType: "manufacturing_ingredient_consumption",
@@ -389,27 +396,64 @@ export async function pickManufacturingIngredientInTx(
     referenceId: params.manufacturingOrderId,
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
-    minimumReceivedDate: params.minimumReceivedDate ?? null,
-    allowIneligibleLots: params.confirmRequirementOverride ?? false,
     metadata: { manufacturingOrderIngredientId: params.ingredientId },
   });
 
-  await tx.insert(manufacturingPickAllocations).values(
-    consumed.allocations.map((allocation) => ({
-      manufacturingOrderIngredientId: params.ingredientId,
-      lotId: allocation.lotId,
-      quantityUsed: normalizeNumericScale(allocation.quantity, 4),
-      costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
-      requirementOverrideConfirmed: Boolean(allocation.requirementViolated),
-      requirementOverrideConfirmedBy: allocation.requirementViolated
-        ? params.actorUserId ?? "system"
-        : null,
-      requirementOverrideConfirmedAt: allocation.requirementViolated
-        ? new Date()
-        : null,
-      createdBy: params.actorUserId ?? "system",
-    }))
-  );
+  const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
+    organizationId: params.organizationId,
+    itemId: params.itemId,
+    excludeDemand: {
+      demandType: "manufacturing_order_ingredient",
+      demandId: params.ingredientId,
+    },
+  });
+  const fifoConsumed =
+    heldConsumed.remainingQuantity > 0
+      ? await consumeStockFifoInTx(tx, {
+          organizationId: params.organizationId,
+          locationId: location.id,
+          itemId: params.itemId,
+          quantity: heldConsumed.remainingQuantity,
+          eventType: "manufacturing_ingredient_consumption",
+          eventSubtype: "manufacturing_pick",
+          referenceType: "manufacturing_order",
+          referenceId: params.manufacturingOrderId,
+          actorUserId: params.actorUserId ?? null,
+          idempotencyKey: heldConsumed.idempotencyUsed
+            ? null
+            : params.idempotencyKey ?? null,
+          minimumReceivedDate: params.minimumReceivedDate ?? null,
+          allowIneligibleLots: params.confirmRequirementOverride ?? false,
+          metadata: { manufacturingOrderIngredientId: params.ingredientId },
+          unavailableByLotId,
+        })
+      : { allocations: [], eventIds: [] };
+  const consumed = {
+    allocations: [...heldConsumed.allocations, ...fifoConsumed.allocations],
+    eventIds: [...heldConsumed.eventIds, ...fifoConsumed.eventIds],
+  };
+
+  if (consumed.allocations.length > 0) {
+    await tx.insert(manufacturingPickAllocations).values(
+      consumed.allocations.map((allocation) => {
+        const requirementViolated =
+          "requirementViolated" in allocation && allocation.requirementViolated;
+
+        return {
+          manufacturingOrderIngredientId: params.ingredientId,
+          lotId: allocation.lotId,
+          quantityUsed: normalizeNumericScale(allocation.quantity, 4),
+          costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
+          requirementOverrideConfirmed: Boolean(requirementViolated),
+          requirementOverrideConfirmedBy: requirementViolated
+            ? params.actorUserId ?? "system"
+            : null,
+          requirementOverrideConfirmedAt: requirementViolated ? new Date() : null,
+          createdBy: params.actorUserId ?? "system",
+        };
+      })
+    );
+  }
 
   await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
@@ -655,6 +699,17 @@ export async function produceManufacturedStockInTx(
       })
     : await createPositiveStockEventInTx(tx, stockEventParams);
 
+  if ((params.outputDisposition ?? "available") === "available") {
+    await materializeManufacturingOrderSourceAllocationsForLotInTx(tx, {
+      organizationId: params.organizationId,
+      sourceManufacturingOrderId: params.manufacturingOrderId,
+      itemId: params.productId,
+      lotId: created.lotId,
+      quantity: params.quantity,
+      actorUserId: params.actorUserId ?? null,
+    });
+  }
+
   const existingExpected = await tx
     .select({
       itemId: inventoryExpectedSummary.itemId,
@@ -863,9 +918,11 @@ export async function reconcileIngredientActualsInTx(
   let firstEventId: string | null = null;
 
   if (delta > VARIANCE_EPSILON) {
-    const consumed = await consumeStockFifoInTx(tx, {
+    const heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
       organizationId: params.organizationId,
       locationId: location.id,
+      demandType: "manufacturing_order_ingredient",
+      demandId: params.ingredient.id,
       itemId: params.ingredient.itemId,
       quantity: delta,
       eventType: "manufacturing_variance_loss",
@@ -876,6 +933,37 @@ export async function reconcileIngredientActualsInTx(
       idempotencyKey: params.idempotencyKey ?? null,
       metadata: { manufacturingOrderIngredientId: params.ingredient.id },
     });
+    const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
+      organizationId: params.organizationId,
+      itemId: params.ingredient.itemId,
+      excludeDemand: {
+        demandType: "manufacturing_order_ingredient",
+        demandId: params.ingredient.id,
+      },
+    });
+    const fifoConsumed =
+      heldConsumed.remainingQuantity > 0
+        ? await consumeStockFifoInTx(tx, {
+            organizationId: params.organizationId,
+            locationId: location.id,
+            itemId: params.ingredient.itemId,
+            quantity: heldConsumed.remainingQuantity,
+            eventType: "manufacturing_variance_loss",
+            eventSubtype: "manufacturing_actuals",
+            referenceType: params.referenceType,
+            referenceId: params.referenceId,
+            actorUserId: params.actorUserId ?? null,
+            idempotencyKey: heldConsumed.idempotencyUsed
+              ? null
+              : params.idempotencyKey ?? null,
+            metadata: { manufacturingOrderIngredientId: params.ingredient.id },
+            unavailableByLotId,
+          })
+        : { allocations: [], eventIds: [] };
+    const consumed = {
+      allocations: [...heldConsumed.allocations, ...fifoConsumed.allocations],
+      eventIds: [...heldConsumed.eventIds, ...fifoConsumed.eventIds],
+    };
     firstEventId = consumed.eventIds[0] ?? null;
 
     if (consumed.allocations.length > 0) {

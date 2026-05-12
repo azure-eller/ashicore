@@ -5,4 +5,5 @@ export * from "./manufacturing";
 export * from "./purchasing";
 export * from "./sales";
 export * from "./stock-core";
+export * from "./stock-allocations";
 export * from "./stocktakes";

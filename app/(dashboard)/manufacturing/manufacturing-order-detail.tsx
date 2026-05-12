@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -67,6 +67,25 @@ import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from ".
 
 type ManufacturingIngredient =
   ManufacturingOrderDetailType["ingredients"][number];
+
+type OutputAllocationData = {
+  sourceMo: {
+    id: string;
+    plannedQuantity: string;
+    actualQuantity: string;
+  };
+  productionDestinations: Array<{
+    ingredientId: string;
+    orderNumber: string;
+    productName: string;
+    remainingNeed: string;
+    assignedQty: string;
+    shortQty: string;
+  }>;
+  assignedSalesQty: string;
+  assignedProductionQty: string;
+  unassignedQty: string;
+};
 
 function moveIngredient(
   ingredients: ManufacturingIngredient[],
@@ -161,6 +180,169 @@ function PriorityRankEditor({
         className="h-8 px-2 font-mono text-sm"
       />
       {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+function OutputAllocationSection({
+  order,
+  onUpdated,
+}: {
+  order: ManufacturingOrderDetailType;
+  onUpdated: () => Promise<void>;
+}) {
+  const [data, setData] = useState<OutputAllocationData | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadAllocation = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/manufacturing-orders/${order.id}/output-allocation`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to load output allocation.");
+      }
+      setData(body);
+      setDraft(
+        Object.fromEntries(
+          body.productionDestinations.map(
+            (destination: OutputAllocationData["productionDestinations"][number]) => [
+              destination.ingredientId,
+              formatQuantity(destination.assignedQty),
+            ]
+          )
+        )
+      );
+      setError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load output allocation.");
+    } finally {
+      setLoading(false);
+    }
+  }, [order.id]);
+
+  useEffect(() => {
+    void loadAllocation();
+  }, [loadAllocation]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/manufacturing-orders/${order.id}/output-allocation`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productionAllocations: Object.entries(draft)
+            .map(([ingredientId, quantity]) => ({ ingredientId, quantity }))
+            .filter((allocation) => Number(allocation.quantity) > 0),
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to save output allocation.");
+      }
+      return body as OutputAllocationData;
+    },
+    onSuccess: async (nextData) => {
+      setData(nextData);
+      setDraft(
+        Object.fromEntries(
+          nextData.productionDestinations.map((destination) => [
+            destination.ingredientId,
+            formatQuantity(destination.assignedQty),
+          ])
+        )
+      );
+      setError(null);
+      await onUpdated();
+    },
+    onError: (saveError) => {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save output allocation.");
+    },
+  });
+
+  const canEdit = order.status !== "cancelled";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold tracking-tight">Output Allocation</h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => mutation.mutate()}
+          disabled={!canEdit || loading || mutation.isPending}
+        >
+          {mutation.isPending ? "Saving..." : "Save"}
+        </Button>
+      </div>
+      {data ? (
+        <>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            <span>Planned {formatQuantity(data.sourceMo.plannedQuantity)}</span>
+            <span>Sales {formatQuantity(data.assignedSalesQty)}</span>
+            <span>Production {formatQuantity(data.assignedProductionQty)}</span>
+            <span>Unassigned {formatQuantity(data.unassignedQty)}</span>
+          </div>
+          {data.productionDestinations.length > 0 ? (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Production Orders</TableHead>
+                    <TableHead className="text-right">Remaining Need</TableHead>
+                    <TableHead className="w-36 text-right">Allocated</TableHead>
+                    <TableHead className="text-right">Short</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.productionDestinations.map((destination) => (
+                    <TableRow key={destination.ingredientId}>
+                      <TableCell>
+                        <div className="font-medium">{destination.orderNumber}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {destination.productName}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatQuantity(destination.remainingNeed)}
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          inputMode="decimal"
+                          value={draft[destination.ingredientId] ?? ""}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              [destination.ingredientId]: event.target.value,
+                            }))
+                          }
+                          disabled={!canEdit || mutation.isPending}
+                          className="text-right"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatQuantity(destination.shortQty)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No production orders currently need this output.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {loading ? "Loading output allocation..." : "Output allocation is unavailable."}
+        </p>
+      )}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -722,6 +904,10 @@ export function ManufacturingOrderDetail({
           order={order}
           onUpdated={refreshQueries}
         />
+
+        <Separator />
+
+        <OutputAllocationSection order={order} onUpdated={refreshQueries} />
 
         <Separator />
 

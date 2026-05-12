@@ -308,6 +308,29 @@ async function getActiveAllocationRowsForItemInTx(
     );
 }
 
+async function getActiveAllocationSourceRowsForItemInTx(
+  tx: Tx,
+  orgId: string,
+  itemId: string
+) {
+  return tx
+    .select({
+      demandType: stockAllocations.demandType,
+      demandId: stockAllocations.demandId,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      quantity: trimScale(stockAllocations.quantity).as("quantity"),
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, orgId),
+        eq(stockAllocations.itemId, itemId),
+        eq(stockAllocations.status, "active")
+      )
+    );
+}
+
 async function getManufacturingSourcesInTx(tx: Tx, itemId: string) {
   const rows = await tx
     .select({
@@ -369,6 +392,11 @@ export async function getSalesAllocationReadModelForItemInTx(
     orgId,
     itemId
   );
+  const activeAllocationSourceRows = await getActiveAllocationSourceRowsForItemInTx(
+    tx,
+    orgId,
+    itemId
+  );
   const manufacturingSources = await getManufacturingSourcesInTx(tx, itemId);
 
   const demandLineIds = new Set(demandLines.map((line) => line.salesOrderLineId));
@@ -399,8 +427,15 @@ export async function getSalesAllocationReadModelForItemInTx(
     effectiveByLine.set(row.salesOrderLineId, lineAllocations);
     explicitByLine.set(row.salesOrderLineId, lineAllocations);
 
-    const key = sourceKey(sourceType, sourceId);
-    allocatedBySource.set(key, roundQuantity((allocatedBySource.get(key) ?? 0) + quantity));
+  }
+
+  for (const row of activeAllocationSourceRows) {
+    const sourceType = row.sourceType as SalesAllocationSourceType;
+    const key = sourceKey(sourceType, row.sourceId);
+    allocatedBySource.set(
+      key,
+      roundQuantity((allocatedBySource.get(key) ?? 0) + toQuantity(row.quantity))
+    );
   }
 
   const allocatedFromLotsQty = [...allocatedBySource.entries()]
@@ -557,7 +592,7 @@ export async function getSalesAllocationReadModelForItemInTx(
       manufacturingSourceIds.add(id);
     }
   });
-  activeAllocationRows.forEach((row) => {
+  activeAllocationSourceRows.forEach((row) => {
     if (row.sourceType === "manufacturing_order" && row.sourceId) {
       manufacturingSourceIds.add(row.sourceId);
     }

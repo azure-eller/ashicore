@@ -519,6 +519,13 @@
       "when": 1778541128275,
       "tag": "0073_lot_aware_sales_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1778548744207,
+      "tag": "0074_petite_hardball",
+      "breakpoints": true
     }
   ]
 }
