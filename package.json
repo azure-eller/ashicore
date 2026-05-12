@@ -16,6 +16,7 @@
     "load:paonia:dry-run": "tsx scripts/load/paonia.ts --dry-run",
     "load:paonia:reset": "tsx scripts/load/paonia.ts --reset",
     "load:paonia:reload": "tsx scripts/load/paonia.ts --reset --reload",
+    "rename:paonia-lots": "tsx scripts/rename-lots-to-dates.ts",
     "diff:projections": "tsx scripts/diff-projections.ts",
     "verify:inventory-state": "tsx scripts/verify-inventory-state.ts",
     "verify:inventory-kernel": "tsx scripts/verify-inventory-kernel.ts",

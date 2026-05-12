@@ -6,6 +6,7 @@ import {
   items,
   lots,
 } from "../../../lib/db/schema";
+import { todayInTimeZone } from "../../../lib/format";
 
 test.describe("Inventory write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -80,6 +81,7 @@ test.describe("Inventory write-path smoke", () => {
 
     const materialLots = await db.select().from(lots).where(eq(lots.itemId, materialId));
     expect(materialLots).toHaveLength(1);
+    expect(materialLots[0].lotNumber).toBe(todayInTimeZone("America/Denver"));
     expect(materialLots[0].quantity).toBe("200.0000");
 
     await page.getByRole("link", { name: "Edit" }).click();

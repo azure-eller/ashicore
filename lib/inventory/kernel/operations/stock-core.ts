@@ -27,6 +27,7 @@ import {
   normalizeStockUnitCost,
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
+import { generateDateLotNumberInTx } from "@/lib/inventory/lot-numbers";
 
 type PositiveStockEventType =
   | "opening_balance"
@@ -118,14 +119,6 @@ function multiplyNumericStrings(left: string, right: string, scale: number) {
 
 function calculateExtendedCost(quantity: string, unitCost: string) {
   return multiplyNumericStrings(quantity, unitCost, 6);
-}
-
-export async function generateLotNumberInTx(tx: Tx) {
-  const result = await tx.execute(
-    sql`SELECT nextval('inventory.lot_number_seq') AS val`
-  );
-  const raw = (result.rows[0] as { val: string | number }).val;
-  return `LOT-${String(Number(raw)).padStart(6, "0")}`;
 }
 
 export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
@@ -408,8 +401,14 @@ export async function createPositiveStockEventInTx(
   const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
   const extendedCost = calculateExtendedCost(quantity, unitCost);
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
-  const lotNumber = params.lotNumber?.trim() || (await generateLotNumberInTx(tx));
   const receivedAt = params.receivedAt ?? params.occurredAt ?? new Date();
+  const lotNumber =
+    params.lotNumber?.trim() ||
+    (await generateDateLotNumberInTx(tx, {
+      organizationId: params.organizationId,
+      itemId: params.itemId,
+      receivedAt,
+    }));
 
   const [lot] = await tx
     .insert(lots)

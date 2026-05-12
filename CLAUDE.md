@@ -398,6 +398,10 @@ if (item.itemType === "material") {
 return deriveBomIngredientCost(...)
 ```
 
+### Lot numbers
+
+Auto-created lots use the received business date as the lot number per product: `YYYY-MM-DD`, then `YYYY-MM-DD-01`, `YYYY-MM-DD-02`. Do not pass explicit loader-style lot numbers unless importing a source lot number that must be preserved.
+
 ### Material running stock cost
 
 Materials keep `items.currentStockUnitCost` as the item-level stock-unit cost basis. Positive stock flows resolve cost in this order: explicit unit cost, `currentStockUnitCost`, then `defaultPurchasePrice / purchaseToStockFactor`. Opening balances seed it, purchase receipts weighted-average it, but correction flows and negative flows do not rewrite it.

@@ -32,6 +32,7 @@ export const lots = inventorySchema
     (table) => [
       uniqueIndex("lots_org_lot_number_uidx").on(
         table.organizationId,
+        table.itemId,
         table.lotNumber
       ),
       index("lots_item_id_idx").on(table.itemId),
