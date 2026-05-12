@@ -2,7 +2,11 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
   inventoryLotBalances,
+  manufacturingOrderIngredients,
   manufacturingOrderOutputs,
+  salesOrderLines,
+  salesShipmentLines,
+  salesShipments,
   stockAllocations,
   type StockAllocationDemandType,
 } from "@/lib/db/schema";
@@ -111,6 +115,100 @@ async function insertOrIncreaseLotAllocationInTx(
     createdBy: params.actorUserId ?? null,
     updatedBy: params.actorUserId ?? null,
   });
+}
+
+async function getActiveLotAllocationQtyForDemandInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    demandType: StockAllocationDemandType;
+    demandId: string;
+    itemId: string;
+  }
+) {
+  const [row] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)`,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, params.demandType),
+        eq(stockAllocations.demandId, params.demandId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.sourceType, "lot"),
+        eq(stockAllocations.status, "active")
+      )
+    );
+
+  return roundQuantity(parseFloat(row?.quantity ?? "0"));
+}
+
+async function getOpenDemandQtyForAllocationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    demandType: StockAllocationDemandType;
+    demandId: string;
+    itemId: string;
+  }
+) {
+  let baseRemainingQty = 0;
+
+  if (params.demandType === "sales_order_line") {
+    const [line] = await tx
+      .select({
+        remainingQty: sql<string>`GREATEST(
+          ${salesOrderLines.quantity}
+          - ${salesOrderLines.cancelledQuantity}
+          - COALESCE((
+            SELECT SUM(${salesShipmentLines.quantity})
+            FROM ${salesShipmentLines}
+            INNER JOIN ${salesShipments}
+              ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
+            WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
+              AND ${salesShipments.status} = 'shipped'
+          ), 0),
+          0
+        )`,
+      })
+      .from(salesOrderLines)
+      .where(
+        and(
+          eq(salesOrderLines.id, params.demandId),
+          eq(salesOrderLines.itemId, params.itemId)
+        )
+      )
+      .for("update");
+
+    baseRemainingQty = roundQuantity(parseFloat(line?.remainingQty ?? "0"));
+  } else if (params.demandType === "manufacturing_order_ingredient") {
+    const [ingredient] = await tx
+      .select({
+        remainingQty: sql<string>`GREATEST(
+          ${manufacturingOrderIngredients.plannedQuantity}
+          - GREATEST(
+            ${manufacturingOrderIngredients.pickedQuantity},
+            COALESCE(${manufacturingOrderIngredients.actualQuantity}, 0)
+          ),
+          0
+        )`,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(
+        and(
+          eq(manufacturingOrderIngredients.id, params.demandId),
+          eq(manufacturingOrderIngredients.itemId, params.itemId)
+        )
+      )
+      .for("update");
+
+    baseRemainingQty = roundQuantity(parseFloat(ingredient?.remainingQty ?? "0"));
+  }
+
+  const activeHeldQty = await getActiveLotAllocationQtyForDemandInTx(tx, params);
+  return roundQuantity(Math.max(0, baseRemainingQty - activeHeldQty));
 }
 
 export async function getUnavailableLotAllocationQtyByLotIdInTx(
@@ -288,26 +386,53 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
   for (const promise of promises) {
     if (remainingOutputQty <= 0) break;
     const demandType = promise.demandType as StockAllocationDemandType;
-    const holdQty = roundQuantity(Math.min(remainingOutputQty, parseFloat(promise.quantity)));
-    if (holdQty <= 0) continue;
-
-    await insertOrIncreaseLotAllocationInTx(tx, {
+    const promiseQty = roundQuantity(parseFloat(promise.quantity));
+    const openDemandQty = await getOpenDemandQtyForAllocationInTx(tx, {
       organizationId: params.organizationId,
       demandType,
       demandId: promise.demandId,
       itemId: params.itemId,
-      lotId: params.lotId,
-      quantity: holdQty,
-      actorUserId: params.actorUserId ?? null,
     });
+    const holdQty = roundQuantity(
+      Math.min(remainingOutputQty, promiseQty, openDemandQty)
+    );
 
-    await reduceOrCloseAllocationInTx(tx, {
-      allocationId: promise.id,
-      currentQuantity: promise.quantity,
-      consumedQuantity: holdQty,
-      statusWhenClosed: "consumed",
-      actorUserId: params.actorUserId ?? null,
-    });
+    if (holdQty > 0) {
+      await insertOrIncreaseLotAllocationInTx(tx, {
+        organizationId: params.organizationId,
+        demandType,
+        demandId: promise.demandId,
+        itemId: params.itemId,
+        lotId: params.lotId,
+        quantity: holdQty,
+        actorUserId: params.actorUserId ?? null,
+      });
+
+      await reduceOrCloseAllocationInTx(tx, {
+        allocationId: promise.id,
+        currentQuantity: promise.quantity,
+        consumedQuantity: holdQty,
+        statusWhenClosed: "consumed",
+        actorUserId: params.actorUserId ?? null,
+      });
+    }
+
+    const remainingPromiseQty = roundQuantity(promiseQty - holdQty);
+    const unmetDemandQty = roundQuantity(openDemandQty - holdQty);
+    const excessPromiseQty = roundQuantity(
+      Math.max(0, remainingPromiseQty - Math.max(0, unmetDemandQty))
+    );
+
+    if (excessPromiseQty > 0) {
+      await reduceOrCloseAllocationInTx(tx, {
+        allocationId: promise.id,
+        currentQuantity:
+          holdQty > 0 ? quantityString(remainingPromiseQty) : promise.quantity,
+        consumedQuantity: excessPromiseQty,
+        statusWhenClosed: "cancelled",
+        actorUserId: params.actorUserId ?? null,
+      });
+    }
 
     remainingOutputQty = roundQuantity(remainingOutputQty - holdQty);
   }
