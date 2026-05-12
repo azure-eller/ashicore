@@ -517,6 +517,13 @@ async function getActiveAllocationRowsForItemInTx(
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
       )
+    )
+    .orderBy(
+      asc(salesOrders.shipDate),
+      asc(salesOrders.orderNumber),
+      asc(salesOrderLines.sortOrder),
+      asc(stockAllocations.createdAt),
+      asc(stockAllocations.id)
     );
 }
 

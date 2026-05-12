@@ -1136,7 +1136,7 @@ function OutputAllocationWorkspace({
   manufacturingOrderId: string;
   onBack: () => void;
   onOpenOutput: (id: string) => void;
-  onOpenSalesLine: (lineId: string) => void;
+  onOpenSalesLine?: (lineId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [selectedIngredientId, setSelectedIngredientId] = useState<string | null>(null);
@@ -1421,20 +1421,30 @@ function OutputAllocationWorkspace({
                   const allocated = readQuantity(destination.assignedQty);
                   const remaining = readQuantity(destination.remainingQty);
                   const shortQty = Math.max(0, remaining - allocated);
+                  const canOpenSalesLine = onOpenSalesLine != null;
                   return (
                     <div
-                      role="button"
-                      tabIndex={0}
+                      role={canOpenSalesLine ? "button" : undefined}
+                      tabIndex={canOpenSalesLine ? 0 : undefined}
                       key={destination.salesOrderLineId}
-                      aria-label={`Open allocation for ${destination.orderNumber}`}
-                      onClick={() => onOpenSalesLine(destination.salesOrderLineId)}
+                      aria-label={
+                        canOpenSalesLine
+                          ? `Open allocation for ${destination.orderNumber}`
+                          : undefined
+                      }
+                      onClick={() => onOpenSalesLine?.(destination.salesOrderLineId)}
                       onKeyDown={(event) => {
+                        if (!onOpenSalesLine) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           onOpenSalesLine(destination.salesOrderLineId);
                         }
                       }}
-                      className="w-full cursor-pointer rounded-md border bg-background p-3 text-left shadow-xs transition hover:border-warning/50 hover:bg-warning/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        "w-full rounded-md border bg-background p-3 text-left shadow-xs transition",
+                        canOpenSalesLine &&
+                          "cursor-pointer hover:border-warning/50 hover:bg-warning/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      )}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -2216,13 +2226,17 @@ export function AllocationSheet({
               setOutputMoId(null);
             }}
             onOpenOutput={openOutputMo}
-            onOpenSalesLine={(nextLineId) => {
-              setCarried(null);
-              setSelectedSourceKey(null);
-              setBrowseTarget(null);
-              setOutputMoId(null);
-              onTargetLineChange(nextLineId);
-            }}
+            onOpenSalesLine={
+              lineId == null
+                ? undefined
+                : (nextLineId) => {
+                    setCarried(null);
+                    setSelectedSourceKey(null);
+                    setBrowseTarget(null);
+                    setOutputMoId(null);
+                    onTargetLineChange(nextLineId);
+                  }
+            }
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
