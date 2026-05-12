@@ -6,10 +6,12 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
-  Factory01Icon,
-  PackageIcon,
   ReloadIcon,
 } from "@hugeicons/core-free-icons";
+import {
+  inferItemVisual,
+  ItemToken,
+} from "@/components/inventory-visuals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -55,6 +57,8 @@ type AllocationTokenData = {
   sourceLabel: string;
   sourceIndex: number;
   quantity: number;
+  itemName?: string | null;
+  unitName?: string | null;
   originLineId?: string;
 };
 
@@ -143,6 +147,10 @@ function shortLabel(value: number) {
 
 function compactUnitName(unitName: string | null | undefined) {
   return formatCompactUnitLabel({ name: unitName }) ?? unitName ?? "units";
+}
+
+function itemVisual(name: string | null | undefined, unitName: string | null | undefined) {
+  return inferItemVisual({ name, unitName });
 }
 
 function clampQuantity(value: number, max: number) {
@@ -312,6 +320,7 @@ function VariantSwitcher({
           const short = readQuantity(item.shortQty);
           const isComplete = remaining > 0 && short <= 0;
           const unitLabel = compactUnitName(item.unitName);
+          const visual = itemVisual(item.itemName, item.unitName);
 
           return (
             <div key={item.salesOrderLineId} className="group relative">
@@ -326,12 +335,19 @@ function VariantSwitcher({
                       !item.isCurrent && !isComplete && short > 0 && "border-warning/70 bg-warning/5"
                     )}
                     aria-label={`${item.itemName} · ${unitLabel}`}
-                    onClick={() => onSelectLine(item.salesOrderLineId)}
-                  >
-                    <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
-                    <span className="absolute bottom-0.5 right-0.5 rounded bg-background/95 px-0.5 text-[9px] font-semibold tabular-nums shadow-xs">
-                      {formatQuantity(item.allocatedQty)}/{formatQuantity(item.remainingQty)}
-                    </span>
+                      onClick={() => onSelectLine(item.salesOrderLineId)}
+                    >
+                      <ItemToken
+                        kind={visual.kind}
+                        color={visual.color}
+                        state={isComplete ? "reserved" : short > 0 ? "shortage" : "available"}
+                        selected={item.isCurrent}
+                        size="xs"
+                        className="border-0 bg-transparent p-0 shadow-none ring-0"
+                      />
+                      <span className="absolute bottom-0.5 right-0.5 rounded bg-background/95 px-0.5 text-[9px] font-semibold tabular-nums shadow-xs">
+                        {formatQuantity(item.allocatedQty)}/{formatQuantity(item.remainingQty)}
+                      </span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -340,9 +356,10 @@ function VariantSwitcher({
                 </TooltipContent>
               </Tooltip>
               <div className="invisible absolute left-1/2 top-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-1 rounded-md border bg-popover p-1 text-popover-foreground opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-                {item.variantOptions.map((option) => {
-                  const optionUnitLabel = compactUnitName(option.unitName);
-                  return (
+                  {item.variantOptions.map((option) => {
+                    const optionUnitLabel = compactUnitName(option.unitName);
+                    const optionVisual = itemVisual(option.itemName, option.unitName);
+                    return (
                     <Tooltip key={option.itemId}>
                       <TooltipTrigger asChild>
                         <button
@@ -358,10 +375,16 @@ function VariantSwitcher({
                               return;
                             }
                             onSelectItem(option.itemId);
-                          }}
-                        >
-                          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
-                        </button>
+                            }}
+                          >
+                            <ItemToken
+                              kind={optionVisual.kind}
+                              color={optionVisual.color}
+                              selected={option.isCurrent}
+                              size="xs"
+                              className="border-0 bg-transparent p-0 shadow-none ring-0"
+                            />
+                          </button>
                       </TooltipTrigger>
                       <TooltipContent side="left">
                         {option.itemName} · {optionUnitLabel}.
@@ -394,6 +417,7 @@ function VariantSwitcher({
     <div className="flex items-center gap-1.5">
       {visibleOptions.map((option) => {
         const unitLabel = compactUnitName(option.unitName);
+        const visual = itemVisual(option.itemName, option.unitName);
         return (
           <Tooltip key={option.itemId}>
             <TooltipTrigger asChild>
@@ -409,11 +433,17 @@ function VariantSwitcher({
                     onSelectLine(option.salesOrderLineId);
                     return;
                   }
-                  onSelectItem(option.itemId);
-                }}
-              >
-                <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-5" />
-              </button>
+                    onSelectItem(option.itemId);
+                  }}
+                >
+                  <ItemToken
+                    kind={visual.kind}
+                    color={visual.color}
+                    selected={option.isCurrent}
+                    size="xs"
+                    className="border-0 bg-transparent p-0 shadow-none ring-0"
+                  />
+                </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {option.itemName} · {unitLabel}.
@@ -435,6 +465,7 @@ function CarryPanel({
   if (!carried) return null;
 
   const isProduction = carried.sourceType === "manufacturing_order";
+  const visual = itemVisual(carried.itemName ?? carried.sourceLabel, carried.unitName);
 
   return (
     <div
@@ -446,23 +477,14 @@ function CarryPanel({
       <div className="flex items-center justify-between gap-4 rounded-lg border bg-popover/95 p-2 text-popover-foreground shadow-xl ring-1 ring-primary/15 backdrop-blur">
         <span className="sr-only">Picked up</span>
         <div className="flex min-w-0 items-center gap-2">
-          <div
-            className={cn(
-              "relative flex h-14 w-12 shrink-0 items-center justify-center rounded-md border bg-background shadow-xs",
-              isProduction
-                ? "border-primary/45 bg-primary/5 text-primary"
-                : "border-success/45 bg-success/5 text-success"
-            )}
-          >
-            <HugeiconsIcon
-              icon={isProduction ? Factory01Icon : PackageIcon}
-              strokeWidth={2}
-              className="size-8"
-            />
-            <span className="absolute bottom-1 right-1 rounded bg-background/95 px-1 text-xs font-semibold tabular-nums shadow-xs">
-              {formatQuantity(toQuantityString(carried.quantity))}
-            </span>
-          </div>
+          <ItemToken
+            kind={visual.kind}
+            color={visual.color}
+            state={isProduction ? "inbound" : "available"}
+            selected
+            size="sm"
+            quantity={formatQuantity(toQuantityString(carried.quantity))}
+          />
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Picked up
@@ -491,6 +513,8 @@ function CarryPanel({
 
 function SupplyStack({
   source,
+  itemName,
+  unitName,
   sourceKeyValue,
   sourceIndex,
   previewFree,
@@ -502,6 +526,8 @@ function SupplyStack({
   onOpenOutput,
 }: {
   source: SalesAllocationSource;
+  itemName: string | null | undefined;
+  unitName: string | null | undefined;
   sourceKeyValue: string;
   sourceIndex: number;
   previewFree: number;
@@ -515,6 +541,7 @@ function SupplyStack({
   const isMo = source.sourceType === "manufacturing_order";
   const isLot = source.sourceType === "lot";
   const quantityLabel = formatQuantity(toQuantityString(previewFree));
+  const visual = itemVisual(itemName, unitName);
   const canPick = previewFree > 0 && source.canAllocate;
   const canReturn =
     carried?.originLineId != null && carried.sourceKey === sourceKeyValue;
@@ -563,16 +590,21 @@ function SupplyStack({
               sourceLabel: source.label,
               sourceIndex,
               quantity: previewFree,
+              itemName,
+              unitName,
             });
           }}
           aria-label={`Allocate all from ${source.label}`}
         >
-          <span className={cn("inline-flex size-12 items-center justify-center rounded-md", toneClasses.icon)}>
-            <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-8" />
-          </span>
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-background/95 px-1 text-sm font-semibold tabular-nums text-foreground shadow-xs">
-            {quantityLabel}
-          </span>
+          <ItemToken
+            kind={visual.kind}
+            color={visual.color}
+            state="inbound"
+            selected={isSelected}
+            size="md"
+            quantity={quantityLabel}
+            className="border-0 bg-transparent p-0 shadow-none ring-0"
+          />
         </button>
         <button
           type="button"
@@ -612,16 +644,22 @@ function SupplyStack({
             sourceLabel: source.label,
             sourceIndex,
             quantity: previewFree,
+            itemName,
+            unitName,
           });
         }}
         aria-label={`Allocate all from ${source.label}`}
       >
-        <span className={cn("inline-flex size-12 items-center justify-center rounded-md", toneClasses.icon)}>
-          <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-8" />
-        </span>
-        <span className="absolute bottom-1.5 right-1.5 rounded bg-background/95 px-1 text-sm font-semibold tabular-nums text-foreground shadow-xs">
-          {quantityLabel}
-        </span>
+        <ItemToken
+          kind={visual.kind}
+          color={visual.color}
+          state="available"
+          selected={isSelected}
+          size="md"
+          quantity={quantityLabel}
+          lotCode={isLot ? source.lotNumber ?? undefined : undefined}
+          className="border-0 bg-transparent p-0 shadow-none ring-0"
+        />
       </button>
       <div className="max-w-full truncate text-center text-[11px] font-medium text-muted-foreground">
         {isLot ? source.lotNumber ?? source.label : source.label}
@@ -632,9 +670,13 @@ function SupplyStack({
 
 function SourceDetailPanel({
   source,
+  itemName,
+  unitName,
   destinations,
 }: {
   source: SalesAllocationSource | null;
+  itemName: string | null | undefined;
+  unitName: string | null | undefined;
   destinations: Array<{ label: string; quantity: number; kind: "sales" | "production" }>;
 }) {
   const organizationTimeZone = useOrganizationTimeZone();
@@ -644,16 +686,19 @@ function SourceDetailPanel({
   const total = readQuantity(source.totalQty);
   const allocated = readQuantity(source.allocatedQty);
   const free = readQuantity(source.freeQty);
+  const visual = itemVisual(itemName, unitName);
 
   return (
     <div className="rounded-md border bg-background p-3 shadow-xs">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <HugeiconsIcon
-              icon={source.sourceType === "manufacturing_order" ? Factory01Icon : PackageIcon}
-              strokeWidth={2}
-              className="size-4 text-muted-foreground"
+            <ItemToken
+              kind={visual.kind}
+              color={visual.color}
+              state={source.sourceType === "manufacturing_order" ? "inbound" : "available"}
+              size="xs"
+              className="size-5 rounded-sm"
             />
             <h3 className="truncate text-sm font-semibold">{source.label}</h3>
           </div>
@@ -727,6 +772,7 @@ function OutputSourceDetailPanel({
   const planned = readQuantity(data.sourceMo.plannedQuantity);
   const assignedSales = readQuantity(data.assignedSalesQty);
   const allocated = assignedSales + assignedProduction;
+  const visual = itemVisual(data.sourceMo.productName, null);
   const destinations = [
     assignedSales > 0
       ? { label: "Sales allocations", quantity: assignedSales, kind: "sales" as const }
@@ -745,7 +791,13 @@ function OutputSourceDetailPanel({
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-4 text-muted-foreground" />
+            <ItemToken
+              kind={visual.kind}
+              color={visual.color}
+              state="inbound"
+              size="xs"
+              className="size-5 rounded-sm"
+            />
             <h3 className="truncate text-sm font-semibold">{data.sourceMo.orderNumber}</h3>
           </div>
           <div className="mt-1 truncate text-xs text-muted-foreground">
@@ -822,6 +874,7 @@ function DemandCard({
   const unitLabel = compactUnitName(row.unitName);
   const slotCount = Math.min(14, Math.max(1, Math.ceil(remaining / 25)));
   const filledSlots = Math.min(slotCount, Math.ceil(allocatedQty / 25));
+  const visual = itemVisual(row.itemName, row.unitName);
 
   return (
     <div
@@ -884,7 +937,13 @@ function DemandCard({
               )}
             >
               {index < filledSlots ? (
-                <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4 text-success" />
+                <ItemToken
+                  kind={visual.kind}
+                  color={visual.color}
+                  state="reserved"
+                  size="xs"
+                  className="border-0 bg-transparent p-0 shadow-none ring-0"
+                />
               ) : null}
             </span>
           ))}
@@ -916,12 +975,18 @@ function DemandCard({
 function AllocationChip({
   label,
   quantity,
+  itemName,
+  unitName,
   onPick,
 }: {
   label: string;
   quantity: number;
+  itemName: string;
+  unitName: string;
   onPick: () => void;
 }) {
+  const visual = itemVisual(itemName, unitName);
+
   return (
     <button
       type="button"
@@ -932,7 +997,13 @@ function AllocationChip({
       className="inline-flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-xs font-medium shadow-xs transition hover:border-primary/40 hover:bg-primary/5"
       aria-label={`Move ${formatQuantity(toQuantityString(quantity))} from ${label}`}
     >
-      <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-3.5 text-muted-foreground" />
+      <ItemToken
+        kind={visual.kind}
+        color={visual.color}
+        state="reserved"
+        size="xs"
+        className="size-4 rounded-sm border-0 bg-transparent p-0 shadow-none ring-0"
+      />
       <span className="max-w-28 truncate">{label}</span>
       <span className="tabular-nums">{formatQuantity(toQuantityString(quantity))}</span>
     </button>
@@ -991,6 +1062,9 @@ function OutputAllocationWorkspace({
           assignedProduction
       )
     : 0;
+  const outputVisual = data
+    ? itemVisual(data.sourceMo.productName, null)
+    : itemVisual(null, null);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -1130,9 +1204,12 @@ function OutputAllocationWorkspace({
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-4" />
-              </span>
+              <ItemToken
+                kind={outputVisual.kind}
+                color={outputVisual.color}
+                state="inbound"
+                size="xs"
+              />
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold text-foreground">
                   {data.sourceMo.orderNumber}
@@ -1182,12 +1259,15 @@ function OutputAllocationWorkspace({
                         }}
                         aria-label={`Pick up output from ${data.sourceMo.orderNumber}`}
                       >
-                        <span className="inline-flex size-12 items-center justify-center rounded-md bg-primary/10 text-primary">
-                          <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-7" />
-                        </span>
-                        <span className="absolute bottom-1.5 right-1.5 rounded bg-background/95 px-1 text-sm font-semibold tabular-nums text-foreground shadow-xs">
-                          {formatQuantity(toQuantityString(outputFree))}
-                        </span>
+                        <ItemToken
+                          kind={outputVisual.kind}
+                          color={outputVisual.color}
+                          state="inbound"
+                          selected={outputSelected}
+                          size="md"
+                          quantity={formatQuantity(toQuantityString(outputFree))}
+                          className="border-0 bg-transparent p-0 shadow-none ring-0"
+                        />
                       </button>
                       <div className="max-w-full truncate text-center text-xs font-medium text-primary">
                         {data.sourceMo.orderNumber}
@@ -1243,26 +1323,26 @@ function OutputAllocationWorkspace({
                       selected && "ring-2 ring-primary/25"
                     )}
                   >
-	                    <div className="flex items-start justify-between gap-3">
-	                      <div className="min-w-0">
-	                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-	                          <Badge className="rounded-sm bg-primary/10 text-primary">MO</Badge>
-	                          <span className="font-semibold">{destination.orderNumber}</span>
-	                          <span className="truncate text-muted-foreground">
-	                            produces {formatQuantity(destination.outputPlannedQuantity ?? "")}{" "}
-	                            {destination.outputProductName ?? destination.productName}
-	                            {destination.salesOrderNumber
-	                              ? ` \u2192 ${destination.salesOrderNumber}`
-	                              : ""}
-	                          </span>
-	                        </div>
-	                        <div className="mt-1 text-xs text-muted-foreground">
-	                          consumes {data.sourceMo.productName}
-	                          {destination.salesCustomerName
-	                            ? ` · ${destination.salesCustomerName}`
-	                            : ""}
-	                        </div>
-	                      </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <Badge className="rounded-sm bg-primary/10 text-primary">MO</Badge>
+                            <span className="font-semibold">{destination.orderNumber}</span>
+                            <span className="truncate text-muted-foreground">
+                              produces {formatQuantity(destination.outputPlannedQuantity ?? "")}{" "}
+                              {destination.outputProductName ?? destination.productName}
+                              {destination.salesOrderNumber
+                                ? ` \u2192 ${destination.salesOrderNumber}`
+                                : ""}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            consumes {data.sourceMo.productName}
+                            {destination.salesCustomerName
+                              ? ` · ${destination.salesCustomerName}`
+                              : ""}
+                          </div>
+                        </div>
                       <div className="text-right text-xs text-muted-foreground">
                         <div>{destination.plannedDate ? formatDate(destination.plannedDate) : "\u2014"}</div>
                         <div>{statusLabel(destination.status)}</div>
@@ -1280,28 +1360,34 @@ function OutputAllocationWorkspace({
                         </Button>
                       </div>
                     </div>
-	                    <div className="mt-3 space-y-2">
-	                      <div className="flex flex-wrap gap-1">
-	                        {Array.from({ length: slotCount }).map((_, index) => (
-	                          <span
-	                            key={index}
-	                            className={cn(
-	                              "flex size-8 items-center justify-center rounded border",
-	                              index < filledSlots
-	                                ? "border-primary/25 bg-primary/10"
-	                                : "border-dashed bg-muted/20"
-	                            )}
-	                          >
-	                            {index < filledSlots ? (
-	                              <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4 text-primary" />
-	                            ) : null}
-	                          </span>
-	                        ))}
-	                        {remaining > 350 ? (
-	                          <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
-	                        ) : null}
-	                      </div>
-	                      <ProgressBar value={allocated} max={remaining} tone="primary" />
+                      <div className="mt-3 space-y-2">
+                        <div className="flex flex-wrap gap-1">
+                          {Array.from({ length: slotCount }).map((_, index) => (
+                            <span
+                              key={index}
+                              className={cn(
+                                "flex size-8 items-center justify-center rounded border",
+                                index < filledSlots
+                                  ? "border-primary/25 bg-primary/10"
+                                  : "border-dashed bg-muted/20"
+                              )}
+                            >
+                              {index < filledSlots ? (
+                                <ItemToken
+                                  kind={outputVisual.kind}
+                                  color={outputVisual.color}
+                                  state="reserved"
+                                  size="xs"
+                                  className="border-0 bg-transparent p-0 shadow-none ring-0"
+                                />
+                              ) : null}
+                            </span>
+                          ))}
+                          {remaining > 350 ? (
+                            <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
+                          ) : null}
+                        </div>
+                        <ProgressBar value={allocated} max={remaining} tone="primary" />
                       <div className="flex justify-end gap-4 text-sm">
                         <span>
                           <span className="text-muted-foreground">Allocated </span>
@@ -1332,10 +1418,11 @@ function OutputAllocationWorkspace({
                     sourceKey: "output",
                     sourceType: "manufacturing_order",
                     sourceId: manufacturingOrderId,
-                    sourceLabel: data.sourceMo.orderNumber,
-                    sourceIndex: 0,
-                    quantity: carriedQty,
-                }
+                      sourceLabel: data.sourceMo.orderNumber,
+                      sourceIndex: 0,
+                      quantity: carriedQty,
+                      itemName: data.sourceMo.productName,
+                  }
             }
             className="bottom-6"
           />
@@ -1419,6 +1506,7 @@ export function AllocationSheet({
   const targetLineId = targetLine?.salesOrderLineId ?? null;
   const targetItem = data?.targetItem ?? null;
   const targetUnitLabel = compactUnitName(targetLine?.unitName ?? targetItem?.unitName);
+  const targetVisual = itemVisual(targetItem?.itemName, targetItem?.unitName);
 
   function setOutputMoId(id: string | null) {
     if (isOutputMoControlled) {
@@ -1497,6 +1585,9 @@ export function AllocationSheet({
     const [key, value] = entry;
     const meta = sourceMetaByKey.get(key);
     const parsed = parseAllocationKey(key);
+    const row = data?.demandRows.find(
+      (demandRow) => demandRow.salesOrderLineId === salesOrderLineId
+    );
     pickToken({
       sourceKey: key,
       sourceType: parsed.sourceType,
@@ -1504,6 +1595,8 @@ export function AllocationSheet({
       sourceLabel: meta?.source.label ?? "Source",
       sourceIndex: meta?.index ?? 0,
       quantity: readQuantity(value),
+      itemName: row?.itemName,
+      unitName: row?.unitName,
       originLineId: salesOrderLineId,
     });
   }
@@ -1820,9 +1913,12 @@ export function AllocationSheet({
           {targetItem ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-4" />
-                </span>
+                <ItemToken
+                  kind={targetVisual.kind}
+                  color={targetVisual.color}
+                  state="available"
+                  size="xs"
+                />
                 <div className="min-w-0">
                   <div className="flex min-w-0 flex-wrap items-center gap-2 text-base font-semibold text-foreground">
                     <span className="truncate">
@@ -1930,6 +2026,8 @@ export function AllocationSheet({
                             <SupplyStack
                               key={key}
                               source={source}
+                              itemName={targetItem.itemName}
+                              unitName={targetItem.unitName}
                               sourceKeyValue={key}
                               sourceIndex={sourceIndex}
                               previewFree={getSourcePreviewFree(source)}
@@ -1966,6 +2064,8 @@ export function AllocationSheet({
                               <SupplyStack
                                 key={key}
                                 source={source}
+                                itemName={targetItem.itemName}
+                                unitName={targetItem.unitName}
                                 sourceKeyValue={key}
                                 sourceIndex={onHandSources.length + index}
                                 previewFree={getSourcePreviewFree(source)}
@@ -2020,6 +2120,8 @@ export function AllocationSheet({
                   {selectedSource ? (
                     <SourceDetailPanel
                       source={selectedSource}
+                      itemName={targetItem.itemName}
+                      unitName={targetItem.unitName}
                       destinations={sourceDestinations}
                     />
                   ) : null}
@@ -2063,6 +2165,8 @@ export function AllocationSheet({
                                     key={key}
                                     label={meta?.source.label ?? "Source"}
                                     quantity={quantity}
+                                    itemName={row.itemName}
+                                    unitName={row.unitName}
                                     onPick={() =>
                                       pickToken({
                                         sourceKey: key,
@@ -2071,6 +2175,8 @@ export function AllocationSheet({
                                         sourceLabel: meta?.source.label ?? "Source",
                                         sourceIndex: meta?.index ?? 0,
                                         quantity,
+                                        itemName: row.itemName,
+                                        unitName: row.unitName,
                                         originLineId: row.salesOrderLineId,
                                       })
                                     }
