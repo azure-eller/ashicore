@@ -1144,8 +1144,9 @@ function OutputAllocationWorkspace({
   const [carriedQty, setCarriedQty] = useState<number | null>(null);
   const [draftState, setDraftState] = useState<{
     manufacturingOrderId: string | null;
-    values: Record<string, string>;
-  }>({ manufacturingOrderId: null, values: {} });
+    productionValues: Record<string, string>;
+    salesValues: Record<string, string>;
+  }>({ manufacturingOrderId: null, productionValues: {}, salesValues: {} });
   const outputQuery = useQuery<OutputAllocationData>({
     queryKey: ["manufacturing-output-allocation", manufacturingOrderId],
     queryFn: () =>
@@ -1155,7 +1156,7 @@ function OutputAllocationWorkspace({
       ),
   });
   const data = outputQuery.data ?? null;
-  const defaultDraft = useMemo(
+  const defaultProductionDraft = useMemo(
     () =>
       Object.fromEntries(
         data?.productionDestinations.map((destination) => [
@@ -1165,11 +1166,29 @@ function OutputAllocationWorkspace({
       ),
     [data]
   );
-  const draft =
+  const defaultSalesDraft = useMemo(
+    () =>
+      Object.fromEntries(
+        data?.salesDestinations.map((destination) => [
+          destination.salesOrderLineId,
+          formatQuantity(destination.assignedQty),
+        ]) ?? []
+      ),
+    [data]
+  );
+  const productionDraft =
     draftState.manufacturingOrderId === manufacturingOrderId
-      ? draftState.values
-      : defaultDraft;
-  const assignedProduction = Object.values(draft).reduce(
+      ? draftState.productionValues
+      : defaultProductionDraft;
+  const salesDraft =
+    draftState.manufacturingOrderId === manufacturingOrderId
+      ? draftState.salesValues
+      : defaultSalesDraft;
+  const assignedProduction = Object.values(productionDraft).reduce(
+    (sum, value) => sum + readQuantity(value),
+    0
+  );
+  const assignedSales = Object.values(salesDraft).reduce(
     (sum, value) => sum + readQuantity(value),
     0
   );
@@ -1177,7 +1196,7 @@ function OutputAllocationWorkspace({
     ? Math.max(
         0,
         readQuantity(data.sourceMo.plannedQuantity) -
-          readQuantity(data.assignedSalesQty) -
+          assignedSales -
           assignedProduction
       )
     : 0;
@@ -1192,7 +1211,10 @@ function OutputAllocationWorkspace({
         {
           method: "PUT",
           body: {
-            productionAllocations: Object.entries(draft)
+            salesAllocations: Object.entries(salesDraft)
+              .map(([salesOrderLineId, quantity]) => ({ salesOrderLineId, quantity }))
+              .filter((allocation) => readQuantity(allocation.quantity) > 0),
+            productionAllocations: Object.entries(productionDraft)
               .map(([ingredientId, quantity]) => ({ ingredientId, quantity }))
               .filter((allocation) => readQuantity(allocation.quantity) > 0),
           },
@@ -1202,9 +1224,15 @@ function OutputAllocationWorkspace({
     onSuccess: async (nextData) => {
       setDraftState({
         manufacturingOrderId,
-        values: Object.fromEntries(
+        productionValues: Object.fromEntries(
           nextData.productionDestinations.map((destination) => [
             destination.ingredientId,
+            formatQuantity(destination.assignedQty),
+          ])
+        ),
+        salesValues: Object.fromEntries(
+          nextData.salesDestinations.map((destination) => [
+            destination.salesOrderLineId,
             formatQuantity(destination.assignedQty),
           ])
         ),
@@ -1224,7 +1252,8 @@ function OutputAllocationWorkspace({
     !!data &&
     !outputQuery.isLoading &&
     !mutation.isPending &&
-    JSON.stringify(draft) !== JSON.stringify(defaultDraft);
+    (JSON.stringify(productionDraft) !== JSON.stringify(defaultProductionDraft) ||
+      JSON.stringify(salesDraft) !== JSON.stringify(defaultSalesDraft));
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1270,35 +1299,74 @@ function OutputAllocationWorkspace({
     return () => window.removeEventListener("wheel", handleWheel, { capture: true });
   }, [carriedQty, outputFree]);
 
-  function updateDestination(ingredientId: string, quantity: number) {
+  function updateProductionDestination(ingredientId: string, quantity: number) {
     setDraftState((current) => ({
       manufacturingOrderId,
-      values: {
+      productionValues: {
         ...(current.manufacturingOrderId === manufacturingOrderId
-          ? current.values
-          : defaultDraft),
+          ? current.productionValues
+          : defaultProductionDraft),
         [ingredientId]: toQuantityString(quantity),
+      },
+      salesValues:
+        current.manufacturingOrderId === manufacturingOrderId
+          ? current.salesValues
+          : defaultSalesDraft,
+    }));
+  }
+
+  function updateSalesDestination(salesOrderLineId: string, quantity: number) {
+    setDraftState((current) => ({
+      manufacturingOrderId,
+      productionValues:
+        current.manufacturingOrderId === manufacturingOrderId
+          ? current.productionValues
+          : defaultProductionDraft,
+      salesValues: {
+        ...(current.manufacturingOrderId === manufacturingOrderId
+          ? current.salesValues
+          : defaultSalesDraft),
+        [salesOrderLineId]: toQuantityString(quantity),
       },
     }));
   }
 
-  function placeOnDestination(ingredientId: string) {
+  function placeOnProductionDestination(ingredientId: string) {
     if (carriedQty == null || !data) return;
     const destination = data.productionDestinations.find(
       (candidate) => candidate.ingredientId === ingredientId
     );
     if (!destination) return;
-    const current = readQuantity(draft[ingredientId]);
+    const current = readQuantity(productionDraft[ingredientId]);
     const remaining = Math.max(0, readQuantity(destination.remainingNeed) - current);
     const quantity = Math.min(carriedQty, remaining, outputFree);
     if (quantity <= 0) return;
-    updateDestination(ingredientId, current + quantity);
+    updateProductionDestination(ingredientId, current + quantity);
     setCarriedQty((currentCarry) =>
       currentCarry == null || currentCarry <= quantity
         ? null
         : readQuantity(toQuantityString(currentCarry - quantity))
     );
     setSelectedIngredientId(ingredientId);
+  }
+
+  function placeOnSalesDestination(salesOrderLineId: string) {
+    if (carriedQty == null || !data) return;
+    const destination = data.salesDestinations.find(
+      (candidate) => candidate.salesOrderLineId === salesOrderLineId
+    );
+    if (!destination) return;
+    const current = readQuantity(salesDraft[salesOrderLineId]);
+    const remaining = Math.max(0, readQuantity(destination.remainingQty) - current);
+    const quantity = Math.min(carriedQty, remaining, outputFree);
+    if (quantity <= 0) return;
+    updateSalesDestination(salesOrderLineId, current + quantity);
+    setCarriedQty((currentCarry) =>
+      currentCarry == null || currentCarry <= quantity
+        ? null
+        : readQuantity(toQuantityString(currentCarry - quantity))
+    );
+    setSelectedIngredientId(null);
   }
 
   return (
@@ -1418,32 +1486,44 @@ function OutputAllocationWorkspace({
             ) : (
               <>
                 {data.salesDestinations.map((destination) => {
-                  const allocated = readQuantity(destination.assignedQty);
+                  const allocated = readQuantity(salesDraft[destination.salesOrderLineId]);
                   const remaining = readQuantity(destination.remainingQty);
                   const shortQty = Math.max(0, remaining - allocated);
-                  const canOpenSalesLine = onOpenSalesLine != null;
+                  const canUseSalesDestination = carriedQty != null || onOpenSalesLine != null;
+                  const selected = selectedIngredientId === destination.salesOrderLineId;
                   return (
                     <div
-                      role={canOpenSalesLine ? "button" : undefined}
-                      tabIndex={canOpenSalesLine ? 0 : undefined}
+                      role={canUseSalesDestination ? "button" : undefined}
+                      tabIndex={canUseSalesDestination ? 0 : undefined}
                       key={destination.salesOrderLineId}
                       aria-label={
-                        canOpenSalesLine
-                          ? `Open allocation for ${destination.orderNumber}`
+                        canUseSalesDestination
+                          ? `Allocate output to ${destination.orderNumber}`
                           : undefined
                       }
-                      onClick={() => onOpenSalesLine?.(destination.salesOrderLineId)}
+                      onClick={() => {
+                        if (carriedQty != null) {
+                          placeOnSalesDestination(destination.salesOrderLineId);
+                          return;
+                        }
+                        onOpenSalesLine?.(destination.salesOrderLineId);
+                      }}
                       onKeyDown={(event) => {
-                        if (!onOpenSalesLine) return;
+                        if (!canUseSalesDestination) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          onOpenSalesLine(destination.salesOrderLineId);
+                          if (carriedQty != null) {
+                            placeOnSalesDestination(destination.salesOrderLineId);
+                            return;
+                          }
+                          onOpenSalesLine?.(destination.salesOrderLineId);
                         }
                       }}
                       className={cn(
                         "w-full rounded-md border bg-background p-3 text-left shadow-xs transition",
-                        canOpenSalesLine &&
-                          "cursor-pointer hover:border-warning/50 hover:bg-warning/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        canUseSalesDestination &&
+                          "cursor-pointer hover:border-warning/50 hover:bg-warning/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        selected && "ring-2 ring-warning/25"
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -1489,7 +1569,7 @@ function OutputAllocationWorkspace({
                   );
                 })}
                 {data.productionDestinations.map((destination) => {
-                const allocated = readQuantity(draft[destination.ingredientId]);
+                const allocated = readQuantity(productionDraft[destination.ingredientId]);
                 const remaining = readQuantity(destination.remainingNeed);
                 const shortQty = Math.max(0, remaining - allocated);
                 const selected = selectedIngredientId === destination.ingredientId;
@@ -1499,11 +1579,11 @@ function OutputAllocationWorkspace({
                     tabIndex={0}
                     key={destination.ingredientId}
                     aria-label={`Allocate output to ${destination.orderNumber}`}
-                    onClick={() => placeOnDestination(destination.ingredientId)}
+                    onClick={() => placeOnProductionDestination(destination.ingredientId)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        placeOnDestination(destination.ingredientId);
+                        placeOnProductionDestination(destination.ingredientId);
                       }
                     }}
                     className={cn(

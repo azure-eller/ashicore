@@ -4305,14 +4305,27 @@ export async function saveManufacturingOutputAllocation(
     }
 
     const sourceLotIds = await getSourceOutputLotIdsInTx(tx, orderId);
-    const normalized = payload.productionAllocations
+    const normalizedSales = payload.salesAllocations
+      .map((allocation) => ({
+        salesOrderLineId: allocation.salesOrderLineId,
+        quantity: normalizeQuantityNumber(Number(allocation.quantity)),
+      }))
+      .filter((allocation) => allocation.quantity > 0);
+    const normalizedProduction = payload.productionAllocations
       .map((allocation) => ({
         ingredientId: allocation.ingredientId,
         quantity: normalizeQuantityNumber(Number(allocation.quantity)),
       }))
       .filter((allocation) => allocation.quantity > 0);
+    const seenSalesLineIds = new Set<string>();
+    for (const allocation of normalizedSales) {
+      if (seenSalesLineIds.has(allocation.salesOrderLineId)) {
+        throw new ManufacturingError("Each sales destination can only appear once.", 400);
+      }
+      seenSalesLineIds.add(allocation.salesOrderLineId);
+    }
     const seenIngredientIds = new Set<string>();
-    for (const allocation of normalized) {
+    for (const allocation of normalizedProduction) {
       if (seenIngredientIds.has(allocation.ingredientId)) {
         throw new ManufacturingError("Each production destination can only appear once.", 400);
       }
@@ -4331,7 +4344,10 @@ export async function saveManufacturingOutputAllocation(
       .where(
         and(
           eq(stockAllocations.organizationId, orgId),
-          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          inArray(stockAllocations.demandType, [
+            "manufacturing_order_ingredient",
+            "sales_order_line",
+          ]),
           eq(stockAllocations.itemId, order.productId),
           eq(stockAllocations.status, "active"),
           or(
@@ -4349,8 +4365,75 @@ export async function saveManufacturingOutputAllocation(
         )
       );
 
+    const salesDestinationRows =
+      normalizedSales.length > 0
+        ? await tx
+            .select({
+              salesOrderLineId: salesOrderLines.id,
+              itemId: salesOrderLines.itemId,
+              orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
+              cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
+              shippedQty: sql<string>`COALESCE((
+                SELECT SUM(${salesShipmentLines.quantity})
+                FROM ${salesShipmentLines}
+                INNER JOIN ${salesShipments}
+                  ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
+                WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
+                  AND ${salesShipments.status} = 'shipped'
+              ), 0)`,
+              status: salesOrders.status,
+              deletedAt: salesOrders.deletedAt,
+            })
+            .from(salesOrderLines)
+            .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+            .where(
+              and(
+                eq(salesOrders.organizationId, orgId),
+                inArray(
+                  salesOrderLines.id,
+                  normalizedSales.map((allocation) => allocation.salesOrderLineId)
+                )
+              )
+            )
+            .for("update")
+        : [];
+    const salesDestinationById = new Map(
+      salesDestinationRows.map((destination) => [
+        destination.salesOrderLineId,
+        destination,
+      ])
+    );
+
+    for (const allocation of normalizedSales) {
+      const destination = salesDestinationById.get(allocation.salesOrderLineId);
+      if (
+        !destination ||
+        destination.deletedAt != null ||
+        !["draft", "confirmed", "partially_shipped"].includes(destination.status)
+      ) {
+        throw new ManufacturingError("Sales destination is no longer open.", 409);
+      }
+      if (destination.itemId !== order.productId) {
+        throw new ManufacturingError("Sales destination does not need this output item.", 409);
+      }
+      const remainingNeed = Math.max(
+        0,
+        normalizeQuantityNumber(
+          Number(destination.orderedQty) -
+            Number(destination.cancelledQty) -
+            Number(destination.shippedQty)
+        )
+      );
+      if (allocation.quantity > remainingNeed) {
+        throw new ManufacturingError(
+          "Assigned output cannot exceed destination remaining need.",
+          409
+        );
+      }
+    }
+
     const destinationRows =
-      normalized.length > 0
+      normalizedProduction.length > 0
         ? await tx
             .select({
               ingredientId: manufacturingOrderIngredients.id,
@@ -4379,7 +4462,7 @@ export async function saveManufacturingOutputAllocation(
             .where(
               inArray(
                 manufacturingOrderIngredients.id,
-                normalized.map((allocation) => allocation.ingredientId)
+                normalizedProduction.map((allocation) => allocation.ingredientId)
               )
             )
             .for("update")
@@ -4388,7 +4471,7 @@ export async function saveManufacturingOutputAllocation(
       destinationRows.map((destination) => [destination.ingredientId, destination])
     );
 
-    for (const allocation of normalized) {
+    for (const allocation of normalizedProduction) {
       const destination = destinationById.get(allocation.ingredientId);
       if (
         !destination ||
@@ -4446,13 +4529,17 @@ export async function saveManufacturingOutputAllocation(
       (sum, row) => normalizeQuantityNumber(sum + Number(row.quantity)),
       0
     );
-    const requestedProductionQty = normalized.reduce(
+    const requestedProductionQty = normalizedProduction.reduce(
+      (sum, allocation) => normalizeQuantityNumber(sum + allocation.quantity),
+      0
+    );
+    const requestedSalesQty = normalizedSales.reduce(
       (sum, allocation) => normalizeQuantityNumber(sum + allocation.quantity),
       0
     );
 
     if (
-      normalizeQuantityNumber(otherAssignedQty + requestedProductionQty) >
+      normalizeQuantityNumber(otherAssignedQty + requestedSalesQty + requestedProductionQty) >
       Number(order.plannedQuantity)
     ) {
       throw new ManufacturingError(
@@ -4461,22 +4548,41 @@ export async function saveManufacturingOutputAllocation(
       );
     }
 
-    if (normalized.length > 0) {
+    if (normalizedSales.length > 0) {
       await tx.insert(stockAllocations).values(
-        normalized.map((allocation) => ({
+        normalizedSales.map((allocation) => ({
           organizationId: orgId,
-          demandType: "manufacturing_order_ingredient",
-          demandId: allocation.ingredientId,
+          demandType: "sales_order_line" as const,
+          demandId: allocation.salesOrderLineId,
           itemId: order.productId,
-          sourceType: "manufacturing_order",
+          sourceType: "manufacturing_order" as const,
           sourceId: orderId,
           quantity: allocationQuantity(allocation.quantity),
-          status: "active",
+          status: "active" as const,
           createdBy: userId,
           updatedBy: userId,
         }))
       );
+    }
 
+    if (normalizedProduction.length > 0) {
+      await tx.insert(stockAllocations).values(
+        normalizedProduction.map((allocation) => ({
+          organizationId: orgId,
+          demandType: "manufacturing_order_ingredient" as const,
+          demandId: allocation.ingredientId,
+          itemId: order.productId,
+          sourceType: "manufacturing_order" as const,
+          sourceId: orderId,
+          quantity: allocationQuantity(allocation.quantity),
+          status: "active" as const,
+          createdBy: userId,
+          updatedBy: userId,
+        }))
+      );
+    }
+
+    if (normalizedSales.length > 0 || normalizedProduction.length > 0) {
       await materializeManufacturingOrderSourceAllocationsFromExistingOutputInTx(tx, {
         organizationId: orgId,
         sourceManufacturingOrderId: orderId,

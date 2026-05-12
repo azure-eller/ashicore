@@ -296,6 +296,14 @@ export type RecordManufacturingOutput = z.infer<
 >;
 
 export const saveManufacturingOutputAllocationSchema = z.object({
+  salesAllocations: z
+    .array(
+      z.object({
+        salesOrderLineId: z.string().uuid("Sales order line is required"),
+        quantity: positiveDecimalString("Quantity"),
+      })
+    )
+    .default([]),
   productionAllocations: z
     .array(
       z.object({

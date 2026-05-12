@@ -1667,18 +1667,82 @@ test.describe("Manufacturing order flow", () => {
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, downstreamOrderId));
     expect(downstreamIngredient?.id).toBeTruthy();
+    const customerId = await createCustomer(`Output Allocation Customer ${allocationTs}`);
+    const salesOrderId = await createSalesOrder({
+      customerId,
+      requestedDate: "2026-04-22",
+      lines: [{ itemId: toteId, quantity: "2", unitPrice: "15.00" }],
+    });
+    const [salesDestination] = await db
+      .select({
+        lineId: salesOrderLines.id,
+        orderNumber: salesOrders.orderNumber,
+      })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .where(eq(salesOrderLines.salesOrderId, salesOrderId));
+    expect(salesDestination?.lineId).toBeTruthy();
+    if (!salesDestination) {
+      throw new Error("Expected output allocation sales destination.");
+    }
+    const salesLineId = salesDestination.lineId;
+    const salesOrderNumber = salesDestination.orderNumber;
 
     await page.goto(`/manufacturing/orders/${sourceOrderId}`);
     await page.waitForLoadState("networkidle");
     const manageOutputAllocation = page.getByRole("button", { name: "Manage allocation" });
     await expect(manageOutputAllocation).toBeEnabled();
-    await page.waitForTimeout(500);
-    await manageOutputAllocation.click();
-    const allocationDialog = page.getByRole("dialog", { name: "Allocation Manager" });
-    await expect(allocationDialog).toBeVisible();
+    await expect
+      .poll(async () => {
+        await manageOutputAllocation.click();
+        return page.locator('[data-slot="sheet-content"]').filter({
+          hasText: "Allocation Manager",
+        }).isVisible();
+      })
+      .toBe(true);
+    const allocationDialog = page.locator('[data-slot="sheet-content"]').filter({
+      hasText: "Allocation Manager",
+    });
     await expect(allocationDialog.getByText("Supply · Output")).toBeVisible();
     await expect(allocationDialog.getByText("Demand · Orders")).toBeVisible();
     await expect(allocationDialog.getByText(new RegExp(`produces.*${bagName}`))).toBeVisible();
+    await expect(allocationDialog.getByText(salesOrderNumber)).toBeVisible();
+    await allocationDialog
+      .getByRole("button", { name: new RegExp(`Pick up output from`) })
+      .click();
+    await allocationDialog
+      .getByRole("button", {
+        name: `Allocate output to ${salesOrderNumber}`,
+      })
+      .click();
+    await expect(
+      allocationDialog
+        .getByRole("button", {
+          name: `Allocate output to ${salesOrderNumber}`,
+        })
+        .getByText("Allocated 2")
+    ).toBeVisible();
+    await allocationDialog.getByRole("button", { name: "Save allocation" }).click();
+    await expect
+      .poll(async () => {
+        const [salesPromise] = await db
+          .select({
+            quantity: stockAllocations.quantity,
+            status: stockAllocations.status,
+          })
+          .from(stockAllocations)
+          .where(
+            and(
+              eq(stockAllocations.demandType, "sales_order_line"),
+              eq(stockAllocations.demandId, salesLineId),
+              eq(stockAllocations.sourceType, "manufacturing_order"),
+              eq(stockAllocations.sourceId, sourceOrderId),
+              eq(stockAllocations.status, "active")
+            )
+          );
+        return `${salesPromise?.status ?? "missing"}:${salesPromise?.quantity ?? "0"}`;
+      })
+      .toBe("active:2.0000");
     await allocationDialog.getByRole("button", { name: "Open output" }).click();
     await expect(allocationDialog.getByText(bagName).first()).toBeVisible();
     await page.keyboard.press("Escape");
