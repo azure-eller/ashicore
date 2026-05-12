@@ -5,6 +5,7 @@ import {
   inventoryLotBalances,
   items,
   lots,
+  stocktakeLotItems,
   stocktakeItems,
   stocktakes,
 } from "../../../lib/db/schema";
@@ -505,11 +506,11 @@ test.describe("Stocktake flow", () => {
     await page.goto(`/inventory/stocktakes/${stocktakeId}`);
     const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
     const productRow = page.locator("tbody tr").filter({ hasText: productName });
-    await expect(materialRow.getByRole("textbox")).toHaveValue("4");
+    await expect(materialRow).toContainText("4");
     await expect(productRow.getByRole("textbox")).toHaveValue("");
 
     await page.reload();
-    await expect(materialRow.getByRole("textbox")).toHaveValue("4");
+    await expect(materialRow).toContainText("4");
     await expect(productRow.getByRole("textbox")).toHaveValue("");
   });
 
@@ -547,10 +548,16 @@ test.describe("Stocktake flow", () => {
     expect(materialLine).toBeTruthy();
     expect(productLine).toBeTruthy();
 
+    const [materialLotLine] = await db
+      .select()
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, materialLine!.id));
+    expect(materialLotLine).toBeTruthy();
+
     await page.goto(`/inventory/stocktakes/${oneClickStocktakeId}`);
 
     const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
-    await materialRow.getByRole("textbox").fill("5");
+    await materialRow.locator("xpath=following-sibling::tr[1]").getByRole("textbox").fill("5");
     await expect(page.getByRole("button", { name: "Complete" })).toBeEnabled();
 
     const saveRequestPromise = page.waitForRequest(
@@ -570,9 +577,10 @@ test.describe("Stocktake flow", () => {
     const completeRequest = await completeRequestPromise;
 
     expect(JSON.parse(saveRequest.postData() ?? "{}")).toEqual({
-      lines: [
+      lines: [],
+      lotLines: [
         {
-          lineId: materialLine!.id,
+          lotLineId: materialLotLine!.id,
           countedQty: "5",
         },
       ],
@@ -641,6 +649,110 @@ test.describe("Stocktake flow", () => {
     await expect(page.locator("table").first()).toContainText(materialName);
     await expect(page.locator("table").first()).toContainText("5");
     await expect(page.locator("table").first()).toContainText("0");
+  });
+
+  test("completes partially counted lots without forcing the item total", async ({
+    db,
+  }) => {
+    const partialMaterialCreate = await createItem({
+      name: `Stocktake Partial Lot ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `STK-PARTIAL-${ts}`,
+      category: materialCategory,
+      description: "Partial lot count material",
+      defaultPurchasePrice: "2.50",
+      defaultSellingPrice: null,
+      stock: "2",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(partialMaterialCreate.status).toBe(201);
+    const partialMaterialId = partialMaterialCreate.body.id;
+
+    const addSecondLot = await updateItem(partialMaterialId, {
+      name: `Stocktake Partial Lot ${ts}`,
+      sku: `STK-PARTIAL-${ts}`,
+      category: materialCategory,
+      description: "Partial lot count material",
+      defaultPurchasePrice: "2.50",
+      defaultSellingPrice: null,
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      safetyStock: "0",
+      stock: "5",
+      bom: [],
+    });
+    expect(addSecondLot.status).toBe(200);
+
+    const stocktakeResponse = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Partial Lot Stocktake ${ts}`,
+        scope: "material",
+        notes: null,
+        itemIds: [partialMaterialId],
+      }),
+    });
+    expect(stocktakeResponse.status).toBe(201);
+    const partialStocktake = await stocktakeResponse.json();
+
+    const [partialLine] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.stocktakeId, partialStocktake.id));
+    const partialLotLines = await db
+      .select()
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, partialLine.id))
+      .orderBy(asc(stocktakeLotItems.sortOrder));
+    expect(partialLotLines).toHaveLength(2);
+
+    const savePartial = await testFetch(`/api/stocktakes/${partialStocktake.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            lotLineId: partialLotLines[0].id,
+            countedQty: "1",
+          },
+        ],
+      }),
+    });
+    expect(savePartial.status).toBe(200);
+
+    const completePartial = await testFetch(
+      `/api/stocktakes/${partialStocktake.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmStale: false }),
+      }
+    );
+    expect(completePartial.status).toBe(200);
+
+    const [completedLine] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.id, partialLine.id));
+    const completedLotLines = await db
+      .select()
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, partialLine.id))
+      .orderBy(asc(stocktakeLotItems.sortOrder));
+    const [partialStock] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${lots.quantity}), 0)`,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, partialMaterialId));
+
+    expect(completedLine.countedQty).toBe("1.0000");
+    expect(completedLine.appliedDeltaQty).toBe("-1.0000");
+    expect(completedLotLines[0].appliedDeltaQty).toBe("-1.0000");
+    expect(completedLotLines[1].countedQty).toBeNull();
+    expect(completedLotLines[1].appliedDeltaQty).toBeNull();
+    expect(parseFloat(partialStock.total)).toBe(4);
   });
 
   test("warns on stale completion, applies deltas, and preserves snapshots", async ({
@@ -763,9 +875,15 @@ test.describe("Stocktake flow", () => {
         )
       );
 
-    expect(stocktakeEvents).toHaveLength(1);
-    expect(stocktakeEvents[0].referenceType).toBe("stocktake_line");
-    expect(parseFloat(stocktakeEvents[0].quantity)).toBe(3);
+    expect(stocktakeEvents.length).toBeGreaterThanOrEqual(1);
+    expect(stocktakeEvents.every((event) => event.referenceType === "stocktake_line"))
+      .toBe(true);
+    expect(
+      stocktakeEvents.reduce(
+        (sum, event) => sum + parseFloat(event.quantity),
+        0
+      )
+    ).toBe(3);
 
     const productRename = await updateItem(productId, {
       name: renamedProductName,

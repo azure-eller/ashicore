@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { items } from "./items";
+import { lots } from "./lots";
 import { inventorySchema } from "./units";
 
 export const stocktakes = inventorySchema
@@ -84,6 +85,54 @@ export const stocktakeItems = inventorySchema
           SELECT id
           FROM inventory.stocktakes
           WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const stocktakeLotItems = inventorySchema
+  .table(
+    "stocktake_lot_items",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      stocktakeItemId: uuid("stocktake_item_id")
+        .notNull()
+        .references(() => stocktakeItems.id),
+      lotId: uuid("lot_id")
+        .notNull()
+        .references(() => lots.id),
+      lotNumber: varchar("lot_number", { length: 128 }).notNull(),
+      expectedQty: numeric("expected_qty", { precision: 12, scale: 4 }).notNull(),
+      countedQty: numeric("counted_qty", { precision: 12, scale: 4 }),
+      varianceQty: numeric("variance_qty", { precision: 12, scale: 4 }),
+      appliedDeltaQty: numeric("applied_delta_qty", { precision: 12, scale: 4 }),
+      receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("stocktake_lot_items_stocktake_item_id_idx").on(table.stocktakeItemId),
+      index("stocktake_lot_items_lot_id_idx").on(table.lotId),
+      uniqueIndex("stocktake_lot_items_stocktake_item_lot_uidx").on(
+        table.stocktakeItemId,
+        table.lotId
+      ),
+      pgPolicy("stocktake_lot_items_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`stocktake_item_id IN (
+          SELECT si.id
+          FROM inventory.stocktake_items si
+          INNER JOIN inventory.stocktakes s ON s.id = si.stocktake_id
+          WHERE s.organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`stocktake_item_id IN (
+          SELECT si.id
+          FROM inventory.stocktake_items si
+          INNER JOIN inventory.stocktakes s ON s.id = si.stocktake_id
+          WHERE s.organization_id = current_setting('app.current_org_id', true)
         )`,
       }),
     ]

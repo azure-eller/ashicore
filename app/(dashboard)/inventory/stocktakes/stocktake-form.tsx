@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -34,39 +34,81 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
-  insertStocktakeSchema,
+  createStocktakeSchema,
+  parseStocktakeScope,
   stocktakeDefaultValues,
   type StocktakeScope,
 } from "@/lib/schemas/stocktakes";
-import { getFirstFormErrorMessage } from "@/lib/format";
+import { formatQuantity, getFirstFormErrorMessage } from "@/lib/format";
 import { STOCKTAKE_SCOPE_TOOLTIP } from "@/lib/tooltip-copy";
-import { buildStocktakeName, type StocktakeScopeOptionGroup } from "./types";
+import {
+  buildStocktakeName,
+  type StocktakePreviewItem,
+  type StocktakeScopeOptionGroup,
+} from "./types";
 
 type ApiError = {
   error?: string;
   errors?: Record<string, string[]>;
 };
 
-type StocktakeFormValues = z.input<typeof insertStocktakeSchema>;
+type StocktakeFormValues = z.input<typeof createStocktakeSchema>;
 
 export function StocktakeForm({
+  previewItems,
   scopeGroups,
 }: {
+  previewItems: StocktakePreviewItem[];
   scopeGroups: StocktakeScopeOptionGroup[];
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [formError, setFormError] = useState<string | null>(null);
   const [nameDate] = useState(() => new Date());
+  const [removedItemIdsByScope, setRemovedItemIdsByScope] = useState<
+    Record<string, string[]>
+  >({});
 
   const form = useForm<StocktakeFormValues>({
-    resolver: zodResolver(insertStocktakeSchema),
+    resolver: zodResolver(createStocktakeSchema),
     mode: "onBlur",
     defaultValues: {
       ...stocktakeDefaultValues,
       name: buildStocktakeName(stocktakeDefaultValues.scope, nameDate),
     },
   });
+  const selectedScope = useWatch({ control: form.control, name: "scope" });
+
+  const visiblePreviewItems = useMemo(() => {
+    const parsed = parseStocktakeScope(selectedScope as StocktakeScope);
+    const removed = new Set(removedItemIdsByScope[selectedScope] ?? []);
+
+    return previewItems.filter((item) => {
+      if (removed.has(item.id)) {
+        return false;
+      }
+
+      if (parsed.kind === "type") {
+        return item.stocktakeType === parsed.itemType;
+      }
+
+      if (parsed.kind === "category") {
+        return (
+          item.stocktakeType === parsed.itemType &&
+          item.category === parsed.category
+        );
+      }
+
+      return true;
+    });
+  }, [previewItems, removedItemIdsByScope, selectedScope]);
+
+  const removePreviewItem = (itemId: string) => {
+    setRemovedItemIdsByScope((current) => ({
+      ...current,
+      [selectedScope]: [...new Set([...(current[selectedScope] ?? []), itemId])],
+    }));
+  };
 
   const mutation = useMutation<{ id: string }, ApiError, StocktakeFormValues>({
     mutationFn: async (values) => {
@@ -178,7 +220,11 @@ export function StocktakeForm({
         <form
           id="stocktake-form"
           onSubmit={form.handleSubmit(
-            (values) => mutation.mutate(values),
+            (values) =>
+              mutation.mutate({
+                ...values,
+                itemIds: visiblePreviewItems.map((item) => item.id),
+              }),
             handleInvalidSubmit
           )}
         >
@@ -268,6 +314,49 @@ export function StocktakeForm({
                 )}
               />
             </FieldGroup>
+          </CreateSection>
+
+          <CreateSection title="Lines">
+            <div className="overflow-x-auto rounded-lg border">
+              <div className="min-w-[42rem] divide-y">
+                {visiblePreviewItems.length > 0 ? (
+                  visiblePreviewItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="grid grid-cols-[minmax(16rem,1fr)_8rem_8rem_7rem] items-center gap-4 px-4 py-3 text-sm"
+                    >
+                      <div>
+                        <div className="font-medium">{item.name}</div>
+                        {item.sku ? (
+                          <div className="text-xs text-muted-foreground">{item.sku}</div>
+                        ) : null}
+                      </div>
+                      <div className="capitalize text-muted-foreground">
+                        {item.stocktakeType === "subassembly"
+                          ? "Sub assembly"
+                          : item.stocktakeType}
+                      </div>
+                      <div className="text-muted-foreground">{item.unitName}</div>
+                      <div className="flex items-center justify-end gap-3">
+                        <span>{formatQuantity(item.currentQty)}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removePreviewItem(item.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No items selected.
+                  </div>
+                )}
+              </div>
+            </div>
           </CreateSection>
         </form>
       </CreatePageGrid>

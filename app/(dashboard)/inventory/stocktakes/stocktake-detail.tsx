@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -131,6 +131,12 @@ export function StocktakeDetail({
         lineId: line.id,
         countedQty: line.countedQty,
       })),
+      lotLines: stocktake.lines.flatMap((line) =>
+        line.lots.map((lotLine) => ({
+          lotLineId: lotLine.id,
+          countedQty: lotLine.countedQty,
+        }))
+      ),
     },
   });
 
@@ -140,12 +146,22 @@ export function StocktakeDetail({
         lineId: line.id,
         countedQty: line.countedQty,
       })),
+      lotLines: stocktake.lines.flatMap((line) =>
+        line.lots.map((lotLine) => ({
+          lotLineId: lotLine.id,
+          countedQty: lotLine.countedQty,
+        }))
+      ),
     });
   }, [form, stocktake.lines]);
 
   const watchedLines = useWatch({
     control: form.control,
     name: "lines",
+  });
+  const watchedLotLines = useWatch({
+    control: form.control,
+    name: "lotLines",
   });
 
   const refreshStocktakeQueries = async () => {
@@ -156,7 +172,8 @@ export function StocktakeDetail({
     values: CountFormValues
   ): UpdateStocktakeCounts | null => {
     const dirtyLines = form.formState.dirtyFields.lines ?? [];
-    const lines = values.lines.flatMap((line, index) => {
+    const dirtyLotLines = form.formState.dirtyFields.lotLines ?? [];
+    const lines = (values.lines ?? []).flatMap((line, index) => {
       if (!dirtyLines[index]?.countedQty) {
         return [];
       }
@@ -168,18 +185,34 @@ export function StocktakeDetail({
         },
       ];
     });
+    const lotLines = (values.lotLines ?? []).flatMap((line, index) => {
+      if (!dirtyLotLines[index]?.countedQty) {
+        return [];
+      }
 
-    if (lines.length === 0) {
+      return [
+        {
+          lotLineId: line.lotLineId,
+          countedQty: normalizeCountedQtyInput(line.countedQty),
+        },
+      ];
+    });
+
+    if (lines.length === 0 && lotLines.length === 0) {
       return null;
     }
 
-    return updateStocktakeCountsSchema.parse({ lines });
+    return updateStocktakeCountsSchema.parse({ lines, lotLines });
   };
 
   const resetFormWithCurrentValues = (values: CountFormValues) => {
     form.reset({
-      lines: values.lines.map((line) => ({
+      lines: (values.lines ?? []).map((line) => ({
         lineId: line.lineId,
+        countedQty: formatSavedCountedQtyInput(line.countedQty),
+      })),
+      lotLines: (values.lotLines ?? []).map((line) => ({
+        lotLineId: line.lotLineId,
         countedQty: formatSavedCountedQtyInput(line.countedQty),
       })),
     });
@@ -279,22 +312,14 @@ export function StocktakeDetail({
     );
   };
 
-  const handleSave = form.handleSubmit(
-    async (values) => {
-      try {
-        const didSave = await saveDirtyCounts(values);
-
-        if (!didSave) {
-          return;
-        }
-
-        router.refresh();
-      } catch {
-        return;
-      }
-    },
-    handleInvalidSubmit
-  );
+  const autosaveCounts = form.handleSubmit(async (values) => {
+    try {
+      const didSave = await saveDirtyCounts(values);
+      if (didSave) router.refresh();
+    } catch {
+      return;
+    }
+  }, handleInvalidSubmit);
 
   const handleComplete = form.handleSubmit(
     async (values) => {
@@ -334,10 +359,69 @@ export function StocktakeDetail({
     },
   });
 
+  const cloneMutation = useMutation<{ id: string }, Error, void>({
+    mutationFn: async () => {
+      const response = await fetch(`/api/stocktakes/${stocktake.id}/clone`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to clone stocktake.");
+      }
+      return body as { id: string };
+    },
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async (result) => {
+      await refreshStocktakeQueries();
+      router.push(`/inventory/stocktakes/${result.id}`);
+    },
+    onError: (error) => {
+      setActionError(error.message);
+    },
+  });
+
   const displayLines = useMemo(() => {
+    const lotLineIndexById = new Map(
+      stocktake.lines
+        .flatMap((line) => line.lots)
+        .map((lotLine, index) => [lotLine.id, index])
+    );
+
     return stocktake.lines.map((line, index) => {
       const watchedLine = watchedLines?.[index];
-      const currentCountedQty = normalizeCountedQtyInput(watchedLine?.countedQty);
+      const lotLines = line.lots.map((lotLine) => {
+        const lotFormIndex = lotLineIndexById.get(lotLine.id) ?? 0;
+        const watchedLotLine = watchedLotLines?.[lotFormIndex];
+        const currentCountedQty = normalizeCountedQtyInput(
+          watchedLotLine?.countedQty
+        );
+        const currentVarianceQty =
+          currentCountedQty == null
+            ? null
+            : normalizeNumeric(
+                Number(currentCountedQty) - parseFloat(lotLine.expectedQty)
+              );
+
+        return {
+          ...lotLine,
+          formIndex: lotFormIndex,
+          currentCountedQty,
+          currentVarianceQty,
+        };
+      });
+      const currentCountedQty =
+        lotLines.length > 0
+          ? lotLines.some((lotLine) => lotLine.currentCountedQty != null)
+            ? normalizeNumeric(
+                lotLines.reduce(
+                  (sum, lotLine) => sum + Number(lotLine.currentCountedQty ?? 0),
+                  0
+                )
+              )
+            : line.countedQty
+          : normalizeCountedQtyInput(watchedLine?.countedQty);
       const currentVarianceQty =
         currentCountedQty == null
           ? null
@@ -350,9 +434,10 @@ export function StocktakeDetail({
         formIndex: index,
         currentCountedQty,
         currentVarianceQty,
+        lots: lotLines,
       };
     });
-  }, [stocktake.lines, watchedLines]);
+  }, [stocktake.lines, watchedLines, watchedLotLines]);
 
   const filteredLines = displayLines.filter((line) => {
     if (countFilter === "counted") {
@@ -383,8 +468,7 @@ export function StocktakeDetail({
   const canComplete =
     canEditCounts &&
     liveCountedCount > 0 &&
-    !completeMutation.isPending &&
-    !saveMutation.isPending;
+    !completeMutation.isPending;
 
   return (
     <>
@@ -426,6 +510,11 @@ export function StocktakeDetail({
                 ...(canEditCounts
                   ? [
                       {
+                        label: "Clone stocktake",
+                        onSelect: () => cloneMutation.mutate(),
+                        disabled: cloneMutation.isPending,
+                      },
+                      {
                         label: "Cancel stocktake",
                         onSelect: () => setCancelOpen(true),
                         disabled: cancelMutation.isPending,
@@ -437,14 +526,6 @@ export function StocktakeDetail({
             >
               {canEditCounts ? (
                 <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={!form.formState.isDirty || saveMutation.isPending}
-                  >
-                    {saveMutation.isPending ? "Saving..." : "Save Counts"}
-                  </Button>
                   <Button
                     size="sm"
                     onClick={handleComplete}
@@ -579,58 +660,114 @@ export function StocktakeDetail({
               <TableBody>
                 {filteredLines.length > 0 ? (
                   filteredLines.map((line) => (
-                    <TableRow key={line.id}>
-                      <TableCell>
-                        <Link
-                          href={itemDetailHref(line.itemType, line.itemId)}
-                          className="block space-y-0.5 hover:underline"
-                        >
-                          <div>{line.itemName}</div>
-                          {line.itemSku && (
-                            <div className="text-xs text-muted-foreground">
-                              {line.itemSku}
-                            </div>
-                          )}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{line.itemType}</Badge>
-                      </TableCell>
-                      <TableCell>{line.unitName}</TableCell>
-                      <TableCell className="text-right">
-                        {formatQuantity(line.expectedQty)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {canEditCounts ? (
-                          <Controller
-                            name={`lines.${line.formIndex}.countedQty`}
-                            control={form.control}
-                            render={({ field, fieldState }) => (
-                              <div className="ml-auto max-w-32">
-                                <Input
-                                  {...field}
-                                  value={field.value ?? ""}
-                                  aria-invalid={fieldState.invalid}
-                                  inputMode="decimal"
-                                  placeholder="Leave blank"
-                                  className="text-right"
-                                />
-                                {fieldState.invalid && (
-                                  <FieldError className="mt-1" errors={[fieldState.error]} />
-                                )}
+                    <Fragment key={line.id}>
+                      <TableRow key={line.id}>
+                        <TableCell>
+                          <Link
+                            href={itemDetailHref(line.itemType, line.itemId)}
+                            className="block space-y-0.5 hover:underline"
+                          >
+                            <div>{line.itemName}</div>
+                            {line.itemSku && (
+                              <div className="text-xs text-muted-foreground">
+                                {line.itemSku}
                               </div>
                             )}
-                          />
-                        ) : (
-                          formatQuantity(line.countedQty)
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatQuantity(
-                          canEditCounts ? line.currentVarianceQty : line.varianceQty
-                        )}
-                      </TableCell>
-                    </TableRow>
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{line.itemType}</Badge>
+                        </TableCell>
+                        <TableCell>{line.unitName}</TableCell>
+                        <TableCell className="text-right">
+                          {formatQuantity(line.expectedQty)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {line.lots.length > 0 ? (
+                            formatQuantity(line.currentCountedQty)
+                          ) : canEditCounts ? (
+                            <Controller
+                              name={`lines.${line.formIndex}.countedQty`}
+                              control={form.control}
+                              render={({ field, fieldState }) => (
+                                <div className="ml-auto max-w-32">
+                                  <Input
+                                    {...field}
+                                    value={field.value ?? ""}
+                                    aria-invalid={fieldState.invalid}
+                                    inputMode="decimal"
+                                    placeholder="Leave blank"
+                                    className="text-right"
+                                    onBlur={(event) => {
+                                      field.onBlur();
+                                      autosaveCounts(event);
+                                    }}
+                                  />
+                                  {fieldState.invalid && (
+                                    <FieldError className="mt-1" errors={[fieldState.error]} />
+                                  )}
+                                </div>
+                              )}
+                            />
+                          ) : (
+                            formatQuantity(line.countedQty)
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatQuantity(
+                            canEditCounts ? line.currentVarianceQty : line.varianceQty
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {line.lots.map((lotLine) => (
+                        <TableRow key={lotLine.id} className="bg-muted/30">
+                          <TableCell className="pl-8 font-mono text-xs">
+                            {lotLine.lotNumber}
+                          </TableCell>
+                          <TableCell />
+                          <TableCell>{line.unitName}</TableCell>
+                          <TableCell className="text-right">
+                            {formatQuantity(lotLine.expectedQty)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {canEditCounts ? (
+                              <Controller
+                                name={`lotLines.${lotLine.formIndex}.countedQty`}
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                  <div className="ml-auto max-w-32">
+                                    <Input
+                                      {...field}
+                                      value={field.value ?? ""}
+                                      aria-invalid={fieldState.invalid}
+                                      inputMode="decimal"
+                                      placeholder="Leave blank"
+                                      className="text-right"
+                                      onBlur={(event) => {
+                                        field.onBlur();
+                                        autosaveCounts(event);
+                                      }}
+                                    />
+                                    {fieldState.invalid && (
+                                      <FieldError className="mt-1" errors={[fieldState.error]} />
+                                    )}
+                                  </div>
+                                )}
+                              />
+                            ) : (
+                              formatQuantity(lotLine.countedQty)
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatQuantity(
+                              canEditCounts
+                                ? lotLine.currentVarianceQty
+                                : lotLine.varianceQty
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </Fragment>
                   ))
                 ) : (
                   <TableRow>

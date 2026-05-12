@@ -13,6 +13,7 @@ import { ItemDetailActions } from "./item-detail-actions";
 import { ItemDetailTabs } from "./item-detail-tabs";
 import { ItemHistorySparklineCard } from "./item-history-sparkline-card";
 import { LotDispositionActions } from "./lot-disposition-actions";
+import { LotQuantityAdjuster } from "./lot-quantity-adjuster";
 import { InventoryCommitmentDonut } from "./inventory-commitment-donut";
 import { DateTimeText } from "@/components/date-time-text";
 import type { ItemCommitmentSummary } from "./commitment-summary";
@@ -736,7 +737,12 @@ function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
               <TableRow key={lot.id}>
                 <TableCell className="font-mono">{lot.lotNumber}</TableCell>
                 <TableCell className="text-right font-mono">
-                  {formatQuantity(lot.quantity)}
+                  <LotQuantityAdjuster
+                    itemId={item.id}
+                    lotId={lot.id}
+                    lotNumber={lot.lotNumber}
+                    quantity={lot.quantity}
+                  />
                 </TableCell>
                 <TableCell>
                   {lot.dispositionBalances.length > 0 ? (

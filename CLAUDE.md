@@ -381,7 +381,10 @@ See `docs/stocktakes.md`. Critical:
 - Saving counts updates snapshot rows only. Completion applies counted truth from current live stock; if live stock changed since snapshot, return `409` with a stale payload and require confirmation.
 - Draft saves submit dirty lines only. Completing a dirty stocktake saves dirty counts first, then completes.
 - Draft creation and item soft deletes must both lock affected `items` rows before checking draft references — snapshot creation must not race with delete.
-- Scope picker is one dropdown: quick scopes (`all`, `material`, `product`) then category scopes. Category scopes encode item type + name: `buildStocktakeCategoryScope("material", "Soil")` → `"material:category:Soil"`.
+- Scope picker is one dropdown: quick scopes (`all`, `material`, `product`, `subassembly`) then category scopes. Category scopes encode item type + name: `buildStocktakeCategoryScope("material", "Soil")` → `"material:category:Soil"`.
+- Stocktake products are sellable final products only. Non-sellable products count as `subassembly` scope.
+- Stocktakes snapshot active available lots into `stocktake_lot_items`; count lots when present and derive the parent item count from lot counts.
+- Stocktake count fields autosave on blur. Do not add a separate Save button.
 
 ### Positive stock additions need cost
 

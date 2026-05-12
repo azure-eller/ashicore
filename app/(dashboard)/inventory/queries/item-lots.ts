@@ -1,3 +1,8 @@
 import "server-only";
 
-export { getLots, applyLotDispositionAction, getStockMovements } from "./internal";
+export {
+  adjustLotQuantity,
+  getLots,
+  applyLotDispositionAction,
+  getStockMovements,
+} from "./internal";

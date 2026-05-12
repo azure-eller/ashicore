@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
-import { insertStocktakeSchema } from "@/lib/schemas/stocktakes";
+import { createStocktakeSchema } from "@/lib/schemas/stocktakes";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import {
   createStocktake,
@@ -32,7 +32,7 @@ export const DELETE = apiHandler(async (request) => {
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
-  const data = insertStocktakeSchema.parse(body);
+  const data = createStocktakeSchema.parse(body);
 
   try {
     const stocktake = await createStocktake(data);

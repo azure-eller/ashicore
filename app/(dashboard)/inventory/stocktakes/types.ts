@@ -24,7 +24,7 @@ export function formatScope(scope: StocktakeScope) {
   }
 
   if (parsed.kind === "type") {
-    return parsed.itemType === "material" ? "Materials" : "Products";
+    return formatStocktakeScopeTypeLabel(parsed.itemType);
   }
 
   return `${formatStocktakeScopeTypeLabel(parsed.itemType)}: ${parsed.category}`;
@@ -41,7 +41,9 @@ export function buildStocktakeName(scope: StocktakeScope, date = new Date()) {
 }
 
 function formatStocktakeScopeTypeLabel(itemType: StocktakeScopeItemType) {
-  return itemType === "material" ? "Materials" : "Products";
+  if (itemType === "material") return "Materials";
+  if (itemType === "subassembly") return "Sub Assemblies";
+  return "Products";
 }
 
 export type StocktakeListRow = {
@@ -73,6 +75,21 @@ export type StocktakeDetailLine = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  lots: StocktakeDetailLotLine[];
+};
+
+export type StocktakeDetailLotLine = {
+  id: string;
+  lotId: string;
+  lotNumber: string;
+  expectedQty: string;
+  countedQty: string | null;
+  varianceQty: string | null;
+  appliedDeltaQty: string | null;
+  receivedAt: Date;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type StocktakeDetail = {
@@ -91,11 +108,24 @@ export type StocktakeDetail = {
 export type StocktakeStaleWarningPayload = {
   items: Array<{
     lineId: string;
+    lotLineId?: string | null;
     itemId: string;
     itemName: string;
+    lotNumber?: string | null;
     unitName: string;
     expectedQty: string;
     currentQty: string;
     countedQty: string;
   }>;
+};
+
+export type StocktakePreviewItem = {
+  id: string;
+  name: string;
+  sku: string | null;
+  itemType: ItemType;
+  stocktakeType: StocktakeScopeItemType;
+  category: string | null;
+  unitName: string;
+  currentQty: string;
 };

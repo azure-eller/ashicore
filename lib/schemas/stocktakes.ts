@@ -3,7 +3,11 @@ import { z } from "zod";
 import { stocktakes } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
-export const STOCKTAKE_SCOPE_ITEM_TYPES = ["material", "product"] as const;
+export const STOCKTAKE_SCOPE_ITEM_TYPES = [
+  "material",
+  "product",
+  "subassembly",
+] as const;
 export type StocktakeScopeItemType = (typeof STOCKTAKE_SCOPE_ITEM_TYPES)[number];
 
 export const STOCKTAKE_SCOPES = ["all", ...STOCKTAKE_SCOPE_ITEM_TYPES] as const;
@@ -25,7 +29,7 @@ export function buildStocktakeCategoryScope(
 function normalizeStocktakeScope(value: string) {
   const trimmed = value.trim();
 
-  const categoryMatch = /^(material|product):category:(.+)$/u.exec(trimmed);
+  const categoryMatch = /^(material|product|subassembly):category:(.+)$/u.exec(trimmed);
   if (categoryMatch) {
     return buildStocktakeCategoryScope(
       categoryMatch[1] as StocktakeScopeItemType,
@@ -41,7 +45,7 @@ export function isStocktakeScope(value: string): value is StocktakeScope {
     return true;
   }
 
-  const categoryMatch = /^(material|product):category:(.+)$/u.exec(value);
+  const categoryMatch = /^(material|product|subassembly):category:(.+)$/u.exec(value);
   return categoryMatch != null && categoryMatch[2].trim().length > 0;
 }
 
@@ -60,7 +64,7 @@ export function parseStocktakeScope(scope: StocktakeScope):
     };
   }
 
-  const categoryMatch = /^(material|product):category:(.+)$/u.exec(scope);
+  const categoryMatch = /^(material|product|subassembly):category:(.+)$/u.exec(scope);
   if (!categoryMatch) {
     return { kind: "all" };
   }
@@ -97,17 +101,38 @@ export const insertStocktakeSchema = createInsertSchema(stocktakes, {
 
 export type InsertStocktake = z.infer<typeof insertStocktakeSchema>;
 
+export const createStocktakeSchema = insertStocktakeSchema.extend({
+  itemIds: z.array(z.string().uuid()).optional(),
+});
+
+export type CreateStocktake = z.infer<typeof createStocktakeSchema>;
+
 const rawCountLineSchema = z.object({
   lineId: z.string().min(1),
   countedQty: nullableString,
 });
 
+const rawCountLotLineSchema = z.object({
+  lotLineId: z.string().min(1),
+  countedQty: nullableString,
+});
+
 export const updateStocktakeCountsSchema = z
   .object({
-    lines: z.array(rawCountLineSchema).min(1),
+    lines: z.array(rawCountLineSchema).optional().default([]),
+    lotLines: z.array(rawCountLotLineSchema).optional().default([]),
   })
   .superRefine((data, ctx) => {
     const seen = new Set<string>();
+    const seenLots = new Set<string>();
+
+    if (data.lines.length === 0 && data.lotLines.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Submit at least one count",
+        path: ["lines"],
+      });
+    }
 
     data.lines.forEach((line, index) => {
       if (seen.has(line.lineId)) {
@@ -134,10 +159,40 @@ export const updateStocktakeCountsSchema = z
         });
       }
     });
+
+    data.lotLines.forEach((line, index) => {
+      if (seenLots.has(line.lotLineId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Each lot can only be submitted once",
+          path: ["lotLines", index, "countedQty"],
+        });
+        return;
+      }
+
+      seenLots.add(line.lotLineId);
+
+      if (line.countedQty == null) {
+        return;
+      }
+
+      const parsed = Number(line.countedQty);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Counted quantity must be 0 or greater",
+          path: ["lotLines", index, "countedQty"],
+        });
+      }
+    });
   })
-  .transform(({ lines }) => ({
+  .transform(({ lines, lotLines }) => ({
     lines: lines.map((line) => ({
       lineId: line.lineId,
+      countedQty: line.countedQty?.trim() ?? null,
+    })),
+    lotLines: lotLines.map((line) => ({
+      lotLineId: line.lotLineId,
       countedQty: line.countedQty?.trim() ?? null,
     })),
   }));

@@ -12,23 +12,28 @@ read_when:
 
 Stocktakes are an **inventory-native** reconciliation workflow.
 
-V1 is intentionally small:
+Stocktakes support scoped snapshots plus lot-aware counts:
 
 - a stocktake snapshots all active items in one scope chosen from one grouped dropdown:
-  - quick scopes: `all`, `material`, or `product`
-  - category scopes: one category inside `material` or `product`
+  - quick scopes: `all`, `material`, `product`, or `subassembly`
+  - category scopes: one category inside `material`, `product`, or `subassembly`
+- users preview the matching items before creation and can remove items from the snapshot
 - count entry happens on the stocktake detail page
+- items with active available lots snapshot those lots and count per lot
 - blank counted quantities mean "leave unchanged"
 - completion automatically sets inventory to counted truth
 
-Stocktakes are item-total counts only. They reconcile the `available` disposition for V1. Blocked and rejected stock remains managed by disposition actions and is not collapsed into available by a stocktake. Stocktakes do not count lots individually, do not support locations, and do not have a separate review/apply phase.
+Stocktakes reconcile the `available` disposition. Blocked and rejected stock remains managed by disposition actions and is not collapsed into available by a stocktake. Location-specific counting is still not exposed in the UI; lot count rows reconcile the default location's available lot balance.
 
 Category scopes must encode both the item type and the category name in `inventory.stocktakes.scope`, for example `material:category:Soil`. This avoids ambiguous category names shared by both materials and products while keeping list/detail labels readable.
+
+`product` scopes include sellable final products only. Non-sellable product items are shown under `subassembly`.
 
 ## Data Model
 
 - `inventory.stocktakes` stores the header and workflow state
 - `inventory.stocktake_items` stores copied item snapshots plus expected, counted, variance, and applied-delta quantities
+- `inventory.stocktake_lot_items` stores copied lot snapshots plus expected, counted, variance, and applied-delta quantities
 
 Snapshot rows must keep:
 
@@ -55,11 +60,13 @@ Saving counts updates only the stocktake snapshot rows:
 
 Saving counts must not mutate live stock.
 
-Draft saves may submit only changed lines. Clearing a saved count should submit that line with `countedQty = null`.
+Draft saves may submit only changed item or lot lines. Clearing a saved count should submit that line with `countedQty = null`. The UI autosaves count fields on blur; there is no separate Save button.
 
 If a user explicitly enters the snapshot quantity, keep it as a saved count with zero variance. That still counts as progress, but it should not create a stock movement unless completion later sees a live-stock delta.
 
 The draft detail UI should let `Complete` save pending count edits first, then run completion. This keeps the workflow one-click without adding a separate combined API contract.
+
+For items with lot rows, the item counted total is derived from counted lot rows. Users should count specific lots instead of editing the parent item total.
 
 ### Snapshot locking
 
@@ -90,6 +97,7 @@ Stocktake completion reuses the inventory kernel and reconciles the available bu
 - positive variance writes `stocktake_gain`
 - negative variance writes `stocktake_loss` per consumed lot
 - zero variance writes `stocktake_verification` so the ledger can answer "when was this item last physically verified?"
+- lot rows write gain/loss events to the lot and carry `stocktakeLotLineId` metadata
 - positive deltas must resolve to a non-null `costPerUnit`
   - materials convert the item's current `defaultPurchasePrice` from purchase-unit price into stock-unit cost using `purchaseToStockFactor`
   - products derive cost from active BOM ingredients

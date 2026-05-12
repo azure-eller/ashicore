@@ -4,6 +4,7 @@ export { InventoryError } from "./queries/internal";
 export { getItems, getInventoryTabCounts } from "./queries/items-list";
 export { getItem, getItemCommitmentSummary } from "./queries/item-detail";
 export {
+  adjustLotQuantity,
   getLots,
   applyLotDispositionAction,
   getStockMovements,

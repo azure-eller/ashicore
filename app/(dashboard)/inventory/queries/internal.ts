@@ -45,13 +45,17 @@ import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
   changeLotDispositionInTx,
+  appendPositiveStockToExistingLotInTx,
+  consumeSpecificLotInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
+  getDefaultInventoryLocationInTx,
   getCurrentOnHandQtyInTx,
   ledgerLotUnitCostByOrigin,
   lockItemsInTx,
   manualDecreaseStockInTx,
   manualIncreaseStockInTx,
+  resolvePositiveStockUnitCostInTx,
   defaultLocationIdSubquery,
   projectedAvailableQty,
   projectedCommittedQty,
@@ -74,6 +78,7 @@ import { calculateMarginMetrics } from "@/lib/margin";
 import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
 import type { QualityDispositionAction } from "@/lib/schemas/inventory-disposition";
+import type { LotQuantityAdjustment } from "@/lib/schemas/lot-adjustment";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
@@ -1795,6 +1800,94 @@ export async function applyLotDispositionAction(
       idempotencyKey: options?.idempotencyKey ?? null,
       notes: action.notes,
     });
+  });
+}
+
+export async function adjustLotQuantity(
+  itemId: string,
+  lotId: string,
+  data: LotQuantityAdjustment,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockItemsInTx(tx, [itemId]);
+
+    const [lot] = await tx
+      .select({
+        id: lots.id,
+        quantity: trimScale(
+          sql`COALESCE(${inventoryLotBalances.quantity}, 0)`
+        ).as("quantity"),
+        unitCost: trimScaleNullable(inventoryLotBalances.unitCost).as("unitCost"),
+      })
+      .from(lots)
+      .leftJoin(
+        inventoryLotBalances,
+        and(
+          eq(inventoryLotBalances.organizationId, lots.organizationId),
+          eq(inventoryLotBalances.itemId, lots.itemId),
+          eq(inventoryLotBalances.lotId, lots.id),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      )
+      .where(and(eq(lots.itemId, itemId), eq(lots.id, lotId)))
+      .for("update");
+
+    if (!lot) {
+      throw new InventoryError("Lot not found");
+    }
+
+    const currentQuantity = Number(lot.quantity);
+    const nextQuantity = Number(data.quantity);
+    const delta = nextQuantity - currentQuantity;
+
+    if (delta === 0) {
+      return { lotId, quantity: data.quantity };
+    }
+
+    const location = await getDefaultInventoryLocationInTx(tx, orgId);
+    const metadata = data.note ? { note: data.note } : null;
+
+    if (delta > 0) {
+      const unitCost =
+        lot.unitCost ??
+        (await resolvePositiveStockUnitCostInTx(tx, {
+          itemId,
+          reason: "material_default_price",
+        }));
+      await appendPositiveStockToExistingLotInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        lotId,
+        quantity: delta,
+        unitCost,
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "manual_adjustment",
+        referenceType: "lot",
+        referenceId: lotId,
+        actorUserId: userId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        metadata,
+      });
+    } else {
+      await consumeSpecificLotInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        lotId,
+        quantity: Math.abs(delta),
+        eventType: "manual_adjustment_decrease",
+        eventSubtype: "manual_adjustment",
+        referenceType: "lot",
+        referenceId: lotId,
+        actorUserId: userId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        metadata,
+      });
+    }
+
+    return { lotId, quantity: data.quantity };
   });
 }
 
