@@ -151,6 +151,10 @@ interface ItemDetailProps {
     realizedGrossProfit: string | null;
     realizedMarginPercent: string | null;
     receivedAt: Date;
+    allocations: Array<{
+      label: string;
+      quantity: string;
+    }>;
     dispositionBalances: Array<{
       disposition: "available" | "blocked" | "rejected";
       quantity: string;
@@ -705,6 +709,7 @@ function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
               <TableHead>
                 <TooltipHeader label="Disposition" tooltip={LOT_DISPOSITION_TOOLTIP} />
               </TableHead>
+              <TableHead>Allocation</TableHead>
               <TableHead className="text-right">
                 <TooltipHeader label="Cost / Unit" tooltip={LOT_UNIT_COST_TOOLTIP} />
               </TableHead>
@@ -753,6 +758,22 @@ function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
                     </div>
                   ) : (
                     "\u2014"
+                  )}
+                </TableCell>
+                <TableCell>
+                  {lot.allocations.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {lot.allocations.map((allocation) => (
+                        <Badge
+                          key={`${lot.id}-${allocation.label}-${allocation.quantity}`}
+                          variant="secondary"
+                        >
+                          {allocation.label} · {formatQuantity(allocation.quantity)}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">{"\u2014"}</span>
                   )}
                 </TableCell>
                 <TableCell className="text-right font-mono">

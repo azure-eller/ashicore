@@ -30,12 +30,12 @@ import {
   manufacturingOrders,
   pricingScheduleBreaks,
   pricingSchedules,
-  salesOrderAllocations,
   salesOrderLines,
   salesOrders,
   salesShipmentCosts,
   salesShipmentLines,
   salesShipments,
+  stockAllocations,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -2100,7 +2100,7 @@ async function buildConfirmationAllocationPlanInTx(
       }
 
       const stockQty = explicitSources
-        .filter((source) => source.sourceType === "stock_pool")
+        .filter((source) => source.sourceType === "stock_pool" || source.sourceType === "lot")
         .reduce((sum, source) => sum + Number(source.quantity), 0);
 
       if (stockQty > 0) {
@@ -2147,30 +2147,31 @@ async function buildDraftAllocationTakeoverWarningInTx(
 
   const rows = await tx
     .select({
-      allocationId: salesOrderAllocations.id,
+      allocationId: stockAllocations.id,
       salesOrderId: salesOrders.id,
       salesOrderLineId: salesOrderLines.id,
       orderNumber: salesOrders.orderNumber,
       customerName: salesOrders.customerName,
-      itemId: salesOrderAllocations.itemId,
+      itemId: stockAllocations.itemId,
       itemName: salesOrderLines.itemName,
       unitName: salesOrderLines.unitName,
-      quantity: trimScale(salesOrderAllocations.quantity).as("quantity"),
+      quantity: trimScale(stockAllocations.quantity).as("quantity"),
     })
-    .from(salesOrderAllocations)
+    .from(stockAllocations)
     .innerJoin(
       salesOrderLines,
-      eq(salesOrderAllocations.salesOrderLineId, salesOrderLines.id)
+      eq(stockAllocations.demandId, salesOrderLines.id)
     )
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .where(
       and(
-        eq(salesOrderAllocations.organizationId, orgId),
-        eq(salesOrderAllocations.sourceType, "stock_pool"),
-        eq(salesOrderAllocations.status, "active"),
+        eq(stockAllocations.organizationId, orgId),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.sourceType, "stock_pool"),
+        eq(stockAllocations.status, "active"),
         eq(salesOrders.status, "draft"),
         isNull(salesOrders.deletedAt),
-        inArray(salesOrderAllocations.itemId, [...takeoverQtyByItem.keys()])
+        inArray(stockAllocations.itemId, [...takeoverQtyByItem.keys()])
       )
     )
     .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber), asc(salesOrderLines.sortOrder));
@@ -2209,16 +2210,17 @@ async function applyDraftAllocationTakeoverInTx(
   for (const allocation of warning.allocations) {
     const [row] = await tx
       .select({
-        id: salesOrderAllocations.id,
-        quantity: trimScale(salesOrderAllocations.quantity).as("quantity"),
+        id: stockAllocations.id,
+        quantity: trimScale(stockAllocations.quantity).as("quantity"),
       })
-      .from(salesOrderAllocations)
+      .from(stockAllocations)
       .where(
         and(
-          eq(salesOrderAllocations.organizationId, orgId),
-          eq(salesOrderAllocations.salesOrderLineId, allocation.salesOrderLineId),
-          eq(salesOrderAllocations.sourceType, "stock_pool"),
-          eq(salesOrderAllocations.status, "active")
+          eq(stockAllocations.organizationId, orgId),
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, allocation.salesOrderLineId),
+          eq(stockAllocations.sourceType, "stock_pool"),
+          eq(stockAllocations.status, "active")
         )
       )
       .for("update");
@@ -2229,16 +2231,16 @@ async function applyDraftAllocationTakeoverInTx(
     const remainingQty = roundQuantity(currentQty - allocation.quantity);
     if (remainingQty > 0) {
       await tx
-        .update(salesOrderAllocations)
+        .update(stockAllocations)
         .set({
           quantity: normalizeNumeric(remainingQty),
           updatedBy: userId,
           updatedAt: now,
         })
-        .where(eq(salesOrderAllocations.id, row.id));
+        .where(eq(stockAllocations.id, row.id));
     } else {
       await tx
-        .update(salesOrderAllocations)
+        .update(stockAllocations)
         .set({
           status: "cancelled",
           updatedBy: userId,
@@ -2246,7 +2248,7 @@ async function applyDraftAllocationTakeoverInTx(
           cancelledAt: now,
           cancelledBy: userId,
         })
-        .where(eq(salesOrderAllocations.id, row.id));
+        .where(eq(stockAllocations.id, row.id));
     }
   }
 }
@@ -5103,7 +5105,7 @@ export async function updateSalesOrder(
     if (existingLineIds.length > 0) {
       const now = new Date();
       await tx
-        .update(salesOrderAllocations)
+        .update(stockAllocations)
         .set({
           status: "cancelled",
           cancelledAt: now,
@@ -5113,14 +5115,20 @@ export async function updateSalesOrder(
         })
         .where(
           and(
-            inArray(salesOrderAllocations.salesOrderLineId, existingLineIds),
-            eq(salesOrderAllocations.status, "active")
+            inArray(stockAllocations.demandId, existingLineIds),
+            eq(stockAllocations.demandType, "sales_order_line"),
+            eq(stockAllocations.status, "active")
           )
         );
 
       await tx
-        .delete(salesOrderAllocations)
-        .where(inArray(salesOrderAllocations.salesOrderLineId, existingLineIds));
+        .delete(stockAllocations)
+        .where(
+          and(
+            eq(stockAllocations.demandType, "sales_order_line"),
+            inArray(stockAllocations.demandId, existingLineIds)
+          )
+        );
     }
 
     const existingShipmentRows = await tx

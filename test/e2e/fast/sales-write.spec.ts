@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
@@ -13,7 +13,7 @@ import {
   lots,
   manufacturingOrders,
   purchaseOrderLines,
-  salesOrderAllocations,
+  stockAllocations,
   salesOrderLines,
   salesShipmentLines,
   salesOrders,
@@ -1053,14 +1053,24 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesOrderLines.salesOrderId, competingOrderId));
     const allocations = await db
       .select()
-      .from(salesOrderAllocations)
-      .where(eq(salesOrderAllocations.salesOrderLineId, line.id));
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, line.id)
+        )
+      );
     expect(allocations).toHaveLength(1);
     expect(Number(allocations[0].quantity)).toBe(6);
     const competingAllocations = await db
       .select()
-      .from(salesOrderAllocations)
-      .where(eq(salesOrderAllocations.salesOrderLineId, competingLine.id));
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, competingLine.id)
+        )
+      );
     expect(competingAllocations).toHaveLength(0);
   });
 
@@ -1177,8 +1187,13 @@ test.describe("Sales write-path smoke", () => {
 
     const activeRows = await db
       .select()
-      .from(salesOrderAllocations)
-      .where(eq(salesOrderAllocations.salesOrderLineId, lines[1].id));
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, lines[1].id)
+        )
+      );
     expect(activeRows).toHaveLength(0);
 
     const zeroedAllocationResponse = await testFetch(
@@ -1188,6 +1203,145 @@ test.describe("Sales write-path smoke", () => {
     const zeroedAllocation = await zeroedAllocationResponse.json();
     expect(zeroedAllocation.targetLine.allocatedQty).toBe("0");
     expect(zeroedAllocation.targetLine.shortQty).toBe("70");
+  });
+
+  test("lot-aware allocation prevents shared stock double counting", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-LOT-DOUBLE`;
+    const customerResult = await createCustomer({
+      name: `Fast Lot Double Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const itemResult = await createItem({
+      name: `Fast Lot Double Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-LOT-DOUBLE-${suffix}`,
+      category: `Fast Lot Double ${suffix}`,
+      description: "Material for lot allocation double-count coverage",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "10",
+      safetyStock: "0",
+    });
+    expect(itemResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: customerResult.body.id,
+      status: "confirmed",
+      shipDate: "2026-05-17",
+      lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderResult.body.id as string));
+
+    const allocationResponse = await testFetch(
+      `/api/sales-order-lines/${line.id}/allocation`
+    );
+    expect(allocationResponse.status).toBe(200);
+    const allocationModel = await allocationResponse.json();
+    const lotSource = allocationModel.supplySources.find(
+      (source: { sourceType: string }) => source.sourceType === "lot"
+    );
+    expect(lotSource).toBeTruthy();
+
+    const overAllocateResponse = await testFetch(
+      `/api/sales-order-lines/${line.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            {
+              sourceType: "lot",
+              sourceId: lotSource.sourceId,
+              quantity: "10",
+            },
+            { sourceType: "stock_pool", sourceId: null, quantity: "10" },
+          ],
+        }),
+      }
+    );
+    expect(overAllocateResponse.status).toBe(409);
+  });
+
+  test("mixed lot and stock-pool shipment consumes selected lots before FIFO", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-LOT-SHIP`;
+    const customerResult = await createCustomer({
+      name: `Fast Lot Ship Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const itemResult = await createItem({
+      name: `Fast Lot Ship Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-LOT-SHIP-${suffix}`,
+      category: `Fast Lot Ship ${suffix}`,
+      description: "Material for mixed lot and stock-pool shipping",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "10",
+      safetyStock: "0",
+    });
+    expect(itemResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: customerResult.body.id,
+      status: "confirmed",
+      shipDate: "2026-05-18",
+      lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderResult.body.id as string));
+
+    const allocationResponse = await testFetch(
+      `/api/sales-order-lines/${line.id}/allocation`
+    );
+    expect(allocationResponse.status).toBe(200);
+    const allocationModel = await allocationResponse.json();
+    const lotSource = allocationModel.supplySources.find(
+      (source: { sourceType: string }) => source.sourceType === "lot"
+    );
+    expect(lotSource).toBeTruthy();
+
+    const lotAllocationResponse = await testFetch(
+      `/api/sales-order-lines/${line.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            {
+              sourceType: "lot",
+              sourceId: lotSource.sourceId,
+              quantity: "5",
+            },
+            { sourceType: "stock_pool", sourceId: null, quantity: "5" },
+          ],
+        }),
+      }
+    );
+    expect(lotAllocationResponse.status).toBe(200);
+
+    const shipResult = await fulfillSalesOrder(orderResult.body.id as string);
+    expect(shipResult.status).toBe(200);
+
+    const [order] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, orderResult.body.id as string));
+    expect(order.status).toBe("shipped");
   });
 
   test("keeps same-date sales order rows in place after confirming from the list", async ({

@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, filterList } from "../fixtures";
 import {
@@ -6,7 +6,7 @@ import {
   inventoryItemBalances,
   inventoryReservationsSummary,
   manufacturingOrders,
-  salesOrderAllocations,
+  stockAllocations,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -163,14 +163,19 @@ async function getLine(db: TestDb, orderId: string) {
 async function getActiveAllocations(db: TestDb, salesOrderLineId: string) {
   return db
     .select({
-      sourceType: salesOrderAllocations.sourceType,
-      sourceId: salesOrderAllocations.sourceId,
-      quantity: salesOrderAllocations.quantity,
-      status: salesOrderAllocations.status,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      quantity: stockAllocations.quantity,
+      status: stockAllocations.status,
     })
-    .from(salesOrderAllocations)
-    .where(eq(salesOrderAllocations.salesOrderLineId, salesOrderLineId))
-    .orderBy(asc(salesOrderAllocations.createdAt));
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.demandId, salesOrderLineId)
+      )
+    )
+    .orderBy(asc(stockAllocations.createdAt));
 }
 
 async function getItemBalance(db: TestDb, itemId: string) {
@@ -627,7 +632,7 @@ test.describe("Sales allocation manager slow flow", () => {
     );
     expect(invalidAllocation.status).toBe(409);
     const invalidAllocationBody = await invalidAllocation.json();
-    expect(invalidAllocationBody.error).toMatch(/stock only has 0 free/i);
+    expect(invalidAllocationBody.error).toMatch(/0 free stock/i);
 
     expect(await getActiveAllocations(db, firstLine.id)).toMatchObject([
       {

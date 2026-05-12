@@ -5,12 +5,13 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryLotBalances,
   items,
+  lots,
   manufacturingOrders,
-  salesOrderAllocations,
   salesOrderLines,
   salesOrders,
   salesShipmentLines,
   salesShipments,
+  stockAllocations,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -252,6 +253,29 @@ async function getUsableStockQtyInTx(tx: Tx, orgId: string, itemId: string) {
   return toQuantity(row?.quantity);
 }
 
+async function getUsableLotSourcesInTx(tx: Tx, orgId: string, itemId: string) {
+  const location = await getDefaultInventoryLocationInTx(tx, orgId);
+  return tx
+    .select({
+      id: lots.id,
+      lotNumber: lots.lotNumber,
+      quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+      receivedAt: lots.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, orgId),
+        eq(inventoryLotBalances.locationId, location.id),
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
+    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+}
+
 async function getActiveAllocationRowsForItemInTx(
   tx: Tx,
   orgId: string,
@@ -259,24 +283,25 @@ async function getActiveAllocationRowsForItemInTx(
 ) {
   return tx
     .select({
-      id: salesOrderAllocations.id,
-      salesOrderLineId: salesOrderAllocations.salesOrderLineId,
-      itemId: salesOrderAllocations.itemId,
-      sourceType: salesOrderAllocations.sourceType,
-      sourceId: salesOrderAllocations.sourceId,
-      quantity: trimScale(salesOrderAllocations.quantity).as("quantity"),
+      id: stockAllocations.id,
+      salesOrderLineId: stockAllocations.demandId,
+      itemId: stockAllocations.itemId,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      quantity: trimScale(stockAllocations.quantity).as("quantity"),
     })
-    .from(salesOrderAllocations)
+    .from(stockAllocations)
     .innerJoin(
       salesOrderLines,
-      eq(salesOrderAllocations.salesOrderLineId, salesOrderLines.id)
+      eq(stockAllocations.demandId, salesOrderLines.id)
     )
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .where(
       and(
-        eq(salesOrderAllocations.organizationId, orgId),
-        eq(salesOrderAllocations.itemId, itemId),
-        eq(salesOrderAllocations.status, "active"),
+        eq(stockAllocations.organizationId, orgId),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.itemId, itemId),
+        eq(stockAllocations.status, "active"),
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
       )
@@ -337,6 +362,8 @@ export async function getSalesAllocationReadModelForItemInTx(
 ) {
   const demandLines = await getActiveDemandLinesForItemInTx(tx, itemId);
   const stockTotalQty = await getUsableStockQtyInTx(tx, orgId, itemId);
+  const lotSources = await getUsableLotSourcesInTx(tx, orgId, itemId);
+  const lotById = new Map(lotSources.map((lot) => [lot.id, lot]));
   const activeAllocationRows = await getActiveAllocationRowsForItemInTx(
     tx,
     orgId,
@@ -356,6 +383,8 @@ export async function getSalesAllocationReadModelForItemInTx(
     const label =
       sourceType === "stock_pool"
         ? "Stock"
+        : sourceType === "lot"
+          ? lotById.get(sourceId ?? "")?.lotNumber ?? "Lot"
         : manufacturingSources.get(sourceId ?? "")?.label ?? "Production";
     const quantity = toQuantity(row.quantity);
     const allocation: EffectiveAllocation = {
@@ -374,8 +403,13 @@ export async function getSalesAllocationReadModelForItemInTx(
     allocatedBySource.set(key, roundQuantity((allocatedBySource.get(key) ?? 0) + quantity));
   }
 
+  const allocatedFromLotsQty = [...allocatedBySource.entries()]
+    .filter(([key]) => key.startsWith("lot:"))
+    .reduce((sum, [, quantity]) => roundQuantity(sum + quantity), 0);
   let remainingImplicitStockQty = roundQuantity(
-    stockTotalQty - (allocatedBySource.get(sourceKey("stock_pool", null)) ?? 0)
+    stockTotalQty -
+      (allocatedBySource.get(sourceKey("stock_pool", null)) ?? 0) -
+      allocatedFromLotsQty
   );
 
   for (const line of demandLines) {
@@ -474,7 +508,10 @@ export async function getSalesAllocationReadModelForItemInTx(
 
   const supplySources: SalesAllocationSource[] = [];
   const stockAllocatedQty = allocatedBySource.get(sourceKey("stock_pool", null)) ?? 0;
-  const stockFreeQty = Math.max(0, roundQuantity(stockTotalQty - stockAllocatedQty));
+  const stockFreeQty = Math.max(
+    0,
+    roundQuantity(stockTotalQty - stockAllocatedQty - allocatedFromLotsQty)
+  );
   const currentTargetStockQty = targetQtyBySource.get(sourceKey("stock_pool", null)) ?? 0;
   supplySources.push({
     sourceType: "stock_pool",
@@ -490,6 +527,29 @@ export async function getSalesAllocationReadModelForItemInTx(
     maxQty: quantityString(stockFreeQty + currentTargetStockQty),
     canAllocate: true,
   });
+
+  for (const lot of lotSources) {
+    const key = sourceKey("lot", lot.id);
+    const totalQty = toQuantity(lot.quantity);
+    const allocatedQty = allocatedBySource.get(key) ?? 0;
+    const currentTargetQty = targetQtyBySource.get(key) ?? 0;
+    const freeQty = Math.max(0, roundQuantity(totalQty - allocatedQty));
+    supplySources.push({
+      sourceType: "lot",
+      sourceId: lot.id,
+      label: lot.lotNumber,
+      status: "available",
+      date: lot.receivedAt.toISOString().slice(0, 10),
+      priorityRank: null,
+      lotNumber: lot.lotNumber,
+      totalQty: quantityString(totalQty),
+      allocatedQty: quantityString(allocatedQty),
+      freeQty: quantityString(freeQty),
+      currentTargetQty: quantityString(currentTargetQty),
+      maxQty: quantityString(freeQty + currentTargetQty),
+      canAllocate: true,
+    });
+  }
 
   const manufacturingSourceIds = new Set<string>();
   manufacturingSources.forEach((source, id) => {
@@ -651,13 +711,14 @@ export async function saveSalesLineAllocation(
       .for("update");
 
     await tx
-      .select({ id: salesOrderAllocations.id })
-      .from(salesOrderAllocations)
+      .select({ id: stockAllocations.id })
+      .from(stockAllocations)
       .where(
         and(
-          eq(salesOrderAllocations.organizationId, orgId),
-          eq(salesOrderAllocations.itemId, target.itemId),
-          eq(salesOrderAllocations.status, "active")
+          eq(stockAllocations.organizationId, orgId),
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.itemId, target.itemId),
+          eq(stockAllocations.status, "active")
         )
       )
       .for("update");
@@ -678,8 +739,8 @@ export async function saveSalesLineAllocation(
         throw new SalesAllocationError("Each source can only be allocated once.", 400);
       }
       seenSources.add(key);
-      if (allocation.sourceType === "manufacturing_order" && !allocation.sourceId) {
-        throw new SalesAllocationError("Select a manufacturing order source.", 400);
+      if (allocation.sourceType !== "stock_pool" && !allocation.sourceId) {
+        throw new SalesAllocationError("Select an allocation source.", 400);
       }
     }
 
@@ -712,6 +773,31 @@ export async function saveSalesLineAllocation(
         source,
       ])
     );
+    const stockSource = sourcesByKey.get(sourceKey("stock_pool", null));
+    const stockLikeAllocationQty = roundQuantity(
+      normalized
+        .filter(
+          (allocation) =>
+            allocation.sourceType === "stock_pool" || allocation.sourceType === "lot"
+        )
+        .reduce((sum, allocation) => sum + allocation.quantity, 0)
+    );
+    const currentTargetStockLikeQty = model.supplySources
+      .filter((source) => source.sourceType === "stock_pool" || source.sourceType === "lot")
+      .reduce(
+        (sum, source) => roundQuantity(sum + toQuantity(source.currentTargetQty)),
+        0
+      );
+    const sharedStockLikeMaxQty = roundQuantity(
+      toQuantity(stockSource?.freeQty ?? "0") + currentTargetStockLikeQty
+    );
+
+    if (stockLikeAllocationQty > sharedStockLikeMaxQty) {
+      throw new SalesAllocationError(
+        `Stock and lot allocations cannot exceed ${quantityString(sharedStockLikeMaxQty)} free stock.`,
+        409
+      );
+    }
 
     for (const allocation of normalized) {
       const key = sourceKey(allocation.sourceType, allocation.sourceId);
@@ -749,7 +835,7 @@ export async function saveSalesLineAllocation(
 
     const now = new Date();
     await tx
-      .update(salesOrderAllocations)
+      .update(stockAllocations)
       .set({
         status: "cancelled",
         cancelledAt: now,
@@ -759,16 +845,18 @@ export async function saveSalesLineAllocation(
       })
       .where(
         and(
-          eq(salesOrderAllocations.salesOrderLineId, salesOrderLineId),
-          eq(salesOrderAllocations.status, "active")
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, salesOrderLineId),
+          eq(stockAllocations.status, "active")
         )
       );
 
     if (normalized.length > 0) {
-      await tx.insert(salesOrderAllocations).values(
+      await tx.insert(stockAllocations).values(
         normalized.map((allocation) => ({
           organizationId: orgId,
-          salesOrderLineId,
+          demandType: "sales_order_line",
+          demandId: salesOrderLineId,
           itemId: target.itemId,
           sourceType: allocation.sourceType,
           sourceId: allocation.sourceId,
@@ -791,7 +879,7 @@ export async function saveSalesLineAllocation(
 
     if (target.orderStatus === "confirmed" || target.orderStatus === "partially_shipped") {
       const stockAllocationQty = normalized
-        .filter((allocation) => allocation.sourceType === "stock_pool")
+        .filter((allocation) => allocation.sourceType === "stock_pool" || allocation.sourceType === "lot")
         .reduce((sum, allocation) => roundQuantity(sum + allocation.quantity), 0);
       await setSalesLineStockReservationInTx(tx, {
         organizationId: orgId,

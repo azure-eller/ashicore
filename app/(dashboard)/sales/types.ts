@@ -219,7 +219,7 @@ export type SalesOrderListLine = {
 };
 
 export type SalesAllocationCoverageKind = "explicit" | "implicit";
-export type SalesAllocationSourceType = "stock_pool" | "manufacturing_order";
+export type SalesAllocationSourceType = "stock_pool" | "lot" | "manufacturing_order";
 
 export type SalesAllocationLineSummary = {
   salesOrderLineId: string;
@@ -445,6 +445,7 @@ export type SalesAllocationSource = {
   status: "available" | "draft" | "released" | "completed";
   date: string | null;
   priorityRank: number | null;
+  lotNumber?: string | null;
   totalQty: string;
   allocatedQty: string;
   freeQty: string;

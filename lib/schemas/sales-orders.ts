@@ -243,7 +243,7 @@ export const saveSalesLineAllocationSchema = z.object({
   allocations: z
     .array(
       z.object({
-        sourceType: z.enum(["stock_pool", "manufacturing_order"]),
+        sourceType: z.enum(["stock_pool", "lot", "manufacturing_order"]),
         sourceId: z
           .string()
           .uuid("Select a valid source")

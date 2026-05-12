@@ -512,6 +512,13 @@
       "when": 1778539978346,
       "tag": "0072_even_grandmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1778541128275,
+      "tag": "0073_lot_aware_sales_allocations",
+      "breakpoints": true
     }
   ]
 }

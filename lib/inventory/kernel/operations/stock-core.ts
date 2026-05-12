@@ -823,15 +823,16 @@ export async function consumeStockFifoInTx(
     metadata?: Record<string, unknown> | null;
     minimumReceivedDate?: string | null;
     allowIneligibleLots?: boolean;
+    unavailableByLotId?: Map<string, number>;
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
 
   const lotsForUpdate = await getLockedFifoLotsInTx(tx, params);
-  const totalAvailable = lotsForUpdate.reduce(
-    (sum, lot) => sum + parseFloat(lot.quantity),
-    0
-  );
+  const totalAvailable = lotsForUpdate.reduce((sum, lot) => {
+    const protectedQty = params.unavailableByLotId?.get(lot.lotId) ?? 0;
+    return sum + Math.max(0, roundQuantity(parseFloat(lot.quantity) - protectedQty));
+  }, 0);
 
   if (totalAvailable < params.quantity) {
     throw new InsufficientStockError({
@@ -850,9 +851,12 @@ export async function consumeStockFifoInTx(
     }
 
     const currentQty = parseFloat(lot.quantity);
+    const protectedQty = params.unavailableByLotId?.get(lot.lotId) ?? 0;
+    const usableQty = Math.max(0, roundQuantity(currentQty - protectedQty));
+    if (usableQty <= 0) continue;
     const unitCost = parseFloat(lot.unitCost ?? "0");
     const receivedAt = lot.receivedAt ?? new Date();
-    const deduction = roundQuantity(Math.min(currentQty, remaining));
+    const deduction = roundQuantity(Math.min(usableQty, remaining));
 
     const [updatedBalance] = await tx
       .update(inventoryLotBalances)
@@ -868,7 +872,7 @@ export async function consumeStockFifoInTx(
           eq(inventoryLotBalances.locationId, params.locationId),
           eq(inventoryLotBalances.lotId, lot.lotId),
           eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-          sql`${inventoryLotBalances.quantity} >= ${deduction}`
+          sql`${inventoryLotBalances.quantity} >= ${roundQuantity(protectedQty + deduction)}`
         )
       )
       .returning({ lotId: inventoryLotBalances.lotId });
@@ -941,6 +945,142 @@ export async function consumeStockFifoInTx(
   return {
     allocations,
     eventIds: inserted.map((row) => row.id),
+  };
+}
+
+export async function consumeSpecificLotInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    lotId: string;
+    quantity: number;
+    eventType: NegativeStockEventType;
+    eventSubtype?: string | null;
+    referenceType?: string | null;
+    referenceId?: string | null;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    occurredAt?: Date;
+    metadata?: Record<string, unknown> | null;
+  }
+) {
+  await lockItemsInTx(tx, [params.itemId]);
+
+  const [lot] = await tx
+    .select({
+      lotId: inventoryLotBalances.lotId,
+      lotNumber: lots.lotNumber,
+      quantity: inventoryLotBalances.quantity,
+      unitCost: inventoryLotBalances.unitCost,
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
+    .for("update");
+
+  const available = parseFloat(lot?.quantity ?? "0");
+  if (!lot || available < params.quantity) {
+    throw new InsufficientStockError({
+      itemId: params.itemId,
+      available,
+      requested: params.quantity,
+    });
+  }
+
+  const unitCost = parseFloat(lot.unitCost ?? "0");
+  const deduction = roundQuantity(params.quantity);
+  const [updatedBalance] = await tx
+    .update(inventoryLotBalances)
+    .set({
+      quantity: sql`${inventoryLotBalances.quantity} - ${deduction}`,
+      stillActive: sql`(${inventoryLotBalances.quantity} - ${deduction}) > 0`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} >= ${deduction}`
+      )
+    )
+    .returning({ lotId: inventoryLotBalances.lotId });
+
+  if (!updatedBalance) {
+    throw new InsufficientStockError({
+      itemId: params.itemId,
+      available,
+      requested: params.quantity,
+    });
+  }
+
+  await tx
+    .update(lots)
+    .set({
+      quantity: sql`${lots.quantity} - ${deduction}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(lots.id, params.lotId));
+
+  const [event] = await insertInventoryEventsInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? null,
+      itemId: params.itemId,
+      lotId: params.lotId,
+      quantity: normalizeNumeric(deduction),
+      unitCost: normalizeNumericScale(unitCost, 6),
+      extendedCost: calculateExtendedCost(
+        normalizeNumeric(deduction),
+        normalizeNumericScale(unitCost, 6)
+      ),
+      disposition: DEFAULT_DISPOSITION,
+      fromDisposition: DEFAULT_DISPOSITION,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: params.idempotencyKey ?? null,
+      occurredAt: params.occurredAt,
+      metadata: params.metadata ?? null,
+    },
+  ]);
+
+  await applyItemBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      onHandDelta: -deduction,
+    },
+  ]);
+
+  return {
+    allocations: [
+      {
+        lotId: params.lotId,
+        lotNumber: lot.lotNumber,
+        quantity: deduction,
+        unitCost,
+        receivedAt: lot.receivedAt,
+      },
+    ],
+    eventIds: event ? [event.id] : [],
   };
 }
 
