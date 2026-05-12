@@ -358,6 +358,70 @@ test.describe("Stocktake flow", () => {
     await expect(page.locator("table").first()).toContainText(productName);
   });
 
+  test("clones stocktake line items from the table actions menu", async ({
+    page,
+    db,
+  }) => {
+    const [sourceLine] = await db
+      .select({ id: stocktakeItems.id })
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.stocktakeId, materialCategoryStocktakeId));
+    expect(sourceLine).toBeTruthy();
+
+    const saveResponse = await testFetch(`/api/stocktakes/${materialCategoryStocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [{ lineId: sourceLine!.id, countedQty: "3" }],
+      }),
+    });
+    expect(saveResponse.status).toBe(200);
+
+    await page.goto("/inventory/stocktakes");
+    await filterList(page, "Search stocktakes", `Material Category Count ${ts}`);
+
+    const sourceRow = page
+      .getByRole("link", {
+        name: `Material Category Count ${ts}`,
+        exact: true,
+      })
+      .locator("xpath=ancestor::tr");
+
+    const [cloneResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response
+            .url()
+            .endsWith(`/api/stocktakes/${materialCategoryStocktakeId}/clone`)
+      ),
+      sourceRow
+        .getByRole("button", {
+          name: `More actions for Material Category Count ${ts}`,
+        })
+        .click()
+        .then(() => page.getByRole("menuitem", { name: "Clone" }).click()),
+    ]);
+
+    expect(cloneResponse.status()).toBe(201);
+    await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
+    const clonedStocktakeId = getIdFromUrl(page.url());
+
+    const clonedLines = await db
+      .select({
+        itemId: stocktakeItems.itemId,
+        countedQty: stocktakeItems.countedQty,
+      })
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.stocktakeId, clonedStocktakeId));
+
+    expect(clonedLines).toEqual([
+      {
+        itemId: materialId,
+        countedQty: null,
+      },
+    ]);
+  });
+
   test("saves draft counts sparsely, supports clearing counts, and leaves blank lines unchanged", async ({
     page,
     db,

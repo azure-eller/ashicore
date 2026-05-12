@@ -17,7 +17,8 @@ Stocktakes support scoped snapshots plus lot-aware counts:
 - a stocktake snapshots all active items in one scope chosen from one grouped dropdown:
   - quick scopes: `all`, `material`, `product`, or `subassembly`
   - category scopes: one category inside `material`, `product`, or `subassembly`
-- users preview the matching items before creation and can remove items from the snapshot
+- the create form uses editable line rows; scope changes auto-fill matching
+  items, and users can add, search, or remove items before creating the snapshot
 - count entry happens on the stocktake detail page
 - items with active available lots snapshot those lots and count per lot
 - blank counted quantities mean "leave unchanged"

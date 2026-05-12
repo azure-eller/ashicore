@@ -1,12 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type ColumnDef } from "@tanstack/react-table";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Copy01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { SortableHeader } from "@/components/sortable-header";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { DateTimeText } from "@/components/date-time-text";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { apiJson } from "@/lib/client/api";
 import {
   STOCKTAKE_STATUS_COLUMN_TOOLTIP,
   STOCKTAKE_COUNTED_TOOLTIP,
@@ -107,6 +119,15 @@ const columns: ColumnDef<StocktakeListRow>[] = [
     header: ({ column }) => <SortableHeader column={column} label="Completed" />,
     cell: ({ row }) => <DateTimeText value={row.original.completedAt} />,
   },
+  {
+    id: "actions",
+    cell: ({ row }) => <StocktakeRowActions stocktake={row.original} />,
+    enableSorting: false,
+    enableHiding: false,
+    meta: {
+      className: "w-10",
+    },
+  },
 ];
 
 export function StocktakesTable({ initialData }: { initialData: StocktakeListRow[] }) {
@@ -138,5 +159,52 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
           `The selected draft stocktake${count !== 1 ? "s" : ""} will be cancelled. Only draft stocktakes can be deleted.`,
       }}
     />
+  );
+}
+
+function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const cloneMutation = useMutation({
+    mutationFn: () =>
+      apiJson<{ id: string }>(`/api/stocktakes/${stocktake.id}/clone`, {
+        method: "POST",
+        idempotencyKey: "stocktake-clone",
+        fallbackError: "Failed to clone stocktake.",
+      }),
+    onSuccess: async (created) => {
+      await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
+      router.push(`/inventory/stocktakes/${created.id}`);
+    },
+  });
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`More actions for ${stocktake.name}`}
+        >
+          <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="bg-popover text-popover-foreground"
+      >
+        <DropdownMenuItem
+          disabled={cloneMutation.isPending}
+          onSelect={(event) => {
+            event.preventDefault();
+            cloneMutation.mutate();
+          }}
+        >
+          <HugeiconsIcon icon={Copy01Icon} className="h-4 w-4" aria-hidden />
+          {cloneMutation.isPending ? "Cloning..." : "Clone"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
