@@ -1329,7 +1329,7 @@ export function AllocationSheet({
         onOpenChange(nextOpen);
       }}
     >
-      <SheetContent className="relative overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
+      <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
         <SheetHeader className="border-b">
           <SheetTitle>Allocation Manager</SheetTitle>
           <SheetDescription className="sr-only">
