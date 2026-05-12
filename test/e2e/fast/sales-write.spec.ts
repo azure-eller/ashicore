@@ -1420,7 +1420,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(competingBucket).toContainText(/Short\s*3/);
 
     await currentBucket.click();
-    await sheet.getByText("On hand").click();
+    await sheet.getByText("On hand", { exact: true }).click();
     await expect(currentBucket).toContainText(/Allocated\s*0/);
     await expect(currentBucket).toContainText(/Short\s*6/);
 
