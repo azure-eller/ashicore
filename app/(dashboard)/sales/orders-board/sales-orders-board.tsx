@@ -25,6 +25,10 @@ import {
   CANCELLED_LANE_DEFINITION,
   groupSalesOrdersByLane,
 } from "./sales-order-lane-model";
+import {
+  getProductLensOptions,
+  orderContainsProductLensItem,
+} from "./sales-order-product-lens";
 import type { DeleteTarget } from "./sales-order-card";
 
 export function SalesOrdersBoard({
@@ -35,6 +39,7 @@ export function SalesOrdersBoard({
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -61,8 +66,12 @@ export function SalesOrdersBoard({
         customerFilter: "all",
         showCancelled,
         sortMode: "shipDate",
-      }),
-    [orders, search, showCancelled]
+      }).filter((order) => orderContainsProductLensItem(order, selectedItemId)),
+    [orders, search, showCancelled, selectedItemId]
+  );
+  const productLensOptions = useMemo(
+    () => getProductLensOptions(orders.filter((order) => order.status !== "cancelled")),
+    [orders]
   );
   const visibleLanes = useMemo(
     () =>
@@ -120,6 +129,12 @@ export function SalesOrdersBoard({
         <SalesOrdersBoardToolbar
           search={search}
           onSearchChange={setSearch}
+          productLensOptions={productLensOptions}
+          selectedItemId={selectedItemId}
+          onSelectedItemIdChange={(itemId) => {
+            setSelectedItemId(itemId);
+            setExpandedOrderId(null);
+          }}
           showCancelled={showCancelled}
           onShowCancelledChange={setShowCancelled}
           cancelledCount={cancelledCount}
@@ -135,6 +150,7 @@ export function SalesOrdersBoard({
         <SalesOrderKanban
           visibleLanes={visibleLanes}
           ordersByLane={ordersByLane}
+          selectedItemId={selectedItemId}
           expandedOrderId={expandedOrderId}
           density="compact"
           onToggleExpanded={(orderId) =>

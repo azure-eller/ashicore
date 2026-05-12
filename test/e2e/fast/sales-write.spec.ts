@@ -10,6 +10,11 @@ import {
 import { filterOrdersForBoard } from "@/app/(dashboard)/sales/orders-board/sales-order-board-filters";
 import { getSalesOrderDropCommand } from "@/app/(dashboard)/sales/orders-board/sales-order-drop-rules";
 import {
+  getProductLensAggregate,
+  getProductLensOptions,
+  orderContainsProductLensItem,
+} from "@/app/(dashboard)/sales/orders-board/sales-order-product-lens";
+import {
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryReservationsSummary,
@@ -97,13 +102,16 @@ function boardLogicOrder(
       overrides.lines ??
       [
         {
+          itemId: "00000000-0000-0000-0000-000000009999",
           masterName: "Board Product",
           attrs: [],
           quantity: "10",
           shippedQuantity: "0",
+          remainingQty: "10",
           allocatedQty: "0",
           shortQty: "0",
           sourceSummary: "—",
+          allocationStatus: "short",
           unitName: "Each",
         },
       ],
@@ -276,6 +284,103 @@ test.describe("Sales order board pure helpers", () => {
     expect(
       getSalesOrderDropCommand({ order: shipped, fromLane: "shipped", toLane: "ready_to_ship" })
     ).toMatchObject({ type: "blocked" });
+  });
+
+  test("aggregates product lens lines without changing lifecycle lanes", () => {
+    const selectedItemId = "00000000-0000-0000-0000-000000000021";
+    const otherItemId = "00000000-0000-0000-0000-000000000022";
+    const mixed = boardLogicOrder({
+      id: "00000000-0000-0000-0000-000000000023",
+      orderNumber: "SO-23",
+      customerName: "Lens Customer",
+      fulfillmentSummary: {
+        remainingQty: "20",
+        allocatedQty: "5",
+        shortQty: "15",
+        productionAllocatedQty: "0",
+        label: "5/20 allocated · 15 short",
+      },
+      shippingReadiness: {
+        state: "insufficient_stock",
+        message: "Short",
+        blockers: ["Short"],
+      },
+      lines: [
+        {
+          id: "line-1",
+          itemId: selectedItemId,
+          masterName: "Lens Mix",
+          attrs: ["1yd tote"],
+          quantity: "10",
+          remainingQty: "8",
+          allocatedQty: "3",
+          shortQty: "5",
+          sourceSummary: "Stock",
+          allocationStatus: "partial",
+          unitName: "totes",
+        },
+        {
+          id: "line-2",
+          itemId: selectedItemId,
+          masterName: "Lens Mix",
+          attrs: ["1yd tote"],
+          quantity: "5",
+          remainingQty: "4",
+          allocatedQty: "2",
+          shortQty: "2",
+          sourceSummary: "Stock",
+          allocationStatus: "partial",
+          unitName: "totes",
+        },
+        {
+          id: "line-3",
+          itemId: otherItemId,
+          masterName: "Other Mix",
+          attrs: [],
+          quantity: "2",
+          remainingQty: "2",
+          allocatedQty: "0",
+          shortQty: "2",
+          sourceSummary: "—",
+          allocationStatus: "short",
+          unitName: "bags",
+        },
+      ],
+    });
+    const other = boardLogicOrder({
+      id: "00000000-0000-0000-0000-000000000024",
+      orderNumber: "SO-24",
+      lines: [
+        {
+          id: "line-4",
+          itemId: otherItemId,
+          masterName: "Other Mix",
+          attrs: [],
+          quantity: "2",
+          remainingQty: "2",
+          allocatedQty: "0",
+          shortQty: "2",
+          sourceSummary: "—",
+          allocationStatus: "short",
+          unitName: "bags",
+        },
+      ],
+    });
+
+    expect(deriveSalesOrderLane(mixed)).toBe("supply_needed");
+    expect(orderContainsProductLensItem(mixed, selectedItemId)).toBe(true);
+    expect(orderContainsProductLensItem(other, selectedItemId)).toBe(false);
+    expect(getProductLensOptions([mixed, other]).map((option) => option.label)).toEqual([
+      "Lens Mix · 1yd tote",
+      "Other Mix",
+    ]);
+    expect(getProductLensAggregate(mixed, selectedItemId)).toMatchObject({
+      allocatedQty: "5",
+      remainingQty: "12",
+      shortQty: "7",
+      statusLabel: "partial · short 7",
+      unitName: "totes",
+    });
   });
 });
 
@@ -695,6 +800,63 @@ test.describe("Sales write-path smoke", () => {
     expect(body.errors.shipDate[0]).toBe(
       "Ship date is required to confirm a sales order"
     );
+  });
+
+  test("filters the board into product lens mode without enabling drag", async ({
+    page,
+    db,
+  }) => {
+    const otherProductResult = await createItem({
+      name: `Fast Lens Other Product ${ts}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-LENS-OTHER-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: "Non-matching product for Product Lens board filter",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "9",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(otherProductResult.status).toBe(201);
+    const otherOrderResult = await createSalesOrder({
+      customerId,
+      status: "draft",
+      shipDate: "2026-04-18",
+      requestedDate: "2026-04-18",
+      notes: "Non-matching Product Lens order",
+      lines: [
+        { itemId: otherProductResult.body.id as string, quantity: "1", unitPrice: "9" },
+      ],
+    });
+    expect(otherOrderResult.status).toBe(201);
+
+    const [primaryOrder] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, orderId));
+    const [otherOrder] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, otherOrderResult.body.id as string));
+
+    await page.goto("/sales/orders");
+    await page.getByRole("combobox", { name: "Product Lens item" }).click();
+    await page.getByRole("option", { name: productName }).click();
+
+    await expect(
+      page.locator('[data-testid="product-lens-order-card"]').filter({
+        hasText: primaryOrder.orderNumber,
+      })
+    ).toBeVisible();
+    await expect(page.getByText(otherOrder.orderNumber)).toHaveCount(0);
+    await expect(page.locator('[data-testid="sales-order-drag-handle"]')).toHaveCount(0);
+
+    await page.getByRole("combobox", { name: "Product Lens item" }).click();
+    await page.getByRole("option", { name: "Product Lens: Off" }).click();
+    await filterList(page, "Search orders", primaryOrder.orderNumber);
+    await expect(salesOrderCard(page, primaryOrder.orderNumber)).toBeVisible();
   });
 
   test("saving a draft without line items is allowed", async ({ db }) => {

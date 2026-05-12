@@ -240,13 +240,16 @@ export type SalesOrderItemOption = {
 
 export type SalesOrderListLine = {
   id?: string;
+  itemId: string;
   masterName: string;
   attrs: string[];
   quantity: string;
   shippedQuantity?: string;
+  remainingQty?: string;
   allocatedQty?: string;
   shortQty?: string;
   sourceSummary?: string;
+  allocationStatus?: SalesAllocationLineSummary["status"];
   unitName: string;
 };
 

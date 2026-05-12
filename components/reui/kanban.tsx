@@ -53,6 +53,7 @@ interface KanbanContextProps<T> {
   columnIds: string[]
   activeId: UniqueIdentifier | null
   setActiveId: (id: UniqueIdentifier | null) => void
+  overContainer: string | null
   findContainer: (id: UniqueIdentifier) => string | undefined
   isColumn: (id: UniqueIdentifier) => boolean
   modifiers?: Modifiers
@@ -67,6 +68,7 @@ const KanbanContext = createContext<KanbanContextProps<any>>({
   columnIds: [],
   activeId: null,
   setActiveId: () => {},
+  overContainer: null,
   findContainer: () => undefined,
   isColumn: () => false,
   modifiers: undefined,
@@ -142,6 +144,7 @@ function Kanban<T>({
   const columns = value
   const setColumns = onValueChange
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
+  const [overContainer, setOverContainer] = useState<string | null>(null)
 
   const sensors = useSensors(
     useSensor(MouseSensor, {
@@ -179,21 +182,29 @@ function Kanban<T>({
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id)
+    setOverContainer(null)
   }, [])
 
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
-      if (onMove) {
+      const { active, over } = event
+      if (!over) {
+        setOverContainer(null)
         return
       }
 
-      const { active, over } = event
-      if (!over) return
-
-      if (isColumn(active.id)) return
+      if (isColumn(active.id)) {
+        setOverContainer(null)
+        return
+      }
 
       const activeContainer = findContainer(active.id)
       const overContainer = findContainer(over.id)
+      setOverContainer(overContainer ?? null)
+
+      if (onMove) {
+        return
+      }
 
       if (!activeContainer || !overContainer) {
         return
@@ -247,12 +258,14 @@ function Kanban<T>({
 
   const handleDragCancel = useCallback(() => {
     setActiveId(null)
+    setOverContainer(null)
   }, [])
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event
       setActiveId(null)
+      setOverContainer(null)
 
       if (!over) return
 
@@ -345,6 +358,7 @@ function Kanban<T>({
       columnIds,
       activeId,
       setActiveId,
+      overContainer,
       findContainer,
       isColumn,
       modifiers,
@@ -355,6 +369,7 @@ function Kanban<T>({
       getItemValue,
       columnIds,
       activeId,
+      overContainer,
       findContainer,
       isColumn,
       modifiers,
@@ -448,8 +463,9 @@ function KanbanColumn({
     animateLayoutChanges,
   })
 
-  const { activeId, isColumn } = useContext(KanbanContext)
+  const { activeId, overContainer, isColumn } = useContext(KanbanContext)
   const isColumnDragging = activeId ? isColumn(activeId) : false
+  const isDropTarget = activeId != null && !isColumnDragging && overContainer === value
 
   const style = {
     transition,
@@ -489,6 +505,7 @@ function KanbanColumn({
         data-slot="kanban-column"
         data-value={value}
         data-dragging={isSortableDragging}
+        data-drop-target={isDropTarget}
         data-disabled={disabled}
         ref={setNodeRef}
         style={style}

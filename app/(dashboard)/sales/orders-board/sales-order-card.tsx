@@ -40,6 +40,7 @@ import type { SalesOrderListRow } from "../types";
 import { SalesOrderCardExpanded } from "./sales-order-card-expanded";
 import {
   deriveSalesOrderLane,
+  progressPercent,
   readSalesOrderNumber,
   type SalesOrderLaneId,
 } from "./sales-order-lane-model";
@@ -99,7 +100,11 @@ export function SalesOrderCard({
   const isCompact = density === "compact";
   const visibleLineCount = order.lines.length;
   const laneCopy = getCardLaneCopy(order, lane, visibleLineCount);
-  const laneIcon = getCardLaneIcon(lane);
+  const allocatedQty = readSalesOrderNumber(order.fulfillmentSummary.allocatedQty);
+  const remainingQty = readSalesOrderNumber(order.fulfillmentSummary.remainingQty);
+  const allocationPercent = progressPercent(allocatedQty, remainingQty);
+  const showFulfillmentLabel =
+    lane !== "draft" && lane !== "supply_needed" && lane !== "shipped";
 
   return (
     <Card
@@ -131,7 +136,11 @@ export function SalesOrderCard({
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0 flex-1 text-left">
             <div className="flex min-w-0 items-center gap-2">
-              <DragHandle orderNumber={order.orderNumber} lane={lane} />
+              <DragHandle
+                orderNumber={order.orderNumber}
+                lane={lane}
+                icon={getCardLaneIcon(lane)}
+              />
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/sales/customers/${order.customerId}`}
@@ -181,11 +190,6 @@ export function SalesOrderCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <LaneQuickAction
-              lane={lane}
-              icon={laneIcon}
-              label={laneCopy.statusLabel}
-            />
             <OrderActionsMenu order={order} canEdit={canEdit} onDelete={onDelete} />
           </div>
         </div>
@@ -193,18 +197,31 @@ export function SalesOrderCard({
       <CardContent className="px-0 pb-0">
         {!expanded ? (
           <>
-            <div className="mx-2 h-px bg-border" />
+            <div
+              className="mx-2 h-0.5 overflow-hidden rounded-full bg-muted"
+              aria-label={`${allocationPercent}% allocated`}
+            >
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width]",
+                  getCardProgressClassName(lane)
+                )}
+                style={{ width: `${allocationPercent}%` }}
+              />
+            </div>
             <div className={cn("flex flex-col", isCompact ? "gap-1.5 px-2.5 py-2" : "gap-2 px-3 py-2.5")}>
-              <div className="min-w-0 text-xs">
-                <span
-                  className={cn(
-                    "block truncate font-medium",
-                    laneCopy.toneClassName
-                  )}
-                >
-                  {laneCopy.fulfillmentLabel}
-                </span>
-              </div>
+              {showFulfillmentLabel ? (
+                <div className="min-w-0 text-xs">
+                  <span
+                    className={cn(
+                      "block truncate font-medium",
+                      laneCopy.toneClassName
+                    )}
+                  >
+                    {laneCopy.fulfillmentLabel}
+                  </span>
+                </div>
+              ) : null}
               <div className="flex items-end justify-between gap-2 text-xs text-muted-foreground">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                   <span className="inline-flex min-w-0 items-center gap-1">
@@ -338,6 +355,15 @@ function getCardLaneIcon(lane: SalesOrderLaneId) {
   return PackageIcon;
 }
 
+function getCardProgressClassName(lane: SalesOrderLaneId) {
+  if (lane === "ready_to_ship") return "bg-success";
+  if (lane === "shipped") return "bg-info";
+  if (lane === "supply_needed") return "bg-warning";
+  if (lane === "in_production") return "bg-primary";
+  if (lane === "cancelled") return "bg-destructive";
+  return "bg-muted-foreground/45";
+}
+
 function getCardLaneCopy(
   order: SalesOrderListRow,
   lane: SalesOrderLaneId,
@@ -416,9 +442,11 @@ function getCardLaneCopy(
 function DragHandle({
   orderNumber,
   lane,
+  icon,
 }: {
   orderNumber: string;
   lane: SalesOrderLaneId;
+  icon: typeof PackageIcon;
 }) {
   return (
     <KanbanItemHandle asChild>
@@ -439,47 +467,8 @@ function DragHandle({
           lane === "draft" && "bg-muted text-muted-foreground hover:bg-muted"
         )}
       >
-        <HugeiconsIcon icon={PackageIcon} strokeWidth={2} className="size-3.5" />
+        <HugeiconsIcon icon={icon} strokeWidth={2} className="size-3.5" />
       </Button>
     </KanbanItemHandle>
-  );
-}
-
-function LaneQuickAction({
-  lane,
-  icon,
-  label,
-}: {
-  lane: SalesOrderLaneId;
-  icon: typeof PackageIcon;
-  label: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={label}
-          onClick={(event) => {
-            event.stopPropagation();
-          }}
-          onPointerDown={(event) => event.stopPropagation()}
-          className={cn(
-            "size-6 rounded-md",
-            lane === "ready_to_ship" && "bg-success/20 text-success hover:bg-success/25",
-            lane === "supply_needed" && "bg-warning/20 text-warning hover:bg-warning/25",
-            lane === "in_production" && "bg-primary/15 text-primary hover:bg-primary/20",
-            lane === "shipped" && "bg-info/20 text-info hover:bg-info/25",
-            lane === "cancelled" && "bg-destructive/15 text-destructive hover:bg-destructive/20",
-            lane === "draft" && "bg-muted text-muted-foreground hover:bg-muted"
-          )}
-        >
-          <HugeiconsIcon icon={icon} strokeWidth={2} className="size-3" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{label}. Open details.</TooltipContent>
-    </Tooltip>
   );
 }

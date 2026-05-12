@@ -4326,17 +4326,23 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             itemSummary: summarizeItems(summaryLines),
             lines: summaryLines.map((line) => ({
               id: line.salesOrderLineId,
+              itemId: line.itemId,
               masterName: line.masterName,
               attrs: line.attrs,
               quantity: line.quantity,
               shippedQuantity:
                 allocationDemandByLineId.get(line.salesOrderLineId)?.shippedQty ?? "0",
+              remainingQty:
+                allocationDemandByLineId.get(line.salesOrderLineId)?.remainingQty ??
+                line.quantity,
               allocatedQty:
                 allocationSummaryByLineId.get(line.salesOrderLineId)?.allocatedQty ?? "0",
               shortQty:
                 allocationSummaryByLineId.get(line.salesOrderLineId)?.shortQty ?? "0",
               sourceSummary:
                 allocationSummaryByLineId.get(line.salesOrderLineId)?.sourceSummary ?? "\u2014",
+              allocationStatus:
+                allocationSummaryByLineId.get(line.salesOrderLineId)?.status ?? "short",
               unitName: line.unitName,
             })),
             shipments: shipmentsBySalesOrderId.get(order.id) ?? [],

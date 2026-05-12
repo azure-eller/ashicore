@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDate, formatPrice } from "@/lib/format";
 import type { SalesOrderListRow } from "../types";
+import { ProductLensOrderCard } from "./product-lens-order-card";
 import { SalesOrderCard, type DeleteTarget } from "./sales-order-card";
 import type { SalesOrderLaneDefinition } from "./sales-order-lane-model";
 
@@ -41,6 +42,7 @@ export function SalesOrderColumn({
   lane,
   orders,
   shipmentMarkers,
+  selectedItemId,
   expandedOrderId,
   density,
   onToggleExpanded,
@@ -49,6 +51,7 @@ export function SalesOrderColumn({
   lane: SalesOrderLaneDefinition;
   orders: SalesOrderListRow[];
   shipmentMarkers: SalesOrderShipmentMarker[];
+  selectedItemId: string | null;
   expandedOrderId: string | null;
   density: "compact" | "comfortable";
   onToggleExpanded: (orderId: string) => void;
@@ -57,7 +60,7 @@ export function SalesOrderColumn({
   return (
     <KanbanColumn
       value={lane.id}
-      className="flex min-h-[32rem] min-w-0 flex-col rounded-xl bg-muted/10 p-2 ring-1 ring-border/25"
+      className="flex min-h-[32rem] min-w-0 flex-col rounded-xl bg-muted/10 p-2 ring-1 ring-border/25 transition data-[drop-target=true]:bg-primary/5 data-[drop-target=true]:ring-2 data-[drop-target=true]:ring-primary/45"
     >
       <div className="mb-2 flex items-start justify-between gap-2 px-1">
         <div className="min-w-0">
@@ -90,19 +93,27 @@ export function SalesOrderColumn({
       >
         {orders.length || shipmentMarkers.length ? (
           <>
-            {orders.map((order) => (
-              <KanbanItem key={order.id} value={order.id} className="min-w-0">
-                <SalesOrderCard
+            {orders.map((order) =>
+              selectedItemId ? (
+                <ProductLensOrderCard
+                  key={order.id}
                   order={order}
-                  expanded={expandedOrderId === order.id}
-                  density={density}
-                  onToggleExpanded={() => onToggleExpanded(order.id)}
-                  onDelete={() =>
-                    onDelete({ id: order.id, orderNumber: order.orderNumber })
-                  }
+                  selectedItemId={selectedItemId}
                 />
-              </KanbanItem>
-            ))}
+              ) : (
+                <KanbanItem key={order.id} value={order.id} className="min-w-0">
+                  <SalesOrderCard
+                    order={order}
+                    expanded={expandedOrderId === order.id}
+                    density={density}
+                    onToggleExpanded={() => onToggleExpanded(order.id)}
+                    onDelete={() =>
+                      onDelete({ id: order.id, orderNumber: order.orderNumber })
+                    }
+                  />
+                </KanbanItem>
+              )
+            )}
             {shipmentMarkers.map((marker) => (
               <ShipmentMarkerRow
                 key={`${marker.order.id}:${marker.shipment.id}`}
@@ -115,7 +126,7 @@ export function SalesOrderColumn({
             No orders
           </div>
         )}
-        {lane.id !== "shipped" && lane.id !== "cancelled" ? (
+        {!selectedItemId && lane.id !== "shipped" && lane.id !== "cancelled" ? (
           <Link
             href="/sales/orders/new"
             prefetch={false}
