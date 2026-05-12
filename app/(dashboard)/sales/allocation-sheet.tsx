@@ -915,7 +915,6 @@ function DemandCard({
   allocatedQty,
   shortQty,
   carried,
-  children,
   onPlace,
   onPick,
 }: {
@@ -924,7 +923,6 @@ function DemandCard({
   allocatedQty: number;
   shortQty: number;
   carried: CarryState;
-  children?: ReactNode;
   onPlace: () => void;
   onPick: () => void;
 }) {
@@ -981,48 +979,20 @@ function DemandCard({
           visual={visual}
         />
         <ProgressBar value={allocatedQty} max={remaining} />
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <div className="flex flex-wrap items-center gap-2">{children}</div>
-          <div className="flex gap-4">
-            <span>
-              <span className="text-muted-foreground">Allocated </span>
-              <span className="font-medium text-success">{formatQuantity(toQuantityString(allocatedQty))}</span>
+        <div className="flex justify-end gap-4 text-sm">
+          <span>
+            <span className="text-muted-foreground">Allocated </span>
+            <span className="font-medium text-success">{formatQuantity(toQuantityString(allocatedQty))}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Short </span>
+            <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
+              {shortLabel(shortQty)}
             </span>
-            <span>
-              <span className="text-muted-foreground">Short </span>
-              <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
-                {shortLabel(shortQty)}
-              </span>
-            </span>
-          </div>
+          </span>
         </div>
       </div>
     </div>
-  );
-}
-
-function AllocationChip({
-  label,
-  quantity,
-  onPick,
-}: {
-  label: string;
-  quantity: number;
-  onPick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onPick();
-      }}
-      className="inline-flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-xs font-medium shadow-xs transition hover:border-primary/40 hover:bg-primary/5"
-      aria-label={`Move ${formatQuantity(toQuantityString(quantity))} from ${label}`}
-    >
-      <span className="max-w-28 truncate">{label}</span>
-      <span className="tabular-nums">{formatQuantity(toQuantityString(quantity))}</span>
-    </button>
   );
 }
 
@@ -2146,36 +2116,7 @@ export function AllocationSheet({
                             carried={carried}
                             onPlace={() => placeOnLine(row.salesOrderLineId)}
                             onPick={() => pickFirstTokenFromLine(row.salesOrderLineId)}
-                          >
-                            {Object.entries(draftsByLine[row.salesOrderLineId] ?? {}).flatMap(
-                              ([key, value]) => {
-                                const quantity = readQuantity(value);
-                                if (quantity <= 0) return [];
-                                const meta = sourceMetaByKey.get(key);
-                                const parsed = parseAllocationKey(key);
-                                return (
-                                  <AllocationChip
-                                    key={key}
-                                    label={meta?.source.label ?? "Source"}
-                                    quantity={quantity}
-                                    onPick={() =>
-                                      pickToken({
-                                        sourceKey: key,
-                                        sourceType: parsed.sourceType,
-                                        sourceId: parsed.sourceId,
-                                        sourceLabel: meta?.source.label ?? "Source",
-                                        sourceIndex: meta?.index ?? 0,
-                                        quantity,
-                                        itemName: row.itemName,
-                                        unitName: row.unitName,
-                                        originLineId: row.salesOrderLineId,
-                                      })
-                                    }
-                                  />
-                                );
-                              }
-                            )}
-                          </DemandCard>
+                          />
                         );
                       })}
                   </div>

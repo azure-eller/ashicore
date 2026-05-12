@@ -1213,7 +1213,8 @@ test.describe("Sales write-path smoke", () => {
     await expect(currentBucket).toContainText(/Allocated\s*0/);
     await expect(currentBucket).toContainText(/Short\s*6/);
 
-    await competingBucket.getByLabel("Move 3 from Stock").click();
+    await page.keyboard.press("Escape");
+    await competingBucket.click();
     await currentBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*3/);
     await expect(currentBucket).toContainText(/Short\s*3/);
