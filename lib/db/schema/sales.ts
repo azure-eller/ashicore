@@ -61,6 +61,12 @@ export const customers = salesSchema
       customerCategoryId: uuid("customer_category_id").references(
         () => customerCategories.id
       ),
+      accountState: varchar("account_state", { length: 20 })
+        .notNull()
+        .default("active"),
+      accountPriority: varchar("account_priority", { length: 20 })
+        .notNull()
+        .default("standard"),
       email: varchar("email", { length: 255 }),
       phone: varchar("phone", { length: 50 }),
       billingLine1: varchar("billing_line1", { length: 255 }),
@@ -88,6 +94,16 @@ export const customers = salesSchema
         .where(sql`deleted_at IS NULL`),
       index("sales_customers_name_idx").on(table.name),
       index("sales_customers_customer_category_id_idx").on(table.customerCategoryId),
+      index("sales_customers_account_state_idx").on(table.accountState),
+      index("sales_customers_account_priority_idx").on(table.accountPriority),
+      check(
+        "sales_customers_account_state_check",
+        sql`${table.accountState} IN ('onboarding', 'active', 'growth', 'at_risk', 'dormant', 'former')`
+      ),
+      check(
+        "sales_customers_account_priority_check",
+        sql`${table.accountPriority} IN ('strategic', 'high', 'standard', 'low')`
+      ),
       pgPolicy("sales_customers_org_isolation", {
         for: "all",
         to: "public",
@@ -389,6 +405,9 @@ export const salesOrders = salesSchema
       customerId: uuid("customer_id")
         .notNull()
         .references(() => customers.id),
+      customerProjectId: uuid("customer_project_id").references(
+        () => customerProjects.id
+      ),
       customerName: varchar("customer_name", { length: 255 }).notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       orderDate: date("order_date", { mode: "string" })
@@ -427,6 +446,8 @@ export const salesOrders = salesSchema
       index("sales_orders_active_idx")
         .on(table.organizationId)
         .where(sql`deleted_at IS NULL`),
+      index("sales_orders_customer_id_idx").on(table.customerId),
+      index("sales_orders_customer_project_id_idx").on(table.customerProjectId),
       index("sales_orders_status_idx").on(table.status),
       index("sales_orders_order_date_idx").on(table.orderDate),
       index("sales_orders_created_at_idx").on(table.createdAt),

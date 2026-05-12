@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -217,6 +218,7 @@ const SALES_ORDER_LINE_GRID_COLUMNS =
   "2.5rem minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem";
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
+const NO_PROJECT_VALUE = "__no_project__";
 
 type ApiError = {
   status?: number;
@@ -345,10 +347,14 @@ export function OrderForm({
   customers,
   items,
   initialData,
+  initialCustomerId,
+  initialCustomerProjectId,
 }: {
   customers: CustomerOption[];
   items: SalesOrderItemOption[];
   initialData?: SalesOrderEditData;
+  initialCustomerId?: string | null;
+  initialCustomerProjectId?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -402,6 +408,7 @@ export function OrderForm({
       ? {
           orderNumber: initialData.orderNumber,
           customerId: initialData.customerId,
+          customerProjectId: initialData.customerProjectId,
           status: initialData.status,
           orderDate: initialData.orderDate,
           shipDate: initialData.shipDate,
@@ -422,6 +429,8 @@ export function OrderForm({
         }
       : {
           ...salesOrderDefaultValues,
+          customerId: initialCustomerId ?? "",
+          customerProjectId: initialCustomerProjectId ?? null,
           orderDate: todayInTimeZone(timeZone),
         },
   });
@@ -434,10 +443,19 @@ export function OrderForm({
     control: form.control,
     name: "customerId",
   });
+  const customerProjectId = useWatch({
+    control: form.control,
+    name: "customerProjectId",
+  });
   const status = useWatch({
     control: form.control,
     name: "status",
   });
+  const selectedCustomer = customerId ? customerMap.get(customerId) : undefined;
+  const projectOptions = useMemo(
+    () => selectedCustomer?.projects ?? [],
+    [selectedCustomer]
+  );
   const isConfirmedEdit = initialData?.status === "confirmed";
 
   const { fields, append, move, remove } = useFieldArray({
@@ -457,6 +475,19 @@ export function OrderForm({
   const [linePricingState, setLinePricingState] = useState<
     Record<string, LinePricingState>
   >({});
+
+  useEffect(() => {
+    if (!customerProjectId) return;
+    const projectBelongsToCustomer = projectOptions.some(
+      (project) => project.id === customerProjectId
+    );
+    if (!projectBelongsToCustomer) {
+      form.setValue("customerProjectId", null, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [customerProjectId, form, projectOptions]);
 
   function updateLinePricingState(
     lineKey: string,
@@ -754,6 +785,10 @@ export function OrderForm({
                         onValueChange={(value) => {
                           const nextValue = value ?? "";
                           field.onChange(nextValue);
+                          form.setValue("customerProjectId", null, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
                           if (!nextValue) return;
 
                           const nextShipAddress = getShipAddressFromCustomer(
@@ -794,6 +829,59 @@ export function OrderForm({
                           },
                         ]}
                       />
+                      {field.value ? (
+                        <Button variant="link" size="sm" className="h-auto px-0" asChild>
+                          <Link href={`/sales/customers/${field.value}`} target="_blank">
+                            Open customer
+                          </Link>
+                        </Button>
+                      ) : null}
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+
+                <Controller
+                  control={form.control}
+                  name="customerProjectId"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Project / Job</FieldLabel>
+                      <Select
+                        key={`${customerId ?? "none"}-${field.value ?? "none"}`}
+                        name={field.name}
+                        value={field.value ?? NO_PROJECT_VALUE}
+                        onValueChange={(value) =>
+                          field.onChange(value === NO_PROJECT_VALUE ? null : value)
+                        }
+                        disabled={!customerId || projectOptions.length === 0}
+                      >
+                        <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                          <SelectValue
+                            placeholder={
+                              customerId ? "No project" : "Select a customer first"
+                            }
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_PROJECT_VALUE}>No project</SelectItem>
+                          {projectOptions.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {field.value ? (
+                        <Button variant="link" size="sm" className="h-auto px-0" asChild>
+                          <Link
+                            href={`/sales/customers/${customerId}?project=${field.value}#projects`}
+                            target="_blank"
+                          >
+                            Open project
+                          </Link>
+                        </Button>
+                      ) : null}
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}

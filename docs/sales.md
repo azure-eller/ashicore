@@ -13,6 +13,8 @@ read_when:
 Sales v1 includes:
 
 - customer CRUD
+- account state and priority for landed-customer management
+- customer projects/jobs as optional sales-order context
 - multi-line sales orders
 - customer and product snapshots on saved orders
 - `draft`, `confirmed`, `partially_shipped`, `shipped`, and `cancelled` statuses
@@ -87,8 +89,11 @@ Historical rules:
 ## Snapshots
 
 - orders store `customerName`
+- orders may link to a customer project/job with `customerProjectId`
 - lines store `itemName`, `itemSku`, and `unitName`
 - list/detail pages render snapshots so renamed or deleted records do not break history
+- customers are the managed account; projects/jobs are the work context; sales orders remain the commercial object
+- project links are optional, and orders without a project must keep working
 - products and customers used by active draft, confirmed, or partially shipped sales orders cannot be soft-deleted
 - shipped orders rely on snapshots for history and do not block customer or product soft delete
 

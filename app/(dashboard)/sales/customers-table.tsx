@@ -7,9 +7,26 @@ import { SortableHeader } from "@/components/sortable-header";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { DateTimeText } from "@/components/date-time-text";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatAddressLines } from "@/lib/format";
+import { formatAddressLines, formatDate, formatPrice } from "@/lib/format";
 import type { CustomerRow } from "./types";
+
+const accountStateLabels = {
+  onboarding: "Onboarding",
+  active: "Active",
+  growth: "Growth",
+  at_risk: "At risk",
+  dormant: "Dormant",
+  former: "Former",
+} as const;
+
+const accountPriorityLabels = {
+  strategic: "Strategic",
+  high: "High",
+  standard: "Standard",
+  low: "Low",
+} as const;
 
 function customerListAddress(customer: CustomerRow) {
   const billingAddress = formatAddressLines({
@@ -75,6 +92,60 @@ const columns: ColumnDef<CustomerRow>[] = [
     ),
     filterFn: multiValueFilter,
     cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
+  },
+  {
+    accessorKey: "accountPriority",
+    header: ({ column }) => <SortableHeader column={column} label="Priority" />,
+    cell: ({ row }) => (
+      <Badge
+        variant={
+          row.original.accountPriority === "strategic"
+            ? "default"
+            : row.original.accountPriority === "high"
+              ? "success"
+              : row.original.accountPriority === "low"
+                ? "outline"
+                : "secondary"
+        }
+      >
+        {accountPriorityLabels[row.original.accountPriority]}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: "accountState",
+    header: ({ column }) => <SortableHeader column={column} label="State" />,
+    cell: ({ row }) => (
+      <Badge
+        variant={
+          row.original.accountState === "at_risk"
+            ? "warning"
+            : row.original.accountState === "former"
+              ? "outline"
+              : row.original.accountState === "growth"
+                ? "success"
+                : "secondary"
+        }
+      >
+        {accountStateLabels[row.original.accountState]}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: "openOrderValue",
+    header: ({ column }) => <SortableHeader column={column} label="Open Orders" />,
+    sortingFn: (a, b) =>
+      parseFloat(a.original.openOrderValue) - parseFloat(b.original.openOrderValue),
+    cell: ({ row }) => (
+      <span className="text-sm">
+        {row.original.openOrderCount} · {formatPrice(row.original.openOrderValue)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "latestOrderDate",
+    header: ({ column }) => <SortableHeader column={column} label="Latest Order" />,
+    cell: ({ row }) => formatDate(row.original.latestOrderDate),
   },
   {
     id: "address",

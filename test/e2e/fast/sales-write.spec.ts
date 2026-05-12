@@ -298,6 +298,10 @@ test.describe("Sales write-path smoke", () => {
     await expect(page.getByText("Add Customer")).toBeVisible();
 
     await page.getByLabel("Name").fill(customerName);
+    await page.getByLabel("Priority").click();
+    await page.getByRole("option", { name: "High" }).click();
+    await page.getByLabel("Account State").click();
+    await page.getByRole("option", { name: "Growth" }).click();
     await page.getByLabel("Email").fill(`fast-sales-${ts}@example.com`);
     await page.getByLabel("Phone").fill("555-0300");
     await page.locator("#customer-billing-line1").fill("100 Market Street");
@@ -322,10 +326,12 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesCustomers.id, customerId));
     expect(customer.email).toBe(`fast-sales-${ts}@example.com`);
     expect(customer.phone).toBe("555-0300");
+    expect(customer.accountPriority).toBe("high");
+    expect(customer.accountState).toBe("growth");
     expect(customer.billingLine1).toBe("100 Market Street");
     expect(customer.notes).toBe("Fast customer smoke test");
 
-    await page.getByRole("link", { name: "Edit" }).click();
+    await page.getByRole("link", { name: "Edit", exact: true }).click();
     await page.waitForURL(`**/sales/customers/${customerId}/edit`);
     await page.getByLabel("Phone").fill("555-0310");
     await page.getByLabel("Notes").fill("Fast customer updated");
@@ -540,6 +546,8 @@ test.describe("Sales write-path smoke", () => {
     await customerInput.click();
     await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
+    await page.getByLabel("Project / Job").click();
+    await page.getByRole("option", { name: new RegExp(`Example Construction ${ts}`) }).click();
 
     await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
     await selectDate(page, page.getByLabel("Ship Date"), "2026-04-15");
@@ -570,6 +578,7 @@ test.describe("Sales write-path smoke", () => {
 
     const [order] = await db.select().from(salesOrders).where(eq(salesOrders.id, orderId));
     expect(order.customerId).toBe(customerId);
+    expect(order.customerProjectId).toBe(crmProjectId);
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("draft");
     expect(order.orderDate).toBe("2026-04-01");
@@ -581,6 +590,12 @@ test.describe("Sales write-path smoke", () => {
     await showSalesOrderStatus(page, "Draft");
     await filterList(page, "Search orders", order.orderNumber);
     const listRow = salesOrderCard(page, order.orderNumber);
+    await expect(
+      listRow.getByRole("link", { name: new RegExp(`Customer ${customerName}`) })
+    ).toBeVisible();
+    await expect(
+      listRow.getByRole("link", { name: new RegExp(`Example Construction ${ts}`) })
+    ).toBeVisible();
     const notesIndicator = listRow.getByTestId("sales-order-notes-indicator");
     await expect(notesIndicator).toBeVisible();
     await expect(listRow.getByText(orderNote)).toHaveCount(0);
@@ -591,7 +606,17 @@ test.describe("Sales write-path smoke", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: order.orderNumber })
     ).toBeVisible();
+    await expect(page.getByRole("link", { name: customerName })).toBeVisible();
+    await expect(page.getByRole("link", { name: `Example Construction ${ts}` })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create invoice" })).toHaveCount(0);
+
+    await page.goto(`/sales/customers/${customerId}?project=${crmProjectId}#projects`);
+    await expect(page.getByRole("button", { name: /^Projects/ })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    await page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) }).click();
+    await expect(page.getByRole("link", { name: order.orderNumber })).toBeVisible();
 
     const draftInvoiceResponse = await page.request.post(
       `/api/sales-orders/${orderId}/xero-push`
@@ -616,6 +641,7 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
 
+    await page.goto(`/sales/orders/${orderId}`);
     const [confirmResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
@@ -956,7 +982,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: orderBeforeEdit.orderNumber })
     ).toBeVisible();
-    await page.getByRole("link", { name: "Edit" }).click();
+    await page.getByRole("link", { name: "Edit", exact: true }).click();
     await page.waitForURL(`**/sales/orders/${editOrderId}/edit`);
 
     await page.locator('input[placeholder="0"]').first().fill("4");

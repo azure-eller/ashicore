@@ -8,6 +8,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import {
+  CUSTOMER_ACCOUNT_PRIORITIES,
+  CUSTOMER_ACCOUNT_STATES,
   customerDefaultValues,
   insertCustomerSchema,
   updateCustomerSchema,
@@ -52,6 +54,20 @@ import { getFirstFormErrorMessage, normalizeAddressFields } from "@/lib/format";
 type CustomerFormValues = z.input<typeof insertCustomerSchema>;
 const EVERYONE_CATEGORY_VALUE = "__everyone__";
 const CREATE_NEW_CATEGORY = "__create_new__";
+const accountStateLabels = {
+  onboarding: "Onboarding",
+  active: "Active",
+  growth: "Growth",
+  at_risk: "At risk",
+  dormant: "Dormant",
+  former: "Former",
+} as const;
+const accountPriorityLabels = {
+  strategic: "Strategic",
+  high: "High",
+  standard: "Standard",
+  low: "Low",
+} as const;
 
 export function CustomerForm({
   customerCategories,
@@ -96,6 +112,8 @@ export function CustomerForm({
       ? {
           name: initialData.name,
           customerCategoryId: initialData.customerCategoryId,
+          accountState: initialData.accountState,
+          accountPriority: initialData.accountPriority,
           email: initialData.email,
           phone: initialData.phone,
           billingLine1: initialBillingAddress.line1,
@@ -389,6 +407,62 @@ export function CustomerForm({
                           <SelectItem value={CREATE_NEW_CATEGORY}>
                             + Create new category
                           </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+
+                <Controller
+                  control={form.control}
+                  name="accountPriority"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Priority</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={field.value ?? "standard"}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                          <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CUSTOMER_ACCOUNT_PRIORITIES.map((priority) => (
+                            <SelectItem key={priority} value={priority}>
+                              {accountPriorityLabels[priority]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Controller
+                  control={form.control}
+                  name="accountState"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Account State</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={field.value ?? "active"}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                          <SelectValue placeholder="Select state" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CUSTOMER_ACCOUNT_STATES.map((state) => (
+                            <SelectItem key={state} value={state}>
+                              {accountStateLabels[state]}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}

@@ -4,6 +4,25 @@ import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { customers } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
+export const CUSTOMER_ACCOUNT_STATES = [
+  "onboarding",
+  "active",
+  "growth",
+  "at_risk",
+  "dormant",
+  "former",
+] as const;
+export type CustomerAccountState = (typeof CUSTOMER_ACCOUNT_STATES)[number];
+
+export const CUSTOMER_ACCOUNT_PRIORITIES = [
+  "strategic",
+  "high",
+  "standard",
+  "low",
+] as const;
+export type CustomerAccountPriority =
+  (typeof CUSTOMER_ACCOUNT_PRIORITIES)[number];
+
 const customerCategoryIdSchema = nullableString.refine(
   (value) => value == null || z.string().uuid().safeParse(value).success,
   "Invalid customer category"
@@ -12,6 +31,8 @@ const customerCategoryIdSchema = nullableString.refine(
 const baseCustomerSchema = createInsertSchema(customers, {
   name: z.string().trim().min(1, "Name is required"),
   customerCategoryId: customerCategoryIdSchema,
+  accountState: z.enum(CUSTOMER_ACCOUNT_STATES).default("active"),
+  accountPriority: z.enum(CUSTOMER_ACCOUNT_PRIORITIES).default("standard"),
   email: nullableString,
   phone: nullableString,
   billingLine1: nullableString,
@@ -44,6 +65,8 @@ export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
 export const customerDefaultValues: InsertCustomer = {
   name: "",
   customerCategoryId: null,
+  accountState: "active",
+  accountPriority: "standard",
   email: null,
   phone: null,
   billingLine1: null,

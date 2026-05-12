@@ -134,15 +134,24 @@ export function SalesOrderCard({
               <DragHandle orderNumber={order.orderNumber} lane={lane} />
               <div className="min-w-0 flex-1">
                 <Link
-                  href={`/sales/orders/${order.id}`}
+                  href={`/sales/customers/${order.customerId}`}
                   prefetch={false}
-                  className="inline-flex max-w-full flex-col items-start rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Customer ${order.customerName}`}
+                  className="block max-w-full rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <div className="max-w-full truncate text-sm font-semibold leading-tight">
                     {order.customerName}
                   </div>
+                </Link>
+                <Link
+                  href={`/sales/orders/${order.id}`}
+                  prefetch={false}
+                  className="block max-w-full rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
                   <div className="max-w-full truncate text-xs text-muted-foreground">
                     {order.orderNumber}
                   </div>
@@ -155,6 +164,17 @@ export function SalesOrderCard({
                     <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                       Draft
                     </Badge>
+                  ) : null}
+                  {order.customerProjectId ? (
+                    <Link
+                      href={`/sales/customers/${order.customerId}?project=${order.customerProjectId}#projects`}
+                      prefetch={false}
+                      className="max-w-full truncate rounded-sm text-xs text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {order.customerProjectName ?? "Deleted project"}
+                    </Link>
                   ) : null}
                 </div>
               </div>

@@ -1,6 +1,6 @@
 {
-  "id": "237ed8dc-4390-49de-ab67-ef27fb5b8d81",
-  "prevId": "1a96c954-afc8-4cc6-a850-1c8bd8f6051f",
+  "id": "7001c79c-a109-44ee-810d-c4bb7eac8568",
+  "prevId": "237ed8dc-4390-49de-ab67-ef27fb5b8d81",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2421,7 +2421,7 @@
       "checkConstraints": {
         "stock_allocations_demand_type_check": {
           "name": "stock_allocations_demand_type_check",
-          "value": "\"inventory\".\"stock_allocations\".\"demand_type\" IN ('sales_order_line')"
+          "value": "\"inventory\".\"stock_allocations\".\"demand_type\" IN ('sales_order_line', 'manufacturing_order_ingredient')"
         },
         "stock_allocations_source_type_check": {
           "name": "stock_allocations_source_type_check",

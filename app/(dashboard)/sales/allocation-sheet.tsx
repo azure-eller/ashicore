@@ -153,6 +153,24 @@ function itemVisual(name: string | null | undefined, unitName: string | null | u
   return inferItemVisual({ name, unitName });
 }
 
+function demandStackSize(quantity: number) {
+  if (quantity >= 50) return 50;
+  if (quantity >= 20) return 10;
+  if (quantity >= 5) return 5;
+  return 1;
+}
+
+function splitQuantityStacks(quantity: number, stackSize: number) {
+  const normalized = readQuantity(toQuantityString(quantity));
+  if (normalized <= 0) return [];
+
+  const fullStackCount = Math.floor(normalized / stackSize);
+  const remainder = readQuantity(toQuantityString(normalized - fullStackCount * stackSize));
+  const stacks = Array.from({ length: fullStackCount }, () => stackSize);
+  if (remainder > 0) stacks.push(remainder);
+  return stacks;
+}
+
 function clampQuantity(value: number, max: number) {
   return Math.max(0, Math.min(readQuantity(toQuantityString(value)), max));
 }
@@ -267,6 +285,48 @@ function WorkspacePanel({
       </div>
       {footer ? <div className="border-t bg-muted/20 p-3">{footer}</div> : null}
     </section>
+  );
+}
+
+function DemandQuantityStacks({
+  total,
+  allocated,
+  visual,
+}: {
+  total: number;
+  allocated: number;
+  visual: ReturnType<typeof itemVisual>;
+}) {
+  const stackSize = demandStackSize(Math.max(total, allocated));
+  const allocatedStacks = splitQuantityStacks(allocated, stackSize);
+  const totalStacks = splitQuantityStacks(total, stackSize);
+  const emptyCount = Math.max(0, totalStacks.length - allocatedStacks.length);
+
+  if (total <= 0 && allocated <= 0) {
+    return <div className="h-12" />;
+  }
+
+  return (
+    <div className="flex min-h-12 flex-wrap items-center gap-1.5">
+      {allocatedStacks.map((quantity, index) => (
+        <ItemToken
+          key={`filled-${index}-${quantity}`}
+          kind={visual.kind}
+          color={visual.color}
+          state="available"
+          size="sm"
+          quantity={formatQuantity(toQuantityString(quantity))}
+          className="shadow-xs"
+        />
+      ))}
+      {Array.from({ length: emptyCount }).map((_, index) => (
+        <span
+          key={`empty-${index}`}
+          className="flex h-12 w-12 shrink-0 rounded-md border border-dashed bg-muted/15"
+          aria-hidden
+        />
+      ))}
+    </div>
   );
 }
 
@@ -657,7 +717,6 @@ function SupplyStack({
           selected={isSelected}
           size="md"
           quantity={quantityLabel}
-          lotCode={isLot ? source.lotNumber ?? undefined : undefined}
           className="border-0 bg-transparent p-0 shadow-none ring-0"
         />
       </button>
@@ -872,8 +931,6 @@ function DemandCard({
   const remaining = readQuantity(row.remainingQty);
   const canPlace = carried != null && shortQty > 0;
   const unitLabel = compactUnitName(row.unitName);
-  const slotCount = Math.min(14, Math.max(1, Math.ceil(remaining / 25)));
-  const filledSlots = Math.min(slotCount, Math.ceil(allocatedQty / 25));
   const visual = itemVisual(row.itemName, row.unitName);
 
   return (
@@ -925,32 +982,11 @@ function DemandCard({
       </div>
 
       <div className="mt-3 space-y-2">
-        <div className="flex flex-wrap gap-1">
-          {Array.from({ length: slotCount }).map((_, index) => (
-            <span
-              key={index}
-              className={cn(
-                "flex size-8 items-center justify-center rounded border",
-                index < filledSlots
-                  ? "border-success/25 bg-success/10"
-                  : "border-dashed bg-muted/20"
-              )}
-            >
-              {index < filledSlots ? (
-                <ItemToken
-                  kind={visual.kind}
-                  color={visual.color}
-                  state="reserved"
-                  size="xs"
-                  className="border-0 bg-transparent p-0 shadow-none ring-0"
-                />
-              ) : null}
-            </span>
-          ))}
-          {remaining > 350 ? (
-            <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
-          ) : null}
-        </div>
+        <DemandQuantityStacks
+          total={remaining}
+          allocated={allocatedQty}
+          visual={visual}
+        />
         <ProgressBar value={allocatedQty} max={remaining} />
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -1301,8 +1337,6 @@ function OutputAllocationWorkspace({
                 const remaining = readQuantity(destination.remainingNeed);
                 const shortQty = Math.max(0, remaining - allocated);
                 const selected = selectedIngredientId === destination.ingredientId;
-                const slotCount = Math.min(14, Math.max(1, Math.ceil(remaining / 25)));
-                const filledSlots = Math.min(slotCount, Math.ceil(allocated / 25));
                 return (
                   <div
                     role="button"
@@ -1360,33 +1394,12 @@ function OutputAllocationWorkspace({
                         </Button>
                       </div>
                     </div>
-                      <div className="mt-3 space-y-2">
-                        <div className="flex flex-wrap gap-1">
-                          {Array.from({ length: slotCount }).map((_, index) => (
-                            <span
-                              key={index}
-                              className={cn(
-                                "flex size-8 items-center justify-center rounded border",
-                                index < filledSlots
-                                  ? "border-primary/25 bg-primary/10"
-                                  : "border-dashed bg-muted/20"
-                              )}
-                            >
-                              {index < filledSlots ? (
-                                <ItemToken
-                                  kind={outputVisual.kind}
-                                  color={outputVisual.color}
-                                  state="reserved"
-                                  size="xs"
-                                  className="border-0 bg-transparent p-0 shadow-none ring-0"
-                                />
-                              ) : null}
-                            </span>
-                          ))}
-                          {remaining > 350 ? (
-                            <span className="flex size-7 items-center justify-center text-xs text-muted-foreground">+</span>
-                          ) : null}
-                        </div>
+                    <div className="mt-3 space-y-2">
+                      <DemandQuantityStacks
+                        total={remaining}
+                        allocated={allocated}
+                        visual={outputVisual}
+                      />
                         <ProgressBar value={allocated} max={remaining} tone="primary" />
                       <div className="flex justify-end gap-4 text-sm">
                         <span>
