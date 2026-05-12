@@ -1130,6 +1130,30 @@ function OutputAllocationWorkspace({
         <p className="text-sm text-destructive">{outputQuery.error.message}</p>
       ) : data ? (
         <>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-base font-semibold text-foreground">
+                  {data.sourceMo.orderNumber}
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="truncate">{data.sourceMo.productName}</span>
+                  <Badge variant="secondary" className="shrink-0">
+                    {statusLabel(data.sourceMo.status)}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+            <HeaderMetric
+              label="output"
+              free={outputFree}
+              total={readQuantity(data.sourceMo.plannedQuantity)}
+              tone="primary"
+            />
+          </div>
           <div className="grid min-h-0 gap-4 xl:grid-cols-2">
             <WorkspacePanel
               title="Supply · Output"
@@ -1778,15 +1802,20 @@ export function AllocationSheet({
                 </span>
                 <div className="min-w-0">
                   <div className="flex min-w-0 flex-wrap items-center gap-2 text-base font-semibold text-foreground">
-                    <span className="truncate">{targetItem.itemName}</span>
+                    <span className="truncate">
+                      {targetLine
+                        ? `${targetLine.orderNumber} · ${targetLine.customerName}`
+                        : targetItem.itemName}
+                    </span>
+                    {targetLine ? <Badge variant="outline">Sales order</Badge> : null}
+                  </div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span className="truncate">
+                      {targetLine ? targetItem.itemName : "Item allocation"}
+                    </span>
                     <Badge variant="secondary" className="shrink-0">
                       {targetUnitLabel}
                     </Badge>
-                  </div>
-                  <div className="truncate text-sm text-muted-foreground">
-                    {targetLine
-                      ? `${targetLine.orderNumber} · ${targetLine.customerName}`
-                      : "Item allocation"}
                   </div>
                 </div>
               </div>
