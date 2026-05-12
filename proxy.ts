@@ -42,6 +42,10 @@ function getCanonicalProductionOrigin() {
   }
 }
 
+function isDevelopmentRoute(pathname: string) {
+  return process.env.VERCEL_ENV !== "production" && pathname.startsWith("/dev/");
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const requestId = request.headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID();
@@ -90,7 +94,8 @@ export function proxy(request: NextRequest) {
     pathname === "/reset-password" ||
     pathname === "/sign-in" ||
     pathname === "/sign-up" ||
-    pathname === "/accept-invitation"
+    pathname === "/accept-invitation" ||
+    isDevelopmentRoute(pathname)
   ) {
     response = NextResponse.next({
       request: {
