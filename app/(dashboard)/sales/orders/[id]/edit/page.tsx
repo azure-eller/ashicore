@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { OrderForm } from "@/app/(dashboard)/sales/order-form";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import {
-  getCustomers,
   getEditableSalesOrder,
+  getSalesOrderCustomerOptions,
   getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
 
@@ -16,7 +16,7 @@ export default async function EditOrderPage({
   const { id } = await params;
   const [order, customerRows, items] = await Promise.all([
     getEditableSalesOrder(id),
-    getCustomers(),
+    getSalesOrderCustomerOptions(),
     getSalesOrderItemOptions(),
   ]);
 
@@ -28,22 +28,7 @@ export default async function EditOrderPage({
     <div className="mx-auto w-full max-w-7xl py-8">
       <OrderForm
         initialData={order}
-        customers={customerRows.map((customer) => ({
-          id: customer.id,
-          name: customer.name,
-          billingLine1: customer.billingLine1,
-          billingLine2: customer.billingLine2,
-          billingCity: customer.billingCity,
-          billingRegion: customer.billingRegion,
-          billingPostcode: customer.billingPostcode,
-          billingCountry: customer.billingCountry,
-          shipLine1: customer.shipLine1,
-          shipLine2: customer.shipLine2,
-          shipCity: customer.shipCity,
-          shipRegion: customer.shipRegion,
-          shipPostcode: customer.shipPostcode,
-          shipCountry: customer.shipCountry,
-        }))}
+        customers={customerRows}
         items={items}
       />
     </div>

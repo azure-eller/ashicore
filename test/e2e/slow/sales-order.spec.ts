@@ -1517,7 +1517,11 @@ test.describe("Sales order flow", () => {
     await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete Customer" }).click();
 
-    await expect(page.getByText(/cannot delete|active.*order/i)).toBeVisible();
+    await expect(
+      page.getByText(
+        "Cannot delete customer with active draft, confirmed, or partially shipped orders."
+      )
+    ).toBeVisible();
 
     const customerRows = await db
       .select()

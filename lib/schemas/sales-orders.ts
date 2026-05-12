@@ -126,6 +126,10 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     "Order number must be 32 characters or fewer"
   ),
   customerId: z.string().min(1, "Customer is required"),
+  customerProjectId: nullableString.refine(
+    (value) => value == null || z.string().uuid().safeParse(value).success,
+    "Invalid project"
+  ),
   status: z.enum(["draft", "confirmed"]),
   orderDate: z
     .string()
@@ -364,6 +368,7 @@ export type SalesShipmentCostsInput = z.infer<
 export const salesOrderDefaultValues: InsertSalesOrder = {
   orderNumber: null,
   customerId: "",
+  customerProjectId: null,
   status: "draft",
   orderDate: new Date().toISOString().slice(0, 10),
   shipDate: null,

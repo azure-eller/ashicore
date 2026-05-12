@@ -4,6 +4,10 @@ import type {
   SalesShipmentCostType,
 } from "@/lib/schemas/sales-orders";
 import type {
+  CustomerAccountPriority as CustomerPriority,
+  CustomerAccountState as CustomerState,
+} from "@/lib/schemas/customers";
+import type {
   CUSTOMER_CONTACT_ROLE_KEYS,
   CUSTOMER_CORRESPONDENCE_TYPES,
   CUSTOMER_PROJECT_STATUSES,
@@ -16,6 +20,11 @@ export type CustomerRow = {
   name: string;
   customerCategoryId: string | null;
   customerCategoryName: string | null;
+  accountState: CustomerState;
+  accountPriority: CustomerPriority;
+  openOrderCount: number;
+  openOrderValue: string;
+  latestOrderDate: string | null;
   email: string | null;
   phone: string | null;
   billingLine1: string | null;
@@ -93,6 +102,7 @@ export type CustomerProjectRow = {
   targetEndDate: string | null;
   summary: string | null;
   files: CustomerProjectFileRow[];
+  salesOrders: CustomerLinkedSalesOrderRow[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -101,11 +111,19 @@ export type CustomerDetailData = CustomerRow & {
   contacts: CustomerContactRow[];
   correspondence: CustomerCorrespondenceRow[];
   projects: CustomerProjectRow[];
+  salesOrders: CustomerLinkedSalesOrderRow[];
+};
+
+export type CustomerProjectOption = {
+  id: string;
+  name: string;
+  status: CustomerProjectStatus;
 };
 
 export type CustomerOption = {
   id: string;
   name: string;
+  projects: CustomerProjectOption[];
   billingLine1: string | null;
   billingLine2: string | null;
   billingCity: string | null;
@@ -118,6 +136,20 @@ export type CustomerOption = {
   shipRegion: string | null;
   shipPostcode: string | null;
   shipCountry: string | null;
+};
+
+export type CustomerLinkedSalesOrderRow = {
+  id: string;
+  orderNumber: string;
+  status: SalesOrderStatus;
+  orderDate: string;
+  shipDate: string | null;
+  requestedDate: string | null;
+  totalAmount: string;
+  customerProjectId: string | null;
+  customerProjectName: string | null;
+  deletedAt: Date | null;
+  createdAt: Date;
 };
 
 export type CustomerCategoryOption = {
@@ -275,8 +307,11 @@ export type SalesShippingReadiness = {
 export type SalesOrderListRow = {
   id: string;
   orderNumber: string;
+  customerId: string;
   customerName: string;
   customerEmail: string | null;
+  customerProjectId: string | null;
+  customerProjectName: string | null;
   notes: string | null;
   status: SalesOrderStatus;
   orderDate: string;
@@ -402,6 +437,8 @@ export type SalesOrderDetail = {
   customerId: string;
   customerName: string;
   customerEmail: string | null;
+  customerProjectId: string | null;
+  customerProjectName: string | null;
   orderNumber: string;
   status: SalesOrderStatus;
   orderDate: string;
@@ -538,6 +575,7 @@ export type SalesShippingQueueRow = {
 export type SalesOrderEditData = {
   id: string;
   customerId: string;
+  customerProjectId: string | null;
   orderNumber: string;
   status: Extract<SalesOrderStatus, "draft" | "confirmed">;
   orderDate: string;

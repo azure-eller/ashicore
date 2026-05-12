@@ -108,6 +108,7 @@ import type {
   DraftAllocationTakeoverWarningPayload,
   CustomerProjectFileRow,
   CustomerProjectRow,
+  CustomerOption,
   CustomerRow,
   OversellWarningPayload,
   PricingScheduleEditData,
@@ -1654,6 +1655,34 @@ async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
   return customer satisfies ValidatedCustomerRow;
 }
 
+async function getValidatedCustomerProjectInTx(
+  tx: Tx,
+  customerId: string,
+  customerProjectId: string | null | undefined
+) {
+  if (customerProjectId == null) return null;
+
+  const [project] = await tx
+    .select({
+      id: customerProjects.id,
+      name: customerProjects.name,
+    })
+    .from(customerProjects)
+    .where(
+      and(
+        eq(customerProjects.id, customerProjectId),
+        eq(customerProjects.customerId, customerId),
+        isNull(customerProjects.deletedAt)
+      )
+    );
+
+  if (!project) {
+    throw new SalesError("Project not found for this customer.", 400);
+  }
+
+  return project;
+}
+
 async function getValidatedSalesItemsInTx(
   tx: Tx,
   itemIds: string[]
@@ -1756,6 +1785,7 @@ async function prepareOrderPayload(
   options?: { lockItems?: boolean }
 ): Promise<{
   customerId: string;
+  customerProjectId: string | null;
   customerName: string;
   orderDate: string;
   shipDate: string | null;
@@ -1773,6 +1803,11 @@ async function prepareOrderPayload(
   itemsById: Map<string, SalesItemValidationRow>;
 }> {
   const customer = await getValidatedCustomerInTx(tx, payload.customerId);
+  const project = await getValidatedCustomerProjectInTx(
+    tx,
+    customer.id,
+    payload.customerProjectId
+  );
   const itemIds = payload.lines.map((line) => line.itemId);
 
   if (options?.lockItems && itemIds.length > 0) {
@@ -1829,6 +1864,7 @@ async function prepareOrderPayload(
 
   return {
     customerId: customer.id,
+    customerProjectId: project?.id ?? null,
     customerName: customer.name,
     orderDate: payload.orderDate,
     shipDate: payload.shipDate ?? null,
@@ -2780,6 +2816,28 @@ const customerRowSelect = {
   name: customers.name,
   customerCategoryId: customers.customerCategoryId,
   customerCategoryName: customerCategories.name,
+  accountState: customers.accountState,
+  accountPriority: customers.accountPriority,
+  openOrderCount: sql<number>`(
+    SELECT COUNT(*)::int
+    FROM sales.sales_orders so
+    WHERE so.customer_id = ${customers.id}
+      AND so.deleted_at IS NULL
+      AND so.status IN ('draft', 'confirmed', 'partially_shipped')
+  )`.as("openOrderCount"),
+  openOrderValue: trimScale(sql`COALESCE((
+    SELECT SUM(so.total_amount)
+    FROM sales.sales_orders so
+    WHERE so.customer_id = ${customers.id}
+      AND so.deleted_at IS NULL
+      AND so.status IN ('draft', 'confirmed', 'partially_shipped')
+  ), 0)`).as("openOrderValue"),
+  latestOrderDate: sql<string | null>`(
+    SELECT MAX(so.order_date)::text
+    FROM sales.sales_orders so
+    WHERE so.customer_id = ${customers.id}
+      AND so.deleted_at IS NULL
+  )`.as("latestOrderDate"),
   email: customers.email,
   phone: customers.phone,
   billingLine1: customers.billingLine1,
@@ -2801,6 +2859,58 @@ const customerRowSelect = {
   updatedAt: customers.updatedAt,
 } as const;
 
+type CustomerSelectRow = Omit<
+  CustomerRow,
+  "accountState" | "accountPriority" | "openOrderCount"
+> & {
+  accountState: string;
+  accountPriority: string;
+  openOrderCount: number | string;
+};
+
+function mapCustomerRow(row: CustomerSelectRow): CustomerRow {
+  return {
+    ...row,
+    accountState: row.accountState as CustomerRow["accountState"],
+    accountPriority: row.accountPriority as CustomerRow["accountPriority"],
+    openOrderCount: Number(row.openOrderCount),
+  };
+}
+
+async function getCustomerSalesOrdersInTx(tx: Tx, customerId: string) {
+  const rows = await tx
+    .select({
+      id: salesOrders.id,
+      orderNumber: salesOrders.orderNumber,
+      status: salesOrders.status,
+      orderDate: salesOrders.orderDate,
+      shipDate: salesOrders.shipDate,
+      requestedDate: salesOrders.requestedDate,
+      totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
+      customerProjectId: salesOrders.customerProjectId,
+      customerProjectName: customerProjects.name,
+      deletedAt: salesOrders.deletedAt,
+      createdAt: salesOrders.createdAt,
+    })
+    .from(salesOrders)
+    .leftJoin(
+      customerProjects,
+      and(
+        eq(salesOrders.customerProjectId, customerProjects.id),
+        isNull(customerProjects.deletedAt)
+      )
+    )
+    .where(
+      and(eq(salesOrders.customerId, customerId), isNull(salesOrders.deletedAt))
+    )
+    .orderBy(desc(salesOrders.createdAt), asc(salesOrders.orderNumber));
+
+  return rows.map((row) => ({
+    ...row,
+    status: row.status as SalesOrderListRow["status"],
+  }));
+}
+
 async function getCustomerInTx(
   tx: Tx,
   id: string,
@@ -2820,12 +2930,12 @@ async function getCustomerInTx(
     )
     .where(and(...conditions));
 
-  return customer ?? null;
+  return customer ? mapCustomerRow(customer) : null;
 }
 
 export async function getCustomers(): Promise<CustomerRow[]> {
   return withAuthedOrgContext(async (tx) => {
-    return tx
+    const rows = await tx
       .select(customerRowSelect)
       .from(customers)
       .leftJoin(
@@ -2834,6 +2944,73 @@ export async function getCustomers(): Promise<CustomerRow[]> {
       )
       .where(isNull(customers.deletedAt))
       .orderBy(asc(customers.name));
+
+    return rows.map(mapCustomerRow);
+  });
+}
+
+export async function getSalesOrderCustomerOptions(): Promise<CustomerOption[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const customerRows = await tx
+      .select(customerRowSelect)
+      .from(customers)
+      .leftJoin(
+        customerCategories,
+        eq(customers.customerCategoryId, customerCategories.id)
+      )
+      .where(isNull(customers.deletedAt))
+      .orderBy(asc(customers.name));
+
+    const projectRows =
+      customerRows.length === 0
+        ? []
+        : await tx
+            .select({
+              id: customerProjects.id,
+              customerId: customerProjects.customerId,
+              name: customerProjects.name,
+              status: customerProjects.status,
+            })
+            .from(customerProjects)
+            .where(
+              and(
+                inArray(
+                  customerProjects.customerId,
+                  customerRows.map((customer) => customer.id)
+                ),
+                isNull(customerProjects.deletedAt)
+              )
+            )
+            .orderBy(asc(customerProjects.name));
+
+    const projectsByCustomerId = new Map<string, CustomerOption["projects"]>();
+    for (const project of projectRows) {
+      const projects = projectsByCustomerId.get(project.customerId) ?? [];
+      projects.push({
+        id: project.id,
+        name: project.name,
+        status: project.status as CustomerProjectRow["status"],
+      });
+      projectsByCustomerId.set(project.customerId, projects);
+    }
+
+    return customerRows.map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      projects: projectsByCustomerId.get(customer.id) ?? [],
+      billingLine1: customer.billingLine1,
+      billingLine2: customer.billingLine2,
+      billingCity: customer.billingCity,
+      billingRegion: customer.billingRegion,
+      billingPostcode: customer.billingPostcode,
+      billingCountry: customer.billingCountry,
+      shipLine1: customer.shipLine1,
+      shipLine2: customer.shipLine2,
+      shipCity: customer.shipCity,
+      shipRegion: customer.shipRegion,
+      shipPostcode: customer.shipPostcode,
+      shipCountry: customer.shipCountry,
+    }));
   });
 }
 
@@ -3079,6 +3256,7 @@ async function getCustomerProjectsInTx(
     ...row,
     status: row.status as CustomerProjectRow["status"],
     files: filesByProject.get(row.id) ?? [],
+    salesOrders: [],
   }));
 }
 
@@ -3093,12 +3271,28 @@ export async function getCustomerDetail(
     const contacts = await getCustomerContactsInTx(tx, id);
     const correspondence = await getCustomerCorrespondenceInTx(tx, id);
     const projects = await getCustomerProjectsInTx(tx, id);
+    const salesOrderRows = await getCustomerSalesOrdersInTx(tx, id);
+    const salesOrdersByProjectId = new Map<
+      string,
+      typeof salesOrderRows
+    >();
+    for (const salesOrder of salesOrderRows) {
+      if (!salesOrder.customerProjectId) continue;
+      const bucket =
+        salesOrdersByProjectId.get(salesOrder.customerProjectId) ?? [];
+      bucket.push(salesOrder);
+      salesOrdersByProjectId.set(salesOrder.customerProjectId, bucket);
+    }
 
     return {
       ...customer,
       contacts,
       correspondence,
-      projects,
+      projects: projects.map((project) => ({
+        ...project,
+        salesOrders: salesOrdersByProjectId.get(project.id) ?? [],
+      })),
+      salesOrders: salesOrderRows,
     };
   });
 }
@@ -3301,6 +3495,7 @@ export async function createCustomerProject(
           ...project,
           status: project.status as CustomerProjectRow["status"],
           files: [],
+          salesOrders: [],
         }
       : null;
   });
@@ -3351,6 +3546,7 @@ export async function updateCustomerProject(
       ...project,
       status: project.status as CustomerProjectRow["status"],
       files: [],
+      salesOrders: [],
     };
   });
 }
@@ -3904,8 +4100,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           .select({
             id: salesOrders.id,
             orderNumber: salesOrders.orderNumber,
+            customerId: salesOrders.customerId,
             customerName: salesOrders.customerName,
             customerEmail: customers.email,
+            customerProjectId: salesOrders.customerProjectId,
+            customerProjectName: customerProjects.name,
             notes: salesOrders.notes,
             status: salesOrders.status,
             orderDate: salesOrders.orderDate,
@@ -3919,6 +4118,13 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           })
           .from(salesOrders)
           .leftJoin(customers, eq(salesOrders.customerId, customers.id))
+          .leftJoin(
+            customerProjects,
+            and(
+              eq(salesOrders.customerProjectId, customerProjects.id),
+              isNull(customerProjects.deletedAt)
+            )
+          )
           .where(isNull(salesOrders.deletedAt))
           .orderBy(
             desc(salesOrders.createdAt),
@@ -4263,6 +4469,8 @@ export async function getSalesOrder(
         customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
         customerEmail: customers.email,
+        customerProjectId: salesOrders.customerProjectId,
+        customerProjectName: customerProjects.name,
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         orderDate: salesOrders.orderDate,
@@ -4294,6 +4502,13 @@ export async function getSalesOrder(
       })
       .from(salesOrders)
       .leftJoin(customers, eq(salesOrders.customerId, customers.id))
+      .leftJoin(
+        customerProjects,
+        and(
+          eq(salesOrders.customerProjectId, customerProjects.id),
+          isNull(customerProjects.deletedAt)
+        )
+      )
       .where(and(...orderConditions));
 
     if (!order) {
@@ -4845,6 +5060,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
       .select({
         id: salesOrders.id,
         customerId: salesOrders.customerId,
+        customerProjectId: salesOrders.customerProjectId,
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         orderDate: salesOrders.orderDate,
@@ -4939,6 +5155,7 @@ export async function createSalesOrder(
         organizationId: orgId,
         orderNumber,
         customerId: prepared.customerId,
+        customerProjectId: prepared.customerProjectId,
         customerName: prepared.customerName,
         status: data.status,
         orderDate: prepared.orderDate,
@@ -5024,6 +5241,7 @@ export async function duplicateSalesOrder(
     {
       orderNumber: null,
       customerId: order.customerId,
+      customerProjectId: order.customerProjectId,
       status: "draft",
       orderDate: order.orderDate,
       shipDate: order.shipDate,
@@ -5237,6 +5455,7 @@ export async function updateSalesOrder(
       .set({
         orderNumber,
         customerId: prepared.customerId,
+        customerProjectId: prepared.customerProjectId,
         customerName: prepared.customerName,
         status: data.status,
         orderDate: prepared.orderDate,

@@ -512,13 +512,33 @@ function KeyFactRows({
       label: "Customer",
       value: (
         <>
-          <span className="font-medium">{order.customerName}</span>
+          <Link
+            href={`/sales/customers/${order.customerId}`}
+            className="font-medium hover:underline"
+            aria-label={`Customer ${order.customerName}`}
+          >
+            {order.customerName}
+          </Link>
           {order.customerEmail ? (
             <span className="ml-1.5 text-muted-foreground">
               {"\u00b7"} {order.customerEmail}
             </span>
           ) : null}
         </>
+      ),
+    },
+    {
+      label: "Project / Job",
+      value: order.customerProjectId ? (
+        <Link
+          href={`/sales/customers/${order.customerId}?project=${order.customerProjectId}#projects`}
+          className="font-medium hover:underline"
+          aria-label={`Project ${order.customerProjectName ?? "Deleted project"}`}
+        >
+          {order.customerProjectName ?? "Deleted project"}
+        </Link>
+      ) : (
+        <span className="text-muted-foreground">\u2014</span>
       ),
     },
     {
