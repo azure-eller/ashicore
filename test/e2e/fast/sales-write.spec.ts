@@ -1542,18 +1542,31 @@ test.describe("Sales write-path smoke", () => {
     await expect(competingBucket.getByTestId("allocation-ghost-slot").first()).toBeVisible();
     await expect(competingBucket).toContainText(/Allocated\s*0/);
     await expect(competingBucket).toContainText(/Short\s*3/);
-    await stockStack.click();
-    await expect(sheet.getByTestId("allocation-event-log")).toContainText(
-      "Click the origin demand to return"
-    );
-    await expect(sheet.getByTestId("allocation-holding-hud")).toBeVisible();
-    await expect(competingBucket.getByTestId("allocation-ghost-slot").first()).toBeVisible();
     await currentBucket.click();
     await expect(sheet.getByTestId("allocation-event-log")).toContainText("Allocated");
     await expect(currentBucket).toContainText(/Allocated\s*3/);
     await expect(currentBucket).toContainText(/Short\s*3/);
     await expect(competingBucket).toContainText(/Allocated\s*0/);
     await expect(competingBucket).toContainText(/Short\s*3/);
+
+    await activateButtonDirectly(sheet.getByRole("button", { name: "Reset" }));
+    await expect(currentBucket).toContainText(/Allocated\s*0/);
+    await expect(currentBucket).toContainText(/Short\s*6/);
+
+    await stockStack.click();
+    await competingBucket.click();
+    await expect(competingBucket).toContainText(/Allocated\s*3/);
+    await page.keyboard.press("Escape");
+    await competingBucket.click();
+    await expect(sheet.getByTestId("allocation-holding-hud")).toContainText("Reallocating from");
+    await sheet.getByTestId("allocation-supply-panel").click({ position: { x: 12, y: 12 } });
+    await expect(sheet.getByTestId("allocation-event-log")).toContainText("Returned");
+    await expect(sheet.getByTestId("allocation-holding-hud")).toBeHidden();
+    await expect(competingBucket).toContainText(/Allocated\s*0/);
+    await expect(competingBucket).toContainText(/Short\s*3/);
+    await expect(sheet.getByTestId("allocation-pending-changes")).toContainText(
+      "Unsaved allocation changes"
+    );
 
     await activateButtonDirectly(sheet.getByRole("button", { name: "Reset" }));
     await expect(currentBucket).toContainText(/Allocated\s*0/);

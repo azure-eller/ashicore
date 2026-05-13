@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -694,6 +701,8 @@ function WorkspacePanel({
   children,
   footer,
   className,
+  testId,
+  onClickCapture,
 }: {
   title: string;
   count?: string;
@@ -701,6 +710,8 @@ function WorkspacePanel({
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  testId?: string;
+  onClickCapture?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   return (
     <section
@@ -708,6 +719,8 @@ function WorkspacePanel({
         "flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
         className
       )}
+      data-testid={testId}
+      onClickCapture={onClickCapture}
     >
       <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -2898,6 +2911,35 @@ export function AllocationManagerSheet({
     pushEvent(`Allocated ${quantityLabel(quantity)} to ${targetRow.label}`);
   }
 
+  function returnAllocatedTokenToSource(token: AllocationTokenData) {
+    const originDemandId = token.originDemandId;
+    if (!originDemandId) return;
+
+    const originDraft = draftsByDemand[originDemandId] ?? {};
+    const originQty = readQuantity(originDraft[token.sourceKey]);
+    const quantity = Math.min(token.quantity, originQty);
+    if (quantity <= 0) {
+      setCarried(null);
+      pushEvent("Cancelled pickup", "warning");
+      return;
+    }
+
+    updateDrafts({
+      ...draftsByDemand,
+      [originDemandId]: {
+        ...originDraft,
+        [token.sourceKey]: toQuantityString(originQty - quantity),
+      },
+    });
+    setSelectedSourceKey(token.sourceKey);
+    setCarried(
+      token.quantity <= quantity
+        ? null
+        : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
+    );
+    pushEvent(`Returned ${quantityLabel(quantity)} to ${token.sourceLabel}`, "warning");
+  }
+
   function placeOnDemand(demandId: string) {
     if (!carried) return;
     if (carried.originDemandId) {
@@ -3387,6 +3429,13 @@ export function AllocationManagerSheet({
                   title="Supply · Storage"
                   count={supplyPanelCount}
                   accent="supply"
+                  testId="allocation-supply-panel"
+                  onClickCapture={(event) => {
+                    if (!carried?.originDemandId) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    returnAllocatedTokenToSource(carried);
+                  }}
                 >
                   <div className="flex min-h-0 flex-col gap-4">
                     <div className="space-y-3">
