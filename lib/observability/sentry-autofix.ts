@@ -6,6 +6,8 @@ const BASE_BRANCH = "main";
 const SENTRY_API_BASE_URL = "https://sentry.io/api/0";
 const GITHUB_API_BASE_URL = "https://api.github.com";
 const MAX_SAFE_CONTEXT_DEPTH = 4;
+const PACKET_START = "<!-- sentry-autofix-packet:start -->";
+const PACKET_END = "<!-- sentry-autofix-packet:end -->";
 
 const SAFE_TAG_KEYS = [
   "error.kind",
@@ -264,7 +266,7 @@ export function parseSentryWebhookPayload(payload: unknown): ParsedSentryWebhook
       root.project,
       root.project_slug
     ),
-    issueUrl: sanitizePath(
+    issueUrl: sanitizeUrl(
       firstString(issue?.permalink, issue?.web_url, issue?.url, data.issueUrl, data.issue_url, root.issueUrl, root.issue_url)
     ),
   };
@@ -301,7 +303,7 @@ export function normalizeAgentDebugPacket(args: {
     sentry: {
       issueId: args.parsed.issueId,
       eventId: args.parsed.eventId ?? firstString(event?.event_id, event?.id),
-      issueUrl: args.parsed.issueUrl ?? sanitizePath(firstString(issue?.permalink, issue?.web_url, issue?.url)),
+      issueUrl: sanitizeUrl(args.parsed.issueUrl) ?? sanitizeUrl(firstString(issue?.permalink, issue?.web_url, issue?.url)),
       project,
       title: sanitizeSummary(firstString(issue?.title, event?.title, event?.message)),
       culprit: sanitizeSummary(firstString(issue?.culprit, event?.culprit)),
@@ -319,9 +321,9 @@ export function normalizeAgentDebugPacket(args: {
       module: tags.module,
       operation: tags.operation,
       source: tags.source,
-      route: route ? sanitizePath(route) : undefined,
+      route: route ? sanitizeAppPath(route) : undefined,
       method: tags.method,
-      apiPath: apiPath ? sanitizePath(apiPath) : undefined,
+      apiPath: apiPath ? sanitizeAppPath(apiPath) : undefined,
       screen: tags.screen,
       runtime: tags.runtime,
       httpStatus,
@@ -329,7 +331,7 @@ export function normalizeAgentDebugPacket(args: {
     classification: {
       domain: tags["error.domain"],
       kind: tags["error.kind"],
-      safeSummary: sanitizeSummary(firstString(issue?.metadata, event?.metadata, issue?.title, event?.title)),
+      safeSummary: sanitizeSummary(firstString(issue?.title, event?.title)),
     },
     safeContexts: contexts,
   };
@@ -352,12 +354,16 @@ export function buildAutofixPrTitle(packet: AgentDebugPacket) {
 }
 
 export function buildAutofixPrBody(packet: AgentDebugPacket) {
+  return `${PACKET_START}
+${buildAutofixPacketBlock(packet)}
+${PACKET_END}
+
+${buildCodexTaskBlock(packet)}`;
+}
+
+function buildAutofixPacketBlock(packet: AgentDebugPacket) {
   const path = packet.app.route ?? packet.app.apiPath;
   const safeContextJson = JSON.stringify(packet.safeContexts, null, 2);
-  const suggestedChecks =
-    packet.app.platform === "android"
-      ? "- `./gradlew test`\n- `./gradlew assembleDebug`"
-      : "- `pnpm lint`\n- `pnpm build`\n- targeted tests if identifiable";
 
   return `## Sentry Autofix Packet
 
@@ -385,9 +391,16 @@ Error kind: ${formatValue(packet.classification.kind)}
 
 \`\`\`json
 ${safeContextJson}
-\`\`\`
+\`\`\``;
+}
 
-## Codex Task
+function buildCodexTaskBlock(packet: AgentDebugPacket) {
+  const suggestedChecks =
+    packet.app.platform === "android"
+      ? "- `./gradlew test`\n- `./gradlew assembleDebug`"
+      : "- `pnpm lint`\n- `pnpm build`\n- targeted tests if identifiable";
+
+  return `## Codex Task
 
 @codex please investigate and fix this production Sentry issue on this existing PR branch.
 
@@ -417,6 +430,20 @@ Suggested checks:
 
 ${suggestedChecks}
 `;
+}
+
+export function replaceAutofixPacketBlock(body: string | null | undefined, packet: AgentDebugPacket) {
+  if (!body) return buildAutofixPrBody(packet);
+
+  const start = body.indexOf(PACKET_START);
+  const end = body.indexOf(PACKET_END);
+  if (start === -1 || end === -1 || end < start) return body;
+
+  const before = body.slice(0, start);
+  const after = body.slice(end + PACKET_END.length);
+  return `${before}${PACKET_START}
+${buildAutofixPacketBlock(packet)}
+${PACKET_END}${after}`;
 }
 
 export function buildAutofixMarker(packet: AgentDebugPacket) {
@@ -535,7 +562,7 @@ async function fetchSentryDetails(args: {
       fetchImpl: args.fetchImpl,
       optional: true,
     });
-    event = Array.isArray(events) ? events[0] : asRecord(events);
+    event = getFirstSentryEvent(events);
   }
 
   return { issue, event };
@@ -578,13 +605,18 @@ async function createOrUpdateAutofixPr(args: {
       content: buildAutofixMarker(packet),
       fetchImpl: args.fetchImpl,
     });
+    const patchBody: Record<string, unknown> = {
+      title: buildAutofixPrTitle(packet),
+    };
+    const preservedBody = replaceAutofixPacketBlock(openPr.body, packet);
+    if (preservedBody !== openPr.body) {
+      patchBody.body = preservedBody;
+    }
+
     const updatedPr = await githubPatch<GithubPr>({
       path: `/repos/${owner}/${repo}/pulls/${args.existing.pr.number}`,
       token: args.githubToken,
-      body: {
-        title: buildAutofixPrTitle(packet),
-        body: buildAutofixPrBody(packet),
-      },
+      body: patchBody,
       fetchImpl: args.fetchImpl,
     });
     await githubPost({
@@ -788,7 +820,7 @@ function normalizeTags(value: unknown) {
   for (const key of SAFE_TAG_KEYS) {
     const tagValue = firstString(raw[key]);
     if (!tagValue) continue;
-    tags[key] = key === "route" || key === "api_path" ? sanitizePath(tagValue) : tagValue;
+    tags[key] = key === "route" || key === "api_path" ? sanitizeAppPath(tagValue) : tagValue;
   }
   return tags;
 }
@@ -805,7 +837,7 @@ function normalizeSafeContexts(value: JsonRecord | undefined) {
 function scrubAutofixValue(value: unknown, depth = 0): unknown {
   if (value == null || depth > MAX_SAFE_CONTEXT_DEPTH) return value;
   if (Array.isArray(value)) return value.map((item) => scrubAutofixValue(item, depth + 1));
-  if (typeof value === "string") return sanitizePath(value);
+  if (typeof value === "string") return sanitizeAppPath(value);
   if (!isPlainObject(value)) return value;
 
   return Object.fromEntries(
@@ -834,7 +866,7 @@ function safeEqual(value: string, expected: string) {
   return valueBuffer.length === expectedBuffer.length && timingSafeEqual(valueBuffer, expectedBuffer);
 }
 
-function sanitizePath(value: string | undefined) {
+function sanitizeUrl(value: string | undefined) {
   if (!value) return undefined;
   try {
     const url = new URL(value);
@@ -844,11 +876,21 @@ function sanitizePath(value: string | undefined) {
   }
 }
 
+function sanitizeAppPath(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.pathname;
+  } catch {
+    return value.split("?")[0];
+  }
+}
+
 function sanitizeSummary(value: unknown) {
   const text = firstString(value);
   if (!text) return undefined;
   if (SENSITIVE_TEXT_PATTERNS.some((pattern) => pattern.test(text))) return undefined;
-  return sanitizePath(text)?.slice(0, 160);
+  return sanitizeAppPath(text)?.slice(0, 160);
 }
 
 function slugify(value: string) {
@@ -880,6 +922,14 @@ function getNestedString(record: Record<string, unknown>, context: string, key: 
 function getProjectSlug(value: unknown) {
   const record = asRecord(value);
   return firstString(asRecord(record?.project)?.slug, asRecord(record?.project)?.name, record?.projectSlug, record?.project);
+}
+
+function getFirstSentryEvent(value: unknown) {
+  if (Array.isArray(value)) return asRecord(value[0]);
+  const record = asRecord(value);
+  const data = record ? record.data : undefined;
+  if (Array.isArray(data)) return asRecord(data[0]);
+  return record;
 }
 
 function asRecord(value: unknown): JsonRecord | undefined {
