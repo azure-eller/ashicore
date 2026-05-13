@@ -5,8 +5,6 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrderOutputs,
   salesOrderLines,
-  salesShipmentLines,
-  salesShipments,
   stockAllocations,
   STOCK_ALLOCATION_DEMAND_TYPES,
   type StockAllocationDemandType,
@@ -168,12 +166,12 @@ async function getOpenDemandQtyForAllocationInTx(
           ${salesOrderLines.quantity}
           - ${salesOrderLines.cancelledQuantity}
           - COALESCE((
-            SELECT SUM(${salesShipmentLines.quantity})
-            FROM ${salesShipmentLines}
-            INNER JOIN ${salesShipments}
-              ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
-            WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
-              AND ${salesShipments.status} = 'shipped'
+            SELECT SUM(shipment_lines."quantity")
+            FROM "sales"."sales_shipment_lines" shipment_lines
+            INNER JOIN "sales"."sales_shipments" shipments
+              ON shipments."id" = shipment_lines."sales_shipment_id"
+            WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
+              AND shipments."status" = 'shipped'
           ), 0),
           0
         )`,
