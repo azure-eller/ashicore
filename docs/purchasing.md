@@ -46,8 +46,12 @@ Purchase orders may store additional costs for `shipping`, `customs`, and
   lines by each line's share of the material subtotal
 - `not_distributed` additional costs increase the PO total only and do not
   change line `stockUnitCost`, receipt lot cost, or inventory valuation
-- receipt lots use the saved PO line `stockUnitCost`, so distributed additional
-  costs affect material running stock cost through the normal receipt flow
+- create/edit and detail pages show landed cost per stocking unit; this is the
+  inventory cost basis users should compare
+- receipt lots use the latest PO line landed stock-unit cost at receipt time, so
+  additional-cost edits before receipt affect inventory valuation
+- after a partial receipt, additional-cost edits affect future receipts only;
+  already received lots keep their original unit cost
 
 - `defaultPurchasePrice` is the price of one purchase unit, not one stock unit
 - `purchaseToStockFactor` means "stock units per 1 purchase unit"
@@ -79,7 +83,7 @@ Materials also carry `items.currentStockUnitCost`, which is the current stock-un
 Update rules:
 
 - opening balances seed `currentStockUnitCost` when they provide an explicit unit cost
-- purchase receipts update it with a weighted average using stock-unit quantities and line `stockUnitCost`
+- purchase receipts update it with a weighted average using stock-unit quantities and receipt-time landed stock-unit cost
 - if prior on-hand is `<= 0`, the next receipt replaces the stored value with the incoming stock-unit cost instead of averaging
 - when stock reaches `0`, keep the last stored value until a later receipt replaces it
 - correction-class positive flows such as manual increases and stocktake gains may use `currentStockUnitCost` as the fallback lot cost, but they do not rewrite the item field
@@ -88,8 +92,8 @@ Update rules:
 ## Status Rules
 
 - `draft` orders are editable
-- `ordered` orders are frozen and may be received or cancelled
-- `partial` orders are frozen and may only continue receiving
+- `ordered` orders may be edited, received, or cancelled before any receipt
+- `partial` orders may be edited or received; already received lines cannot be removed
 - `received` orders are terminal
 - `cancelled` orders are terminal
 
@@ -97,6 +101,8 @@ Valid transitions:
 
 - create `draft`
 - edit `draft`
+- edit `ordered`
+- edit `partial`
 - submit `draft` -> `ordered`
 - receive `ordered` -> `partial`
 - receive `ordered` -> `received`
@@ -108,8 +114,8 @@ Valid transitions:
 
 Invalid transitions:
 
-- edit `ordered`
-- edit `partial`
+- reduce ordered quantity below already received quantity
+- remove received purchase order lines
 - cancel `partial`
 - delete `ordered`
 - delete `partial`

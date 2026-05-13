@@ -1023,6 +1023,7 @@ export function PurchaseOrderDetail({
                   <TableHead>Accounting Account</TableHead>
                   <TableHead className="text-right">Allocated Costs</TableHead>
                   <TableHead className="text-right">Landed Cost</TableHead>
+                  <TableHead className="text-right">Landed / Stock Unit</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1102,6 +1103,10 @@ export function PurchaseOrderDetail({
                     </TableCell>
                     <TableCell className="text-right">
                       {formatPrice(line.landedCost) ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatPrice(line.stockUnitCost) ?? "\u2014"} /{" "}
+                      {line.stockingUnitName}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -24,10 +24,15 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import { normalizeStockUnitCost } from "@/lib/inventory/cost";
 import {
   lockItemsInTx,
 } from "@/lib/inventory/kernel/locking";
+import {
+  calculatePurchaseOrderLandedCosts,
+  normalizeLandedMoney,
+  normalizeLandedQuantity,
+  normalizeLandedStockUnitCost,
+} from "@/lib/purchasing/landed-cost";
 import {
   addExpectedFromPurchaseInTx,
   beginInventoryOperationInTx,
@@ -437,18 +442,6 @@ function normalizeAdditionalCostInputs(payload: PurchaseOrderPayload | UpdatePur
   return rows;
 }
 
-function allocateAdditionalCostByValue(params: {
-  lineSubtotal: number;
-  materialSubtotal: number;
-  distributedAdditionalCostTotal: number;
-}) {
-  if (params.materialSubtotal <= 0 || params.distributedAdditionalCostTotal <= 0) {
-    return 0;
-  }
-  return (params.lineSubtotal / params.materialSubtotal) *
-    params.distributedAdditionalCostTotal;
-}
-
 async function preparePurchaseOrderPayload(
   tx: Tx,
   orgId: string,
@@ -506,23 +499,24 @@ async function preparePurchaseOrderPayload(
     amount: normalizeNumeric(Number(cost.amount)),
     sortOrder: index,
   }));
-  const distributedAdditionalCostTotal = preparedAdditionalCosts
-    .filter((cost) => cost.distributionMethod === "by_value")
-    .reduce((sum, cost) => sum + Number(cost.amount), 0);
-  const additionalCostTotal = preparedAdditionalCosts.reduce(
-    (sum, cost) => sum + Number(cost.amount),
-    0
-  );
   const shippingCost = preparedAdditionalCosts
     .filter((cost) => cost.costType === "shipping")
     .reduce((sum, cost) => sum + Number(cost.amount), 0);
+  const landedCosts = calculatePurchaseOrderLandedCosts({
+    lines: payload.lines.map((line) => {
+      const material = materials.get(line.itemId);
+      const overrideFactor =
+        "purchaseToStockFactor" in line ? line.purchaseToStockFactor : null;
 
-  const lineBases = payload.lines.map((line) => {
-    const quantityOrdered = Number(line.quantityOrdered);
-    const unitCost = Number(line.unitCost);
-    return quantityOrdered * unitCost;
+      return {
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+        purchaseToStockFactor:
+          overrideFactor ?? material?.purchaseToStockFactor ?? "1",
+      };
+    }),
+    additionalCosts: preparedAdditionalCosts,
   });
-  const totalAmount = lineBases.reduce((sum, lineTotal) => sum + lineTotal, 0);
 
   const preparedLines = payload.lines.map((line, index) => {
     const material = materials.get(line.itemId);
@@ -533,13 +527,7 @@ async function preparePurchaseOrderPayload(
 
     const quantityOrdered = Number(line.quantityOrdered);
     const unitCost = Number(line.unitCost);
-    const lineTotal = lineBases[index];
-    const allocatedAdditionalCost = allocateAdditionalCostByValue({
-      lineSubtotal: lineTotal,
-      materialSubtotal: totalAmount,
-      distributedAdditionalCostTotal,
-    });
-    const landedLineTotal = lineTotal + allocatedAdditionalCost;
+    const lineCosts = landedCosts.lines[index];
     const overrideFactor =
       "purchaseToStockFactor" in line ? line.purchaseToStockFactor : null;
     const overrideUnitId =
@@ -547,8 +535,10 @@ async function preparePurchaseOrderPayload(
     const purchaseToStockFactor = Number(
       overrideFactor ?? material.purchaseToStockFactor ?? "1"
     );
-    const stockQuantityOrdered = quantityOrdered * purchaseToStockFactor;
-    const stockUnitCost = landedLineTotal / stockQuantityOrdered;
+    const stockQuantityOrdered = lineCosts.stockQuantityOrdered;
+    const stockUnitCost = normalizeLandedStockUnitCost(
+      lineCosts.landedStockUnitCost
+    );
     const lineAddress = normalizeAddressFields({
       line1: line.shipLine1,
       line2: line.shipLine2,
@@ -557,6 +547,10 @@ async function preparePurchaseOrderPayload(
       postcode: line.shipPostcode,
       country: line.shipCountry,
     });
+
+    if (stockUnitCost == null) {
+      throw new PurchasingError("Unable to calculate landed unit cost.", 400);
+    }
 
     return {
       itemId: material.id,
@@ -570,10 +564,10 @@ async function preparePurchaseOrderPayload(
       purchaseToStockFactor: normalizeNumeric(purchaseToStockFactor),
       quantityOrdered: normalizeNumeric(quantityOrdered),
       quantityReceived: "0",
-      stockQuantityOrdered: normalizeNumeric(stockQuantityOrdered),
+      stockQuantityOrdered: normalizeLandedQuantity(stockQuantityOrdered),
       stockQuantityReceived: "0",
       unitCost: normalizeNumeric(unitCost),
-      stockUnitCost: normalizeStockUnitCost(stockUnitCost),
+      stockUnitCost,
       xeroPurchaseAccountCode:
         line.xeroPurchaseAccountCode?.trim() ||
         material.xeroPurchaseAccountCode ||
@@ -588,7 +582,7 @@ async function preparePurchaseOrderPayload(
       shipPostcode: lineAddress.postcode,
       shipCountry: lineAddress.country,
       shipDeliveryInstructions: line.shipDeliveryInstructions?.trim() || null,
-      lineTotal: normalizeNumeric(lineTotal),
+      lineTotal: normalizeLandedMoney(lineCosts.lineSubtotal),
       sortOrder: index,
     };
   });
@@ -614,7 +608,7 @@ async function preparePurchaseOrderPayload(
     shipPostcode: address.postcode,
     shipCountry: address.country,
     shippingCost: normalizeNumeric(shippingCost),
-    totalAmount: normalizeNumeric(totalAmount + additionalCostTotal),
+    totalAmount: normalizeLandedMoney(landedCosts.orderTotal),
     preparedLines,
     preparedAdditionalCosts,
     affectedItemIds: preparedLines.map((line) => line.itemId),
@@ -927,13 +921,15 @@ export async function getPurchaseOrder(
       getPurchaseOrderAdditionalCostsInTx(tx, id),
       getPurchaseOrderAttachmentsInTx(tx, id),
     ]);
-    const materialSubtotal = lines.reduce(
-      (sum, line) => sum + Number(line.lineTotal),
-      0
-    );
-    const distributedAdditionalCostTotal = additionalCosts
-      .filter((cost) => cost.distributionMethod === "by_value")
-      .reduce((sum, cost) => sum + Number(cost.amount), 0);
+    const landedCosts = calculatePurchaseOrderLandedCosts({
+      lines: lines.map((line) => ({
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+        purchaseToStockFactor: line.purchaseToStockFactor,
+      })),
+      additionalCosts,
+      legacyShippingCost: order.shippingCost,
+    });
 
     return {
       ...order,
@@ -942,30 +938,27 @@ export async function getPurchaseOrder(
         order.xeroPushStatus as PurchaseOrderDetail["xeroPushStatus"],
       xeroPoEmailStatus:
         order.xeroPoEmailStatus as PurchaseOrderDetail["xeroPoEmailStatus"],
-      lines: lines.map((line) => ({
-        ...line,
-        allocatedAdditionalCost: normalizeNumeric(
-          allocateAdditionalCostByValue({
-            lineSubtotal: Number(line.lineTotal),
-            materialSubtotal,
-            distributedAdditionalCostTotal,
-          })
-        ),
-        landedCost: normalizeNumeric(
-          Number(line.lineTotal) +
-            allocateAdditionalCostByValue({
-              lineSubtotal: Number(line.lineTotal),
-              materialSubtotal,
-              distributedAdditionalCostTotal,
-            })
-        ),
-        quantityRemaining: normalizeNumeric(
-          parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
-        ),
-        stockQuantityRemaining: normalizeNumeric(
-          parseFloat(line.stockQuantityOrdered) - parseFloat(line.stockQuantityReceived)
-        ),
-      })) as PurchaseOrderDetailLine[],
+      lines: lines.map((line, index) => {
+        const lineCosts = landedCosts.lines[index];
+
+        return {
+          ...line,
+          stockUnitCost:
+            normalizeLandedStockUnitCost(lineCosts.landedStockUnitCost) ??
+            line.stockUnitCost,
+          allocatedAdditionalCost: normalizeLandedMoney(
+            lineCosts.allocatedAdditionalCost
+          ),
+          landedCost: normalizeLandedMoney(lineCosts.landedLineTotal),
+          quantityRemaining: normalizeNumeric(
+            parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
+          ),
+          stockQuantityRemaining: normalizeNumeric(
+            parseFloat(line.stockQuantityOrdered) -
+              parseFloat(line.stockQuantityReceived)
+          ),
+        };
+      }) as PurchaseOrderDetailLine[],
       additionalCosts: additionalCosts.map((cost) => ({
         ...cost,
         costType: cost.costType as PurchaseOrderDetail["additionalCosts"][number]["costType"],
@@ -1663,6 +1656,7 @@ export async function receivePurchaseOrder(
       .select({
         id: purchaseOrders.id,
         status: purchaseOrders.status,
+        shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
       })
       .from(purchaseOrders)
       .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)))
@@ -1684,8 +1678,28 @@ export async function receivePurchaseOrder(
       );
     }
 
-    const existingLines = await getPurchaseOrderLinesInTx(tx, id);
+    const [existingLines, additionalCosts] = await Promise.all([
+      getPurchaseOrderLinesInTx(tx, id),
+      getPurchaseOrderAdditionalCostsInTx(tx, id),
+    ]);
     const lineMap = new Map(existingLines.map((line) => [line.id, line]));
+    const latestLandedCosts = calculatePurchaseOrderLandedCosts({
+      lines: existingLines.map((line) => ({
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+        purchaseToStockFactor: line.purchaseToStockFactor,
+      })),
+      additionalCosts,
+      legacyShippingCost: order.shippingCost,
+    });
+    const landedStockUnitCostByLineId = new Map(
+      existingLines.map((line, index) => [
+        line.id,
+        normalizeLandedStockUnitCost(
+          latestLandedCosts.lines[index]?.landedStockUnitCost ?? null
+        ),
+      ])
+    );
     const seenLineIds = new Set<string>();
 
     const receiveEntries = data.lines.map((line, index) => {
@@ -1795,7 +1809,9 @@ export async function receivePurchaseOrder(
         purchaseOrderLineId: entry.line.id,
         itemId: entry.line.itemId,
         quantity: entry.stockQuantityReceived,
-        unitCost: entry.line.stockUnitCost,
+        unitCost:
+          landedStockUnitCostByLineId.get(entry.line.id) ??
+          entry.line.stockUnitCost,
         disposition: entry.disposition,
       })),
     });

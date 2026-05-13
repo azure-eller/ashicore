@@ -81,8 +81,8 @@ export function CreatePageGrid({
     >
       <div className="flex min-w-0 flex-col gap-6">{children}</div>
       {sidebar ? (
-        <aside className="hidden lg:block">
-          <div className="sticky top-6 flex flex-col gap-4">{sidebar}</div>
+        <aside className="hidden self-start lg:sticky lg:top-6 lg:block">
+          <div className="flex flex-col gap-4">{sidebar}</div>
         </aside>
       ) : null}
     </div>

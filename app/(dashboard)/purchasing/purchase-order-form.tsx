@@ -28,6 +28,11 @@ import {
   normalizeMoney,
   parsePositive,
 } from "@/lib/format";
+import {
+  calculatePurchaseOrderLandedCosts,
+  normalizeLandedDisplayNumber,
+  type LandedCostLineResult,
+} from "@/lib/purchasing/landed-cost";
 import { Button } from "@/components/ui/button";
 import {
   CreatePageGrid,
@@ -113,7 +118,7 @@ type XeroAccountOption = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "2.25rem 2.25rem minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr)";
+  "2.25rem 2.25rem minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr) minmax(6.5rem, 0.55fr) minmax(6.5rem, 0.55fr) minmax(7.5rem, 0.7fr)";
 const PURCHASE_ORDER_COST_GRID_COLUMNS =
   "2.25rem minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr) 2.25rem";
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
@@ -389,6 +394,21 @@ function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
   return [...options.values()];
 }
 
+function moneyLabel(value: number | null | undefined) {
+  if (value == null) return "\u2014";
+  return formatPrice(value.toFixed(4)) ?? "\u2014";
+}
+
+function landedStockUnitCostLabel(
+  value: number | null | undefined,
+  stockingUnitName: string | null | undefined
+) {
+  if (value == null) return "\u2014";
+  return `${formatPrice(normalizeLandedDisplayNumber(value)) ?? "\u2014"} / ${
+    stockingUnitName ?? "stock unit"
+  }`;
+}
+
 export function PurchaseOrderForm({
   suppliers,
   materials,
@@ -430,7 +450,10 @@ export function PurchaseOrderForm({
       })),
     [materials]
   );
-  const materialMap = new Map(materials.map((material) => [material.id, material]));
+  const materialMap = useMemo(
+    () => new Map(materials.map((material) => [material.id, material])),
+    [materials]
+  );
   const supplierOptionsSorted = [...supplierOptions].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
@@ -512,32 +535,29 @@ export function PurchaseOrderForm({
     name: "additionalCosts",
   });
 
-  const materialsTotal = useMemo(() => {
-    return (watchedLines ?? []).reduce((sum, line) => {
-      const quantity = parsePositive(line?.quantityOrdered);
-      const cost = parseNonNegative(line?.unitCost);
-      if (quantity == null || cost == null) return sum;
-      return sum + quantity * cost;
-    }, 0);
-  }, [watchedLines]);
   const additionalCostRows = watchedAdditionalCosts ?? [];
-  const legacyShippingCost =
-    additionalCostRows.length === 0 ? (parseNonNegative(watchedShippingCost) ?? 0) : 0;
-  const additionalCostTotal = (watchedAdditionalCosts ?? []).reduce((sum, cost) => {
-    const amount = parseNonNegative(cost?.amount);
-    return sum + (amount ?? 0);
-  }, legacyShippingCost);
-  const distributedAdditionalCostTotal = (watchedAdditionalCosts ?? []).reduce(
-    (sum, cost) => {
-      if (cost?.distributionMethod !== "by_value") return sum;
-      const amount = parseNonNegative(cost?.amount);
-      return sum + (amount ?? 0);
-    },
-    legacyShippingCost
+  const landedCostPreview = useMemo(
+    () =>
+      calculatePurchaseOrderLandedCosts({
+        lines: (watchedLines ?? []).map((line) => ({
+          quantityOrdered: line?.quantityOrdered,
+          unitCost: line?.unitCost,
+          purchaseToStockFactor:
+            (line?.itemId ? materialMap.get(line.itemId)?.purchaseToStockFactor : null) ??
+            "1",
+        })),
+        additionalCosts: watchedAdditionalCosts ?? [],
+        legacyShippingCost: watchedShippingCost,
+      }),
+    [materialMap, watchedAdditionalCosts, watchedLines, watchedShippingCost]
   );
+  const materialsTotal = landedCostPreview.materialSubtotal;
+  const additionalCostTotal = landedCostPreview.additionalCostTotal;
+  const distributedAdditionalCostTotal =
+    landedCostPreview.distributedAdditionalCostTotal;
   const nonDistributedAdditionalCostTotal =
-    additionalCostTotal - distributedAdditionalCostTotal;
-  const orderTotal = materialsTotal + nonDistributedAdditionalCostTotal;
+    landedCostPreview.nonDistributedAdditionalCostTotal;
+  const orderTotal = landedCostPreview.orderTotal;
   const lineCount = (watchedLines ?? []).filter(
     (line) => !isBlankPurchaseOrderLine(line)
   ).length;
@@ -802,6 +822,12 @@ export function PurchaseOrderForm({
                       formatPrice(distributedAdditionalCostTotal.toFixed(4)) ??
                       "$0.00",
                   },
+                  {
+                    label: "Not distributed",
+                    value:
+                      formatPrice(nonDistributedAdditionalCostTotal.toFixed(4)) ??
+                      "$0.00",
+                  },
                 ]}
               />
             </CreateSidebarCard>
@@ -916,6 +942,9 @@ export function PurchaseOrderForm({
                       label="Line Total"
                       tooltip={LINE_TOTAL_TOOLTIP}
                     />,
+                    "Allocated",
+                    "Landed Total",
+                    "Landed / Stock Unit",
                   ]}
                   renderRow={({ field, index, remove, rowProps }) => (
                       <PurchaseOrderLineRow
@@ -935,6 +964,7 @@ export function PurchaseOrderForm({
                         onEditDeliveryAddress={(address) =>
                           openEditAddressDialog(index, address)
                         }
+                        landedCost={landedCostPreview.lines[index]}
                         onMaterialChange={(materialId) => {
                           const material = materialMap.get(materialId);
                           form.setValue(`lines.${index}.itemId`, materialId, {
@@ -963,7 +993,7 @@ export function PurchaseOrderForm({
                     )}
                   footer={
                     <div className="rounded-md border px-4 py-2 text-sm">
-                      <span className="text-muted-foreground">Order Total</span>
+                      <span className="text-muted-foreground">Material Subtotal</span>
                       <div className="font-medium">
                         {formatPrice(materialsTotal.toFixed(4)) ?? "$0.00"}
                       </div>
@@ -1271,6 +1301,7 @@ function PurchaseOrderLineRow({
   onDeliveryAddressChange,
   onAddDeliveryAddress,
   onEditDeliveryAddress,
+  landedCost,
   onMaterialChange,
   onRemove,
   rowProps,
@@ -1292,6 +1323,7 @@ function PurchaseOrderLineRow({
   onDeliveryAddressChange: (address: DeliveryAddressFields | null) => void;
   onAddDeliveryAddress: () => void;
   onEditDeliveryAddress: (address: DeliveryAddressOption) => void;
+  landedCost: LandedCostLineResult | undefined;
   onMaterialChange: (materialId: string) => void;
   onRemove: () => void;
 }) {
@@ -1464,6 +1496,21 @@ function PurchaseOrderLineRow({
 
       <EditableLineGridCell align="right" className="text-sm font-medium">
         {lineTotalLabel(line?.quantityOrdered, line?.unitCost)}
+      </EditableLineGridCell>
+
+      <EditableLineGridCell align="right" className="text-sm font-medium">
+        {moneyLabel(landedCost?.allocatedAdditionalCost)}
+      </EditableLineGridCell>
+
+      <EditableLineGridCell align="right" className="text-sm font-medium">
+        {moneyLabel(landedCost?.landedLineTotal)}
+      </EditableLineGridCell>
+
+      <EditableLineGridCell align="right" className="text-sm font-medium">
+        {landedStockUnitCostLabel(
+          landedCost?.landedStockUnitCost,
+          material?.stockingUnitName
+        )}
       </EditableLineGridCell>
 
     </EditableLineGridRow>

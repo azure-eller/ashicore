@@ -1,12 +1,14 @@
 import { asc, eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
+  inventoryLotBalances,
+  items,
   purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
   suppliers as purchasingSuppliers,
 } from "../../../lib/db/schema";
-import { createItem, getUnitId } from "../../helpers/api";
+import { createItem, getUnitId, testFetch } from "../../helpers/api";
 
 test.describe("Purchasing write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -158,6 +160,10 @@ test.describe("Purchasing write-path smoke", () => {
       .locator('input[name="additionalCosts.0.xeroPurchaseAccountCode"]')
       .fill("400");
     await page.locator('input[name="additionalCosts.0.amount"]').fill("12.50");
+    await expect(page.getByText("Landed into inventory")).toBeVisible();
+    await expect(page.getByText("$12.50")).toHaveCount(3);
+    await expect(page.getByText(/\$2\.91 \//)).toBeVisible();
+    await expect(page.getByText(/\$2\.18 \//)).toBeVisible();
 
     const [createOrderResponse] = await Promise.all([
       page.waitForResponse(
@@ -197,9 +203,12 @@ test.describe("Purchasing write-path smoke", () => {
     expect(lines[0].shipCity).toBe("Boulder");
     expect(lines[0].shipRegion).toBe("CO");
     expect(lines[0].shipPostcode).toBe("80301");
+    expect(Number(lines[0].stockUnitCost)).toBeCloseTo(2.909091, 6);
     expect(lines[1].itemId).toBe(sandId);
     expect(lines[1].quantityOrdered).toBe("5.0000");
     expect(lines[1].xeroPurchaseAccountCode).toBe("311");
+    expect(Number(lines[1].stockUnitCost)).toBeCloseTo(2.181818, 6);
+    expect(Number(order.totalAmount)).toBeCloseTo(40, 4);
 
     const additionalCosts = await db
       .select()
@@ -211,6 +220,302 @@ test.describe("Purchasing write-path smoke", () => {
     expect(additionalCosts[0].distributionMethod).toBe("by_value");
     expect(additionalCosts[0].xeroPurchaseAccountCode).toBe("400");
     expect(additionalCosts[0].amount).toBe("12.5000");
+  });
+
+  test("uses latest landed unit cost at receipt time without repricing old receipts", async ({
+    db,
+  }) => {
+    const receiptMaterialName = `Fast Landed Receipt ${ts}`;
+    const receiptMaterial = await createItem({
+      name: receiptMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-LANDED-RECEIPT-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: "Receipt-time landed cost material",
+      defaultPurchasePrice: "10",
+      xeroPurchaseAccountCode: "313",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(receiptMaterial.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "0",
+        notes: null,
+        lines: [
+          {
+            itemId: receiptMaterial.body.id,
+            quantityOrdered: "10",
+            unitCost: "10",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Initial freight estimate",
+            distributionMethod: "by_value",
+            xeroPurchaseAccountCode: null,
+            amount: "100",
+          },
+        ],
+      }),
+    });
+    const createBody = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    let [line] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, createBody.id));
+    expect(Number(line.stockUnitCost)).toBeCloseTo(20, 6);
+
+    const submitResponse = await testFetch(
+      `/api/purchase-orders/${createBody.id}/submit`,
+      { method: "POST" }
+    );
+    expect(submitResponse.status).toBe(200);
+
+    const updateResponse = await testFetch(`/api/purchase-orders/${createBody.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "0",
+        notes: null,
+        lines: [
+          {
+            itemId: receiptMaterial.body.id,
+            quantityOrdered: "10",
+            unitCost: "10",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Final freight quote",
+            distributionMethod: "by_value",
+            xeroPurchaseAccountCode: null,
+            amount: "200",
+          },
+        ],
+      }),
+    });
+    expect(updateResponse.status).toBe(200);
+
+    [line] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, createBody.id));
+    expect(Number(line.stockUnitCost)).toBeCloseTo(30, 6);
+
+    const receiveResponse = await testFetch(
+      `/api/purchase-orders/${createBody.id}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [{ lineId: line.id, quantityReceived: "10" }],
+        }),
+      }
+    );
+    expect(receiveResponse.status).toBe(200);
+
+    const [receiptLot] = await db
+      .select()
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, receiptMaterial.body.id));
+    expect(Number(receiptLot.unitCost)).toBeCloseTo(30, 6);
+
+    const legacyShippingMaterialName = `Fast Legacy Shipping ${ts}`;
+    const legacyShippingMaterial = await createItem({
+      name: legacyShippingMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-LEGACY-SHIPPING-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: "Legacy shipping fallback landed cost material",
+      defaultPurchasePrice: "10",
+      xeroPurchaseAccountCode: "315",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(legacyShippingMaterial.status).toBe(201);
+
+    const legacyCreate = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "100",
+        notes: null,
+        lines: [
+          {
+            itemId: legacyShippingMaterial.body.id,
+            quantityOrdered: "10",
+            unitCost: "10",
+          },
+        ],
+      }),
+    });
+    const legacyBody = await legacyCreate.json();
+    expect(legacyCreate.status).toBe(201);
+
+    const [legacyLine] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, legacyBody.id));
+    expect(Number(legacyLine.stockUnitCost)).toBeCloseTo(20, 6);
+
+    const legacySubmit = await testFetch(
+      `/api/purchase-orders/${legacyBody.id}/submit`,
+      { method: "POST" }
+    );
+    expect(legacySubmit.status).toBe(200);
+
+    const legacyReceive = await testFetch(
+      `/api/purchase-orders/${legacyBody.id}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [{ lineId: legacyLine.id, quantityReceived: "10" }],
+        }),
+      }
+    );
+    expect(legacyReceive.status).toBe(200);
+
+    const [legacyLot] = await db
+      .select()
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, legacyShippingMaterial.body.id));
+    expect(Number(legacyLot.unitCost)).toBeCloseTo(20, 6);
+
+    const partialMaterialName = `Fast Landed Partial ${ts}`;
+    const partialMaterial = await createItem({
+      name: partialMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-LANDED-PARTIAL-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: "Partial landed cost material",
+      defaultPurchasePrice: "10",
+      xeroPurchaseAccountCode: "314",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(partialMaterial.status).toBe(201);
+
+    const partialCreate = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "0",
+        notes: null,
+        lines: [
+          {
+            itemId: partialMaterial.body.id,
+            quantityOrdered: "10",
+            unitCost: "10",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "First freight quote",
+            distributionMethod: "by_value",
+            xeroPurchaseAccountCode: null,
+            amount: "100",
+          },
+        ],
+      }),
+    });
+    const partialBody = await partialCreate.json();
+    expect(partialCreate.status).toBe(201);
+
+    const [partialLine] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, partialBody.id));
+
+    const partialSubmit = await testFetch(
+      `/api/purchase-orders/${partialBody.id}/submit`,
+      { method: "POST" }
+    );
+    expect(partialSubmit.status).toBe(200);
+
+    const firstReceive = await testFetch(
+      `/api/purchase-orders/${partialBody.id}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [{ lineId: partialLine.id, quantityReceived: "5" }],
+        }),
+      }
+    );
+    expect(firstReceive.status).toBe(200);
+
+    const partialUpdate = await testFetch(`/api/purchase-orders/${partialBody.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "0",
+        notes: null,
+        lines: [
+          {
+            itemId: partialMaterial.body.id,
+            quantityOrdered: "10",
+            unitCost: "10",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Revised freight quote",
+            distributionMethod: "by_value",
+            xeroPurchaseAccountCode: null,
+            amount: "300",
+          },
+        ],
+      }),
+    });
+    expect(partialUpdate.status).toBe(200);
+
+    const secondReceive = await testFetch(
+      `/api/purchase-orders/${partialBody.id}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [{ lineId: partialLine.id, quantityReceived: "5" }],
+        }),
+      }
+    );
+    expect(secondReceive.status).toBe(200);
+
+    const partialLots = await db
+      .select()
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, partialMaterial.body.id))
+      .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+    expect(partialLots).toHaveLength(2);
+    expect(Number(partialLots[0].unitCost)).toBeCloseTo(20, 6);
+    expect(Number(partialLots[1].unitCost)).toBeCloseTo(40, 6);
+
+    const [partialItem] = await db
+      .select()
+      .from(items)
+      .where(eq(items.id, partialMaterial.body.id));
+    expect(Number(partialItem.currentStockUnitCost)).toBeCloseTo(30, 6);
   });
 
   test("duplicates a purchase order from the detail actions", async ({ page, db }) => {
