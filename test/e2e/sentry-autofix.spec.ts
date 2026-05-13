@@ -7,6 +7,7 @@ import {
   normalizeAgentDebugPacket,
   parseSentryWebhookPayload,
   processSentryAutofix,
+  replaceAutofixPacketBlock,
   verifySentryAutofixRequest,
 } from "@/lib/observability/sentry-autofix";
 
@@ -95,14 +96,15 @@ test("normalizes safe web packet fields and redacts sensitive contexts", () => {
           { key: "request_id", value: "req_123" },
           { key: "release_sha", value: "abc123" },
           { key: "environment", value: "production" },
-          { key: "route", value: "/api/sales-orders/1/ship?token=secret" },
+          { key: "route", value: "https://customer.example.com/api/sales-orders/1/ship?token=secret" },
           { key: "method", value: "POST" },
         ],
         contexts: {
           app_debug: {
-            route: "/api/sales-orders/1/ship?customer=Acme",
+            route: "https://customer.example.com/api/sales-orders/1/ship?customer=Acme",
             authorization: "Bearer secret",
-            customer_notes: "private",
+            customer_notes: "private note",
+            sku: "SKU-123",
             quantity: "10",
             safe_flag: true,
           },
@@ -113,7 +115,7 @@ test("normalizes safe web packet fields and redacts sensitive contexts", () => {
             sql: "select secret",
           },
           request: {
-            body: { password: "secret" },
+            body: { password: "hunter2" },
           },
         },
       },
@@ -136,12 +138,22 @@ test("normalizes safe web packet fields and redacts sensitive contexts", () => {
     },
   });
   expect(JSON.stringify(packet)).not.toContain("Bearer secret");
-  expect(JSON.stringify(packet)).not.toContain("private");
+  expect(JSON.stringify(packet)).not.toContain("private note");
   expect(JSON.stringify(packet)).not.toContain("password");
   expect(JSON.stringify(packet)).not.toContain("quantity");
   expect(JSON.stringify(packet)).not.toContain("select secret");
-  expect(buildAutofixPrBody(packet)).not.toContain("Bearer secret");
-  expect(buildAutofixPrBody(packet)).not.toContain("?customer=Acme");
+  expect(JSON.stringify(packet)).not.toContain("SKU-123");
+  const body = buildAutofixPrBody(packet);
+  expect(body).toContain("<!-- sentry-autofix-packet:start -->");
+  expect(body).toContain("<!-- sentry-autofix-packet:end -->");
+  expect(body).not.toContain("Bearer secret");
+  expect(body).not.toContain("select secret");
+  expect(body).not.toContain("hunter2");
+  expect(body).not.toContain("customer=Acme");
+  expect(body).not.toContain("project=1");
+  expect(body).not.toContain("private note");
+  expect(body).not.toContain("SKU-123");
+  expect(body).not.toContain("https://customer.example.com");
 });
 
 test("routes Android project packets to the Android repo", () => {
@@ -161,7 +173,7 @@ test("routes Android project packets to the Android repo", () => {
           "error.kind": "http_500",
           "error.domain": "api",
           source: "android_api",
-          api_path: "/api/sales-orders/1?customer=Acme",
+          api_path: "https://vendor.example.test/api/sales-orders/1?customer=Acme",
           method: "GET",
           http_status: "500",
           screen: "SalesOrderDetail",
@@ -193,6 +205,41 @@ test("builds stable branch names with attempt suffixes", () => {
   ).toBe("agent/sentry-123-attempt-2-sales-order-ship");
 });
 
+test("replaces only the packet block in an existing PR body", () => {
+  const packet = normalizeAgentDebugPacket({
+    parsed: { issueId: "123456789", project: "javascript-nextjs" },
+    config,
+    details: {
+      issue: { title: "Undefined column", project: { slug: "javascript-nextjs" } },
+      event: {
+        tags: {
+          "error.kind": "postgres",
+          "error.domain": "db",
+          source: "api_handler",
+          route: "/api/sales-orders/1/ship",
+          request_id: "req_new",
+        },
+      },
+    },
+  });
+  const existing = `${buildAutofixPrBody({
+    ...packet,
+    app: { ...packet.app, requestId: "req_old" },
+  })}
+
+## Codex Findings
+
+Root cause: preserve me.
+Tests run: preserve these too.`;
+
+  const updated = replaceAutofixPacketBlock(existing, packet);
+
+  expect(updated).toContain("Request ID: req_new");
+  expect(updated).not.toContain("Request ID: req_old");
+  expect(updated).toContain("Root cause: preserve me.");
+  expect(updated).toContain("Tests run: preserve these too.");
+});
+
 test("dedupes open PRs and does not tag Codex twice", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
@@ -200,18 +247,20 @@ test("dedupes open PRs and does not tag Codex twice", async () => {
     calls.push({ url: requestUrl, init });
 
     if (requestUrl.includes("/issues/123456789/events/")) {
-      return jsonResponse([
-        {
-          event_id: "event-2",
-          tags: {
-            "error.kind": "postgres",
-            "error.domain": "db",
-            source: "api_handler",
-            route: "/api/sales-orders/1?token=secret",
-            request_id: "req_2",
+      return jsonResponse({
+        data: [
+          {
+            event_id: "event-2",
+            tags: {
+              "error.kind": "postgres",
+              "error.domain": "db",
+              source: "api_handler",
+              route: "/api/sales-orders/1?token=secret",
+              request_id: "req_2",
+            },
           },
-        },
-      ]);
+        ],
+      });
     }
     if (requestUrl.includes("/issues/123456789/")) {
       return jsonResponse({
@@ -244,6 +293,20 @@ test("dedupes open PRs and does not tag Codex twice", async () => {
         state: "open",
         html_url: "https://github.com/azure-eller/erp/pull/44",
         head: { ref: "agent/sentry-123456789-undefined-column" },
+        body: `${buildAutofixPrBody(
+          normalizeAgentDebugPacket({
+            parsed: { issueId: "123456789", project: "javascript-nextjs" },
+            config,
+            details: {
+              issue: { title: "Undefined column", project: { slug: "javascript-nextjs" } },
+              event: { tags: { request_id: "req_old", source: "api_handler" } },
+            },
+          })
+        )}
+
+## Codex Findings
+
+Root cause: keep this.`,
       });
     }
     if (requestUrl.endsWith("/issues/44/comments") && init?.method === "POST") {
@@ -271,6 +334,74 @@ test("dedupes open PRs and does not tag Codex twice", async () => {
   expect(postedComments).toHaveLength(1);
   expect(JSON.stringify(postedComments[0].init?.body)).not.toContain("@codex");
   expect(calls.some((call) => call.url.includes("/pulls") && call.init?.method === "POST")).toBe(false);
+  const prPatch = calls.find((call) => call.url.endsWith("/pulls/44") && call.init?.method === "PATCH");
+  expect(JSON.stringify(prPatch?.init?.body)).toContain("Root cause: keep this.");
+  expect(JSON.stringify(prPatch?.init?.body)).toContain("req_2");
+});
+
+test("creates branches with slash-separated Git ref paths", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+    const requestUrl = String(url);
+    calls.push({ url: requestUrl, init });
+
+    if (requestUrl.includes("/issues/555/events/")) {
+      return jsonResponse([
+        {
+          event_id: "event-555",
+          tags: {
+            source: "api_handler",
+            operation: "sales_order.ship",
+          },
+        },
+      ]);
+    }
+    if (requestUrl.includes("/issues/555/")) {
+      return jsonResponse({
+        title: "Ship failed",
+        project: { slug: "javascript-nextjs" },
+        permalink: "https://sentry.io/issues/555/?project=1",
+      });
+    }
+    if (requestUrl.includes("/search/issues")) return jsonResponse({ items: [] });
+    if (requestUrl.includes("/git/ref/heads/agent/sentry-555-sales-order-ship")) {
+      return jsonResponse({}, 404);
+    }
+    if (requestUrl.endsWith("/git/ref/heads/main")) {
+      return jsonResponse({ object: { sha: "main-sha" } });
+    }
+    if (requestUrl.endsWith("/git/refs") && init?.method === "POST") {
+      return jsonResponse({ ref: "refs/heads/agent/sentry-555-sales-order-ship" });
+    }
+    if (requestUrl.includes("/contents/.autofix/sentry/555.md")) {
+      if (init?.method === "PUT") return jsonResponse({ content: {} });
+      return jsonResponse({}, 404);
+    }
+    if (requestUrl.endsWith("/pulls")) {
+      return jsonResponse({
+        number: 55,
+        state: "open",
+        html_url: "https://github.com/azure-eller/erp/pull/55",
+      });
+    }
+    if (requestUrl.includes("/labels") || requestUrl.endsWith("/issues/55/comments")) {
+      return jsonResponse({});
+    }
+    return jsonResponse({});
+  };
+
+  await processSentryAutofix({
+    config,
+    fetchImpl: fetchImpl as typeof fetch,
+    payload: {
+      data: {
+        issue: { id: "555", project: { slug: "javascript-nextjs" } },
+      },
+    },
+  });
+
+  expect(calls.some((call) => call.url.includes("/git/ref/heads/agent/sentry-555-sales-order-ship"))).toBe(true);
+  expect(calls.some((call) => call.url.includes("/git/ref/heads/agent%2Fsentry-555-sales-order-ship"))).toBe(false);
 });
 
 function jsonResponse(body: unknown, status = 200) {

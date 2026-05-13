@@ -59,7 +59,7 @@ Expected result: a draft PR in the routed repo, a `.autofix/sentry/<issueId>.md`
 
 The intake dedupes by GitHub PR search for `Sentry issue ID: <id>` in the target repo.
 
-- Open PR found: update marker file and PR body, add a latest-occurrence comment, and tag `@codex` only if no prior `@codex` comment exists.
+- Open PR found: update marker file and the marked packet block in the PR body, add a latest-occurrence comment, and tag `@codex` only if no prior `@codex` comment exists.
 - Merged or closed PR found: create a new branch with `attempt-<n>` in the branch name.
 - No PR found: create the stable first-attempt branch `agent/sentry-<issueId>-<slug>`.
 
@@ -98,4 +98,4 @@ module:<module>
 error:<error.domain>
 ```
 
-The PR body is the durable Sentry Autofix Packet plus the Codex task. Codex should update that same body with root cause, fix summary, tests run, and risk notes before handing back for review.
+The PR body is the durable Sentry Autofix Packet plus the Codex task. The packet is wrapped in `<!-- sentry-autofix-packet:start -->` / `<!-- sentry-autofix-packet:end -->` markers. Repeated alerts replace only that marked packet block so Codex-added root cause, fix summary, tests, and risk notes stay intact.
