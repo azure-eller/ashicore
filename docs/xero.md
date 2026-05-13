@@ -39,6 +39,9 @@ read_when:
   the key.
 - **Payload hash** — `lib/xero/payload-hash.ts`. Local drift check only;
   Xero does not enforce.
+- **Generic sync state** — Xero writes provider-neutral document and attachment
+  sync rows under `accounting.*`; old PO `xero_*` columns are compatibility
+  fields, not the long-term model.
 - **Retry cron** — `lib/xero/retry-failed-pushes.ts`, surfaced at
   `GET /api/internal/xero-retry`. Per-org cap of 25 candidates per run,
   per-row cap of 5 attempts. Creates only — never email.
@@ -49,6 +52,7 @@ read_when:
 accounting.contacts
 accounting.invoices
 accounting.transactions    ← needed for PurchaseOrders
+accounting.attachments      ← needed for PO attachment upload
 offline_access
 ```
 

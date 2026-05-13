@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { getAddressEntries } from "@/lib/dal/addresses";
 import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import {
   getEditablePurchaseOrder,
@@ -14,10 +15,11 @@ export default async function EditPurchaseOrderPage({
 }) {
   await requireModuleWriteAccess("purchasing");
   const { id } = await params;
-  const [order, supplierRows, materials] = await Promise.all([
+  const [order, supplierRows, materials, addresses] = await Promise.all([
     getEditablePurchaseOrder(id),
     getSuppliers(),
     getPurchaseOrderMaterialOptions(),
+    getAddressEntries(),
   ]);
 
   if (!order) {
@@ -34,6 +36,7 @@ export default async function EditPurchaseOrderPage({
           code: supplier.code,
         }))}
         materials={materials}
+        addresses={addresses}
       />
     </div>
   );

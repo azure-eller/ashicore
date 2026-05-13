@@ -75,6 +75,11 @@ export type AccountingActionConfirmStep = {
   meta?: string;
 };
 
+export type AccountingSyncWarning = {
+  title: string;
+  detail: string;
+};
+
 export function buildAccountingSyncStages(params: {
   document: AccountingSyncDocument;
   timeZone: string;
@@ -223,7 +228,7 @@ export function AccountingSyncStatus({
         {emailSummary ? (
           <span className="text-muted-foreground">· {emailSummary}</span>
         ) : null}
-        {onRetryPush && document.pushStatus === "failed" ? (
+        {onRetryPush ? (
           <Button
             type="button"
             size="sm"
@@ -231,7 +236,7 @@ export function AccountingSyncStatus({
             onClick={onRetryPush}
             disabled={retryPushPending}
           >
-            {retryPushPending ? "Retrying..." : "Retry sync"}
+            {retryPushPending ? "Syncing..." : "Sync accounting"}
           </Button>
         ) : null}
         {canSendEmail ? (
@@ -292,7 +297,7 @@ export function AccountingSyncStatus({
               Copy number
             </Button>
           ) : null}
-          {onRetryPush && document.pushStatus === "failed" ? (
+          {onRetryPush ? (
             <Button
               type="button"
               size="sm"
@@ -300,7 +305,7 @@ export function AccountingSyncStatus({
               onClick={onRetryPush}
               disabled={retryPushPending}
             >
-              {retryPushPending ? "Retrying..." : "Retry sync"}
+              {retryPushPending ? "Syncing..." : "Sync accounting"}
             </Button>
           ) : null}
           {canSendEmail ? (
@@ -498,7 +503,8 @@ export function AccountingSyncDialog({
   providerAction,
   documentNumber,
   documentId,
-  documentIdLabel = "Xero ID",
+  documentIdLabel = "Accounting document ID",
+  warnings = [],
   stageActions,
   onOpenChange,
   onDone,
@@ -513,6 +519,7 @@ export function AccountingSyncDialog({
   documentNumber?: string | null;
   documentId?: string | null;
   documentIdLabel?: string;
+  warnings?: AccountingSyncWarning[];
   stageActions?: Partial<Record<string, AccountingProviderAction>>;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
@@ -537,6 +544,10 @@ export function AccountingSyncDialog({
             />
           ))}
         </Timeline>
+
+        {warnings.length > 0 ? (
+          <AccountingSyncWarnings warnings={warnings} />
+        ) : null}
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
@@ -585,7 +596,7 @@ export function AccountingSyncDialog({
                   onClick={() => void navigator.clipboard.writeText(documentId)}
                 >
                   <HugeiconsIcon icon={Copy01Icon} size={14} data-icon="inline-start" />
-                  Copy Xero ID
+                  Copy accounting ID
                 </Button>
               ) : null}
             </div>
@@ -599,6 +610,31 @@ export function AccountingSyncDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AccountingSyncWarnings({
+  warnings,
+}: {
+  warnings: AccountingSyncWarning[];
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3">
+      {warnings.map((warning) => (
+        <div key={`${warning.title}-${warning.detail}`} className="flex gap-2">
+          <HugeiconsIcon
+            icon={AlertCircleIcon}
+            size={16}
+            className="mt-0.5 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{warning.title}</p>
+            <p className="text-sm text-muted-foreground">{warning.detail}</p>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

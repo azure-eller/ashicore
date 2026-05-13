@@ -76,6 +76,16 @@ export type PurchaseOrderDetailLine = {
   stockUnitCost: string;
   landedCost: string;
   xeroPurchaseAccountCode: string | null;
+  shipAddressEntryId: string | null;
+  shipContactName: string | null;
+  shipContactPhone: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  shipDeliveryInstructions: string | null;
   lineTotal: string;
   allocatedAdditionalCost: string;
   sortOrder: number;
@@ -93,6 +103,18 @@ export type PurchaseOrderAdditionalCost = {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type PurchaseOrderAttachment = {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedByName: string | null;
+  createdAt: Date;
+  syncStatus: "synced" | "failed" | null;
+  syncError: string | null;
+  syncedAt: Date | null;
 };
 
 export type PurchaseOrderDetail = {
@@ -132,6 +154,7 @@ export type PurchaseOrderDetail = {
   updatedAt: Date;
   lines: PurchaseOrderDetailLine[];
   additionalCosts: PurchaseOrderAdditionalCost[];
+  attachments: PurchaseOrderAttachment[];
 };
 
 export type PurchaseOrderEditData = {
@@ -153,6 +176,16 @@ export type PurchaseOrderEditData = {
     quantityOrdered: string;
     unitCost: string;
     xeroPurchaseAccountCode: string | null;
+    shipAddressEntryId: string | null;
+    shipContactName: string | null;
+    shipContactPhone: string | null;
+    shipLine1: string | null;
+    shipLine2: string | null;
+    shipCity: string | null;
+    shipRegion: string | null;
+    shipPostcode: string | null;
+    shipCountry: string | null;
+    shipDeliveryInstructions: string | null;
   }>;
   additionalCosts: Array<{
     costType: PurchaseOrderAdditionalCostType;

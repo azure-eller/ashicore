@@ -340,11 +340,11 @@ test.describe("Purchasing flow", () => {
       body: JSON.stringify({
         supplierId,
         expectedDate: expectedEditDate,
-        notes: "This edit should not apply after the PO is ordered.",
+        notes: "Ordered purchase orders remain editable.",
         lines: [
           {
             itemId: barkId,
-            quantityOrdered: "11",
+            quantityOrdered: "10",
             unitCost: "2.00",
           },
           {
@@ -356,16 +356,22 @@ test.describe("Purchasing flow", () => {
       }),
     });
     const editOrderedBody = await editOrderedResponse.json().catch(() => null);
-    expect(editOrderedResponse.status).toBeGreaterThanOrEqual(400);
-    expect(editOrderedBody?.error ?? "").toMatch(/draft|ordered|status|cannot/i);
+    expect(editOrderedResponse.status).toBe(200);
+    expect(editOrderedBody?.id).toBe(purchaseOrderId);
 
-    const unchangedLines = await db
+    const editedOrderRows = await db
+      .select({ notes: purchaseOrders.notes })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, purchaseOrderId));
+    expect(editedOrderRows[0].notes).toBe("Ordered purchase orders remain editable.");
+
+    const editedLines = await db
       .select()
       .from(purchaseOrderLines)
       .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
       .orderBy(asc(purchaseOrderLines.sortOrder));
-    expect(unchangedLines[0].quantityOrdered).toBe("10.0000");
-    expect(unchangedLines[1].quantityOrdered).toBe("6.0000");
+    expect(editedLines[0].quantityOrdered).toBe("10.0000");
+    expect(editedLines[1].quantityOrdered).toBe("6.0000");
 
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
@@ -10,12 +10,18 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  Delete02Icon,
+  Download01Icon,
+  Upload01Icon,
+} from "@hugeicons/core-free-icons";
 import {
   AccountingActionConfirmDialog,
   AccountingSyncDialog,
   AccountingSyncStatus,
   buildAccountingSyncStages,
+  type AccountingSyncWarning,
   type AccountingActionOptions,
   type AccountingSyncDocument,
   type AccountingSyncStage,
@@ -111,12 +117,33 @@ const ADDITIONAL_COST_DISTRIBUTION_LABELS: Record<
   not_distributed: "Not distributed",
 };
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FileTypeBadge({
+  file,
+}: {
+  file: PurchaseOrderDetailType["attachments"][number];
+}) {
+  const type = file.contentType.includes("pdf")
+    ? "PDF"
+    : file.contentType.startsWith("image/")
+      ? "IMG"
+      : file.filename.split(".").pop()?.slice(0, 3).toUpperCase() || "FILE";
+
+  return <Badge variant="outline">{type}</Badge>;
+}
+
 type ReceiveFormValues = z.input<typeof receivePurchaseOrderSchema>;
 
 type SyncDialogState = {
   title: string;
   description: string;
   stages: AccountingSyncStage[];
+  warnings: AccountingSyncWarning[];
   error: string | null;
   isWorking: boolean;
   documentNumber?: string | null;
@@ -138,7 +165,7 @@ function purchaseOrderAccountingDocument(
   order: PurchaseOrderDetailType
 ): AccountingSyncDocument {
   return {
-    providerName: "Xero",
+    providerName: "Accounting",
     documentLabel: "purchase order",
     documentNumber: order.xeroPurchaseOrderNumber,
     pushStatus: order.xeroPushStatus,
@@ -152,6 +179,54 @@ function purchaseOrderAccountingDocument(
     recipientLabel: order.supplierName,
     recipientEmail: order.supplierEmail,
   };
+}
+
+function getLineAccountingAddressKey(line: PurchaseOrderDetailType["lines"][number]) {
+  const parts = [
+    line.shipLine1,
+    line.shipLine2,
+    line.shipCity,
+    line.shipRegion,
+    line.shipPostcode,
+    line.shipCountry,
+  ].map((part) => part?.trim() ?? "");
+
+  return parts.join("\u001f").replace(/^\u001f+|\u001f+$/g, "");
+}
+
+function getLineAccountingAddressLabel(line: PurchaseOrderDetailType["lines"][number]) {
+  return formatAddressLines({
+    line1: line.shipLine1,
+    line2: line.shipLine2,
+    city: line.shipCity,
+    region: line.shipRegion,
+    postcode: line.shipPostcode,
+    country: line.shipCountry,
+  }).join(", ");
+}
+
+function getPurchaseOrderAccountingWarnings(
+  order: PurchaseOrderDetailType,
+  includeAccounting = true
+): AccountingSyncWarning[] {
+  if (!includeAccounting) return [];
+
+  const addressedLines = order.lines
+    .map((line) => ({
+      key: getLineAccountingAddressKey(line),
+      label: getLineAccountingAddressLabel(line),
+    }))
+    .filter((line) => line.key !== "");
+  const uniqueAddressKeys = new Set(addressedLines.map((line) => line.key));
+
+  if (uniqueAddressKeys.size <= 1) return [];
+
+  return [
+    {
+      title: "Accounting supports one delivery address.",
+      detail: `This sync will use ${addressedLines[0].label}. Other line addresses stay in ERP.`,
+    },
+  ];
 }
 
 export function PurchaseOrderDetail({
@@ -169,24 +244,18 @@ export function PurchaseOrderDetail({
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitOptions, setSubmitOptions] = useState<AccountingActionOptions>({
-    syncAccounting: true,
-    sendEmail: order.supplierEmail != null && order.supplierEmail.trim() !== "",
+    syncAccounting: false,
+    sendEmail: false,
   });
   const [actionError, setActionError] = useState<string | null>(null);
+  const [fileActionError, setFileActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const accountingDocument = purchaseOrderAccountingDocument(order);
   const additionalCostTotal = order.additionalCosts.reduce(
     (sum, cost) => sum + Number(cost.amount),
     0
   );
-  const deliveryAddressLines = formatAddressLines({
-    line1: order.shipLine1,
-    line2: order.shipLine2,
-    city: order.shipCity,
-    region: order.shipRegion,
-    postcode: order.shipPostcode,
-    country: order.shipCountry,
-  });
 
   const receiveForm = useForm<ReceiveFormValues>({
     resolver: zodResolver(receivePurchaseOrderSchema),
@@ -245,6 +314,7 @@ export function PurchaseOrderDetail({
         activeStage,
       }),
       error: null,
+      warnings: getPurchaseOrderAccountingWarnings(order, includeAccounting),
       isWorking: true,
       documentNumber: null,
       documentId: null,
@@ -277,6 +347,7 @@ export function PurchaseOrderDetail({
         localActionLabel,
       }),
       error: null,
+      warnings: getPurchaseOrderAccountingWarnings(latest, includeAccounting),
       isWorking: false,
       documentNumber: includeAccounting ? latestDocument.documentNumber : null,
       documentId: includeAccounting ? latest.xeroPurchaseOrderId : null,
@@ -305,6 +376,7 @@ export function PurchaseOrderDetail({
           state: "failed",
         },
       ],
+      warnings: [],
       error: message,
       isWorking: false,
       documentNumber: null,
@@ -335,7 +407,7 @@ export function PurchaseOrderDetail({
       openSyncDialog({
         title: "Submitting Purchase Order",
         description: options.syncAccounting
-          ? "The purchase order will be submitted, synced to Xero, and emailed when enabled."
+          ? "The purchase order will be submitted, synced to accounting, and emailed when enabled."
           : "The purchase order will be submitted in ERP only.",
         localActionLabel: "Submit purchase order",
         includeAccounting: options.syncAccounting,
@@ -347,13 +419,12 @@ export function PurchaseOrderDetail({
       await finishSyncDialog({
         title: "Purchase Order Submitted",
         description: options.syncAccounting
-          ? "ERP submission is complete. Xero and email results are shown below."
+          ? "ERP submission is complete. Accounting and email results are shown below."
           : "ERP submission is complete.",
         localActionLabel: "Submit purchase order",
         includeAccounting: options.syncAccounting,
         includeEmail: options.sendEmail,
       });
-      router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
@@ -375,7 +446,7 @@ export function PurchaseOrderDetail({
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(
-          body?.error ?? "Failed to push purchase order to Xero."
+          body?.error ?? "Failed to sync purchase order."
         );
       }
     },
@@ -383,25 +454,24 @@ export function PurchaseOrderDetail({
       setActionError(null);
       openSyncDialog({
         title: "Syncing Purchase Order",
-        description: "The purchase order will be retried in Xero and emailed when eligible.",
-        localActionLabel: "Start retry",
+        description: "The purchase order will be synced to accounting.",
+        localActionLabel: "Start sync",
       });
     },
     onSuccess: async () => {
       await refreshQueries();
       await finishSyncDialog({
         title: "Purchase Order Sync Complete",
-        description: "The latest Xero and email results are shown below.",
-        localActionLabel: "Start retry",
+        description: "The latest accounting and email results are shown below.",
+        localActionLabel: "Start sync",
       });
-      router.refresh();
     },
     onError: (error) => {
       setActionError(error.message);
       failSyncDialog({
         title: "Purchase Order Sync Failed",
-        description: "The retry did not complete.",
-        localActionLabel: "Start retry",
+        description: "The sync did not complete.",
+        localActionLabel: "Start sync",
         message: error.message,
       });
     },
@@ -422,7 +492,7 @@ export function PurchaseOrderDetail({
       setActionError(null);
       openSyncDialog({
         title: "Emailing Purchase Order",
-        description: "The Xero PDF will be sent through the transactional email provider.",
+        description: "The accounting PDF will be sent through the transactional email provider.",
         localActionLabel: "Prepare email",
         activeStage: "email",
       });
@@ -535,6 +605,51 @@ export function PurchaseOrderDetail({
     },
   });
 
+  const uploadFileMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.set("file", file);
+      const response = await fetch(`/api/purchase-orders/${order.id}/files`, {
+        method: "POST",
+        body: formData,
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to upload file.");
+      }
+    },
+    onMutate: () => setFileActionError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      router.refresh();
+    },
+    onError: (error) => setFileActionError(error.message),
+  });
+
+  const deleteFileMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      const response = await fetch(
+        `/api/purchase-orders/${order.id}/files/${fileId}`,
+        { method: "DELETE" }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to delete file.");
+      }
+    },
+    onMutate: () => setFileActionError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      router.refresh();
+    },
+    onError: (error) => setFileActionError(error.message),
+  });
+
+  function handleFileInput(files: FileList | null) {
+    if (!files) return;
+    Array.from(files).forEach((file) => uploadFileMutation.mutate(file));
+  }
+
   const duplicateMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/purchase-orders/${order.id}/duplicate`, {
@@ -565,10 +680,8 @@ export function PurchaseOrderDetail({
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canCancel = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canDelete = !isDeleted && !["ordered", "partial"].includes(order.status);
-  const canRetryXeroPush =
-    !isDeleted &&
-    ["ordered", "partial"].includes(order.status) &&
-    (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
+  const canSyncAccounting =
+    !isDeleted && ["ordered", "partial", "received"].includes(order.status);
   const canRetryXeroEmail =
     !isDeleted &&
     ["ordered", "partial", "received"].includes(order.status) &&
@@ -620,10 +733,10 @@ export function PurchaseOrderDetail({
                     },
                   ]
                 : []),
-              ...(canRetryXeroPush
+              ...(canSyncAccounting
                 ? [
                     {
-                      label: "Retry Xero push",
+                      label: "Sync accounting",
                       onSelect: () => xeroPushMutation.mutate(),
                       disabled: xeroPushMutation.isPending,
                     },
@@ -668,6 +781,16 @@ export function PurchaseOrderDetail({
                 {submitMutation.isPending ? "Submitting..." : "Submit"}
               </Button>
             ) : null}
+            {canSyncAccounting ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => xeroPushMutation.mutate()}
+                disabled={xeroPushMutation.isPending}
+              >
+                {xeroPushMutation.isPending ? "Syncing..." : "Sync accounting"}
+              </Button>
+            ) : null}
             {canReceive ? (
               <Button
                 size="sm"
@@ -690,7 +813,7 @@ export function PurchaseOrderDetail({
 
         <AccountingSyncStatus
           document={accountingDocument}
-          onRetryPush={canRetryXeroPush ? () => xeroPushMutation.mutate() : undefined}
+          onRetryPush={canSyncAccounting ? () => xeroPushMutation.mutate() : undefined}
           retryPushPending={xeroPushMutation.isPending}
           onRetryEmail={canRetryXeroEmail ? () => xeroEmailMutation.mutate() : undefined}
           retryEmailPending={xeroEmailMutation.isPending}
@@ -706,6 +829,99 @@ export function PurchaseOrderDetail({
             ) : null}
           </div>
         ) : null}
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-tight">Attachments</h2>
+            {!isDeleted ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadFileMutation.isPending}
+              >
+                <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
+                Upload
+              </Button>
+            ) : null}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              handleFileInput(event.target.files);
+              event.currentTarget.value = "";
+            }}
+          />
+          {!isDeleted ? (
+            <div
+              className="flex items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 px-4 py-6 text-sm text-muted-foreground"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                handleFileInput(event.dataTransfer.files);
+              }}
+            >
+              <HugeiconsIcon icon={Upload01Icon} size={16} aria-hidden />
+              <button
+                type="button"
+                className="font-medium text-foreground underline-offset-4 hover:underline"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Upload or drop files
+              </button>
+            </div>
+          ) : null}
+          {fileActionError ? (
+            <p className="text-sm text-destructive">{fileActionError}</p>
+          ) : null}
+          <div className="divide-y rounded-md border">
+            {order.attachments.length > 0 ? (
+              order.attachments.map((file) => (
+                <div key={file.id} className="flex items-center gap-3 px-3 py-2.5">
+                  <FileTypeBadge file={file} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{file.filename}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatBytes(file.sizeBytes)} {"\u00b7"} uploaded{" "}
+                      {formatDateTime(file.createdAt, timeZone)}
+                      {file.syncStatus === "synced" ? " \u00b7 synced" : ""}
+                      {file.syncStatus === "failed" ? " \u00b7 sync failed" : ""}
+                    </p>
+                    {file.syncStatus === "failed" && file.syncError ? (
+                      <p className="text-xs text-destructive">{file.syncError}</p>
+                    ) : null}
+                  </div>
+                  <Button variant="ghost" size="icon-sm" asChild>
+                    <a
+                      href={`/api/purchase-orders/${order.id}/files/${file.id}`}
+                      aria-label={`Download ${file.filename}`}
+                    >
+                      <HugeiconsIcon icon={Download01Icon} />
+                    </a>
+                  </Button>
+                  {!isDeleted ? (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Delete ${file.filename}`}
+                      onClick={() => deleteFileMutation.mutate(file.id)}
+                      disabled={deleteFileMutation.isPending}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} />
+                    </Button>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                No attachments.
+              </div>
+            )}
+          </div>
+        </div>
 
         <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
           <div>
@@ -743,24 +959,6 @@ export function PurchaseOrderDetail({
             </dt>
             <dd className="mt-1 text-sm">
               {formatPrice(additionalCostTotal.toFixed(4)) ?? "\u2014"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              Xero Default Account
-            </dt>
-            <dd className="mt-1 text-sm font-mono">
-              {order.xeroPurchaseAccountCode ?? "\u2014"}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-sm font-medium text-muted-foreground">
-              Delivery Address
-            </dt>
-            <dd className="mt-1 text-sm">
-              {deliveryAddressLines.length > 0
-                ? deliveryAddressLines.map((line) => <div key={line}>{line}</div>)
-                : "\u2014"}
             </dd>
           </div>
           <div>
@@ -821,7 +1019,8 @@ export function PurchaseOrderDetail({
                   <TableHead className="text-right">
                     <TooltipHeader label="Line Total" tooltip={LINE_TOTAL_TOOLTIP} />
                   </TableHead>
-                  <TableHead>Xero Account</TableHead>
+                  <TableHead>Delivery Address</TableHead>
+                  <TableHead>Accounting Account</TableHead>
                   <TableHead className="text-right">Allocated Costs</TableHead>
                   <TableHead className="text-right">Landed Cost</TableHead>
                 </TableRow>
@@ -867,6 +1066,34 @@ export function PurchaseOrderDetail({
                     <TableCell className="text-right">
                       {formatPrice(line.lineTotal) ?? "\u2014"}
                     </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <span>
+                          {formatAddressLines({
+                            line1: line.shipLine1,
+                            line2: line.shipLine2,
+                            city: line.shipCity,
+                            region: line.shipRegion,
+                            postcode: line.shipPostcode,
+                            country: line.shipCountry,
+                          }).join(", ") || "\u2014"}
+                        </span>
+                        {[line.shipContactName, line.shipContactPhone]
+                          .filter(Boolean)
+                          .join(" · ") ? (
+                          <span className="text-xs text-muted-foreground">
+                            {[line.shipContactName, line.shipContactPhone]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        ) : null}
+                        {line.shipDeliveryInstructions ? (
+                          <span className="text-xs text-muted-foreground">
+                            {line.shipDeliveryInstructions}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell className="font-mono">
                       {line.xeroPurchaseAccountCode ?? "\u2014"}
                     </TableCell>
@@ -892,7 +1119,7 @@ export function PurchaseOrderDetail({
                   <TableHead>Cost</TableHead>
                   <TableHead>Reference</TableHead>
                   <TableHead>Distribution</TableHead>
-                  <TableHead>Xero Account</TableHead>
+                  <TableHead>Accounting Account</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                 </TableRow>
               </TableHeader>
@@ -936,10 +1163,11 @@ export function PurchaseOrderDetail({
           description={syncDialog.description}
           stages={syncDialog.stages}
           error={syncDialog.error}
+          warnings={syncDialog.warnings}
           isWorking={syncDialog.isWorking}
           documentNumber={syncDialog.documentNumber}
           documentId={syncDialog.documentId}
-          documentIdLabel="Xero purchase order ID"
+          documentIdLabel="Accounting document ID"
           onOpenChange={(open) => {
             if (!open) setSyncDialog(null);
           }}
@@ -959,9 +1187,9 @@ export function PurchaseOrderDetail({
           meta: `${order.supplierName} · ${formatPrice(order.totalAmount) ?? "-"} · ${order.lines.length} ${order.lines.length === 1 ? "line" : "lines"}`,
         }}
         accountingStep={{
-          title: "Create in Xero",
+          title: "Create in accounting",
           detail: "Purchase order",
-          meta: "Xero",
+          meta: "Manual sync",
         }}
         emailStep={{
           title: "Email supplier",

@@ -123,11 +123,6 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(supplierName) }).click();
 
     await selectDate(page, page.locator("#expectedDate"), "2026-05-01");
-    await page.locator("#xeroPurchaseAccountCode").fill("300");
-    await page.locator("#po-ship-line1").fill("44 Test Dock");
-    await page.locator("#po-ship-city").fill("Boulder");
-    await page.locator("#po-ship-region").fill("CO");
-    await page.locator("#po-ship-postcode").fill("80301");
     await page.locator("#notes").fill("Fast purchase order smoke test");
 
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(1);
@@ -139,6 +134,13 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByRole("option", { name: barkOptionPattern }).click();
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
     await page.getByPlaceholder("0").first().fill("10");
+    await page.getByPlaceholder("Address").first().click();
+    await page.getByRole("option", { name: "Add new address" }).click();
+    await page.locator("#po-line-ship-line1").fill("44 Test Dock");
+    await page.locator("#po-line-ship-city").fill("Boulder");
+    await page.locator("#po-line-ship-region").fill("CO");
+    await page.locator("#po-line-ship-postcode").fill("80301");
+    await page.getByRole("button", { name: "Add Address" }).click();
     await page.getByPlaceholder("310").fill("312");
 
     const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
@@ -178,11 +180,8 @@ test.describe("Purchasing write-path smoke", () => {
     expect(order.supplierName).toBe(supplierName);
     expect(order.status).toBe("draft");
     expect(order.expectedDate).toBe("2026-05-01");
-    expect(order.xeroPurchaseAccountCode).toBe("300");
-    expect(order.shipLine1).toBe("44 Test Dock");
-    expect(order.shipCity).toBe("Boulder");
-    expect(order.shipRegion).toBe("CO");
-    expect(order.shipPostcode).toBe("80301");
+    expect(order.xeroPurchaseAccountCode).toBeNull();
+    expect(order.shipLine1).toBeNull();
     expect(order.notes).toBe("Fast purchase order smoke test");
 
     const lines = await db
@@ -194,6 +193,10 @@ test.describe("Purchasing write-path smoke", () => {
     expect(lines[0].itemId).toBe(barkId);
     expect(lines[0].quantityOrdered).toBe("10.0000");
     expect(lines[0].xeroPurchaseAccountCode).toBe("312");
+    expect(lines[0].shipLine1).toBe("44 Test Dock");
+    expect(lines[0].shipCity).toBe("Boulder");
+    expect(lines[0].shipRegion).toBe("CO");
+    expect(lines[0].shipPostcode).toBe("80301");
     expect(lines[1].itemId).toBe(sandId);
     expect(lines[1].quantityOrdered).toBe("5.0000");
     expect(lines[1].xeroPurchaseAccountCode).toBe("311");
@@ -236,8 +239,8 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicate.supplierName).toBe(supplierName);
     expect(duplicate.status).toBe("draft");
     expect(duplicate.notes).toBe("Fast purchase order smoke test");
-    expect(duplicate.xeroPurchaseAccountCode).toBe("300");
-    expect(duplicate.shipLine1).toBe("44 Test Dock");
+    expect(duplicate.xeroPurchaseAccountCode).toBeNull();
+    expect(duplicate.shipLine1).toBeNull();
 
     const duplicateLines = await db
       .select()
@@ -248,6 +251,10 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicateLines[0].itemId).toBe(barkId);
     expect(duplicateLines[0].quantityOrdered).toBe("10.0000");
     expect(duplicateLines[0].xeroPurchaseAccountCode).toBe("312");
+    expect(duplicateLines[0].shipLine1).toBe("44 Test Dock");
+    expect(duplicateLines[0].shipCity).toBe("Boulder");
+    expect(duplicateLines[0].shipRegion).toBe("CO");
+    expect(duplicateLines[0].shipPostcode).toBe("80301");
     expect(duplicateLines[1].itemId).toBe(sandId);
     expect(duplicateLines[1].quantityOrdered).toBe("5.0000");
     expect(duplicateLines[1].xeroPurchaseAccountCode).toBe("311");

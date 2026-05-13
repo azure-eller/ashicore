@@ -16,6 +16,7 @@ import {
 import { sql } from "drizzle-orm";
 import { items } from "./items";
 import { unitDefinitions } from "./units";
+import { addressEntries } from "./addresses";
 
 export const purchasingSchema = pgSchema("purchasing");
 
@@ -231,6 +232,19 @@ export const purchaseOrderLines = purchasingSchema
       xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
         length: 20,
       }),
+      shipAddressEntryId: uuid("ship_address_entry_id").references(
+        () => addressEntries.id,
+        { onDelete: "set null" }
+      ),
+      shipContactName: varchar("ship_contact_name", { length: 255 }),
+      shipContactPhone: varchar("ship_contact_phone", { length: 50 }),
+      shipLine1: varchar("ship_line1", { length: 255 }),
+      shipLine2: varchar("ship_line2", { length: 255 }),
+      shipCity: varchar("ship_city", { length: 120 }),
+      shipRegion: varchar("ship_region", { length: 120 }),
+      shipPostcode: varchar("ship_postcode", { length: 30 }),
+      shipCountry: varchar("ship_country", { length: 120 }),
+      shipDeliveryInstructions: text("ship_delivery_instructions"),
       lineTotal: numeric("line_total", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

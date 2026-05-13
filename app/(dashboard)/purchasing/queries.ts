@@ -8,12 +8,19 @@ import {
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   items,
+  accountingAttachmentSyncs,
+  accountingDocumentSyncs,
+  attachmentFiles,
   purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
   suppliers,
   unitDefinitions,
 } from "@/lib/db/schema";
+import {
+  ACCOUNTING_PROVIDER_XERO,
+  ATTACHMENT_OWNER_PURCHASE_ORDER,
+} from "@/lib/accounting/sync-state";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -45,6 +52,7 @@ import type { InsertSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
 import type {
   PurchaseOrderDetail,
   PurchaseOrderDetailLine,
+  PurchaseOrderAttachment,
   PurchaseOrderEditData,
   PurchaseOrderListRow,
   PurchaseOrderMaterialOption,
@@ -65,6 +73,16 @@ type PreparedPurchaseOrderLine = {
   unitCost: string;
   stockUnitCost: string;
   xeroPurchaseAccountCode: string | null;
+  shipAddressEntryId: string | null;
+  shipContactName: string | null;
+  shipContactPhone: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  shipDeliveryInstructions: string | null;
   lineTotal: string;
   sortOrder: number;
 };
@@ -93,9 +111,29 @@ type MaterialValidationRow = {
 
 export type PurchaseOrderLineInput = Omit<
   InsertPurchaseOrder["lines"][number],
-  "xeroPurchaseAccountCode"
+  | "xeroPurchaseAccountCode"
+  | "shipAddressEntryId"
+  | "shipContactName"
+  | "shipContactPhone"
+  | "shipLine1"
+  | "shipLine2"
+  | "shipCity"
+  | "shipRegion"
+  | "shipPostcode"
+  | "shipCountry"
+  | "shipDeliveryInstructions"
 > & {
   xeroPurchaseAccountCode?: string | null;
+  shipAddressEntryId?: string | null;
+  shipContactName?: string | null;
+  shipContactPhone?: string | null;
+  shipLine1?: string | null;
+  shipLine2?: string | null;
+  shipCity?: string | null;
+  shipRegion?: string | null;
+  shipPostcode?: string | null;
+  shipCountry?: string | null;
+  shipDeliveryInstructions?: string | null;
   purchaseUnitDefinitionId?: string | null;
   purchaseToStockFactor?: string | null;
 };
@@ -201,6 +239,81 @@ async function getValidatedSupplierInTx(tx: Tx, supplierId: string) {
   return supplier;
 }
 
+async function getActivePurchaseOrderInTx(tx: Tx, id: string) {
+  const [order] = await tx
+    .select({
+      id: purchaseOrders.id,
+      organizationId: purchaseOrders.organizationId,
+    })
+    .from(purchaseOrders)
+    .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)));
+
+  return order ?? null;
+}
+
+function mapPurchaseOrderAttachment(row: {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedByName: string | null;
+  createdAt: Date;
+  syncStatus: string | null;
+  syncError: string | null;
+  syncedAt: Date | null;
+}): PurchaseOrderAttachment {
+  return {
+    id: row.id,
+    filename: row.filename,
+    contentType: row.contentType,
+    sizeBytes: row.sizeBytes,
+    uploadedByName: row.uploadedByName,
+    createdAt: row.createdAt,
+    syncStatus:
+      row.syncStatus === "synced" || row.syncStatus === "failed"
+        ? row.syncStatus
+        : null,
+    syncError: row.syncError,
+    syncedAt: row.syncedAt,
+  };
+}
+
+async function getPurchaseOrderAttachmentsInTx(
+  tx: Tx,
+  id: string
+): Promise<PurchaseOrderAttachment[]> {
+  const rows = await tx
+    .select({
+      id: attachmentFiles.id,
+      filename: attachmentFiles.filename,
+      contentType: attachmentFiles.contentType,
+      sizeBytes: attachmentFiles.sizeBytes,
+      uploadedByName: attachmentFiles.uploadedByName,
+      createdAt: attachmentFiles.createdAt,
+      syncStatus: accountingAttachmentSyncs.syncStatus,
+      syncError: accountingAttachmentSyncs.syncError,
+      syncedAt: accountingAttachmentSyncs.syncedAt,
+    })
+    .from(attachmentFiles)
+    .leftJoin(
+      accountingAttachmentSyncs,
+      and(
+        eq(accountingAttachmentSyncs.attachmentId, attachmentFiles.id),
+        eq(accountingAttachmentSyncs.provider, ACCOUNTING_PROVIDER_XERO)
+      )
+    )
+    .where(
+      and(
+        eq(attachmentFiles.ownerType, ATTACHMENT_OWNER_PURCHASE_ORDER),
+        eq(attachmentFiles.ownerId, id),
+        isNull(attachmentFiles.deletedAt)
+      )
+    )
+    .orderBy(desc(attachmentFiles.createdAt), desc(attachmentFiles.id));
+
+  return rows.map(mapPurchaseOrderAttachment);
+}
+
 async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
   const uniqueIds = [...new Set(itemIds)];
 
@@ -268,6 +381,16 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       unitCost: trimScale(purchaseOrderLines.unitCost).as("unitCost"),
       stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as("stockUnitCost"),
       xeroPurchaseAccountCode: purchaseOrderLines.xeroPurchaseAccountCode,
+      shipAddressEntryId: purchaseOrderLines.shipAddressEntryId,
+      shipContactName: purchaseOrderLines.shipContactName,
+      shipContactPhone: purchaseOrderLines.shipContactPhone,
+      shipLine1: purchaseOrderLines.shipLine1,
+      shipLine2: purchaseOrderLines.shipLine2,
+      shipCity: purchaseOrderLines.shipCity,
+      shipRegion: purchaseOrderLines.shipRegion,
+      shipPostcode: purchaseOrderLines.shipPostcode,
+      shipCountry: purchaseOrderLines.shipCountry,
+      shipDeliveryInstructions: purchaseOrderLines.shipDeliveryInstructions,
       lineTotal: trimScale(purchaseOrderLines.lineTotal).as("lineTotal"),
       sortOrder: purchaseOrderLines.sortOrder,
       createdAt: purchaseOrderLines.createdAt,
@@ -426,6 +549,14 @@ async function preparePurchaseOrderPayload(
     );
     const stockQuantityOrdered = quantityOrdered * purchaseToStockFactor;
     const stockUnitCost = landedLineTotal / stockQuantityOrdered;
+    const lineAddress = normalizeAddressFields({
+      line1: line.shipLine1,
+      line2: line.shipLine2,
+      city: line.shipCity,
+      region: line.shipRegion,
+      postcode: line.shipPostcode,
+      country: line.shipCountry,
+    });
 
     return {
       itemId: material.id,
@@ -447,6 +578,16 @@ async function preparePurchaseOrderPayload(
         line.xeroPurchaseAccountCode?.trim() ||
         material.xeroPurchaseAccountCode ||
         null,
+      shipAddressEntryId: line.shipAddressEntryId?.trim() || null,
+      shipContactName: line.shipContactName?.trim() || null,
+      shipContactPhone: line.shipContactPhone?.trim() || null,
+      shipLine1: lineAddress.line1,
+      shipLine2: lineAddress.line2,
+      shipCity: lineAddress.city,
+      shipRegion: lineAddress.region,
+      shipPostcode: lineAddress.postcode,
+      shipCountry: lineAddress.country,
+      shipDeliveryInstructions: line.shipDeliveryInstructions?.trim() || null,
       lineTotal: normalizeNumeric(lineTotal),
       sortOrder: index,
     };
@@ -750,32 +891,41 @@ export async function getPurchaseOrder(
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
         cancelledAt: purchaseOrders.cancelledAt,
-        xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
-        xeroPurchaseOrderNumber: purchaseOrders.xeroPurchaseOrderNumber,
-        xeroPushStatus: purchaseOrders.xeroPushStatus,
-        xeroPushError: purchaseOrders.xeroPushError,
-        xeroPushedAt: purchaseOrders.xeroPushedAt,
-        xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
-        xeroLastPushAttemptAt: purchaseOrders.xeroLastPushAttemptAt,
-        xeroRetryCount: purchaseOrders.xeroRetryCount,
-        xeroPoEmailStatus: purchaseOrders.xeroPoEmailStatus,
-        xeroPoEmailError: purchaseOrders.xeroPoEmailError,
-        xeroPoEmailedAt: purchaseOrders.xeroPoEmailedAt,
+        xeroPurchaseOrderId: sql<string | null>`COALESCE(${accountingDocumentSyncs.externalDocumentId}, ${purchaseOrders.xeroPurchaseOrderId})`,
+        xeroPurchaseOrderNumber: sql<string | null>`COALESCE(${accountingDocumentSyncs.externalDocumentNumber}, ${purchaseOrders.xeroPurchaseOrderNumber})`,
+        xeroPushStatus: sql<string | null>`COALESCE(${accountingDocumentSyncs.pushStatus}, ${purchaseOrders.xeroPushStatus})`,
+        xeroPushError: sql<string | null>`COALESCE(${accountingDocumentSyncs.pushError}, ${purchaseOrders.xeroPushError})`,
+        xeroPushedAt: sql<Date | null>`COALESCE(${accountingDocumentSyncs.pushedAt}, ${purchaseOrders.xeroPushedAt})`,
+        xeroPushPayloadHash: sql<string | null>`COALESCE(${accountingDocumentSyncs.pushPayloadHash}, ${purchaseOrders.xeroPushPayloadHash})`,
+        xeroLastPushAttemptAt: sql<Date | null>`COALESCE(${accountingDocumentSyncs.lastPushAttemptAt}, ${purchaseOrders.xeroLastPushAttemptAt})`,
+        xeroRetryCount: sql<number>`COALESCE(${accountingDocumentSyncs.retryCount}, ${purchaseOrders.xeroRetryCount})`,
+        xeroPoEmailStatus: sql<string | null>`COALESCE(${accountingDocumentSyncs.emailStatus}, ${purchaseOrders.xeroPoEmailStatus})`,
+        xeroPoEmailError: sql<string | null>`COALESCE(${accountingDocumentSyncs.emailError}, ${purchaseOrders.xeroPoEmailError})`,
+        xeroPoEmailedAt: sql<Date | null>`COALESCE(${accountingDocumentSyncs.emailedAt}, ${purchaseOrders.xeroPoEmailedAt})`,
         deletedAt: purchaseOrders.deletedAt,
         createdAt: purchaseOrders.createdAt,
         updatedAt: purchaseOrders.updatedAt,
       })
       .from(purchaseOrders)
       .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
+      .leftJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, "purchase_order"),
+          eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
+        )
+      )
       .where(and(...conditions));
 
     if (!order) {
       return null;
     }
 
-    const [lines, additionalCosts] = await Promise.all([
+    const [lines, additionalCosts, attachments] = await Promise.all([
       getPurchaseOrderLinesInTx(tx, id),
       getPurchaseOrderAdditionalCostsInTx(tx, id),
+      getPurchaseOrderAttachmentsInTx(tx, id),
     ]);
     const materialSubtotal = lines.reduce(
       (sum, line) => sum + Number(line.lineTotal),
@@ -822,6 +972,7 @@ export async function getPurchaseOrder(
         distributionMethod:
           cost.distributionMethod as PurchaseOrderDetail["additionalCosts"][number]["distributionMethod"],
       })),
+      attachments,
     };
   });
 }
@@ -878,6 +1029,16 @@ export async function getEditablePurchaseOrder(
         quantityOrdered: line.quantityOrdered,
         unitCost: line.unitCost,
         xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+        shipAddressEntryId: line.shipAddressEntryId,
+        shipContactName: line.shipContactName,
+        shipContactPhone: line.shipContactPhone,
+        shipLine1: line.shipLine1,
+        shipLine2: line.shipLine2,
+        shipCity: line.shipCity,
+        shipRegion: line.shipRegion,
+        shipPostcode: line.shipPostcode,
+        shipCountry: line.shipCountry,
+        shipDeliveryInstructions: line.shipDeliveryInstructions,
       })),
       additionalCosts: additionalCosts.map((cost) => ({
         costType: cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
@@ -888,6 +1049,110 @@ export async function getEditablePurchaseOrder(
         amount: cost.amount,
       })),
     };
+  });
+}
+
+export async function getPurchaseOrderFileUploadTarget(id: string) {
+  return withAuthedOrgContext(async (tx) => getActivePurchaseOrderInTx(tx, id));
+}
+
+export async function createPurchaseOrderAttachment(params: {
+  purchaseOrderId: string;
+  storageKey: string;
+  blobUrl: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: { userId: string; name: string };
+}): Promise<PurchaseOrderAttachment | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const order = await getActivePurchaseOrderInTx(tx, params.purchaseOrderId);
+    if (!order) return null;
+
+    const [file] = await tx
+      .insert(attachmentFiles)
+      .values({
+        organizationId: orgId,
+        ownerType: ATTACHMENT_OWNER_PURCHASE_ORDER,
+        ownerId: params.purchaseOrderId,
+        storageKey: params.storageKey,
+        blobUrl: params.blobUrl,
+        filename: params.filename,
+        contentType: params.contentType,
+        sizeBytes: params.sizeBytes,
+        uploadedByUserId: params.uploadedBy.userId,
+        uploadedByName: params.uploadedBy.name,
+      })
+      .returning({
+        id: attachmentFiles.id,
+        filename: attachmentFiles.filename,
+        contentType: attachmentFiles.contentType,
+        sizeBytes: attachmentFiles.sizeBytes,
+        uploadedByName: attachmentFiles.uploadedByName,
+        createdAt: attachmentFiles.createdAt,
+      });
+
+    return mapPurchaseOrderAttachment({
+      ...file,
+      syncStatus: null,
+      syncError: null,
+      syncedAt: null,
+    });
+  });
+}
+
+export async function getPurchaseOrderAttachmentForDownload(
+  purchaseOrderId: string,
+  fileId: string
+) {
+  return withAuthedOrgContext(async (tx) => {
+    const [file] = await tx
+      .select({
+        id: attachmentFiles.id,
+        blobUrl: attachmentFiles.blobUrl,
+        filename: attachmentFiles.filename,
+        contentType: attachmentFiles.contentType,
+        sizeBytes: attachmentFiles.sizeBytes,
+      })
+      .from(attachmentFiles)
+      .where(
+        and(
+          eq(attachmentFiles.id, fileId),
+          eq(attachmentFiles.ownerType, ATTACHMENT_OWNER_PURCHASE_ORDER),
+          eq(attachmentFiles.ownerId, purchaseOrderId),
+          isNull(attachmentFiles.deletedAt)
+        )
+      );
+
+    return file ?? null;
+  });
+}
+
+export async function deletePurchaseOrderAttachment(
+  purchaseOrderId: string,
+  fileId: string
+) {
+  return withAuthedOrgContext(async (tx) => {
+    const [file] = await tx
+      .update(attachmentFiles)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(attachmentFiles.id, fileId),
+          eq(attachmentFiles.ownerType, ATTACHMENT_OWNER_PURCHASE_ORDER),
+          eq(attachmentFiles.ownerId, purchaseOrderId),
+          isNull(attachmentFiles.deletedAt)
+        )
+      )
+      .returning({
+        id: attachmentFiles.id,
+        blobUrl: attachmentFiles.blobUrl,
+      });
+
+    return file ?? null;
   });
 }
 
@@ -976,6 +1241,16 @@ export async function duplicatePurchaseOrder(id: string) {
       quantityOrdered: line.quantityOrdered,
       unitCost: line.unitCost,
       xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+      shipAddressEntryId: line.shipAddressEntryId,
+      shipContactName: line.shipContactName,
+      shipContactPhone: line.shipContactPhone,
+      shipLine1: line.shipLine1,
+      shipLine2: line.shipLine2,
+      shipCity: line.shipCity,
+      shipRegion: line.shipRegion,
+      shipPostcode: line.shipPostcode,
+      shipCountry: line.shipCountry,
+      shipDeliveryInstructions: line.shipDeliveryInstructions,
     })),
     additionalCosts: order.additionalCosts.map((cost) => ({
       costType: cost.costType,
@@ -1043,6 +1318,16 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
               unitCost: line.unitCost,
               stockUnitCost: line.stockUnitCost,
               xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+              shipAddressEntryId: line.shipAddressEntryId,
+              shipContactName: line.shipContactName,
+              shipContactPhone: line.shipContactPhone,
+              shipLine1: line.shipLine1,
+              shipLine2: line.shipLine2,
+              shipCity: line.shipCity,
+              shipRegion: line.shipRegion,
+              shipPostcode: line.shipPostcode,
+              shipCountry: line.shipCountry,
+              shipDeliveryInstructions: line.shipDeliveryInstructions,
               lineTotal: line.lineTotal,
               sortOrder: line.sortOrder,
               updatedAt: new Date(),

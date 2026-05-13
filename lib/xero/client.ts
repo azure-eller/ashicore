@@ -10,6 +10,7 @@ const REQUIRED_SCOPES = [
   "accounting.contacts",
   "accounting.invoices",
   "accounting.transactions",
+  "accounting.attachments",
   "offline_access",
 ];
 

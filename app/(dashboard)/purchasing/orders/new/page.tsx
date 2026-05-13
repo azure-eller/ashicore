@@ -1,6 +1,7 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import { purchaseOrderDefaultValues } from "@/lib/schemas/purchase-orders";
+import { getAddressEntries } from "@/lib/dal/addresses";
 import {
   getPurchaseOrderMaterialOptions,
   getSuppliers,
@@ -18,9 +19,10 @@ export default async function NewPurchaseOrderPage({
 }) {
   await requireModuleWriteAccess("purchasing");
   const params = await searchParams;
-  const [supplierRows, materials] = await Promise.all([
+  const [supplierRows, materials, addresses] = await Promise.all([
     getSuppliers(),
     getPurchaseOrderMaterialOptions(),
+    getAddressEntries(),
   ]);
   const materialIds = [...new Set(getValues(params.itemId))];
   const materialById = new Map(materials.map((material) => [material.id, material]));
@@ -32,6 +34,16 @@ export default async function NewPurchaseOrderPage({
       quantityOrdered: null,
       unitCost: material.defaultPurchasePrice,
       xeroPurchaseAccountCode: material.xeroPurchaseAccountCode,
+      shipAddressEntryId: null,
+      shipContactName: null,
+      shipContactPhone: null,
+      shipLine1: null,
+      shipLine2: null,
+      shipCity: null,
+      shipRegion: null,
+      shipPostcode: null,
+      shipCountry: null,
+      shipDeliveryInstructions: null,
     }));
   const supplierId =
     typeof params.supplierId === "string" &&
@@ -57,6 +69,7 @@ export default async function NewPurchaseOrderPage({
         code: supplier.code,
       }))}
       materials={materials}
+      addresses={addresses}
       defaultValues={defaultValues}
     />
   );

@@ -589,6 +589,27 @@
       "when": 1778623200001,
       "tag": "0083_generic_stock_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1778685918345,
+      "tag": "0084_solid_invaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1778689268514,
+      "tag": "0085_fast_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1778690479620,
+      "tag": "0086_mysterious_the_stranger",
+      "breakpoints": true
     }
   ]
 }

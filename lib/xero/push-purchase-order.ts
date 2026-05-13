@@ -1,5 +1,6 @@
 import "server-only";
 
+import { get } from "@vercel/blob";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   PurchaseOrder,
@@ -15,6 +16,19 @@ import {
 } from "@/lib/db/schema";
 import { formatAddress } from "@/lib/format";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import {
+  ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+  ACCOUNTING_PROVIDER_XERO,
+  ATTACHMENT_OWNER_PURCHASE_ORDER,
+  listUnsyncedAttachmentsForOwner,
+  markAccountingDocumentPushAttempt,
+  markAttachmentSyncAttempt,
+  persistAccountingDocumentEmailOutcome,
+  persistAccountingDocumentPushFailure,
+  persistAccountingDocumentPushSuccess,
+  persistAttachmentSyncFailure,
+  persistAttachmentSyncSuccess,
+} from "@/lib/accounting/sync-state";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
@@ -73,6 +87,15 @@ type LineForPush = {
   quantityOrdered: string;
   unitCost: string;
   xeroPurchaseAccountCode: string | null;
+  shipContactName: string | null;
+  shipContactPhone: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
+  shipDeliveryInstructions: string | null;
   lineTotal: string;
 };
 
@@ -187,6 +210,15 @@ async function loadOrderForPushInTx(
       quantityOrdered: purchaseOrderLines.quantityOrdered,
       unitCost: purchaseOrderLines.unitCost,
       xeroPurchaseAccountCode: purchaseOrderLines.xeroPurchaseAccountCode,
+      shipContactName: purchaseOrderLines.shipContactName,
+      shipContactPhone: purchaseOrderLines.shipContactPhone,
+      shipLine1: purchaseOrderLines.shipLine1,
+      shipLine2: purchaseOrderLines.shipLine2,
+      shipCity: purchaseOrderLines.shipCity,
+      shipRegion: purchaseOrderLines.shipRegion,
+      shipPostcode: purchaseOrderLines.shipPostcode,
+      shipCountry: purchaseOrderLines.shipCountry,
+      shipDeliveryInstructions: purchaseOrderLines.shipDeliveryInstructions,
       lineTotal: purchaseOrderLines.lineTotal,
     })
     .from(purchaseOrderLines)
@@ -219,6 +251,12 @@ async function loadOrderForPushInTx(
 
 async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
+    await markAccountingDocumentPushAttempt(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      documentId: orderId,
+    });
     await tx
       .update(purchaseOrders)
       .set({
@@ -238,6 +276,15 @@ async function persistPushSuccess(
   payloadHash: string
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
+    await persistAccountingDocumentPushSuccess(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      documentId: orderId,
+      externalDocumentId: purchaseOrderId,
+      externalDocumentNumber: purchaseOrderNumber,
+      payloadHash,
+    });
     await tx
       .update(purchaseOrders)
       .set({
@@ -340,6 +387,13 @@ async function persistPurchaseOrderEmailOutcome(
     | { status: "skipped"; error?: never }
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
+    await persistAccountingDocumentEmailOutcome(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      documentId: orderId,
+      outcome,
+    });
     const conditions = [eq(purchaseOrders.id, orderId)];
     if (outcome.status !== "sent") {
       conditions.push(sql`COALESCE(${purchaseOrders.xeroPoEmailStatus}, '') <> 'sent'`);
@@ -359,6 +413,94 @@ async function persistPurchaseOrderEmailOutcome(
 
 function sanitizePdfFileSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function blobToBuffer(blobUrl: string): Promise<Buffer> {
+  const blob = await get(blobUrl, { access: "private" });
+  if (!blob || blob.statusCode !== 200 || !blob.stream) {
+    throw new XeroError("Attachment file could not be read from storage.", 404);
+  }
+
+  const chunks: Buffer[] = [];
+  const reader = blob.stream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(Buffer.from(value));
+  }
+
+  return Buffer.concat(chunks);
+}
+
+async function uploadPurchaseOrderAttachmentsToXero(params: {
+  orgId: string;
+  orderId: string;
+  purchaseOrderId: string;
+  tenantId: string;
+  accountingApi: import("xero-node").AccountingApi;
+}): Promise<void> {
+  const attachments = await listUnsyncedAttachmentsForOwner(params.orgId, {
+    provider: ACCOUNTING_PROVIDER_XERO,
+    ownerType: ATTACHMENT_OWNER_PURCHASE_ORDER,
+    ownerId: params.orderId,
+  });
+
+  for (const attachment of attachments) {
+    await withOrgContext(params.orgId, async (tx) => {
+      await markAttachmentSyncAttempt(tx, {
+        organizationId: params.orgId,
+        provider: ACCOUNTING_PROVIDER_XERO,
+        attachmentId: attachment.id,
+      });
+    });
+
+    try {
+      const body = await blobToBuffer(attachment.blobUrl);
+      const response =
+        await params.accountingApi.createPurchaseOrderAttachmentByFileName(
+          params.tenantId,
+          params.purchaseOrderId,
+          attachment.filename,
+          body,
+          buildXeroIdempotencyKey(
+            params.orgId,
+            "purchase-order-attachment",
+            attachment.id,
+            "upload"
+          ),
+          {
+            headers: {
+              "Content-Type": attachment.contentType,
+            },
+          }
+        );
+      const externalAttachmentId =
+        response.body.attachments?.[0]?.attachmentID ?? null;
+
+      await withOrgContext(params.orgId, async (tx) => {
+        await persistAttachmentSyncSuccess(tx, {
+          organizationId: params.orgId,
+          provider: ACCOUNTING_PROVIDER_XERO,
+          attachmentId: attachment.id,
+          externalAttachmentId,
+        });
+      });
+    } catch (error) {
+      const message = extractXeroMessage(error).slice(0, 500);
+      console.error("Xero purchase order attachment upload failed:", {
+        attachmentId: attachment.id,
+        error: redactXeroError(error),
+      });
+      await withOrgContext(params.orgId, async (tx) => {
+        await persistAttachmentSyncFailure(tx, {
+          organizationId: params.orgId,
+          provider: ACCOUNTING_PROVIDER_XERO,
+          attachmentId: attachment.id,
+          error: message,
+        });
+      });
+    }
+  }
 }
 
 async function sendPurchaseOrderPdfEmail(params: {
@@ -516,14 +658,29 @@ export async function pushPurchaseOrderToXero(
     );
   }
 
-  const deliveryAddress = formatAddress({
-    line1: data.order.shipLine1,
-    line2: data.order.shipLine2,
-    city: data.order.shipCity,
-    region: data.order.shipRegion,
-    postcode: data.order.shipPostcode,
-    country: data.order.shipCountry,
-  }) || undefined;
+  const firstLineAddress = data.lines.find((line) =>
+    [
+      line.shipLine1,
+      line.shipLine2,
+      line.shipCity,
+      line.shipRegion,
+      line.shipPostcode,
+      line.shipCountry,
+    ].some((part) => part != null && part.trim() !== "")
+  );
+  const deliveryAddress =
+    formatAddress({
+      line1: firstLineAddress?.shipLine1 ?? data.order.shipLine1,
+      line2: firstLineAddress?.shipLine2 ?? data.order.shipLine2,
+      city: firstLineAddress?.shipCity ?? data.order.shipCity,
+      region: firstLineAddress?.shipRegion ?? data.order.shipRegion,
+      postcode: firstLineAddress?.shipPostcode ?? data.order.shipPostcode,
+      country: firstLineAddress?.shipCountry ?? data.order.shipCountry,
+    }) || undefined;
+  const attentionTo = firstLineAddress?.shipContactName?.trim() || undefined;
+  const telephone = firstLineAddress?.shipContactPhone?.trim() || undefined;
+  const deliveryInstructions =
+    firstLineAddress?.shipDeliveryInstructions?.trim().slice(0, 500) || undefined;
 
   const lineItems: LineItem[] = data.lines.map((line) => ({
     itemCode: line.itemSku ?? undefined,
@@ -563,6 +720,9 @@ export async function pushPurchaseOrderToXero(
     orderedDate,
     deliveryDate,
     deliveryAddress,
+    attentionTo,
+    telephone,
+    deliveryInstructions,
     totalAmount: data.order.totalAmount,
     fallbackAccountCode,
     taxType,
@@ -628,6 +788,9 @@ export async function pushPurchaseOrderToXero(
         date: orderedDate,
         deliveryDate,
         deliveryAddress,
+        attentionTo,
+        telephone,
+        deliveryInstructions,
         purchaseOrderNumber: data.order.orderNumber,
         reference: data.order.orderNumber,
         status: statusPref,
@@ -679,6 +842,14 @@ export async function pushPurchaseOrderToXero(
       );
     }
   }
+
+  await uploadPurchaseOrderAttachmentsToXero({
+    orgId,
+    orderId,
+    purchaseOrderId,
+    tenantId: authed.tenantId,
+    accountingApi,
+  });
 
   let emailStatus: PushPurchaseOrderResult["emailStatus"] = null;
   if (created || adopted) {
@@ -788,6 +959,13 @@ export async function markXeroPurchaseOrderPushFailed(
 ): Promise<void> {
   const message = extractXeroMessage(error).slice(0, 500);
   await withOrgContext(orgId, async (tx) => {
+    await persistAccountingDocumentPushFailure(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      documentId: orderId,
+      error: message,
+    });
     await tx
       .update(purchaseOrders)
       .set({
