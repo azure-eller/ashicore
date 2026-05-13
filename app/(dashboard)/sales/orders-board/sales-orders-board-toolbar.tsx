@@ -38,6 +38,8 @@ export function SalesOrdersBoardToolbar({
   allocatedLineCount,
   onUnallocateAll,
   isUnallocatingAll,
+  resultCount,
+  totalCount,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -50,6 +52,8 @@ export function SalesOrdersBoardToolbar({
   allocatedLineCount: number;
   onUnallocateAll: () => void;
   isUnallocatingAll: boolean;
+  resultCount: number;
+  totalCount: number;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -93,6 +97,9 @@ export function SalesOrdersBoardToolbar({
         </Select>
       </div>
       <div className="ml-auto flex items-center justify-end gap-2">
+        <span className="hidden text-sm text-muted-foreground lg:inline">
+          Showing {resultCount} of {totalCount} orders
+        </span>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

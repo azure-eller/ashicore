@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { AppSidebar } from "@/components/app-sidebar";
+import { DashboardTopNav } from "@/components/dashboard-top-nav";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { Providers } from "@/app/providers";
 import { TimeZoneProvider } from "@/components/time-zone-provider";
@@ -11,10 +11,6 @@ import {
   getRequestLogContext,
   logObservedEvent,
 } from "@/lib/observability/request-log";
-import {
-  SidebarInset,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
 
 export default async function DashboardLayout({
   children,
@@ -39,8 +35,8 @@ export default async function DashboardLayout({
   return (
     <Providers>
       <TimeZoneProvider timeZone={context.organizationTimeZone}>
-        <SidebarProvider>
-          <AppSidebar
+        <div className="flex min-h-screen flex-col bg-background">
+          <DashboardTopNav
             user={user}
             assignedRoles={context.assignedRoles}
             activeOrganizationId={context.orgId}
@@ -51,9 +47,9 @@ export default async function DashboardLayout({
               slug: organization.slug,
             }))}
           />
-          <SidebarInset>{children}</SidebarInset>
+          <main className="flex min-h-0 flex-1 flex-col">{children}</main>
           <FeedbackWidget />
-        </SidebarProvider>
+        </div>
       </TimeZoneProvider>
     </Providers>
   );

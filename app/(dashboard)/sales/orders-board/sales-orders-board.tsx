@@ -146,18 +146,6 @@ export function SalesOrdersBoard({
   return (
     <>
       <div className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal">Sales Orders</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Kanban + Queue Control Room
-            </p>
-          </div>
-          <div className="text-sm text-muted-foreground">
-            Showing {filteredOrders.length} of {orders.length} orders
-          </div>
-        </div>
-
         <SalesOrdersBoardMetrics orders={orders} />
 
         <SalesOrdersBoardToolbar
@@ -175,6 +163,8 @@ export function SalesOrdersBoard({
           allocatedLineCount={allocatedLineCount}
           onUnallocateAll={() => setShowUnallocateAllDialog(true)}
           isUnallocatingAll={unallocateAllMutation.isPending}
+          resultCount={filteredOrders.length}
+          totalCount={orders.length}
         />
 
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}

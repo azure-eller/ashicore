@@ -6,7 +6,6 @@ import {
   getRecentXeroImportRuns,
   getXeroConnection,
 } from "@/lib/dal/xero";
-import { SidebarCollapsedBar } from "@/components/sidebar-collapsed-bar";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
@@ -71,16 +70,8 @@ export default async function SettingsPage({
   ]);
 
   return (
-    <div className="relative mx-auto w-full max-w-5xl">
-      <div className="pointer-events-none absolute left-0 top-0 z-30">
-        <div className="pointer-events-auto">
-          <SidebarCollapsedBar />
-        </div>
-      </div>
-
-      <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-
-      <div className="mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_160px] lg:gap-8">
+    <div className="mx-auto w-full max-w-5xl">
+      <div className="flex flex-col-reverse gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_160px] lg:gap-8">
         <div className="flex min-w-0 flex-col gap-6">
           <AccountSection initialData={accountData} />
           {teamData ? <TeamSection initialData={teamData} /> : null}

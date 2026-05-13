@@ -32,6 +32,18 @@ function pendingInviteCard(page: Page, email: string) {
   return page.locator(`[data-email="${email}"]`).first();
 }
 
+async function expectModuleLinkVisible(page: Page, moduleName: string, href: string) {
+  await expect(page.getByRole("button", { name: moduleName, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: moduleName, exact: true }).click();
+  await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+}
+
+async function expectModuleHidden(page: Page, moduleName: string, href: string) {
+  await expect(page.getByRole("button", { name: moduleName, exact: true })).toHaveCount(0);
+  await expect(page.locator(`a[href="${href}"]`)).toHaveCount(0);
+}
+
 async function addSessionCookie(context: BrowserContext, rawCookie: string) {
   const { name, value } = parseCookie(rawCookie);
   await context.addCookies([{ name, value, domain: "localhost", path: "/" }]);
@@ -505,8 +517,8 @@ test.describe("Team management and invite flow", () => {
     );
 
     await expect(accepted.page).toHaveURL(/\/settings$/);
-    await expect(accepted.page.locator('a[href="/sales/orders"]').first()).toBeVisible();
-    await expect(accepted.page.locator('a[href="/inventory/products"]').first()).toBeVisible();
+    await expectModuleLinkVisible(accepted.page, "Sales", "/sales/orders");
+    await expectModuleLinkVisible(accepted.page, "Inventory", "/inventory/products");
 
     const [memberUser] = await db.select().from(user).where(eq(user.email, memberEmail));
     expect(memberUser).toBeTruthy();
@@ -681,8 +693,8 @@ test.describe("Team management and invite flow", () => {
       "/inventory/materials"
     );
 
-    await expect(memberPage.locator('a[href="/inventory/products"]').first()).toBeVisible();
-    await expect(memberPage.locator('a[href="/sales/orders"]')).toHaveCount(0);
+    await expectModuleLinkVisible(memberPage, "Inventory", "/inventory/products");
+    await expectModuleHidden(memberPage, "Sales", "/sales/orders");
 
     await memberPage.goto("/inventory/stocktakes/new");
     await expect(memberPage).toHaveURL(/\/inventory\/stocktakes\/new$/);
@@ -993,8 +1005,8 @@ test.describe("Team management and invite flow", () => {
       "/sales/orders"
     );
 
-    await expect(memberPage.locator('a[href="/sales/orders"]').first()).toBeVisible();
-    await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(0);
+    await expectModuleLinkVisible(memberPage, "Sales", "/sales/orders");
+    await expectModuleHidden(memberPage, "Inventory", "/inventory/products");
 
     await memberPage.goto("/sales/orders");
     await expect(memberPage).toHaveURL(/\/sales\/orders$/);
@@ -1064,9 +1076,9 @@ test.describe("Team management and invite flow", () => {
       "/purchasing/orders"
     );
 
-    await expect(memberPage.locator('a[href="/purchasing/orders"]').first()).toBeVisible();
-    await expect(memberPage.locator('a[href="/inventory/products"]')).toHaveCount(0);
-    await expect(memberPage.locator('a[href="/sales/orders"]')).toHaveCount(0);
+    await expectModuleLinkVisible(memberPage, "Purchasing", "/purchasing/orders");
+    await expectModuleHidden(memberPage, "Inventory", "/inventory/products");
+    await expectModuleHidden(memberPage, "Sales", "/sales/orders");
 
     await memberPage.goto("/purchasing/orders/new");
     await expect(memberPage).toHaveURL(/\/purchasing\/orders\/new$/);

@@ -692,18 +692,17 @@ export function LedgerTable({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Inventory Activity</h1>
-          {activeFilterBadges.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {activeFilterBadges.map((badge) => (
-                <Badge key={`${badge.label}-${badge.value}`} variant="outline">
-                  {badge.label}: {badge.value}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        {activeFilterBadges.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {activeFilterBadges.map((badge) => (
+              <Badge key={`${badge.label}-${badge.value}`} variant="outline">
+                {badge.label}: {badge.value}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <div />
+        )}
         <div className="text-sm text-muted-foreground">
           {initialData.totalCount === 0
             ? "No matching events"
