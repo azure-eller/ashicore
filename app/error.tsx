@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import * as Sentry from "@sentry/nextjs";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { captureAppError } from "@/lib/observability/sentry";
 
 export default function AppError({
   error,
@@ -10,9 +11,16 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const pathname = usePathname();
+
   useEffect(() => {
-    Sentry.captureException(error);
-  }, [error]);
+    captureAppError(error, {
+      route: pathname,
+      source: "client_error_boundary",
+      digest: error.digest,
+      runtime: "browser",
+    });
+  }, [error, pathname]);
 
   const handleRetry = () => {
     // Root-level errors often need a fresh server render; reset alone can replay

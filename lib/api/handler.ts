@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import * as Sentry from "@sentry/nextjs";
 import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { AuthorizationError } from "@/lib/authz";
@@ -16,6 +15,7 @@ import {
   ERP_REQUEST_ID_HEADER,
   REQUEST_ID_HEADER,
 } from "@/lib/observability/request-headers";
+import { captureAppError } from "@/lib/observability/sentry";
 
 export type RouteContext = { params: Promise<{ id: string }> };
 
@@ -117,15 +117,12 @@ export function apiHandler<TArgs extends unknown[]>(
           );
         }
 
-        Sentry.withScope((scope) => {
-          scope.setTag("request_id", requestId);
-          scope.setTag("route", pathname);
-          scope.setTag("method", request.method);
-          scope.setContext("request", {
-            method: request.method,
-            path: pathname,
-          });
-          Sentry.captureException(error);
+        captureAppError(error, {
+          requestId,
+          route: pathname,
+          method: request.method,
+          runtime: process.env.NEXT_RUNTIME ?? "nodejs",
+          source: "api_handler",
         });
 
         console.error("API error:", {
