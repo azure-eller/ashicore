@@ -92,7 +92,7 @@ type XeroAccountOption = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "2.25rem minmax(14rem, 1.6fr) minmax(5.5rem, 0.55fr) minmax(7rem, 0.75fr) minmax(7.5rem, 0.75fr) minmax(7rem, 0.65fr) minmax(6.5rem, 0.55fr) 2.25rem";
+  "2.25rem 2.25rem minmax(14rem, 1.6fr) minmax(5.5rem, 0.55fr) minmax(7rem, 0.75fr) minmax(7.5rem, 0.75fr) minmax(7rem, 0.65fr) minmax(6.5rem, 0.55fr)";
 const PURCHASE_ORDER_COST_GRID_COLUMNS =
   "2.25rem minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr) 2.25rem";
 const PURCHASE_ORDER_SHIP_FIELD_NAMES = addressFieldNames("ship");
@@ -533,6 +533,7 @@ export function PurchaseOrderForm({
                   isBlankLine={isBlankPurchaseOrderLine}
                   error={linesError}
                   headers={[
+                    <span key="actions" />,
                     <span key="reorder" />,
                     "Material",
                     <TooltipHeader
@@ -556,7 +557,6 @@ export function PurchaseOrderForm({
                       label="Line Total"
                       tooltip={LINE_TOTAL_TOOLTIP}
                     />,
-                    <span key="actions" />,
                   ]}
                   renderRow={({ field, index, remove }) => (
                       <PurchaseOrderLineRow
@@ -784,6 +784,14 @@ function PurchaseOrderLineRow({
 
   return (
     <EditableLineGridRow ref={setNodeRef} style={style}>
+      <EditableLineGridCell>
+        <EditableLineGridRemoveButton
+          onClick={onRemove}
+          label={`Remove line ${index + 1}`}
+          className="opacity-100"
+        />
+      </EditableLineGridCell>
+
       <EditableLineGridCell align="center">
         <SortableDragHandle
           attributes={attributes}
@@ -925,12 +933,6 @@ function PurchaseOrderLineRow({
         {lineTotalLabel(line?.quantityOrdered, line?.unitCost)}
       </EditableLineGridCell>
 
-      <EditableLineGridCell>
-        <EditableLineGridRemoveButton
-          onClick={onRemove}
-          label={`Remove line ${index + 1}`}
-        />
-      </EditableLineGridCell>
     </EditableLineGridRow>
   );
 }
