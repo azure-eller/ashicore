@@ -107,7 +107,7 @@ export type PurchaseOrderDetail = {
 export type PurchaseOrderEditData = {
   id: string;
   supplierId: string;
-  status: Extract<PurchaseOrderStatus, "draft">;
+  status: PurchaseOrderStatus;
   expectedDate: string | null;
   notes: string | null;
   lines: Array<{
