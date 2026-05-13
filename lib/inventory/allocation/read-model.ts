@@ -189,6 +189,7 @@ export async function getAllocationWorkspaceInTx(
       demandType: row.demandType,
       demandId: row.demandId,
       demandKey: key,
+      parentDemandId: row.parentDemandId ?? null,
       itemId: row.itemId,
       itemName: row.itemName,
       unitName: row.unitName,

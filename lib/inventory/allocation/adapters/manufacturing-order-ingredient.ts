@@ -61,6 +61,7 @@ async function loadManufacturingRowsInTx(
       return {
         demandType: "manufacturing_order_ingredient",
         demandId: row.ingredientId,
+        parentDemandId: row.manufacturingOrderId,
         itemId: row.itemId,
         itemName: row.itemName,
         unitName: row.unitName,

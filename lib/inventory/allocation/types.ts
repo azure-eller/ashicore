@@ -25,6 +25,7 @@ export type AllocationAssignment = AllocationDemandRef &
 
 export type AllocationDemandRow = AllocationDemandRef & {
   demandKey: `${AllocationDemandType}:${string}`;
+  parentDemandId: string | null;
   itemId: string;
   itemName: string;
   unitName: string;
@@ -45,6 +46,7 @@ export type AllocationSourceRow = AllocationSourceRef & {
   contextLabel: string | null;
   status: string;
   date: string | null;
+  priorityRank: number | null;
   totalQty: string;
   allocatedQty: string;
   freeQty: string;
@@ -79,6 +81,7 @@ export type SaveAllocationsForDemandInput = AllocationDemandRef & {
 export type AllocationDemandAdapterRow = {
   demandType: AllocationDemandType;
   demandId: string;
+  parentDemandId?: string | null;
   itemId: string;
   itemName: string;
   unitName: string;

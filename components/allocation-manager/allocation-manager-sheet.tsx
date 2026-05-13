@@ -45,6 +45,7 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
+  AllocationDemandRef,
   AllocationDemandType,
   AllocationSourceType,
   AllocationWorkspace,
@@ -73,7 +74,7 @@ type AllocationSource = {
 type AllocationDemandRow = {
   demandType: AllocationDemandType;
   demandId: string;
-  parentId: string | null;
+  parentDemandId: string | null;
   label: string;
   status: string;
   contextLabel: string;
@@ -112,11 +113,7 @@ type AllocationSheetData = {
     itemName: string;
     unitName: string;
   };
-  targetDemand:
-    | (AllocationDemandRow & {
-        allocationManagedAt: Date | null;
-      })
-    | null;
+  targetDemand: AllocationDemandRow | null;
   variantOptions: AllocationVariantOption[];
   relatedItems: Array<{
     itemId: string;
@@ -143,43 +140,6 @@ type AllocationSheetData = {
   uncoveredDemandQty: string;
 };
 
-type SalesAllocationSheetWire = {
-  targetItem: AllocationSheetData["targetItem"];
-  targetLine:
-    | (Omit<AllocationDemandRow, "demandId" | "parentId" | "label" | "status" | "contextLabel" | "requiredDate" | "fulfilledQty"> & {
-        salesOrderLineId: string;
-        salesOrderId: string;
-        orderNumber: string;
-        orderStatus: string;
-        customerName: string;
-        shipDate: string | null;
-        shippedQty: string;
-        allocationManagedAt: Date | null;
-      })
-    | null;
-  variantOptions: Array<Omit<AllocationVariantOption, "demandId"> & { salesOrderLineId: string | null }>;
-  salesOrderItems: Array<
-    Omit<AllocationSheetData["relatedItems"][number], "demandId" | "variantOptions"> & {
-      salesOrderLineId: string;
-      variantOptions: Array<Omit<AllocationVariantOption, "demandId"> & { salesOrderLineId: string | null }>;
-    }
-  >;
-  editableAllocations: AllocationSheetData["editableAllocations"];
-  supplySources: AllocationSource[];
-  demandRows: Array<
-    Omit<AllocationDemandRow, "demandId" | "parentId" | "label" | "status" | "contextLabel" | "requiredDate" | "fulfilledQty"> & {
-      salesOrderLineId: string;
-      salesOrderId: string;
-      orderNumber: string;
-      orderStatus: string;
-      customerName: string;
-      shipDate: string | null;
-      shippedQty: string;
-    }
-  >;
-  uncoveredDemandQty: string;
-};
-
 function workspaceToAllocationSheetData(workspace: AllocationWorkspace): AllocationSheetData {
   const demandRows = workspace.demands.map((demand) => {
     const sources = demand.assignments.map((assignment) => ({
@@ -198,7 +158,7 @@ function workspaceToAllocationSheetData(workspace: AllocationWorkspace): Allocat
     return {
       demandType: demand.demandType,
       demandId: demand.demandId,
-      parentId: null,
+      parentDemandId: demand.parentDemandId,
       label: demand.label,
       status: "draft",
       contextLabel: demand.contextLabel ?? "",
@@ -220,7 +180,7 @@ function workspaceToAllocationSheetData(workspace: AllocationWorkspace): Allocat
   const primary = demandRows.find((demand) => demand.isTarget) ?? null;
   return {
     targetItem: workspace.item,
-    targetDemand: primary == null ? null : { ...primary, allocationManagedAt: null },
+    targetDemand: primary,
     variantOptions: [],
     relatedItems: [],
     editableAllocations: workspace.sources.map((source) => ({
@@ -245,7 +205,7 @@ function workspaceToAllocationSheetData(workspace: AllocationWorkspace): Allocat
       date: source.date,
       receivedAt: source.sourceType === "inventory_lot" ? source.date : null,
       createdAt: null,
-      priorityRank: null,
+      priorityRank: source.priorityRank,
       lotNumber: source.sourceType === "inventory_lot" ? source.label : null,
       totalQty: source.totalQty,
       allocatedQty: source.allocatedQty,
@@ -256,74 +216,6 @@ function workspaceToAllocationSheetData(workspace: AllocationWorkspace): Allocat
     })),
     demandRows,
     uncoveredDemandQty: workspace.totals.shortQty,
-  };
-}
-
-function salesVariantToAllocationVariant(
-  option: SalesAllocationSheetWire["variantOptions"][number]
-): AllocationVariantOption {
-  return {
-    itemId: option.itemId,
-    itemName: option.itemName,
-    unitName: option.unitName,
-    demandId: option.salesOrderLineId,
-    isCurrent: option.isCurrent,
-  };
-}
-
-function salesDemandToAllocationDemand(
-  row: SalesAllocationSheetWire["demandRows"][number]
-): AllocationDemandRow {
-  return {
-    demandType: "sales_order_line",
-    demandId: row.salesOrderLineId,
-    parentId: row.salesOrderId,
-    label: row.orderNumber,
-    status: row.orderStatus,
-    contextLabel: row.customerName,
-    requiredDate: row.shipDate,
-    itemId: row.itemId,
-    itemName: row.itemName,
-    unitName: row.unitName,
-    orderedQty: row.orderedQty,
-    fulfilledQty: row.shippedQty,
-    cancelledQty: row.cancelledQty,
-    remainingQty: row.remainingQty,
-    allocatedQty: row.allocatedQty,
-    shortQty: row.shortQty,
-    sourceSummary: row.sourceSummary,
-    sources: row.sources,
-    isTarget: row.isTarget,
-  };
-}
-
-function salesWireToAllocationSheetData(data: SalesAllocationSheetWire): AllocationSheetData {
-  const demandRows = data.demandRows.map(salesDemandToAllocationDemand);
-  return {
-    targetItem: data.targetItem,
-    targetDemand:
-      data.targetLine == null
-        ? null
-        : {
-            ...salesDemandToAllocationDemand(data.targetLine),
-            allocationManagedAt: data.targetLine.allocationManagedAt,
-          },
-    variantOptions: data.variantOptions.map(salesVariantToAllocationVariant),
-    relatedItems: data.salesOrderItems.map((item) => ({
-      itemId: item.itemId,
-      itemName: item.itemName,
-      unitName: item.unitName,
-      demandId: item.salesOrderLineId,
-      allocatedQty: item.allocatedQty,
-      remainingQty: item.remainingQty,
-      shortQty: item.shortQty,
-      isCurrent: item.isCurrent,
-      variantOptions: item.variantOptions.map(salesVariantToAllocationVariant),
-    })),
-    editableAllocations: data.editableAllocations,
-    supplySources: data.supplySources,
-    demandRows,
-    uncoveredDemandQty: data.uncoveredDemandQty,
   };
 }
 
@@ -432,7 +324,7 @@ type CreateManufacturingOrderActionProps = {
 
 type Props = {
   lineId?: string | null;
-  demandRef?: { demandType: "sales_order_line" | "manufacturing_order_ingredient"; demandId: string };
+  demandRef?: AllocationDemandRef | null;
   itemId?: string | null;
   titleOverride?: string;
   onSaved?: () => void;
@@ -2573,12 +2465,9 @@ export function AllocationManagerSheet({
   renderCreateManufacturingOrderAction,
 }: Props) {
   const notifyTargetDemandChange = onTargetDemandChange ?? onTargetLineChange;
-  const demandId =
-    demandRef?.demandType === "sales_order_line"
-      ? demandRef.demandId
-      : legacyDemandId ?? null;
-  const genericDemandRef =
-    demandRef?.demandType === "manufacturing_order_ingredient" ? demandRef : null;
+  const activeDemandRef =
+    demandRef ?? (legacyDemandId ? { demandType: "sales_order_line", demandId: legacyDemandId } : null);
+  const activeDemandId = activeDemandRef?.demandId ?? null;
   const queryClient = useQueryClient();
   const [internalOutputMoId, setInternalOutputMoId] = useState<string | null>(null);
   const isOutputMoControlled = outputManufacturingOrderId !== undefined;
@@ -2599,40 +2488,31 @@ export function AllocationManagerSheet({
     workspaceKey: null,
     values: {},
   });
-  const activeItemId = itemId ?? (browseTarget?.demandId === demandId ? browseTarget.itemId : null);
-  const draftWorkspaceKey = genericDemandRef
-    ? `${genericDemandRef.demandType}:${genericDemandRef.demandId}`
-    : demandId != null
-      ? `sales_order_line:${demandId}`
+  const activeItemId = itemId ?? (browseTarget?.demandId === activeDemandId ? browseTarget.itemId : null);
+  const draftWorkspaceKey = activeDemandRef
+    ? `${activeDemandRef.demandType}:${activeDemandRef.demandId}`
       : activeItemId != null
         ? `item:${activeItemId}`
         : null;
   const query = useQuery<AllocationSheetData>({
-    queryKey: ["allocation-workspace", demandId, activeItemId, genericDemandRef],
+    queryKey: ["allocation-workspace", activeDemandRef, activeItemId],
     queryFn: async () => {
-      if (genericDemandRef) {
-        const workspace = await apiJson<AllocationWorkspace>(
-          `/api/allocation/workspace?demandType=${genericDemandRef.demandType}&demandId=${genericDemandRef.demandId}`,
-          { fallbackError: "Failed to load allocation." }
-        );
-        return workspaceToAllocationSheetData(workspace);
+      const params = new URLSearchParams();
+      if (activeDemandRef) {
+        params.set("demandType", activeDemandRef.demandType);
+        params.set("demandId", activeDemandRef.demandId);
+      } else if (activeItemId) {
+        params.set("itemId", activeItemId);
       }
-      if (activeItemId) {
-        const salesData = await apiJson<SalesAllocationSheetWire>(
-          `/api/items/${activeItemId}/allocation`,
-          { fallbackError: "Failed to load allocation." }
-        );
-        return salesWireToAllocationSheetData(salesData);
-      }
-      const salesData = await apiJson<SalesAllocationSheetWire>(
-        `/api/sales-order-lines/${demandId}/allocation`,
+      const workspace = await apiJson<AllocationWorkspace>(
+        `/api/allocation/workspace?${params.toString()}`,
         { fallbackError: "Failed to load allocation." }
       );
-      return salesWireToAllocationSheetData(salesData);
+      return workspaceToAllocationSheetData(workspace);
     },
     enabled:
       open &&
-      (demandId != null || activeItemId != null || genericDemandRef != null) &&
+      (activeDemandRef != null || activeItemId != null) &&
       outputMoId == null,
   });
 
@@ -2860,30 +2740,27 @@ export function AllocationManagerSheet({
     pushEvent(`Allocated ${quantityLabel(quantity)} to ${row.label}`);
   }
 
-  function moveAllocatedTokenToDemand(
-    token: AllocationTokenData,
-    targetSalesOrderDemandId: string
-  ) {
+  function moveAllocatedTokenToDemand(token: AllocationTokenData, targetDemandId: string) {
     const originDemandId = token.originDemandId;
     if (!originDemandId) return;
-    if (originDemandId === targetSalesOrderDemandId) {
+    if (originDemandId === targetDemandId) {
       setCarried(null);
       pushEvent(`Returned ${quantityLabel(token.quantity)} to source`, "warning");
       return;
     }
 
     const targetRow = data?.demandRows.find(
-      (demandRow) => demandRow.demandId === targetSalesOrderDemandId
+      (demandRow) => demandRow.demandId === targetDemandId
     );
     if (!targetRow) return;
 
     const originDraft = draftsByDemand[originDemandId] ?? {};
-    const targetDraft = draftsByDemand[targetSalesOrderDemandId] ?? {};
+    const targetDraft = draftsByDemand[targetDemandId] ?? {};
     const originQty = readQuantity(originDraft[token.sourceKey]);
     const targetCurrentQty = readQuantity(targetDraft[token.sourceKey]);
     const targetShortQty = Math.max(
       0,
-      readQuantity(targetRow.remainingQty) - getDemandDraftTotal(targetSalesOrderDemandId)
+      readQuantity(targetRow.remainingQty) - getDemandDraftTotal(targetDemandId)
     );
     const quantity = Math.min(token.quantity, originQty, targetShortQty);
     if (quantity <= 0) {
@@ -2897,7 +2774,7 @@ export function AllocationManagerSheet({
         ...originDraft,
         [token.sourceKey]: toQuantityString(originQty - quantity),
       },
-      [targetSalesOrderDemandId]: {
+      [targetDemandId]: {
         ...targetDraft,
         [token.sourceKey]: toQuantityString(targetCurrentQty + quantity),
       },
@@ -2907,7 +2784,7 @@ export function AllocationManagerSheet({
         ? null
         : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
     );
-    setLastPlacedDemandId(targetSalesOrderDemandId);
+    setLastPlacedDemandId(targetDemandId);
     pushEvent(`Allocated ${quantityLabel(quantity)} to ${targetRow.label}`);
   }
 
@@ -3105,46 +2982,32 @@ export function AllocationManagerSheet({
 
       for (const demandId of sortedDemandIds) {
         const demandDraft = draftsByDemand[demandId] ?? {};
-        if (genericDemandRef) {
-          const row = data?.demandRows.find(
-            (candidate) => candidate.demandId === demandId
-          ) as (AllocationSheetData["demandRows"][number] & {
-            demandType?: "sales_order_line" | "manufacturing_order_ingredient";
-          }) | undefined;
-          await apiJson<AllocationWorkspace>("/api/allocation/save", {
-            method: "POST",
-            body: {
-              demandType: row?.demandType ?? genericDemandRef.demandType,
-              demandId: demandId,
-              itemId: row?.itemId ?? data?.targetItem.itemId,
-              allocations: Object.entries(demandDraft).flatMap(([key, value]) => {
-                const quantity = readQuantity(value);
-                if (quantity <= 0) return [];
-                const source = parseAllocationKey(key);
-                if (!source.sourceId) return [];
-                return [{ ...source, sourceId: source.sourceId, quantity: toQuantityString(quantity) }];
-              }),
-            },
-            fallbackError: "Failed to save allocation.",
-          });
-          continue;
+        const row = data?.demandRows.find((candidate) => candidate.demandId === demandId);
+        if (!row) {
+          throw new Error("Allocation demand is no longer available.");
         }
-        await apiJson<SalesAllocationSheetWire>(
-          `/api/sales-order-lines/${demandId}/allocation`,
-          {
-            method: "PUT",
-            body: {
-              allocations: Object.entries(demandDraft).flatMap(([key, value]) => {
-                const quantity = readQuantity(value);
-                if (quantity <= 0) return [];
-                return [
-                  { ...parseAllocationKey(key), quantity: toQuantityString(quantity) },
-                ];
-              }),
-            },
-            fallbackError: "Failed to save allocation.",
-          }
-        );
+        await apiJson<AllocationWorkspace>("/api/allocation/save", {
+          method: "POST",
+          body: {
+            demandType: row.demandType,
+            demandId,
+            itemId: row.itemId,
+            allocations: Object.entries(demandDraft).flatMap(([key, value]) => {
+              const quantity = readQuantity(value);
+              if (quantity <= 0) return [];
+              const source = parseAllocationKey(key);
+              if (!source.sourceId) return [];
+              return [
+                {
+                  ...source,
+                  sourceId: source.sourceId,
+                  quantity: toQuantityString(quantity),
+                },
+              ];
+            }),
+          },
+          fallbackError: "Failed to save allocation.",
+        });
       }
     },
     onSuccess: async () => {
@@ -3348,7 +3211,7 @@ export function AllocationManagerSheet({
                     if (hasChanges || outputHasChanges) discardCurrentWorkspaceDrafts();
                     setCarried(null);
                     setSelectedSourceKey(null);
-                    setBrowseTarget({ itemId, demandId });
+                    setBrowseTarget({ itemId, demandId: activeDemandId });
                     setOutputMoId(null);
                   }}
                 />
@@ -3376,7 +3239,7 @@ export function AllocationManagerSheet({
             <OutputAllocationWorkspace
               manufacturingOrderId={outputMoId}
               onBack={(options) => {
-                if (demandId == null) {
+                if (activeDemandId == null) {
                   if (options?.dirtyHandled) setOutputHasChanges(false);
                   setOutputMoId(null);
                   setOutputHasChanges(false);
@@ -3405,9 +3268,9 @@ export function AllocationManagerSheet({
               pushEvent("Choose a highlighted target or press Esc to cancel", "warning");
             }}
           >
-            {demandId == null && activeItemId == null ? (
+            {activeDemandId == null && activeItemId == null ? (
               <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-card p-6 text-center">
-                <p className="text-sm font-medium">Choose a sales demand or MO output first.</p>
+                <p className="text-sm font-medium">Choose a demand or MO output first.</p>
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                   Close
                 </Button>
@@ -3508,13 +3371,13 @@ export function AllocationManagerSheet({
                   </div>
 
                   {targetDemand &&
-                  targetDemand.parentId &&
-                  !genericDemandRef &&
+                  targetDemand.parentDemandId &&
+                  targetDemand.demandType === "sales_order_line" &&
                   targetDraftShortQty > 0 &&
                   carried == null &&
                   renderCreateManufacturingOrderAction
                     ? renderCreateManufacturingOrderAction({
-                      parentDemandId: targetDemand.parentId,
+                      parentDemandId: targetDemand.parentDemandId,
                       parentDemandLabel: `${targetDemand.label} - ${targetDemand.contextLabel}`,
                       initialPlannedDate: todayDateString(),
                       openManufacturingOrders: data.supplySources
