@@ -32,8 +32,6 @@ import {
   stockAllocations,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -114,6 +112,17 @@ import type {
   ManufacturingSalesOrderPreview,
   ManufacturingSalesLineOption,
 } from "./types";
+
+function shippedSalesOrderLineQuantitySql() {
+  return sql<string>`COALESCE((
+    SELECT SUM(shipment_lines."quantity")
+    FROM "sales"."sales_shipment_lines" shipment_lines
+    INNER JOIN "sales"."sales_shipments" shipments
+      ON shipments."id" = shipment_lines."sales_shipment_id"
+    WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
+      AND shipments."status" = 'shipped'
+  ), 0)`;
+}
 
 type ProductSnapshot = {
   id: string;
@@ -4220,14 +4229,7 @@ async function getManufacturingOutputAllocationInTx(
         shipDate: salesOrders.shipDate,
         orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
         cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
-        shippedQty: sql<string>`COALESCE((
-          SELECT SUM(${salesShipmentLines.quantity})
-          FROM ${salesShipmentLines}
-          INNER JOIN ${salesShipments}
-            ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
-          WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
-            AND ${salesShipments.status} = 'shipped'
-        ), 0)`,
+        shippedQty: shippedSalesOrderLineQuantitySql(),
       })
       .from(salesOrderLines)
       .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
@@ -4373,14 +4375,7 @@ export async function saveManufacturingOutputAllocation(
               itemId: salesOrderLines.itemId,
               orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
               cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
-              shippedQty: sql<string>`COALESCE((
-                SELECT SUM(${salesShipmentLines.quantity})
-                FROM ${salesShipmentLines}
-                INNER JOIN ${salesShipments}
-                  ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
-                WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
-                  AND ${salesShipments.status} = 'shipped'
-              ), 0)`,
+              shippedQty: shippedSalesOrderLineQuantitySql(),
               status: salesOrders.status,
               deletedAt: salesOrders.deletedAt,
             })

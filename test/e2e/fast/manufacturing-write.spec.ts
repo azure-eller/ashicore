@@ -199,7 +199,7 @@ test.describe("Manufacturing write-path smoke", () => {
     );
   });
 
-  test("keeps manufacturing order rows in place after release from the list", async ({
+  test("moves released manufacturing orders from draft to released view", async ({
     page,
     db,
   }) => {
@@ -252,29 +252,24 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    const getOrderPositions = () =>
-      page.locator("tbody tr").evaluateAll(
-        (rows, numbers) =>
-          (numbers as string[]).map((orderNumber) =>
-            rows.findIndex((row) => row.textContent?.includes(orderNumber))
-          ),
-        orderNumbers
-      );
-
-    const beforeRelease = await getOrderPositions();
-    expect(beforeRelease.every((position) => position >= 0)).toBe(true);
-
     await page
       .getByRole("row", { name: new RegExp(firstOrderNumber) })
       .getByRole("button", { name: "Release" })
       .click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toContainText("Released", { timeout: 15_000 });
+    ).toBeHidden({ timeout: 15_000 });
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeVisible();
 
-    await expect
-      .poll(getOrderPositions, { timeout: 15_000 })
-      .toEqual(beforeRelease);
+    await page.getByRole("radio", { name: "Show Released status" }).click();
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toContainText("Released", { timeout: 15_000 });
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeHidden();
   });
 
   test("uses generic requirement copy for pick override warnings", async ({

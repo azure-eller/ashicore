@@ -420,6 +420,7 @@ export function OrdersTable({
         />
       )}
       initialSorting={[{ id: "priorityRank", desc: false }]}
+      initialColumnFilters={[{ id: "status", value: ["draft"] }]}
       deleteAction={{
         endpoint: "/api/manufacturing-orders",
         invalidateQueryKeys: [["manufacturing-orders"], ["items"]],

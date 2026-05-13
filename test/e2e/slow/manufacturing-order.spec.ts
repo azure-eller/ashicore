@@ -266,6 +266,13 @@ async function pickAllManufacturingIngredients(orderId: string) {
   }
 }
 
+async function showManufacturingOrderStatus(
+  page: Parameters<typeof filterList>[0],
+  status: "Draft" | "Released" | "Completed" | "Cancelled"
+) {
+  await page.getByRole("radio", { name: `Show ${status} status` }).click();
+}
+
 test.describe("Manufacturing order flow", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -935,6 +942,7 @@ test.describe("Manufacturing order flow", () => {
     expect(productRowAfterRejectedEdit.expectedQty).toBe("6.0000");
 
     await page.goto("/manufacturing/orders");
+    await showManufacturingOrderStatus(page, "Released");
     await filterList(page, "Search manufacturing orders", releasedOrder.orderNumber);
     const releasedRow = page.getByRole("row", { name: new RegExp(releasedOrder.orderNumber) });
     await expect(releasedRow).toContainText("Released");
@@ -996,6 +1004,7 @@ test.describe("Manufacturing order flow", () => {
     ).toHaveLength(0);
 
     await page.goto("/manufacturing/orders");
+    await showManufacturingOrderStatus(page, "Cancelled");
     await filterList(page, "Search manufacturing orders", cancelledOrder.orderNumber);
     const cancelledRow = page.getByRole("row", {
       name: new RegExp(cancelledOrder.orderNumber),
@@ -1167,6 +1176,265 @@ test.describe("Manufacturing order flow", () => {
     await page.goto(`/manufacturing/orders/${batchOrderId}`);
     await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Execute" })).toHaveCount(0);
+  });
+
+  test("completes a sales-allocated batch through the web actuals dialog", async ({
+    page,
+    db,
+  }) => {
+    test.slow();
+
+    const batchTs = Date.now();
+    const category = `Sales Allocated Batch ${batchTs}`;
+    const baseName = `Allocated Batch Base ${batchTs}`;
+    const packagingName = `Allocated Batch Packaging ${batchTs}`;
+    const productName = `Allocated Batch Product ${batchTs}`;
+    const customerName = `Allocated Batch Customer ${batchTs}`;
+
+    const baseCreate = await createItem({
+      name: baseName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-SALES-BATCH-BASE-${batchTs}`,
+      category,
+      description: "Base material for sales allocated batch completion",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "400",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(baseCreate.status).toBe(201);
+    const baseId = baseCreate.body.id as string;
+
+    const packagingCreate = await createItem({
+      name: packagingName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `MAT-SALES-BATCH-PKG-${batchTs}`,
+      category,
+      description: "Packaging material for sales allocated batch completion",
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "150",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(packagingCreate.status).toBe(201);
+    const packagingId = packagingCreate.body.id as string;
+
+    const productCreate = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `PROD-SALES-BATCH-${batchTs}`,
+      category,
+      description: "Batch product allocated to a sales line",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "30.00",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "100",
+      bom: [
+        { componentId: baseId, quantity: "3" },
+        { componentId: packagingId, quantity: "1" },
+      ],
+    });
+    expect(productCreate.status).toBe(201);
+    const productId = productCreate.body.id as string;
+
+    const batchOrderId = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "100",
+      plannedDate: "2026-05-06",
+      notes: "Sales allocated web batch completion regression",
+      ingredients: [
+        { itemId: baseId, quantityPerUnit: "3" },
+        { itemId: packagingId, quantityPerUnit: "1" },
+      ],
+    });
+
+    const customerId = await createCustomer(customerName);
+    const salesOrderId = await createSalesOrder({
+      customerId,
+      lines: [{ itemId: productId, quantity: "100", unitPrice: "30.00" }],
+      requestedDate: "2026-05-06",
+      notes: "Sales allocation for batch MO output",
+    });
+    const [salesLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, salesOrderId));
+    expect(salesLine?.id).toBeTruthy();
+
+    const allocationResponse = await testFetch(
+      `/api/sales-order-lines/${salesLine.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            {
+              sourceType: "manufacturing_order",
+              sourceId: batchOrderId,
+              quantity: "100",
+            },
+          ],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+    await confirmSalesOrder(salesOrderId, false);
+
+    const [sourcePromise] = await db
+      .select({
+        demandType: stockAllocations.demandType,
+        demandId: stockAllocations.demandId,
+        sourceType: stockAllocations.sourceType,
+        sourceId: stockAllocations.sourceId,
+        quantity: stockAllocations.quantity,
+        status: stockAllocations.status,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, salesLine.id),
+          eq(stockAllocations.sourceType, "manufacturing_order"),
+          eq(stockAllocations.sourceId, batchOrderId),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(sourcePromise).toMatchObject({
+      demandType: "sales_order_line",
+      demandId: salesLine.id,
+      sourceType: "manufacturing_order",
+      sourceId: batchOrderId,
+      quantity: "100.0000",
+      status: "active",
+    });
+
+    const releaseResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/release`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmShortage: true }),
+      }
+    );
+    expect(releaseResponse.status).toBe(200);
+
+    const [batch] = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId));
+    expect(batch).toBeDefined();
+
+    const startResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/batches/${batch!.id}/start`,
+      { method: "POST" }
+    );
+    expect(startResponse.status).toBe(200);
+
+    let batchIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderBatchId, batch!.id));
+    expect(batchIngredients).toHaveLength(2);
+
+    await page.goto(`/manufacturing/orders/${batchOrderId}/execute`);
+    for (const materialName of [baseName, packagingName]) {
+      const ingredientCard = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: materialName })
+        .first();
+      await ingredientCard.getByRole("button", { name: "Mark Done", exact: true }).click();
+
+      const warningDialog = page.getByRole("alertdialog", {
+        name: "Mark done with requirement override?",
+      });
+      const hasWarning = await warningDialog
+        .waitFor({ state: "visible", timeout: 1_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (hasWarning) {
+        await warningDialog.getByRole("button", { name: "Mark Done Anyway" }).click();
+      }
+    }
+
+    await expect
+      .poll(
+        async () => {
+          batchIngredients = await db
+            .select()
+            .from(manufacturingOrderIngredients)
+            .where(eq(manufacturingOrderIngredients.manufacturingOrderBatchId, batch!.id));
+
+          return batchIngredients.every(
+            (ingredient) => ingredient.pickedQuantity === ingredient.plannedQuantity
+          );
+        },
+        { timeout: 15_000 }
+      )
+      .toBe(true);
+
+    await page.getByRole("button", { name: "Complete Batch" }).click();
+    await expect(page.getByRole("dialog", { name: "Complete Current Batch" })).toBeVisible();
+    await page.getByLabel("Actual Output").fill("100");
+
+    const [completeResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().includes(`/api/manufacturing-orders/${batchOrderId}/batches/`) &&
+          response.url().endsWith("/complete")
+      ),
+      page.getByRole("button", { name: "Confirm" }).evaluate((button) => button.click()),
+    ]);
+    expect(completeResponse.status()).toBe(200);
+    await expect(page.getByText("Internal server error")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+    await expect
+      .poll(
+        async () => {
+          const [order] = await db
+            .select({
+              status: manufacturingOrders.status,
+              actualQuantity: manufacturingOrders.actualQuantity,
+            })
+            .from(manufacturingOrders)
+            .where(eq(manufacturingOrders.id, batchOrderId));
+
+          return order ?? null;
+        },
+        { timeout: 15_000 }
+      )
+      .toEqual({ status: "completed", actualQuantity: "100.0000" });
+
+    const [lotHold] = await db
+      .select({
+        demandType: stockAllocations.demandType,
+        demandId: stockAllocations.demandId,
+        sourceType: stockAllocations.sourceType,
+        quantity: stockAllocations.quantity,
+        status: stockAllocations.status,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, salesLine.id),
+          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(lotHold).toMatchObject({
+      demandType: "sales_order_line",
+      demandId: salesLine.id,
+      sourceType: "lot",
+      quantity: "100.0000",
+      status: "active",
+    });
   });
 
   test("completes a released order with FIFO consumption, actuals, and a produced lot", async ({
@@ -1371,6 +1639,7 @@ test.describe("Manufacturing order flow", () => {
     expect(movementsAfterRejectedCancel).toHaveLength(movements.length);
 
     await page.goto("/manufacturing/orders");
+    await showManufacturingOrderStatus(page, "Completed");
     await filterList(page, "Search manufacturing orders", completedOrder.orderNumber);
     const completedRow = page.getByRole("row", {
       name: new RegExp(completedOrder.orderNumber),
