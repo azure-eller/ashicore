@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -12,6 +12,12 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Delete02Icon,
+  Download01Icon,
+  Upload01Icon,
+} from "@hugeicons/core-free-icons";
 import {
   type InsertPurchaseOrder,
   type PurchaseOrderAdditionalCostDistributionMethod,
@@ -83,6 +89,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { AutosaveStatus } from "@/components/autosave-status";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   SortableDragHandle,
@@ -90,6 +98,7 @@ import {
 } from "@/components/sortable-reorder";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
+import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
   LINE_TOTAL_TOOLTIP,
@@ -115,6 +124,18 @@ type XeroAccountOption = {
   code: string;
   name: string;
   type: string | null;
+};
+
+type PurchaseOrderFormAttachment = {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedByName: string | null;
+  createdAt: Date | string;
+  syncStatus: "synced" | "failed" | null;
+  syncError: string | null;
+  syncedAt: Date | string | null;
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
@@ -214,6 +235,22 @@ function lineTotalLabel(
   const cost = parseNonNegative(unitCost);
   if (quantity == null || cost == null) return "\u2014";
   return formatPrice((quantity * cost).toFixed(4)) ?? "\u2014";
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FileTypeBadge({ file }: { file: PurchaseOrderFormAttachment }) {
+  const type = file.contentType.includes("pdf")
+    ? "PDF"
+    : file.contentType.startsWith("image/")
+      ? "IMG"
+      : file.filename.split(".").pop()?.slice(0, 3).toUpperCase() || "FILE";
+
+  return <Badge variant="outline">{type}</Badge>;
 }
 
 type DeliveryAddressFields = {
@@ -409,6 +446,16 @@ function landedStockUnitCostLabel(
   }`;
 }
 
+function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
+  if (!values.supplierId?.trim()) return false;
+
+  return (values.lines ?? []).some((line) => {
+    if (!line?.itemId?.trim()) return false;
+    if (parsePositive(line.quantityOrdered) == null) return false;
+    return parseNonNegative(line.unitCost) != null;
+  });
+}
+
 export function PurchaseOrderForm({
   suppliers,
   materials,
@@ -425,11 +472,20 @@ export function PurchaseOrderForm({
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEditing = Boolean(initialData);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fallbackPath = initialData
     ? `/purchasing/orders/${initialData.id}`
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
+  const [fileActionError, setFileActionError] = useState<string | null>(null);
   const [supplierOptions, setSupplierOptions] = useState(suppliers);
+  const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
+  const [savedOrderId, setSavedOrderId] = useState<string | null>(
+    initialData?.id ?? null
+  );
+  const [attachments, setAttachments] = useState<PurchaseOrderFormAttachment[]>(
+    initialData?.attachments ?? []
+  );
   const xeroAccountsQuery = useQuery({
     queryKey: ["xero-accounts"],
     queryFn: async () => {
@@ -564,13 +620,15 @@ export function PurchaseOrderForm({
   const additionalCostCount = additionalCostRows.filter(
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost)
   ).length;
+  const canAutosaveDraft = hasAutosaveMinimum(form.getValues());
 
-  const mutation = useMutation({
-    mutationFn: async (values: PurchaseOrderFormValues) => {
+  const savePurchaseOrder = useCallback(
+    async (values: PurchaseOrderFormValues) => {
+      const orderId = savedOrderIdRef.current;
       const response = await fetch(
-        initialData ? `/api/purchase-orders/${initialData.id}` : "/api/purchase-orders",
+        orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
         {
-          method: initialData ? "PUT" : "POST",
+          method: orderId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(values),
         }
@@ -585,15 +643,23 @@ export function PurchaseOrderForm({
         } satisfies ApiError;
       }
 
-      return body as { id: string };
+      const result = body as { id: string };
+      savedOrderIdRef.current = result.id;
+      setSavedOrderId(result.id);
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      return result;
     },
+    [queryClient]
+  );
+
+  const mutation = useMutation({
+    mutationFn: savePurchaseOrder,
     onMutate: () => {
       setFormError(null);
       form.clearErrors();
     },
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-      router.push(initialData ? fallbackPath : `/purchasing/orders/${result.id}`);
+    onSuccess: (result) => {
+      router.push(`/purchasing/orders/${result.id}`);
     },
     onError: (error: ApiError) => {
       if (error.errors) {
@@ -610,6 +676,117 @@ export function PurchaseOrderForm({
       setFormError(error.error ?? "Failed to save purchase order.");
     },
   });
+
+  const autosave = useAutosaveForm<
+    PurchaseOrderFormValues,
+    PurchaseOrderFormValues
+  >({
+    form,
+    buildPayload: (values) => (hasAutosaveMinimum(values) ? values : null),
+    save: async (values) => {
+      setFormError(null);
+      form.clearErrors();
+      await savePurchaseOrder(values);
+    },
+    onError: (error: ApiError) => {
+      if (error.errors) {
+        setFormError(error.error ?? "Fix the highlighted fields.");
+        Object.entries(error.errors).forEach(([field, messages]) => {
+          form.setError(field as never, {
+            type: "server",
+            message: messages[0],
+          });
+        });
+        return;
+      }
+
+      setFormError(error.error ?? "Failed to save purchase order.");
+    },
+  });
+
+  const uploadFileMutation = useMutation({
+    mutationFn: async ({
+      orderId,
+      file,
+    }: {
+      orderId: string;
+      file: File;
+    }) => {
+      const formData = new FormData();
+      formData.set("file", file);
+      const response = await fetch(`/api/purchase-orders/${orderId}/files`, {
+        method: "POST",
+        body: formData,
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to upload file.");
+      }
+
+      return body as PurchaseOrderFormAttachment;
+    },
+    onMutate: () => setFileActionError(null),
+    onSuccess: (file) => {
+      setAttachments((current) => [file, ...current]);
+      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    onError: (error: Error) => setFileActionError(error.message),
+  });
+
+  const deleteFileMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/files/${fileId}`,
+        { method: "DELETE" }
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to delete file.");
+      }
+
+      return fileId;
+    },
+    onMutate: () => setFileActionError(null),
+    onSuccess: (fileId) => {
+      setAttachments((current) => current.filter((file) => file.id !== fileId));
+      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    onError: (error: Error) => setFileActionError(error.message),
+  });
+
+  const ensureSavedOrder = async () => {
+    const valid = await form.trigger();
+    if (!valid) {
+      const message =
+        getFirstFormErrorMessage(form.formState.errors) ??
+        "Complete the supplier and at least one line before uploading files.";
+      setFormError(message);
+      throw new Error(message);
+    }
+
+    const result = await savePurchaseOrder(form.getValues());
+    return result.id;
+  };
+
+  const handleFileInput = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    try {
+      const orderId = await ensureSavedOrder();
+      for (const file of Array.from(files)) {
+        uploadFileMutation.mutate({ orderId, file });
+      }
+    } catch (error) {
+      setFileActionError(
+        error instanceof Error
+          ? error.message
+          : "Save the purchase order before uploading files."
+      );
+    }
+  };
 
   const addressMutation = useMutation({
     mutationFn: async ({
@@ -731,7 +908,7 @@ export function PurchaseOrderForm({
 
   const handleAddressDialogSubmit = (values: AddressDialogValues) => {
     if (addressDialogState == null) return;
-    const label =
+    const baseLabel =
       values.label.trim() ||
       formatAddressLines({
         line1: values.line1,
@@ -742,6 +919,15 @@ export function PurchaseOrderForm({
         country: values.country,
       }).join(", ") ||
       "Address";
+    let label = baseLabel;
+    if (!values.label.trim()) {
+      const labels = new Set(deliveryAddressOptions.map((option) => option.label));
+      let suffix = 2;
+      while (labels.has(label)) {
+        label = `${baseLabel} (${suffix})`;
+        suffix += 1;
+      }
+    }
     addressMutation.mutate({
       id: addressDialogState.option?.addressEntryId ?? null,
       values: { ...values, label },
@@ -755,6 +941,14 @@ export function PurchaseOrderForm({
   const selectedSupplier = supplierOptionsSorted.find(
     (supplier) => supplier.id === watchedSupplierId
   );
+  const autosaveState = canAutosaveDraft ? autosave.state : "blocked";
+  const autosaveMessage = canAutosaveDraft
+    ? autosave.state === "saved" || autosave.state === "idle"
+      ? savedOrderId
+        ? "Draft saved"
+        : "Draft will auto-save"
+      : autosave.message
+    : "Add supplier and line to auto-save";
 
   return (
     <CreatePageShell>
@@ -763,22 +957,27 @@ export function PurchaseOrderForm({
         title={isEditing ? "Edit Purchase Order" : "Add Purchase Order"}
         actions={
           <>
-          <Button type="button" variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            form="purchase-order-form"
-            disabled={mutation.isPending}
-          >
-            {mutation.isPending
-              ? isEditing
-                ? "Saving..."
-                : "Creating..."
-              : isEditing
-                ? "Save Changes"
-                : "Create Order"}
-          </Button>
+            <AutosaveStatus state={autosaveState} message={autosaveMessage} />
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="purchase-order-form"
+              disabled={
+                mutation.isPending ||
+                autosave.state === "saving" ||
+                autosave.state === "dirty"
+              }
+            >
+              {mutation.isPending
+                ? isEditing
+                  ? "Saving..."
+                  : "Creating..."
+                : isEditing
+                  ? "Save Changes"
+                  : "Create Order"}
+            </Button>
           </>
         }
       />
@@ -841,6 +1040,102 @@ export function PurchaseOrderForm({
                 </div>
               </CreateSidebarCard>
             ) : null}
+            <CreateSidebarCard
+              title={
+                <div className="flex items-center justify-between gap-3">
+                  <span>Attachments</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={
+                      uploadFileMutation.isPending || autosave.state === "saving"
+                    }
+                  >
+                    <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
+                    Upload
+                  </Button>
+                </div>
+              }
+            >
+              <div className="space-y-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleFileInput(event.target.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <div
+                  className="flex items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-5 text-sm text-muted-foreground"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    void handleFileInput(event.dataTransfer.files);
+                  }}
+                >
+                  <HugeiconsIcon icon={Upload01Icon} size={16} aria-hidden />
+                  <button
+                    type="button"
+                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Upload or drop files
+                  </button>
+                </div>
+                {fileActionError ? (
+                  <p className="text-sm text-destructive">{fileActionError}</p>
+                ) : null}
+                <div className="divide-y rounded-md border">
+                  {attachments.length > 0 ? (
+                    attachments.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex items-center gap-2 px-3 py-2.5"
+                      >
+                        <FileTypeBadge file={file} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {file.filename}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatBytes(file.sizeBytes)}
+                          </p>
+                        </div>
+                        {savedOrderId ? (
+                          <Button variant="ghost" size="icon-sm" asChild>
+                            <a
+                              href={`/api/purchase-orders/${savedOrderId}/files/${file.id}`}
+                              aria-label={`Download ${file.filename}`}
+                            >
+                              <HugeiconsIcon icon={Download01Icon} />
+                            </a>
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${file.filename}`}
+                          onClick={() => deleteFileMutation.mutate(file.id)}
+                          disabled={deleteFileMutation.isPending}
+                        >
+                          <HugeiconsIcon icon={Delete02Icon} />
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-5 text-center text-sm text-muted-foreground">
+                      No attachments.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CreateSidebarCard>
           </>
         }
       >

@@ -1009,9 +1009,10 @@ export async function getEditablePurchaseOrder(
       return null;
     }
 
-    const [lines, additionalCosts] = await Promise.all([
+    const [lines, additionalCosts, attachments] = await Promise.all([
       getPurchaseOrderLinesInTx(tx, id),
       getPurchaseOrderAdditionalCostsInTx(tx, id),
+      getPurchaseOrderAttachmentsInTx(tx, id),
     ]);
 
     return {
@@ -1041,6 +1042,7 @@ export async function getEditablePurchaseOrder(
         xeroPurchaseAccountCode: cost.xeroPurchaseAccountCode,
         amount: cost.amount,
       })),
+      attachments,
     };
   });
 }

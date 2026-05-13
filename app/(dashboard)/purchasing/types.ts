@@ -194,4 +194,5 @@ export type PurchaseOrderEditData = {
     xeroPurchaseAccountCode: string | null;
     amount: string;
   }>;
+  attachments: PurchaseOrderAttachment[];
 };

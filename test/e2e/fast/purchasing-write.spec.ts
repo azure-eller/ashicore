@@ -165,15 +165,15 @@ test.describe("Purchasing write-path smoke", () => {
     await expect(page.getByText(/\$2\.91 \//)).toBeVisible();
     await expect(page.getByText(/\$2\.18 \//)).toBeVisible();
 
-    const [createOrderResponse] = await Promise.all([
+    const [saveOrderResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/purchase-orders")
+          ["POST", "PUT"].includes(response.request().method()) &&
+          /\/api\/purchase-orders(?:\/[0-9a-f-]+)?$/.test(response.url())
       ),
       page.getByRole("button", { name: "Create Order" }).click(),
     ]);
-    expect(createOrderResponse.status()).toBe(201);
+    expect([200, 201]).toContain(saveOrderResponse.status());
     await page.waitForURL(/\/purchasing\/orders\/[0-9a-f-]+$/);
     purchaseOrderId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
