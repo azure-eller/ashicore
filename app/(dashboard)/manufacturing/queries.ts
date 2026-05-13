@@ -36,6 +36,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { normalizeNumeric, normalizeNumericScale, resolveVariantDisplay } from "@/lib/format";
+import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import {
   getBomRevisionComponentsInTx,
   getCurrentActiveBomIngredientsInTx,
@@ -2142,6 +2143,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             orderNumber: manufacturingOrders.orderNumber,
             productName: manufacturingOrders.productName,
             productSku: manufacturingOrders.productSku,
+            productCategory: items.category,
             variantAttrs: items.variantAttrs,
             masterName: masterItems.name,
             masterVariantAxes: masterItems.variantAxes,
@@ -2186,6 +2188,8 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "pickProgressPercent"
             | "completedBatchCount"
             | "actionableBatchCount"
+            | "itemSpriteKind"
+            | "itemSpriteColor"
           > & {
             variantAttrs: Record<string, string> | null;
             masterName: string | null;
@@ -2256,11 +2260,20 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
             variantAttrs
           );
+          const itemVisual = inferItemVisual({
+            itemType: "product",
+            category: order.productCategory,
+            unitName: order.unitName,
+            sku: order.productSku,
+            name: order.productName,
+          });
 
           return {
             ...order,
             productMasterName: display.masterName,
             productAttrs: display.attrs,
+            itemSpriteKind: itemVisual.kind,
+            itemSpriteColor: itemVisual.color,
             pickProgressStatus,
             pickProgressPercent:
               order.manufacturingMode === "batch" && totalBatchCount > 0
@@ -2338,6 +2351,9 @@ export async function getManufacturingExecutionQueue(): Promise<
         orderNumber: order.orderNumber,
         productName: order.productName,
         productSku: order.productSku,
+        productCategory: order.productCategory,
+        itemSpriteKind: order.itemSpriteKind,
+        itemSpriteColor: order.itemSpriteColor,
         priorityRank: order.priorityRank,
         plannedQuantity: order.plannedQuantity,
         actualQuantity: order.actualQuantity,

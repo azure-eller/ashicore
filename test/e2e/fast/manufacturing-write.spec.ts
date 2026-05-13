@@ -123,6 +123,16 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(order.plannedDate).toBe("2026-04-25");
     expect(order.notes).toBe("Fast manufacturing smoke test");
 
+    const listResponse = await testFetch("/api/manufacturing-orders");
+    expect(listResponse.status).toBe(200);
+    const listBody = (await listResponse.json()) as Array<Record<string, unknown>>;
+    const listedOrder = listBody.find((row) => row.id === orderId);
+    expect(listedOrder).toMatchObject({
+      productCategory: `Fast Manufacturing ${ts}`,
+      itemSpriteKind: "box",
+      itemSpriteColor: "purple",
+    });
+
     const ingredients = await db
       .select()
       .from(manufacturingOrderIngredients)

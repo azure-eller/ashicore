@@ -111,8 +111,11 @@ export type ManufacturingOrderListRow = {
   orderNumber: string;
   productName: string;
   productSku: string | null;
+  productCategory: string | null;
   productMasterName: string;
   productAttrs: string[];
+  itemSpriteKind: string;
+  itemSpriteColor: string;
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   priorityRank: number | null;
@@ -139,6 +142,9 @@ export type ManufacturingExecutionQueueRow = {
   orderNumber: string;
   productName: string;
   productSku: string | null;
+  productCategory: string | null;
+  itemSpriteKind: string;
+  itemSpriteColor: string;
   plannedQuantity: string;
   actualQuantity: string | null;
   unitName: string;
