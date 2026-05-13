@@ -97,7 +97,6 @@ WHERE po."shipping_cost" > 0
 		FROM "purchasing"."purchase_order_additional_costs" cost
 		WHERE cost."purchase_order_id" = po."id"
 			AND cost."cost_type" = 'shipping'
-			AND cost."amount" = po."shipping_cost"
 	);--> statement-breakpoint
 GRANT USAGE ON SCHEMA "inventory" TO app_user;--> statement-breakpoint
 GRANT USAGE ON SCHEMA "purchasing" TO app_user;--> statement-breakpoint

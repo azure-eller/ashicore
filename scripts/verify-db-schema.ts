@@ -260,14 +260,18 @@ async function assertLatestMigrationRecorded(client: Client) {
 }
 
 async function main() {
-  loadWorktreeEnv();
+  const productionMode = process.argv.includes("--production");
+  const explicitDatabaseUrl = process.env.DATABASE_URL;
 
-  const connectionString = process.env.DATABASE_URL;
+  if (!productionMode || !explicitDatabaseUrl) {
+    loadWorktreeEnv();
+  }
+
+  const connectionString = explicitDatabaseUrl ?? process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL is required for schema verification.");
   }
 
-  const productionMode = process.argv.includes("--production");
   const client = new Client({ connectionString });
 
   await client.connect();
