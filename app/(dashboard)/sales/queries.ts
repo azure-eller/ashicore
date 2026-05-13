@@ -118,6 +118,7 @@ import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderEditData,
+  SalesLinkedManufacturingOrder,
   SalesLinePricingResult,
   SalesOrderListRow,
   SalesShippingQueueRow,
@@ -738,6 +739,160 @@ type LinkedManufacturingStatus = Pick<
   SalesOrderDetail["linkedManufacturingOrders"][number],
   "orderNumber" | "status"
 >;
+
+type LinkedManufacturingOrderRead = SalesLinkedManufacturingOrder & {
+  salesOrderId: string;
+  createdAt: Date;
+};
+
+function mergeManufacturingLinkSource(
+  current: SalesLinkedManufacturingOrder["linkSource"] | undefined,
+  next: SalesLinkedManufacturingOrder["linkSource"]
+): SalesLinkedManufacturingOrder["linkSource"] {
+  if (!current || current === next) return next;
+  return "both";
+}
+
+async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
+  tx: Tx,
+  salesOrderIds: string[]
+) {
+  const uniqueSalesOrderIds = [...new Set(salesOrderIds)];
+  const bySalesOrderId = new Map<string, LinkedManufacturingOrderRead[]>();
+
+  if (uniqueSalesOrderIds.length === 0) {
+    return bySalesOrderId;
+  }
+
+  const headerRows = await tx
+    .select({
+      salesOrderId: manufacturingOrders.salesOrderId,
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+      productSku: manufacturingOrders.productSku,
+      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+      unitName: manufacturingOrders.unitName,
+      plannedDate: manufacturingOrders.plannedDate,
+      priorityRank: manufacturingOrders.priorityRank,
+      status: manufacturingOrders.status,
+      createdAt: manufacturingOrders.createdAt,
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        inArray(manufacturingOrders.salesOrderId, uniqueSalesOrderIds),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    );
+
+  const allocationRows = await tx
+    .select({
+      salesOrderId: salesOrderLines.salesOrderId,
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+      productSku: manufacturingOrders.productSku,
+      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+      unitName: manufacturingOrders.unitName,
+      plannedDate: manufacturingOrders.plannedDate,
+      priorityRank: manufacturingOrders.priorityRank,
+      status: manufacturingOrders.status,
+      createdAt: manufacturingOrders.createdAt,
+    })
+    .from(stockAllocations)
+    .innerJoin(
+      salesOrderLines,
+      eq(stockAllocations.demandId, salesOrderLines.id)
+    )
+    .innerJoin(
+      manufacturingOrders,
+      eq(stockAllocations.sourceId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.sourceType, "manufacturing_order"),
+        eq(stockAllocations.status, "active"),
+        inArray(salesOrderLines.salesOrderId, uniqueSalesOrderIds),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    );
+
+  const merged = new Map<string, LinkedManufacturingOrderRead>();
+  const addRow = (
+    row: (typeof headerRows)[number] | (typeof allocationRows)[number],
+    linkSource: SalesLinkedManufacturingOrder["linkSource"]
+  ) => {
+    if (!row.salesOrderId) return;
+    const key = `${row.salesOrderId}:${row.id}`;
+    const existing = merged.get(key);
+    merged.set(key, {
+      salesOrderId: row.salesOrderId,
+      id: row.id,
+      orderNumber: row.orderNumber,
+      productName: row.productName,
+      productSku: row.productSku,
+      plannedQuantity: row.plannedQuantity,
+      unitName: row.unitName,
+      plannedDate: row.plannedDate,
+      priorityRank: row.priorityRank,
+      status: row.status as SalesLinkedManufacturingOrder["status"],
+      linkSource: mergeManufacturingLinkSource(existing?.linkSource, linkSource),
+      createdAt: row.createdAt,
+    });
+  };
+
+  headerRows.forEach((row) => addRow(row, "sales_order"));
+  allocationRows.forEach((row) => addRow(row, "output_allocation"));
+
+  [...merged.values()]
+    .toSorted((left, right) => {
+      const createdCompare = right.createdAt.getTime() - left.createdAt.getTime();
+      if (createdCompare !== 0) return createdCompare;
+      const orderCompare = left.orderNumber.localeCompare(
+        right.orderNumber,
+        undefined,
+        { numeric: true }
+      );
+      if (orderCompare !== 0) return orderCompare;
+      return left.id.localeCompare(right.id);
+    })
+    .forEach((row) => {
+      const bucket = bySalesOrderId.get(row.salesOrderId) ?? [];
+      bucket.push(row);
+      bySalesOrderId.set(row.salesOrderId, bucket);
+    });
+
+  return bySalesOrderId;
+}
+
+function openLinkedManufacturingOrders<T extends SalesLinkedManufacturingOrder>(
+  orders: T[]
+) {
+  return orders.filter((order) => order.status === "draft" || order.status === "released");
+}
+
+function serializeLinkedManufacturingOrder(
+  order: LinkedManufacturingOrderRead
+): SalesLinkedManufacturingOrder {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    productName: order.productName,
+    productSku: order.productSku,
+    plannedQuantity: order.plannedQuantity,
+    unitName: order.unitName,
+    plannedDate: order.plannedDate,
+    priorityRank: order.priorityRank,
+    status: order.status,
+    linkSource: order.linkSource,
+  };
+}
 
 function buildShippingReadiness({
   status,
@@ -4198,34 +4353,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           tx,
           orderIds
         );
-        const openManufacturingRows = await tx
-          .select({
-            salesOrderId: manufacturingOrders.salesOrderId,
-            orderNumber: manufacturingOrders.orderNumber,
-            status: manufacturingOrders.status,
-          })
-          .from(manufacturingOrders)
-          .where(
-            and(
-              inArray(manufacturingOrders.salesOrderId, orderIds),
-              isNull(manufacturingOrders.deletedAt),
-              inArray(manufacturingOrders.status, ["draft", "released"])
-            )
-          );
-        const openManufacturingBySalesOrderId = new Map<
-          string,
-          LinkedManufacturingStatus[]
-        >();
-
-        openManufacturingRows.forEach((row) => {
-          if (!row.salesOrderId) return;
-          const bucket = openManufacturingBySalesOrderId.get(row.salesOrderId) ?? [];
-          bucket.push({
-            orderNumber: row.orderNumber,
-            status: row.status as LinkedManufacturingStatus["status"],
-          });
-          openManufacturingBySalesOrderId.set(row.salesOrderId, bucket);
-        });
+        const linkedManufacturingOrdersBySalesOrderId =
+          await getLinkedManufacturingOrdersBySalesOrderIdInTx(tx, orderIds);
 
         const shipmentSummaryRows = await tx
           .select({
@@ -4358,8 +4487,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const summaryLines = manufacturingSummary?.lines ?? [];
           const hasManufacturableLines =
             manufacturingSummary?.hasManufacturableLines ?? false;
-          const openManufacturingOrders =
-            openManufacturingBySalesOrderId.get(order.id) ?? [];
+          const linkedManufacturingOrders =
+            linkedManufacturingOrdersBySalesOrderId.get(order.id) ?? [];
+          const openManufacturingOrders = openLinkedManufacturingOrders(
+            linkedManufacturingOrders
+          ).map(serializeLinkedManufacturingOrder);
           const stockBlockers = summaryLines.flatMap((line) => {
             const reservableOnHandQty = Number(
               reservableByItemId.get(line.itemId) ?? "0"
@@ -4448,6 +4580,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               manufacturingSummary?.disabledReason ??
               "No manufacturable lines remain on this order.",
             openManufacturingOrderCount: openManufacturingOrders.length,
+            openManufacturingOrders,
             shippingReadiness: buildShippingReadiness({
               status: order.status as SalesOrderListRow["status"],
               hasManufacturableLines,
@@ -5042,38 +5175,13 @@ export async function getSalesOrder(
       await getSalesOrderManufacturingSummariesInTx(tx, [id])
     ).get(id);
 
-    const linkedManufacturingOrders = await tx
-      .select({
-        id: manufacturingOrders.id,
-        orderNumber: manufacturingOrders.orderNumber,
-        productName: manufacturingOrders.productName,
-        productSku: manufacturingOrders.productSku,
-        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
-          "plannedQuantity"
-        ),
-        unitName: manufacturingOrders.unitName,
-        plannedDate: manufacturingOrders.plannedDate,
-        priorityRank: manufacturingOrders.priorityRank,
-        status: manufacturingOrders.status,
-      })
-      .from(manufacturingOrders)
-      .where(
-        and(
-          eq(manufacturingOrders.salesOrderId, id),
-          isNull(manufacturingOrders.deletedAt)
-        )
-      )
-      .orderBy(
-        desc(manufacturingOrders.createdAt),
-        asc(manufacturingOrders.orderNumber),
-        asc(manufacturingOrders.id)
-      );
+    const linkedManufacturingOrders =
+      (await getLinkedManufacturingOrdersBySalesOrderIdInTx(tx, [id])).get(id) ?? [];
 
     const hasManufacturableLines = manufacturingSummary?.hasManufacturableLines ?? false;
-    const linkedManufacturingOrderRows = linkedManufacturingOrders.map((row) => ({
-      ...row,
-      status: row.status as SalesOrderDetail["linkedManufacturingOrders"][number]["status"],
-    }));
+    const linkedManufacturingOrderRows = linkedManufacturingOrders.map(
+      serializeLinkedManufacturingOrder
+    );
     const stockBlockers = linesWithFulfillment.flatMap((line) => {
       const availableQty = Number(line.availableQty ?? "0");
       const allocatedQty = Number(line.reservationAllocatedQty ?? "0");

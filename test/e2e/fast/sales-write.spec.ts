@@ -40,6 +40,7 @@ import {
   createSalesOrder,
   confirmSalesOrder,
   createSupplier,
+  createManufacturingOrder,
   fulfillSalesOrder,
   getUnitId,
   receivePurchaseOrder,
@@ -135,6 +136,7 @@ function boardLogicOrder(
     manufacturableLineCount: overrides.manufacturableLineCount ?? 0,
     manufacturableDisabledReason: overrides.manufacturableDisabledReason ?? null,
     openManufacturingOrderCount: overrides.openManufacturingOrderCount ?? 0,
+    openManufacturingOrders: overrides.openManufacturingOrders ?? [],
     shippingReadiness:
       overrides.shippingReadiness ??
       { state: "ready", message: "Ready", blockers: [] },
@@ -2702,6 +2704,55 @@ test.describe("Sales write-path smoke", () => {
     expect(listRows.find((row) => row.id === oversellOrderId)).toMatchObject({
       hasManufacturableLines: true,
       manufacturableLineCount: 1,
+    });
+
+    const [oversellLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, oversellOrderId));
+    const independentMoResult = await createManufacturingOrder({
+      productId: stockedProductId,
+      plannedQuantity: "2",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+    });
+    expect(independentMoResult.status).toBe(201);
+    const independentMoId = independentMoResult.body.id as string;
+    const allocationResponse = await testFetch(
+      `/api/manufacturing-orders/${independentMoId}/output-allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          salesAllocations: [
+            { salesOrderLineId: oversellLine.id, quantity: "2" },
+          ],
+          productionAllocations: [],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+
+    const allocatedListResponse = await testFetch("/api/sales-orders");
+    expect(allocatedListResponse.status).toBe(200);
+    const allocatedListRows = (await allocatedListResponse.json()) as Array<{
+      id: string;
+      openManufacturingOrderCount: number;
+      openManufacturingOrders: Array<{
+        id: string;
+        linkSource: string;
+        status: string;
+      }>;
+      shippingReadiness: { state: string };
+    }>;
+    expect(allocatedListRows.find((row) => row.id === oversellOrderId)).toMatchObject({
+      openManufacturingOrderCount: 1,
+      openManufacturingOrders: [
+        {
+          id: independentMoId,
+          linkSource: "output_allocation",
+          status: "draft",
+        },
+      ],
+      shippingReadiness: { state: "in_production" },
     });
 
     const [order] = await db

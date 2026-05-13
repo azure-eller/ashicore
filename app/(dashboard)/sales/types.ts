@@ -307,6 +307,19 @@ export type SalesShippingReadiness = {
   blockers: string[];
 };
 
+export type SalesLinkedManufacturingOrder = {
+  id: string;
+  orderNumber: string;
+  productName: string;
+  productSku: string | null;
+  plannedQuantity: string;
+  unitName: string;
+  plannedDate: string | null;
+  priorityRank: number | null;
+  status: "draft" | "released" | "completed" | "cancelled";
+  linkSource: "sales_order" | "output_allocation" | "both";
+};
+
 export type SalesOrderListRow = {
   id: string;
   orderNumber: string;
@@ -330,6 +343,7 @@ export type SalesOrderListRow = {
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
   openManufacturingOrderCount: number;
+  openManufacturingOrders: SalesLinkedManufacturingOrder[];
   shippingReadiness: SalesShippingReadiness;
   deletedAt: Date | null;
   createdAt: Date;
@@ -478,17 +492,7 @@ export type SalesOrderDetail = {
   lines: SalesOrderDetailLine[];
   shipments: SalesShipmentRow[];
   marginSummary: SalesMarginSummary;
-  linkedManufacturingOrders: Array<{
-    id: string;
-    orderNumber: string;
-    productName: string;
-    productSku: string | null;
-    plannedQuantity: string;
-    unitName: string;
-    plannedDate: string | null;
-    priorityRank: number | null;
-    status: "draft" | "released" | "completed" | "cancelled";
-  }>;
+  linkedManufacturingOrders: SalesLinkedManufacturingOrder[];
 };
 
 export type SalesAllocationSource = {

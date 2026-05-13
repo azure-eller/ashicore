@@ -1163,6 +1163,7 @@ function ManufacturingPanel({
           <TableRow>
             <TableHead>MO</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>Link</TableHead>
             <TableHead>Item</TableHead>
             <TableHead className="text-right">
               <TooltipHeader label="Qty" tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP} />
@@ -1178,6 +1179,11 @@ function ManufacturingPanel({
               </TableCell>
               <TableCell>
                 <ManufacturingOrderStatusBadge status={manufacturingOrder.status} />
+              </TableCell>
+              <TableCell>
+                <Badge variant="secondary">
+                  {formatManufacturingLinkSource(manufacturingOrder.linkSource)}
+                </Badge>
               </TableCell>
               <TableCell>
                 <div className="font-medium">{manufacturingOrder.productName}</div>
@@ -1204,6 +1210,14 @@ function ManufacturingPanel({
       </Table>
     </div>
   );
+}
+
+function formatManufacturingLinkSource(
+  linkSource: SalesOrderDetailType["linkedManufacturingOrders"][number]["linkSource"]
+) {
+  if (linkSource === "both") return "Sales + allocation";
+  if (linkSource === "output_allocation") return "Allocated output";
+  return "Sales order";
 }
 
 function ActivityPanel({ order }: { order: SalesOrderDetailType }) {

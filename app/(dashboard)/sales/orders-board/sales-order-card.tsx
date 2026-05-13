@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { apiJson } from "@/lib/client/api";
 import { cn } from "@/lib/utils";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import type { SalesOrderListRow } from "../types";
 import { SalesOrderCardExpanded } from "./sales-order-card-expanded";
 import {
@@ -234,10 +234,7 @@ export function SalesOrderCard({
                     </span>
                   ) : null}
                   {order.openManufacturingOrderCount > 0 ? (
-                    <span className="inline-flex items-center gap-1 font-medium text-primary">
-                      <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-3" />
-                      {order.openManufacturingOrderCount} MO
-                    </span>
+                    <LinkedManufacturingOrdersMenu order={order} />
                   ) : null}
                 </div>
                 <OrderNotesPreview notes={order.notes} orderNumber={order.orderNumber} />
@@ -274,6 +271,55 @@ export function SalesOrderCard({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function LinkedManufacturingOrdersMenu({
+  order,
+}: {
+  order: SalesOrderListRow;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Open manufacturing orders for ${order.orderNumber}`}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <HugeiconsIcon icon={Factory01Icon} strokeWidth={2} className="size-3" />
+          {order.openManufacturingOrderCount} MO
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-72 bg-popover text-popover-foreground"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+          Open manufacturing
+        </div>
+        {order.openManufacturingOrders.map((manufacturingOrder) => (
+          <DropdownMenuItem key={manufacturingOrder.id} asChild>
+            <Link
+              href={`/manufacturing/orders/${manufacturingOrder.id}`}
+              prefetch={false}
+              className="flex min-w-0 flex-col items-start gap-0.5"
+            >
+              <span className="font-mono text-xs">{manufacturingOrder.orderNumber}</span>
+              <span className="max-w-full truncate text-xs text-muted-foreground">
+                {manufacturingOrder.productName} ·{" "}
+                {formatQuantity(manufacturingOrder.plannedQuantity)}{" "}
+                {manufacturingOrder.unitName}
+              </span>
+            </Link>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
