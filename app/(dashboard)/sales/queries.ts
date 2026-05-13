@@ -6836,6 +6836,7 @@ export async function confirmSalesOrder(
       plan.unmanagedLines,
       itemsById
     );
+    let reservationLines = plan.reservationLines;
     if (takeover && !confirmDraftAllocationTakeover) {
       throw new SalesError(
         "This confirmation would take stock allocated to draft orders.",
@@ -6845,6 +6846,8 @@ export async function confirmSalesOrder(
     }
     if (takeover && confirmDraftAllocationTakeover) {
       await applyDraftAllocationTakeoverInTx(tx, orgId, userId, takeover);
+      const takeoverItemIds = new Set(takeover.allocations.map((allocation) => allocation.itemId));
+      reservationLines = reservationLines.filter((line) => !takeoverItemIds.has(line.itemId));
     }
 
     await tx
@@ -6866,7 +6869,7 @@ export async function confirmSalesOrder(
         "confirm-order"
       ),
       demandLines: plan.demandLines,
-      reservationLines: plan.reservationLines,
+      reservationLines,
     });
 
     const result = { id };
@@ -6944,6 +6947,7 @@ export async function bulkConfirmSalesOrders(
       plan.unmanagedLines,
       itemsById
     );
+    let reservationLines = plan.reservationLines;
     if (takeover && payload.confirmDraftAllocationTakeover !== true) {
       throw new SalesError(
         "These confirmations would take stock allocated to draft orders.",
@@ -6953,6 +6957,8 @@ export async function bulkConfirmSalesOrders(
     }
     if (takeover && payload.confirmDraftAllocationTakeover === true) {
       await applyDraftAllocationTakeoverInTx(tx, orgId, userId, takeover);
+      const takeoverItemIds = new Set(takeover.allocations.map((allocation) => allocation.itemId));
+      reservationLines = reservationLines.filter((line) => !takeoverItemIds.has(line.itemId));
     }
 
     const orderIds = orders.map((order) => order.id);
@@ -6981,7 +6987,7 @@ export async function bulkConfirmSalesOrders(
             (orderLine) => orderLine.salesOrderLineId === line.salesOrderLineId
           )
         ),
-        reservationLines: plan.reservationLines.filter((line) =>
+        reservationLines: reservationLines.filter((line) =>
           order.preparedLines.some(
             (orderLine) => orderLine.salesOrderLineId === line.salesOrderLineId
           )

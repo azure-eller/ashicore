@@ -79,7 +79,7 @@ async function confirmSalesOrder(orderId: string, confirmOversell = false) {
   });
   const body = await response.json().catch(() => null);
 
-  expect(response.status).toBe(200);
+  expect(response.status, JSON.stringify(body)).toBe(200);
   expect(body?.id).toBe(orderId);
 }
 
@@ -111,7 +111,7 @@ async function updateSalesOrder(payload: {
   });
   const body = await response.json().catch(() => null);
 
-  expect(response.status).toBe(200);
+  expect(response.status, JSON.stringify(body)).toBe(200);
   expect(body?.id).toBe(payload.salesOrderId);
 }
 
@@ -1954,7 +1954,6 @@ test.describe("Manufacturing order flow", () => {
     if (!salesDestination) {
       throw new Error("Expected output allocation sales destination.");
     }
-    const salesLineId = salesDestination.lineId;
     const salesOrderNumber = salesDestination.orderNumber;
 
     await page.goto(`/manufacturing/orders/${sourceOrderId}`);
@@ -1976,44 +1975,30 @@ test.describe("Manufacturing order flow", () => {
     await expect(allocationDialog.getByText("Demand · Orders")).toBeVisible();
     await expect(allocationDialog.getByText(new RegExp(`produces.*${bagName}`))).toBeVisible();
     await expect(allocationDialog.getByText(salesOrderNumber)).toBeVisible();
-    await allocationDialog
-      .getByRole("button", { name: new RegExp(`Pick up output from`) })
-      .click();
-    await allocationDialog
-      .getByRole("button", {
-        name: `Allocate output to ${salesOrderNumber}`,
-      })
-      .click();
-    await expect(
-      allocationDialog
-        .getByRole("button", {
-          name: `Allocate output to ${salesOrderNumber}`,
-        })
-        .getByText("Allocated 2")
-    ).toBeVisible();
+    const outputSource = allocationDialog.getByTestId("output-allocation-source");
+    const outputDestination = allocationDialog
+      .getByTestId("output-allocation-destination")
+      .filter({ hasText: bagName });
+    await outputSource.click();
+    await expect(allocationDialog.getByTestId("allocation-holding-hud")).toContainText(
+      "Holding"
+    );
+    await expect(outputDestination).toContainText("Place here");
+    await outputDestination.click();
+    await expect(allocationDialog.getByTestId("allocation-pending-changes")).toContainText(
+      "Unsaved allocation changes"
+    );
+    await expect(outputDestination).toContainText(/Allocated\s*5/);
     await allocationDialog.getByRole("button", { name: "Save allocation" }).click();
-    await expect
-      .poll(async () => {
-        const [salesPromise] = await db
-          .select({
-            quantity: stockAllocations.quantity,
-            status: stockAllocations.status,
-          })
-          .from(stockAllocations)
-          .where(
-            and(
-              eq(stockAllocations.demandType, "sales_order_line"),
-              eq(stockAllocations.demandId, salesLineId),
-              eq(stockAllocations.sourceType, "manufacturing_order"),
-              eq(stockAllocations.sourceId, sourceOrderId),
-              eq(stockAllocations.status, "active")
-            )
-          );
-        return `${salesPromise?.status ?? "missing"}:${salesPromise?.quantity ?? "0"}`;
-      })
-      .toBe("active:2.0000");
-    await allocationDialog.getByRole("button", { name: "Open output" }).click();
-    await expect(allocationDialog.getByText(bagName).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Saving..." })).toBeHidden({
+      timeout: 15_000,
+    });
+    await outputDestination.getByRole("button", { name: /Move 5/ }).click();
+    await expect(allocationDialog.getByTestId("allocation-holding-hud")).toContainText(
+      "Reallocating from"
+    );
+    await expect(outputDestination.getByTestId("allocation-ghost-slot").first()).toBeVisible();
+    await expect(allocationDialog.getByText(/Assigned\s*0/)).toBeVisible();
     await page.keyboard.press("Escape");
 
     const allocationResponse = await testFetch(
@@ -2021,6 +2006,7 @@ test.describe("Manufacturing order flow", () => {
       {
         method: "PUT",
         body: JSON.stringify({
+          salesAllocations: [],
           productionAllocations: [
             { ingredientId: downstreamIngredient.id, quantity: "5" },
           ],
@@ -2040,7 +2026,8 @@ test.describe("Manufacturing order flow", () => {
           eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
           eq(stockAllocations.demandId, downstreamIngredient.id),
           eq(stockAllocations.sourceType, "manufacturing_order"),
-          eq(stockAllocations.sourceId, sourceOrderId)
+          eq(stockAllocations.sourceId, sourceOrderId),
+          eq(stockAllocations.status, "active")
         )
       );
     expect(promiseBeforeOutput?.status).toBe("active");

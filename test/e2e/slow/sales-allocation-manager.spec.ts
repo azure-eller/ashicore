@@ -326,6 +326,8 @@ test.describe("Sales allocation manager slow flow", () => {
     await page.keyboard.press("Escape");
     await currentBucket.click();
     await competingBucket.click();
+    await expect(currentBucket).toContainText(/Holding\s*1/);
+    await currentBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*1/);
     await expect(currentBucket).toContainText(/Short\s*5/);
     await expect(competingBucket).toContainText(/Allocated\s*5/);
@@ -593,10 +595,10 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "10.0000",
+        committed: "0.0000",
         demand: "10.0000",
-        shortage: "0.0000",
-        reservation: "10.0000",
+        shortage: "10.0000",
+        reservation: "0",
         demandSummary: "10.0000",
       });
 
@@ -615,10 +617,10 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "10.0000",
+        committed: "0.0000",
         demand: "18.0000",
-        shortage: "8.0000",
-        reservation: "10.0000",
+        shortage: "18.0000",
+        reservation: "0",
         demandSummary: "18.0000",
       });
 
