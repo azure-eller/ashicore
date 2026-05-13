@@ -729,7 +729,7 @@ test.describe("Sales write-path smoke", () => {
     await selectDate(page, page.getByLabel("Ship Date"), "2026-04-15");
     await selectDate(page, page.getByLabel("Delivery Date"), "2026-04-15");
 
-    const itemInput = page.getByPlaceholder("Search items...");
+    const itemInput = page.getByPlaceholder("Search items...").first();
     await itemInput.click();
     await itemInput.pressSequentially(productName);
     await page.getByRole("option", { name: new RegExp(productName) }).click();

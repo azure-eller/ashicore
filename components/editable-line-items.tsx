@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  type FocusEventHandler,
+  type ReactNode,
+} from "react";
 import {
   useFieldArray,
   useWatch,
@@ -15,6 +20,10 @@ import { FieldError } from "@/components/ui/field";
 import { SortableReorder } from "@/components/sortable-reorder";
 import { EditableLineGrid } from "@/components/editable-line-grid";
 
+export type EditableLineItemRowProps = {
+  onFocusCapture?: FocusEventHandler<HTMLElement>;
+};
+
 type RenderRowContext<
   TValues extends FieldValues,
   TName extends FieldArrayPath<TValues>,
@@ -22,6 +31,7 @@ type RenderRowContext<
   field: FieldArrayWithId<TValues, TName>;
   index: number;
   isTrailingBlank: boolean;
+  rowProps: EditableLineItemRowProps;
   remove: () => void;
 };
 
@@ -60,8 +70,17 @@ export function EditableLineItems<
   const watchedRows = useWatch({ control, name: name as never }) as
     | FieldArray<TValues, TName>[]
     | undefined;
-  const appendBlankLine = (shouldFocus = true) => {
+
+  const appendBlankLine = useCallback((shouldFocus = true) => {
+    append(blankLine, { shouldFocus });
+  }, [append, blankLine]);
+
+  useEffect(() => {
     const rows = watchedRows ?? [];
+    if (fields.length !== rows.length) {
+      return;
+    }
+
     if (
       fields.length > 0 &&
       (rows.length === 0 || isBlankLine(rows[rows.length - 1]))
@@ -69,24 +88,41 @@ export function EditableLineItems<
       return;
     }
 
-    append(blankLine, { shouldFocus });
-  };
-
-  useEffect(() => {
     appendBlankLine(false);
-  });
+  }, [appendBlankLine, fields.length, isBlankLine, watchedRows]);
+
+  const appendAfterTrailingBlank = useCallback(() => {
+    const rows = watchedRows ?? [];
+    if (fields.length !== rows.length) {
+      return;
+    }
+
+    if (fields.length === 0 || !isBlankLine(rows[rows.length - 1])) {
+      return;
+    }
+
+    appendBlankLine(false);
+  }, [appendBlankLine, fields.length, isBlankLine, watchedRows]);
 
   const grid = (
     <EditableLineGrid columns={columns} minWidth={minWidth} headers={headers}>
-      {fields.map((field, index) =>
-        renderRow({
+      {fields.map((field, index) => {
+        const isTrailingBlank =
+          index === fields.length - 1 && isBlankLine(watchedRows?.[index]);
+        const rowProps = isTrailingBlank
+          ? {
+              onFocusCapture: appendAfterTrailingBlank,
+            }
+          : {};
+
+        return renderRow({
           field,
           index,
-          isTrailingBlank:
-            index === fields.length - 1 && isBlankLine(watchedRows?.[index]),
+          isTrailingBlank,
+          rowProps,
           remove: () => remove(index),
-        })
-      )}
+        });
+      })}
     </EditableLineGrid>
   );
 

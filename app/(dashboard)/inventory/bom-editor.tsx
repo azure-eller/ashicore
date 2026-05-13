@@ -10,7 +10,10 @@ import {
   EditableLineGridRemoveButton,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
-import { EditableLineItems } from "@/components/editable-line-items";
+import {
+  EditableLineItems,
+  type EditableLineItemRowProps,
+} from "@/components/editable-line-items";
 import {
   SortableDragHandle,
   useSortableReorderItem,
@@ -88,11 +91,12 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
           "Unit",
           <span key="actions" />,
         ]}
-        renderRow={({ field, index, remove }) => (
+        renderRow={({ field, index, remove, rowProps }) => (
           <BomRow
             key={field.id}
             lineKey={field.id}
             index={index}
+            rowProps={rowProps}
             control={control}
             componentOptions={componentOptions}
             componentMap={componentMap}
@@ -112,9 +116,11 @@ function BomRow({
   componentOptions,
   componentMap,
   onRemove,
+  rowProps,
 }: {
   lineKey: string;
   index: number;
+  rowProps: EditableLineItemRowProps;
   control: Control<ItemFormValues>;
   componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
@@ -130,6 +136,7 @@ function BomRow({
       ref={setNodeRef}
       data-testid="bom-row"
       style={style}
+      {...rowProps}
       aria-label={[
         selectedComponent?.name,
         selectedComponent?.unit,

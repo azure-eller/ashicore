@@ -20,7 +20,10 @@ import {
   EditableLineGridRemoveButton,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
-import { EditableLineItems } from "@/components/editable-line-items";
+import {
+  EditableLineItems,
+  type EditableLineItemRowProps,
+} from "@/components/editable-line-items";
 import {
   Field,
   FieldError,
@@ -414,11 +417,12 @@ export function StocktakeForm({
                   ? "Choose at least one item for this stocktake."
                   : null
               }
-              renderRow={({ field, index, remove }) => (
+              renderRow={({ field, index, remove, rowProps }) => (
                 <StocktakePreviewRow
                   key={field.id}
                   lineKey={field.id}
                   index={index}
+                  rowProps={rowProps}
                   control={form.control}
                   items={previewItems}
                   itemMap={previewItemMap}
@@ -451,9 +455,11 @@ function StocktakePreviewRow({
   itemMap,
   selectedItemIds,
   onRemove,
+  rowProps,
 }: {
   lineKey: string;
   index: number;
+  rowProps: EditableLineItemRowProps;
   control: Control<StocktakeFormValues>;
   items: StocktakePreviewItem[];
   itemMap: Map<string, StocktakePreviewItem>;
@@ -470,7 +476,7 @@ function StocktakePreviewRow({
   );
 
   return (
-    <EditableLineGridRow>
+    <EditableLineGridRow {...rowProps}>
       <EditableLineGridCell>
         <Controller
           name={`previewLines.${index}.itemId`}

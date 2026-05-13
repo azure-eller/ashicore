@@ -479,7 +479,7 @@ test.describe("Sales order flow", () => {
     );
     await selectDate(page, page.getByLabel("Ship Date"), expectedShipDate);
 
-    const itemInput = page.getByPlaceholder("Search items...");
+    const itemInput = page.getByPlaceholder("Search items...").first();
     await itemInput.click();
     await itemInput.pressSequentially(primaryProductName);
     await page.getByRole("option", { name: new RegExp(primaryProductName) }).click();
@@ -1490,7 +1490,7 @@ test.describe("Sales order flow", () => {
     await customerInput.pressSequentially(customerName);
     await page.getByRole("option", { name: new RegExp(customerName) }).click();
 
-    const itemInput = page.getByPlaceholder("Search items...");
+    const itemInput = page.getByPlaceholder("Search items...").first();
     await itemInput.click();
     await itemInput.pressSequentially(secondaryProductName);
     await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();

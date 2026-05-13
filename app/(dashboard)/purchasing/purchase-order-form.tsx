@@ -47,7 +47,10 @@ import {
   EditableLineGridRemoveButton,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
-import { EditableLineItems } from "@/components/editable-line-items";
+import {
+  EditableLineItems,
+  type EditableLineItemRowProps,
+} from "@/components/editable-line-items";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -558,11 +561,12 @@ export function PurchaseOrderForm({
                       tooltip={LINE_TOTAL_TOOLTIP}
                     />,
                   ]}
-                  renderRow={({ field, index, remove }) => (
+                  renderRow={({ field, index, remove, rowProps }) => (
                       <PurchaseOrderLineRow
                         key={field.id}
                         lineKey={field.id}
                         index={index}
+                        rowProps={rowProps}
                         control={form.control}
                         materials={materialOptions}
                         materialMap={materialMap}
@@ -640,11 +644,12 @@ export function PurchaseOrderForm({
                   "Amount",
                   <span key="actions" />,
                 ]}
-                renderRow={({ field, index, remove }) => (
+                renderRow={({ field, index, remove, rowProps }) => (
                   <PurchaseOrderAdditionalCostRow
                     key={field.id}
                     lineKey={field.id}
                     index={index}
+                    rowProps={rowProps}
                     control={form.control}
                     xeroAccounts={xeroAccounts}
                     onRemove={remove}
@@ -757,9 +762,11 @@ function PurchaseOrderLineRow({
   xeroAccounts,
   onMaterialChange,
   onRemove,
+  rowProps,
 }: {
   lineKey: string;
   index: number;
+  rowProps: EditableLineItemRowProps;
   control: Control<PurchaseOrderFormValues>;
   materials: Array<
     PurchaseOrderMaterialOption & {
@@ -783,7 +790,7 @@ function PurchaseOrderLineRow({
     useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style}>
+    <EditableLineGridRow ref={setNodeRef} style={style} {...rowProps}>
       <EditableLineGridCell>
         <EditableLineGridRemoveButton
           onClick={onRemove}
@@ -943,9 +950,11 @@ function PurchaseOrderAdditionalCostRow({
   control,
   xeroAccounts,
   onRemove,
+  rowProps,
 }: {
   lineKey: string;
   index: number;
+  rowProps: EditableLineItemRowProps;
   control: Control<PurchaseOrderFormValues>;
   xeroAccounts: XeroAccountOption[];
   onRemove: () => void;
@@ -954,7 +963,7 @@ function PurchaseOrderAdditionalCostRow({
     useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style}>
+    <EditableLineGridRow ref={setNodeRef} style={style} {...rowProps}>
       <EditableLineGridCell align="center">
         <SortableDragHandle
           attributes={attributes}

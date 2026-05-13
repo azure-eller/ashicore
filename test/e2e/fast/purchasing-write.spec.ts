@@ -130,17 +130,23 @@ test.describe("Purchasing write-path smoke", () => {
     await page.locator("#po-ship-postcode").fill("80301");
     await page.locator("#notes").fill("Fast purchase order smoke test");
 
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(1);
+
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
     await firstMaterialInput.click();
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
     await firstMaterialInput.pressSequentially(barkName);
     await page.getByRole("option", { name: barkOptionPattern }).click();
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
     await page.getByPlaceholder("0").first().fill("10");
     await page.getByPlaceholder("310").fill("312");
 
     const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
     await secondMaterialInput.click();
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(3);
     await secondMaterialInput.pressSequentially(sandName);
     await page.getByRole("option", { name: sandOptionPattern }).click();
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(3);
     await page.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
     await page
