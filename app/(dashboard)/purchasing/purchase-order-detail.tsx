@@ -560,7 +560,7 @@ export function PurchaseOrderDetail({
   });
 
   const isDeleted = order.deletedAt != null;
-  const canEdit = !isDeleted && order.status === "draft";
+  const canEdit = !isDeleted;
   const canSubmit = !isDeleted && order.status === "draft";
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canCancel = !isDeleted && ["ordered", "partial"].includes(order.status);

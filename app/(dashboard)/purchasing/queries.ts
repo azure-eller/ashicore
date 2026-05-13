@@ -25,6 +25,7 @@ import {
   addExpectedFromPurchaseInTx,
   beginInventoryOperationInTx,
   deriveInventoryIdempotencyKey,
+  editExpectedFromPurchaseInTx,
   finishInventoryOperationInTx,
   receivePurchaseStockInTx,
   releaseExpectedFromPurchaseInTx,
@@ -850,7 +851,13 @@ export async function getEditablePurchaseOrder(
         and(
           eq(purchaseOrders.id, id),
           isNull(purchaseOrders.deletedAt),
-          eq(purchaseOrders.status, "draft")
+          inArray(purchaseOrders.status, [
+            "draft",
+            "ordered",
+            "partial",
+            "received",
+            "cancelled",
+          ])
         )
       );
 
@@ -865,7 +872,7 @@ export async function getEditablePurchaseOrder(
 
     return {
       ...order,
-      status: "draft",
+      status: order.status as PurchaseOrderEditData["status"],
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
@@ -981,32 +988,141 @@ export async function duplicatePurchaseOrder(id: string) {
 }
 
 export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
       return null;
     }
 
+    const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
+    const existingLines = await getPurchaseOrderLinesInTx(tx, id);
+    const existingLineByItemId = new Map(
+      existingLines.map((line) => [line.itemId, line])
+    );
+    await lockItemsInTx(tx, [
+      ...new Set([
+        ...existingLines.map((line) => line.itemId),
+        ...prepared.affectedItemIds,
+      ]),
+    ]);
+
     if (order.status !== "draft") {
-      throw new PurchasingError("Only draft purchase orders can be edited.", 400);
+      const nextItemIds = new Set(prepared.preparedLines.map((line) => line.itemId));
+      const nextExpectedLines: Array<{
+        purchaseOrderLineId: string;
+        itemId: string;
+        quantity: number;
+      }> = [];
+
+      for (const line of prepared.preparedLines) {
+        const existingLine = existingLineByItemId.get(line.itemId);
+        if (existingLine) {
+          const quantityReceived = parseFloat(existingLine.quantityReceived);
+          const stockQuantityReceived = parseFloat(existingLine.stockQuantityReceived);
+          if (
+            parseFloat(line.quantityOrdered) < quantityReceived ||
+            parseFloat(line.stockQuantityOrdered) < stockQuantityReceived
+          ) {
+            throw new PurchasingError(
+              "Ordered quantity cannot be less than quantity already received.",
+              400
+            );
+          }
+
+          await tx
+            .update(purchaseOrderLines)
+            .set({
+              itemName: line.itemName,
+              itemSku: line.itemSku,
+              purchaseUnitName: line.purchaseUnitName,
+              stockingUnitName: line.stockingUnitName,
+              purchaseToStockFactor: line.purchaseToStockFactor,
+              quantityOrdered: line.quantityOrdered,
+              stockQuantityOrdered: line.stockQuantityOrdered,
+              unitCost: line.unitCost,
+              stockUnitCost: line.stockUnitCost,
+              xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+              lineTotal: line.lineTotal,
+              sortOrder: line.sortOrder,
+              updatedAt: new Date(),
+            })
+            .where(eq(purchaseOrderLines.id, existingLine.id));
+
+          nextExpectedLines.push({
+            purchaseOrderLineId: existingLine.id,
+            itemId: line.itemId,
+            quantity: Math.max(
+              parseFloat(line.stockQuantityOrdered) -
+                parseFloat(existingLine.stockQuantityReceived),
+              0
+            ),
+          });
+          continue;
+        }
+
+        const [insertedLine] = await tx
+          .insert(purchaseOrderLines)
+          .values({
+            purchaseOrderId: id,
+            ...line,
+          })
+          .returning({ id: purchaseOrderLines.id });
+
+        nextExpectedLines.push({
+          purchaseOrderLineId: insertedLine.id,
+          itemId: line.itemId,
+          quantity: parseFloat(line.stockQuantityOrdered),
+        });
+      }
+
+      const removedLines = existingLines.filter(
+        (line) => !nextItemIds.has(line.itemId)
+      );
+      const receivedRemovedLine = removedLines.find(
+        (line) =>
+          parseFloat(line.quantityReceived) > 0 ||
+          parseFloat(line.stockQuantityReceived) > 0
+      );
+      if (receivedRemovedLine) {
+        throw new PurchasingError(
+          "Received purchase order lines cannot be removed.",
+          400
+        );
+      }
+
+      if (["ordered", "partial", "received"].includes(order.status)) {
+        await editExpectedFromPurchaseInTx(tx, {
+          organizationId: orgId,
+          purchaseOrderId: id,
+          actorUserId: userId,
+          idempotencyKey: null,
+          nextLines: nextExpectedLines,
+        });
+      }
+
+      const removedLineIds = removedLines.map((line) => line.id);
+      if (removedLineIds.length > 0) {
+        await tx
+          .delete(purchaseOrderLines)
+          .where(inArray(purchaseOrderLines.id, removedLineIds));
+      }
+    } else {
+      await tx
+        .delete(purchaseOrderLines)
+        .where(eq(purchaseOrderLines.purchaseOrderId, id));
+
+      await tx.insert(purchaseOrderLines).values(
+        prepared.preparedLines.map((line) => ({
+          purchaseOrderId: id,
+          ...line,
+        }))
+      );
     }
 
-    const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
-
-    await tx
-      .delete(purchaseOrderLines)
-      .where(eq(purchaseOrderLines.purchaseOrderId, id));
     await tx
       .delete(purchaseOrderAdditionalCosts)
       .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, id));
-
-    await tx.insert(purchaseOrderLines).values(
-      prepared.preparedLines.map((line) => ({
-        purchaseOrderId: id,
-        ...line,
-      }))
-    );
     if (prepared.preparedAdditionalCosts.length > 0) {
       await tx.insert(purchaseOrderAdditionalCosts).values(
         prepared.preparedAdditionalCosts.map((cost) => ({
@@ -1032,6 +1148,40 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         shipCountry: prepared.shipCountry,
         shippingCost: prepared.shippingCost,
         totalAmount: prepared.totalAmount,
+        status:
+          order.status === "received" &&
+          prepared.preparedLines.some((line) => {
+            const existingLine = existingLineByItemId.get(line.itemId);
+            return (
+              parseFloat(line.stockQuantityOrdered) >
+              parseFloat(existingLine?.stockQuantityReceived ?? "0")
+            );
+          })
+            ? "partial"
+            : undefined,
+        receivedAt:
+          order.status === "received" &&
+          prepared.preparedLines.some((line) => {
+            const existingLine = existingLineByItemId.get(line.itemId);
+            return (
+              parseFloat(line.stockQuantityOrdered) >
+              parseFloat(existingLine?.stockQuantityReceived ?? "0")
+            );
+          })
+            ? null
+            : undefined,
+        xeroPushStatus:
+          ["ordered", "partial", "received"].includes(order.status)
+            ? sql`
+                CASE
+                  WHEN ${purchaseOrders.xeroPurchaseOrderId} IS NOT NULL THEN 'pending'
+                  ELSE ${purchaseOrders.xeroPushStatus}
+                END
+              `
+            : undefined,
+        xeroPushError: ["ordered", "partial", "received"].includes(order.status)
+          ? null
+          : undefined,
         updatedAt: new Date(),
       })
       .where(eq(purchaseOrders.id, id));
