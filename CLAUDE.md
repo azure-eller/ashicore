@@ -536,6 +536,8 @@ For production errors, use the Sentry skill. Source credentials from `~/.config/
 
 Sentry and API error logging must redact secrets and user-entered notes. Never capture passwords, tokens, cookies, raw request bodies, or customer notes/comments by default.
 
+Sentry Autofix PRs: use the PR body's packet as source of truth; push fixes to the existing branch; do not create a second PR unless necessary; preserve auth, org context, RLS, inventory ledger behavior, idempotency, and validation; add/update a regression test when practical; run `pnpm lint`, `pnpm build`, and targeted tests; update the PR body with root cause/fix/tests/risk notes; leave a summary comment; never auto-merge.
+
 Keep Sentry `includeLocalVariables` local-only and opt-in. It opens the Node inspector and can explode Vercel cold starts.
 
 ```ts

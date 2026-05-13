@@ -3,11 +3,14 @@ read_when:
   - Investigating Sentry production errors
   - Correlating Android and web failures
   - Preparing an agent production-error brief
+  - Reviewing a Sentry Autofix PR
 ---
 
 # Sentry Triage
 
 Start with `request_id`. API responses expose both `x-erp-request-id` and `x-request-id`; Android records the same value on API observations.
+
+For Sentry Autofix PRs, use the PR body's packet as the starting brief, then verify against Sentry by `request_id`, issue ID, and event ID. Keep any PR updates sanitized; do not paste raw Sentry payloads.
 
 ## API 500s
 
