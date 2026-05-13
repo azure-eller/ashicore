@@ -59,6 +59,17 @@ The intake route is intentionally exempt from Better Auth session redirects in
 `proxy.ts`; the route still rejects unauthenticated requests with the configured
 Sentry webhook secret.
 
+Sentry service hooks and internal integrations should use the signed webhook
+headers. If the project only has the legacy WebHooks plugin available, configure
+the callback URL as:
+
+```txt
+https://ashicore.app/api/internal/sentry/autofix?token=<SENTRY_AUTOFIX_WEBHOOK_SECRET>
+```
+
+Use this query-token fallback only for the Sentry legacy WebHooks plugin, which
+does not send Sentry's newer signature headers.
+
 ## Dedupe
 
 The intake dedupes by GitHub PR search for `Sentry issue ID: <id>` in the target repo.

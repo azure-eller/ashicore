@@ -43,6 +43,14 @@ test("verifies bearer and Sentry HMAC webhook auth", () => {
   expect(
     verifySentryAutofixRequest({
       body,
+      headers: new Headers(),
+      secret: config.sentryWebhookSecret,
+      token: config.sentryWebhookSecret,
+    })
+  ).toBe(true);
+  expect(
+    verifySentryAutofixRequest({
+      body,
       headers: new Headers({ "sentry-hook-signature": "bad" }),
       secret: config.sentryWebhookSecret,
     })

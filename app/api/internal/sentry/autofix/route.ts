@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 
 export const POST = apiHandler(async (request: Request) => {
   const body = await request.text();
+  const token = new URL(request.url).searchParams.get("token");
   let config: ReturnType<typeof getSentryAutofixConfig>;
 
   try {
@@ -29,6 +30,7 @@ export const POST = apiHandler(async (request: Request) => {
       body,
       headers: request.headers,
       secret: config.sentryWebhookSecret,
+      token,
     })
   ) {
     throw new AuthorizationError("Invalid Sentry autofix token.", 401);

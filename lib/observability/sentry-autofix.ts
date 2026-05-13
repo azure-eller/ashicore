@@ -214,7 +214,10 @@ export function verifySentryAutofixRequest(args: {
   body: string;
   headers: Headers;
   secret: string;
+  token?: string | null;
 }) {
+  if (args.token && safeEqual(args.token, args.secret)) return true;
+
   const authorization = args.headers.get("authorization");
   if (authorization === `Bearer ${args.secret}`) return true;
 
