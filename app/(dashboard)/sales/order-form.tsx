@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Add01Icon,
   ArrowLeft01Icon,
   InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
@@ -501,20 +502,40 @@ export function OrderForm({
     control: form.control,
     name: "lines",
   });
+  const lineItemsRef = useRef<HTMLDivElement>(null);
+  const [lineFocusRequest, setLineFocusRequest] = useState(0);
+
+  const focusLastLinePrimaryControl = useCallback(() => {
+    const controls = lineItemsRef.current?.querySelectorAll<HTMLElement>(
+      "[data-editable-line-primary]"
+    );
+    const control = controls?.[controls.length - 1];
+
+    if (control) {
+      control.focus();
+    }
+  }, []);
+
+  const addLine = useCallback(() => {
+    append(
+      {
+        itemId: "",
+        quantity: null,
+        unitPrice: null,
+      },
+      { shouldFocus: false }
+    );
+    setLineFocusRequest((current) => current + 1);
+  }, [append]);
 
   useEffect(() => {
-    const rows = watchedLines ?? [];
-    if (rows.length === 0 || !isBlankSalesOrderLine(rows[rows.length - 1])) {
-      append(
-        {
-          itemId: "",
-          quantity: null,
-          unitPrice: null,
-        },
-        { shouldFocus: false }
-      );
+    if (lineFocusRequest === 0) {
+      return;
     }
-  }, [append, watchedLines]);
+
+    const frameId = requestAnimationFrame(focusLastLinePrimaryControl);
+    return () => cancelAnimationFrame(frameId);
+  }, [fields.length, focusLastLinePrimaryControl, lineFocusRequest]);
 
   const [initialLineByFieldId] = useState(() => {
     const lineByFieldId = new Map<string, SalesOrderEditData["lines"][number]>();
@@ -1085,7 +1106,7 @@ export function OrderForm({
                 </div>
               }
             >
-              <FieldGroup className="gap-4">
+              <FieldGroup ref={lineItemsRef} className="gap-4">
                 {fields.length > 0 ? (
                   <SortableReorder
                     ids={fields.map((field) => field.id)}
@@ -1158,6 +1179,9 @@ export function OrderForm({
                               estimatedUnitCost: item?.estimatedUnitCost ?? null,
                               isPriceOverridden: false,
                             });
+                            if (itemId && index === fields.length - 1) {
+                              addLine();
+                            }
                           }}
                           onRemove={() => {
                             setLinePricingState((currentState) => {
@@ -1186,6 +1210,11 @@ export function OrderForm({
                 {linesError && (
                   <p className="text-sm text-destructive">{linesError}</p>
                 )}
+
+                <Button type="button" variant="outline" onClick={addLine}>
+                  <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+                  Add item
+                </Button>
               </FieldGroup>
             </SalesOrderSection>
 
@@ -1546,6 +1575,7 @@ function OrderLineRow({
                 onValueChange={(value) => onItemChange(value ?? "")}
                 inputId={`${lineKey}-item`}
                 inputAriaInvalid={fieldState.invalid}
+                inputPrimaryFocus
                 inputClassName="w-full min-w-0"
                 placeholder="Search items..."
                 emptyMessage="No items found"

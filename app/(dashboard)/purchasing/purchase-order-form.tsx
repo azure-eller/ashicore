@@ -63,7 +63,6 @@ import {
 } from "@/components/editable-line-grid";
 import {
   EditableLineItems,
-  type EditableLineItemRowProps,
 } from "@/components/editable-line-items";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -1282,128 +1281,131 @@ export function PurchaseOrderForm({
             }
           >
             <FieldGroup className="gap-4">
-                <EditableLineItems<PurchaseOrderFormValues, "lines">
-                  control={form.control}
-                  name="lines"
-                  columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
-                  minWidth="66rem"
-                  blankLine={blankPurchaseOrderLine}
-                  isBlankLine={isBlankPurchaseOrderLine}
-                  error={linesError}
-                  headers={[
-                    <span key="actions" />,
-                    <span key="reorder" />,
-                    "Material",
-                    <TooltipHeader
-                      key="ordered-qty"
-                      label="Ordered Qty"
-                      tooltip={PO_ORDERED_QTY_TOOLTIP}
-                    />,
-                    <TooltipHeader
-                      key="purchase-unit"
-                      label="Purchase Unit"
-                      tooltip={PURCHASE_UNIT_TOOLTIP}
-                    />,
-                    <TooltipHeader
-                      key="unit-cost"
-                      label="Unit Cost"
-                      tooltip={PURCHASE_UNIT_COST_TOOLTIP}
-                    />,
-                    "Landed / Stock Unit",
-                    "Delivery Address",
-                    "Accounting Account",
-                    <TooltipHeader
-                      key="line-total"
-                      label="Line Total"
-                      tooltip={LINE_TOTAL_TOOLTIP}
-                    />,
-                    "Allocated",
-                    "Landed Total",
-                  ]}
-                  renderRow={({ field, index, remove, rowProps }) => (
-                      <PurchaseOrderLineRow
-                        key={field.id}
-                        lineKey={field.id}
-                        index={index}
-                        rowProps={rowProps}
-                        control={form.control}
-                        materials={materialOptions}
-                        materialMap={materialMap}
-                        xeroAccounts={xeroAccounts}
-                        deliveryAddressOptions={deliveryAddressOptions}
-                        onDeliveryAddressChange={(address) =>
-                          applyDeliveryAddress(index, address)
+              <EditableLineItems<PurchaseOrderFormValues, "lines">
+                control={form.control}
+                name="lines"
+                columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
+                minWidth="66rem"
+                createLine={() => ({ ...blankPurchaseOrderLine })}
+                addLabel="Add material"
+                emptyMessage="No materials yet."
+                error={linesError}
+                headers={[
+                  <span key="actions" />,
+                  <span key="reorder" />,
+                  "Material",
+                  <TooltipHeader
+                    key="ordered-qty"
+                    label="Ordered Qty"
+                    tooltip={PO_ORDERED_QTY_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="purchase-unit"
+                    label="Purchase Unit"
+                    tooltip={PURCHASE_UNIT_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="unit-cost"
+                    label="Unit Cost"
+                    tooltip={PURCHASE_UNIT_COST_TOOLTIP}
+                  />,
+                  "Landed / Stock Unit",
+                  "Delivery Address",
+                  "Accounting Account",
+                  <TooltipHeader
+                    key="line-total"
+                    label="Line Total"
+                    tooltip={LINE_TOTAL_TOOLTIP}
+                  />,
+                  "Allocated",
+                  "Landed Total",
+                ]}
+                renderRow={({ field, index, isLastRow, addLine, remove }) => (
+                  <PurchaseOrderLineRow
+                    key={field.id}
+                    lineKey={field.id}
+                    index={index}
+                    control={form.control}
+                    materials={materialOptions}
+                    materialMap={materialMap}
+                    xeroAccounts={xeroAccounts}
+                    deliveryAddressOptions={deliveryAddressOptions}
+                    onDeliveryAddressChange={(address) =>
+                      applyDeliveryAddress(index, address)
+                    }
+                    onAddDeliveryAddress={() => openAddressDialog(index)}
+                    onEditDeliveryAddress={(address) =>
+                      openEditAddressDialog(index, address)
+                    }
+                    landedCost={landedCostPreview.lines[index]}
+                    onMaterialChange={(materialId) => {
+                      const material = materialMap.get(materialId);
+                      form.setValue(`lines.${index}.itemId`, materialId, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                      form.setValue(
+                        `lines.${index}.unitCost`,
+                        material?.defaultPurchasePrice ?? "0",
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
                         }
-                        onAddDeliveryAddress={() => openAddressDialog(index)}
-                        onEditDeliveryAddress={(address) =>
-                          openEditAddressDialog(index, address)
+                      );
+                      form.setValue(
+                        `lines.${index}.xeroPurchaseAccountCode`,
+                        material?.xeroPurchaseAccountCode ?? null,
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
                         }
-                        landedCost={landedCostPreview.lines[index]}
-                        onMaterialChange={(materialId) => {
-                          const material = materialMap.get(materialId);
-                          form.setValue(`lines.${index}.itemId`, materialId, {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          });
-                          form.setValue(
-                            `lines.${index}.unitCost`,
-                            material?.defaultPurchasePrice ?? "0",
-                            {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            }
-                          );
-                          form.setValue(
-                            `lines.${index}.xeroPurchaseAccountCode`,
-                            material?.xeroPurchaseAccountCode ?? null,
-                            {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            }
-                          );
-                        }}
-                        onRemove={remove}
-                      />
-                    )}
-                  footer={
-                    <>
-                      {landedUnitCostRows.length > 0 ? (
-                        <div className="w-full rounded-md border px-4 py-3 text-sm sm:max-w-xl">
-                          <div className="mb-2 font-medium">Landed unit costs</div>
-                          <div className="space-y-2">
-                            {landedUnitCostRows.map((row) => (
-                              <div
-                                key={row.key}
-                                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-t pt-2 first:border-t-0 first:pt-0"
-                              >
-                                <div className="truncate">{row.materialName}</div>
-                                <div className="font-mono font-semibold tabular-nums">
-                                  {unitCostLabel(row.landedStockUnitCost)} /{" "}
-                                  {row.stockingUnitName}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  Added shipping/costs
-                                </div>
-                                <div className="text-right font-mono text-xs tabular-nums text-muted-foreground">
-                                  {unitCostLabel(row.addedStockUnitCost)} /{" "}
-                                  {row.stockingUnitName}
-                                </div>
+                      );
+                      if (materialId && isLastRow) {
+                        addLine();
+                      }
+                    }}
+                    onRemove={remove}
+                  />
+                )}
+                footer={
+                  <>
+                    {landedUnitCostRows.length > 0 ? (
+                      <div className="w-full rounded-md border px-4 py-3 text-sm sm:max-w-xl">
+                        <div className="mb-2 font-medium">Landed unit costs</div>
+                        <div className="space-y-2">
+                          {landedUnitCostRows.map((row) => (
+                            <div
+                              key={row.key}
+                              className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-t pt-2 first:border-t-0 first:pt-0"
+                            >
+                              <div className="truncate">{row.materialName}</div>
+                              <div className="font-mono font-semibold tabular-nums">
+                                {unitCostLabel(row.landedStockUnitCost)} /{" "}
+                                {row.stockingUnitName}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                      <div className="rounded-md border px-4 py-2 text-sm">
-                        <span className="text-muted-foreground">
-                          Material Subtotal
-                        </span>
-                        <div className="font-medium">
-                          {formatPrice(materialsTotal.toFixed(4)) ?? "$0.00"}
+                              <div className="text-xs text-muted-foreground">
+                                Added shipping/costs
+                              </div>
+                              <div className="text-right font-mono text-xs tabular-nums text-muted-foreground">
+                                {unitCostLabel(row.addedStockUnitCost)} /{" "}
+                                {row.stockingUnitName}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    </>
-                  }
-                />
+                    ) : null}
+                    <div className="rounded-md border px-4 py-2 text-sm">
+                      <span className="text-muted-foreground">
+                        Material Subtotal
+                      </span>
+                      <div className="font-medium">
+                        {formatPrice(materialsTotal.toFixed(4)) ?? "$0.00"}
+                      </div>
+                    </div>
+                  </>
+                }
+              />
             </FieldGroup>
           </CreateSection>
 
@@ -1422,8 +1424,9 @@ export function PurchaseOrderForm({
                 name="additionalCosts"
                 columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
                 minWidth="50rem"
-                blankLine={blankPurchaseOrderAdditionalCost}
-                isBlankLine={isBlankPurchaseOrderAdditionalCost}
+                createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
+                addLabel="Add cost"
+                emptyMessage="No additional costs yet."
                 error={additionalCostsError}
                 headers={[
                   <span key="reorder" />,
@@ -1434,12 +1437,11 @@ export function PurchaseOrderForm({
                   "Amount",
                   <span key="actions" />,
                 ]}
-                renderRow={({ field, index, remove, rowProps }) => (
+                renderRow={({ field, index, remove }) => (
                   <PurchaseOrderAdditionalCostRow
                     key={field.id}
                     lineKey={field.id}
                     index={index}
-                    rowProps={rowProps}
                     control={form.control}
                     xeroAccounts={xeroAccounts}
                     onRemove={remove}
@@ -1708,11 +1710,9 @@ function PurchaseOrderLineRow({
   landedCost,
   onMaterialChange,
   onRemove,
-  rowProps,
 }: {
   lineKey: string;
   index: number;
-  rowProps: EditableLineItemRowProps;
   control: Control<PurchaseOrderFormValues>;
   materials: Array<
     PurchaseOrderMaterialOption & {
@@ -1741,7 +1741,7 @@ function PurchaseOrderLineRow({
     useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style} {...rowProps}>
+    <EditableLineGridRow ref={setNodeRef} style={style}>
       <EditableLineGridCell>
         <EditableLineGridRemoveButton
           onClick={onRemove}
@@ -1772,6 +1772,7 @@ function PurchaseOrderLineRow({
                 onValueChange={(value) => onMaterialChange(value ?? "")}
                 inputId={`${lineKey}-material`}
                 inputAriaInvalid={fieldState.invalid}
+                inputPrimaryFocus
                 inputClassName="w-full min-w-0"
                 placeholder="Search materials..."
                 emptyMessage="No materials found"
@@ -2027,11 +2028,9 @@ function PurchaseOrderAdditionalCostRow({
   control,
   xeroAccounts,
   onRemove,
-  rowProps,
 }: {
   lineKey: string;
   index: number;
-  rowProps: EditableLineItemRowProps;
   control: Control<PurchaseOrderFormValues>;
   xeroAccounts: XeroAccountOption[];
   onRemove: () => void;
@@ -2040,7 +2039,7 @@ function PurchaseOrderAdditionalCostRow({
     useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style} {...rowProps}>
+    <EditableLineGridRow ref={setNodeRef} style={style}>
       <EditableLineGridCell align="center">
         <SortableDragHandle
           attributes={attributes}
@@ -2062,7 +2061,11 @@ function PurchaseOrderAdditionalCostRow({
                   field.onChange(value as PurchaseOrderAdditionalCostType)
                 }
               >
-                <SelectTrigger className="w-full" aria-invalid={fieldState.invalid}>
+                <SelectTrigger
+                  className="w-full"
+                  aria-invalid={fieldState.invalid}
+                  data-editable-line-primary
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

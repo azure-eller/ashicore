@@ -1,28 +1,21 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  type FocusEventHandler,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   useFieldArray,
-  useWatch,
   type Control,
   type FieldArray,
   type FieldArrayPath,
   type FieldArrayWithId,
   type FieldValues,
 } from "react-hook-form";
+import { Add01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 
+import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { SortableReorder } from "@/components/sortable-reorder";
 import { EditableLineGrid } from "@/components/editable-line-grid";
-
-export type EditableLineItemRowProps = {
-  onFocusCapture?: FocusEventHandler<HTMLElement>;
-};
 
 type RenderRowContext<
   TValues extends FieldValues,
@@ -30,8 +23,8 @@ type RenderRowContext<
 > = {
   field: FieldArrayWithId<TValues, TName>;
   index: number;
-  isTrailingBlank: boolean;
-  rowProps: EditableLineItemRowProps;
+  isLastRow: boolean;
+  addLine: () => void;
   remove: () => void;
 };
 
@@ -43,8 +36,9 @@ export function EditableLineItems<
   name,
   columns,
   headers,
-  blankLine,
-  isBlankLine,
+  createLine,
+  addLabel,
+  emptyMessage = "No rows yet.",
   renderRow,
   minWidth,
   error,
@@ -55,8 +49,9 @@ export function EditableLineItems<
   name: TName;
   columns: string;
   headers: ReactNode[];
-  blankLine: FieldArray<TValues, TName>;
-  isBlankLine: (line: FieldArray<TValues, TName> | undefined) => boolean;
+  createLine: () => FieldArray<TValues, TName>;
+  addLabel: string;
+  emptyMessage?: string;
   renderRow: (context: RenderRowContext<TValues, TName>) => ReactNode;
   minWidth?: string;
   error?: string | null;
@@ -67,67 +62,64 @@ export function EditableLineItems<
     control,
     name,
   });
-  const watchedRows = useWatch({ control, name: name as never }) as
-    | FieldArray<TValues, TName>[]
-    | undefined;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
 
-  const appendBlankLine = useCallback((shouldFocus = true) => {
-    append(blankLine, { shouldFocus });
-  }, [append, blankLine]);
+  const focusLastPrimaryControl = useCallback(() => {
+    const controls = rootRef.current?.querySelectorAll<HTMLElement>(
+      "[data-editable-line-primary]"
+    );
+    const control = controls?.[controls.length - 1];
+
+    if (control) {
+      control.focus();
+    }
+  }, []);
+
+  const addLine = useCallback(() => {
+    append(createLine(), { shouldFocus: false });
+    setFocusRequest((current) => current + 1);
+  }, [append, createLine]);
 
   useEffect(() => {
-    const rows = watchedRows ?? [];
-    if (fields.length !== rows.length) {
+    if (focusRequest === 0) {
       return;
     }
 
-    if (
-      fields.length > 0 &&
-      (rows.length === 0 || isBlankLine(rows[rows.length - 1]))
-    ) {
-      return;
-    }
-
-    appendBlankLine(false);
-  }, [appendBlankLine, fields.length, isBlankLine, watchedRows]);
-
-  const appendAfterTrailingBlank = useCallback(() => {
-    const rows = watchedRows ?? [];
-    if (fields.length !== rows.length) {
-      return;
-    }
-
-    if (fields.length === 0 || !isBlankLine(rows[rows.length - 1])) {
-      return;
-    }
-
-    appendBlankLine(false);
-  }, [appendBlankLine, fields.length, isBlankLine, watchedRows]);
+    const frameId = requestAnimationFrame(focusLastPrimaryControl);
+    return () => cancelAnimationFrame(frameId);
+  }, [focusLastPrimaryControl, focusRequest, fields.length]);
 
   const grid = (
     <EditableLineGrid columns={columns} minWidth={minWidth} headers={headers}>
-      {fields.map((field, index) => {
-        const isTrailingBlank =
-          index === fields.length - 1 && isBlankLine(watchedRows?.[index]);
-        const rowProps = isTrailingBlank
-          ? {
-              onFocusCapture: appendAfterTrailingBlank,
-            }
-          : {};
-
-        return renderRow({
-          field,
-          index,
-          isTrailingBlank,
-          rowProps,
-          remove: () => remove(index),
-        });
-      })}
+      {fields.length > 0 ? (
+        fields.map((field, index) =>
+          renderRow({
+            field,
+            index,
+            isLastRow: index === fields.length - 1,
+            addLine,
+            remove: () => remove(index),
+          })
+        )
+      ) : (
+        <div
+          role="row"
+          className="grid min-w-0 grid-cols-(--editable-line-grid-columns)"
+        >
+          <div
+            role="cell"
+            className="col-span-full px-[var(--table-cell-px)] py-8 text-center text-sm text-muted-foreground"
+          >
+            {emptyMessage}
+          </div>
+        </div>
+      )}
     </EditableLineGrid>
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={rootRef} className="flex flex-col gap-4">
       {enableReorder ? (
         <SortableReorder
           ids={fields.map((field) => field.id)}
@@ -141,11 +133,18 @@ export function EditableLineItems<
 
       {error && <FieldError>{error}</FieldError>}
 
-      {footer ? (
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
-          {footer}
-        </div>
-      ) : null}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <Button type="button" variant="outline" onClick={addLine}>
+          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+          {addLabel}
+        </Button>
+
+        {footer ? (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
+            {footer}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

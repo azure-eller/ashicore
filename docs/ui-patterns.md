@@ -183,17 +183,19 @@ For standard dashboard list pages, use the shared `DashboardDataTable` shell ins
 
 ## Editable Line Items
 
-Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns add/remove/reorder wiring, and keeps one blank row at the bottom. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
+Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns add/remove/reorder wiring, and adds rows through its Add row button. Item-style rows may also append the next blank row after the last row's item selector receives a real item selection. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
 
 - Define explicit flexible grid tracks for every column, e.g. `minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)`.
 - Give numeric inputs stable but compact columns; use `fr` tracks so empty cells do not force a small horizontal scroll.
 - Do not put a control `min-w-*` inside a padded cell unless the column track includes that padding.
 - Put the row group in horizontal overflow when the total minimum width exceeds the card.
-- Do not add manual “Add row” buttons when `EditableLineItems` owns the trailing blank row.
+- Use `createLine` and `addLabel`; clicking Add row focuses the new row's first control.
+- Mark the first editable control in each row with `data-editable-line-primary`.
+- For item/material/component selectors, append from `renderRow` only after a real selection on the last row.
 - Keep combobox result popups readable; long item/customer labels may use a width wider than the trigger.
 - Keep each editable control wrapped in shadcn `Field`, with a label relationship and `aria-invalid` state.
 - Keep array validation under the grid, using `FieldError` or the existing field-array error helper.
-- Filter fully blank rows in the schema or submit payload so the trailing row never saves or validates as data.
+- Do not create rows from focus or Tab. Tab should only move through existing fields.
 
 ```tsx
 <EditableLineItems
@@ -202,8 +204,8 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
   columns="minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)"
   minWidth="40rem"
   headers={[itemHeader, qtyHeader, unitHeader, priceHeader, totalHeader, marginHeader, null]}
-  blankLine={{ itemId: "", quantity: null, unitPrice: null }}
-  isBlankLine={isBlankLine}
+  createLine={() => ({ itemId: "", quantity: null, unitPrice: null })}
+  addLabel="Add item"
   renderRow={({ field, index, remove }) => (
     <EditableLineGridRow key={field.id}>
       <EditableLineGridCell>
@@ -211,7 +213,7 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
           <FieldLabel className="sr-only" htmlFor={`${field.id}-item`}>
             Item
           </FieldLabel>
-          {/* item combobox */}
+          {/* item combobox with data-editable-line-primary on its input */}
         </Field>
       </EditableLineGridCell>
       <EditableLineGridCell align="right">

@@ -55,6 +55,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
   inputId,
   inputClassName,
   inputAriaInvalid,
+  inputPrimaryFocus = false,
   contentClassName,
   createLinks = [],
   getSearchText = inventoryItemSearchText,
@@ -70,6 +71,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
   inputId?: string;
   inputClassName?: string;
   inputAriaInvalid?: boolean;
+  inputPrimaryFocus?: boolean;
   contentClassName?: string;
   createLinks?: ComboboxCreateLink[];
   getSearchText?: (option: TOption) => string;
@@ -93,6 +95,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
       <ComboboxInput
         id={inputId}
         aria-invalid={inputAriaInvalid}
+        data-editable-line-primary={inputPrimaryFocus ? "" : undefined}
         className={inputClassName}
         placeholder={placeholder}
       />

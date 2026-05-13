@@ -131,8 +131,8 @@ test.describe("Purchasing write-path smoke", () => {
 
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
     await firstMaterialInput.click();
-    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
-    await firstMaterialInput.pressSequentially(barkName);
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(1);
+    await firstMaterialInput.fill(barkName);
     await page.getByRole("option", { name: barkOptionPattern }).click();
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
     await page.getByPlaceholder("0").first().fill("10");
@@ -143,16 +143,19 @@ test.describe("Purchasing write-path smoke", () => {
     await page.locator("#po-line-ship-region").fill("CO");
     await page.locator("#po-line-ship-postcode").fill("80301");
     await page.getByRole("button", { name: "Add Address" }).click();
-    await page.getByPlaceholder("310").fill("312");
+    await page
+      .locator('input[name="lines.0.xeroPurchaseAccountCode"]')
+      .fill("312");
 
     const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
     await secondMaterialInput.click();
-    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(3);
-    await secondMaterialInput.pressSequentially(sandName);
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
+    await secondMaterialInput.fill(sandName);
     await page.getByRole("option", { name: sandOptionPattern }).click();
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(3);
     await page.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
+    await page.getByRole("button", { name: "Add cost" }).click();
     await page
       .locator('input[name="additionalCosts.0.reference"]')
       .fill("Freight smoke");

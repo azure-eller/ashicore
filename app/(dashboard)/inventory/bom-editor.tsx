@@ -12,7 +12,6 @@ import {
 } from "@/components/editable-line-grid";
 import {
   EditableLineItems,
-  type EditableLineItemRowProps,
 } from "@/components/editable-line-items";
 import {
   SortableDragHandle,
@@ -43,16 +42,6 @@ const blankBomLine = {
   alternates: [],
 };
 
-function isBlankBomLine(
-  line: NonNullable<ItemFormValues["bom"]>[number] | undefined
-) {
-  const componentId = line?.componentId?.trim() ?? "";
-  const quantity = line?.quantity?.trim() ?? "";
-  const minimumLotAgeDays =
-    line?.minimumLotAgeDays == null ? "" : String(line.minimumLotAgeDays).trim();
-  return componentId === "" && quantity === "" && minimumLotAgeDays === "";
-}
-
 interface BomEditorProps {
   control: Control<ItemFormValues>;
   availableComponents: AvailableComponent[];
@@ -81,8 +70,9 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         name="bom"
         columns={BOM_LINE_GRID_COLUMNS}
         minWidth="40rem"
-        blankLine={blankBomLine}
-        isBlankLine={isBlankBomLine}
+        createLine={() => ({ ...blankBomLine, alternates: [] })}
+        addLabel="Add ingredient"
+        emptyMessage="No ingredients yet."
         headers={[
           <span key="reorder" />,
           "Component",
@@ -91,15 +81,19 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
           "Unit",
           <span key="actions" />,
         ]}
-        renderRow={({ field, index, remove, rowProps }) => (
+        renderRow={({ field, index, isLastRow, addLine, remove }) => (
           <BomRow
             key={field.id}
             lineKey={field.id}
             index={index}
-            rowProps={rowProps}
             control={control}
             componentOptions={componentOptions}
             componentMap={componentMap}
+            onComponentChange={(id) => {
+              if (id && isLastRow) {
+                addLine();
+              }
+            }}
             onRemove={remove}
           />
         )}
@@ -115,15 +109,15 @@ function BomRow({
   control,
   componentOptions,
   componentMap,
+  onComponentChange,
   onRemove,
-  rowProps,
 }: {
   lineKey: string;
   index: number;
-  rowProps: EditableLineItemRowProps;
   control: Control<ItemFormValues>;
   componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
+  onComponentChange: (id: string) => void;
   onRemove: () => void;
 }) {
   const componentId = useWatch({ control, name: `bom.${index}.componentId` });
@@ -136,7 +130,6 @@ function BomRow({
       ref={setNodeRef}
       data-testid="bom-row"
       style={style}
-      {...rowProps}
       aria-label={[
         selectedComponent?.name,
         selectedComponent?.unit,
@@ -163,9 +156,14 @@ function BomRow({
               <InventoryItemCombobox
                 options={componentOptions}
                 value={f.value ?? ""}
-                onValueChange={(id) => f.onChange(id ?? "")}
+                onValueChange={(id) => {
+                  const nextId = id ?? "";
+                  f.onChange(nextId);
+                  onComponentChange(nextId);
+                }}
                 inputId={`${lineKey}-component`}
                 inputAriaInvalid={fieldState.invalid}
+                inputPrimaryFocus
                 inputClassName="w-full min-w-0"
                 placeholder="Search items..."
                 emptyMessage="No items found"

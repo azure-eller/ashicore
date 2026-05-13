@@ -133,6 +133,7 @@ test.describe("Inventory write-path smoke", () => {
     await page.getByLabel("Selling Price").fill("19.99");
     await page.getByLabel("Safety Stock").fill("5");
 
+    await page.getByRole("button", { name: "Add ingredient" }).click();
     const componentInput = page.getByPlaceholder("Search items...").first();
     await expect(componentInput).toBeVisible();
     await componentInput.click();

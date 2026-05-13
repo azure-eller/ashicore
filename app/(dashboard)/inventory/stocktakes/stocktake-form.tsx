@@ -22,7 +22,6 @@ import {
 } from "@/components/editable-line-grid";
 import {
   EditableLineItems,
-  type EditableLineItemRowProps,
 } from "@/components/editable-line-items";
 import {
   Field,
@@ -82,10 +81,6 @@ const STOCKTAKE_PREVIEW_GRID_COLUMNS =
 const blankPreviewLine: StocktakePreviewLine = {
   itemId: "",
 };
-
-function isBlankPreviewLine(line: StocktakePreviewLine | undefined) {
-  return !line?.itemId;
-}
 
 function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
   const parsedScope = parseStocktakeScope(scope);
@@ -409,24 +404,29 @@ export function StocktakeForm({
                 />,
                 <span key="actions" />,
               ]}
-              blankLine={blankPreviewLine}
-              isBlankLine={isBlankPreviewLine}
+              createLine={() => ({ ...blankPreviewLine })}
+              addLabel="Add item"
+              emptyMessage="No items selected yet."
               enableReorder={false}
               error={
                 selectedItemCount === 0
                   ? "Choose at least one item for this stocktake."
                   : null
               }
-              renderRow={({ field, index, remove, rowProps }) => (
+              renderRow={({ field, index, isLastRow, addLine, remove }) => (
                 <StocktakePreviewRow
                   key={field.id}
                   lineKey={field.id}
                   index={index}
-                  rowProps={rowProps}
                   control={form.control}
                   items={previewItems}
                   itemMap={previewItemMap}
                   selectedItemIds={selectedItemIds}
+                  onItemChange={(itemId) => {
+                    if (itemId && isLastRow) {
+                      addLine();
+                    }
+                  }}
                   onRemove={remove}
                 />
               )}
@@ -454,16 +454,16 @@ function StocktakePreviewRow({
   items,
   itemMap,
   selectedItemIds,
+  onItemChange,
   onRemove,
-  rowProps,
 }: {
   lineKey: string;
   index: number;
-  rowProps: EditableLineItemRowProps;
   control: Control<StocktakeFormValues>;
   items: StocktakePreviewItem[];
   itemMap: Map<string, StocktakePreviewItem>;
   selectedItemIds: string[];
+  onItemChange: (itemId: string) => void;
   onRemove: () => void;
 }) {
   const itemId = useWatch({
@@ -476,7 +476,7 @@ function StocktakePreviewRow({
   );
 
   return (
-    <EditableLineGridRow {...rowProps}>
+    <EditableLineGridRow>
       <EditableLineGridCell>
         <Controller
           name={`previewLines.${index}.itemId`}
@@ -489,9 +489,14 @@ function StocktakePreviewRow({
               <InventoryItemCombobox
                 options={options}
                 value={field.value ?? ""}
-                onValueChange={(value) => field.onChange(value ?? "")}
+                onValueChange={(value) => {
+                  const nextItemId = value ?? "";
+                  field.onChange(nextItemId);
+                  onItemChange(nextItemId);
+                }}
                 inputId={`${lineKey}-item`}
                 inputAriaInvalid={fieldState.invalid}
+                inputPrimaryFocus
                 inputClassName="w-full min-w-0"
                 placeholder="Search items..."
                 emptyMessage="No active items found"
