@@ -92,10 +92,10 @@ function AllocationChips({
   }
 
   const stockQty = line.allocationSources
-    .filter((source) => source.sourceType === "stock_pool")
+    .filter((source) => source.sourceType === "inventory_lot")
     .reduce((sum, source) => sum + Number(source.quantity), 0);
   const lotSources = line.allocationSources.filter(
-    (source) => source.sourceType === "lot"
+    (source) => source.sourceType === "inventory_lot"
   );
   const productionSources = line.allocationSources.filter(
     (source) => source.sourceType === "manufacturing_order"

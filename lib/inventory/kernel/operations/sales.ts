@@ -565,7 +565,7 @@ export async function consumeForShipmentInTx(
     }
 
     let idempotencyUsed = false;
-    if (lineAllocations.some((candidate) => candidate.sourceType === "lot")) {
+    if (lineAllocations.some((candidate) => candidate.sourceType === "inventory_lot")) {
       const consumed = await consumeLotAllocationsForDemandInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,

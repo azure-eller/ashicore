@@ -20,9 +20,11 @@ export const STOCK_ALLOCATION_DEMAND_TYPES = [
 export type StockAllocationDemandType =
   (typeof STOCK_ALLOCATION_DEMAND_TYPES)[number];
 
+// `manufacturing_order` is an expected-output promise against
+// manufacturing.manufacturing_orders.id. It does not reference
+// manufacturing_order_outputs, which are actual produced receipt rows.
 export const STOCK_ALLOCATION_SOURCE_TYPES = [
-  "stock_pool",
-  "lot",
+  "inventory_lot",
   "manufacturing_order",
 ] as const;
 export type StockAllocationSourceType =
@@ -43,7 +45,7 @@ export const stockAllocations = inventorySchema
         .notNull()
         .references(() => items.id),
       sourceType: varchar("source_type", { length: 40 }).notNull(),
-      sourceId: uuid("source_id"),
+      sourceId: uuid("source_id").notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
       status: varchar("status", { length: 20 }).notNull().default("active"),
       demandLabelSnapshot: text("demand_label_snapshot"),
@@ -81,9 +83,6 @@ export const stockAllocations = inventorySchema
         table.sourceId,
         table.status
       ),
-      uniqueIndex("stock_allocations_active_stock_pool_uidx")
-        .on(table.organizationId, table.demandType, table.demandId, table.sourceType)
-        .where(sql`status = 'active' AND source_type = 'stock_pool'`),
       uniqueIndex("stock_allocations_active_source_uidx")
         .on(
           table.organizationId,
@@ -92,24 +91,20 @@ export const stockAllocations = inventorySchema
           table.sourceType,
           table.sourceId
         )
-        .where(sql`status = 'active' AND source_type <> 'stock_pool'`),
+        .where(sql`status = 'active'`),
       check(
         "stock_allocations_demand_type_check",
         sql`${table.demandType} IN ('sales_order_line', 'manufacturing_order_ingredient')`
       ),
       check(
         "stock_allocations_source_type_check",
-        sql`${table.sourceType} IN ('stock_pool', 'lot', 'manufacturing_order')`
+        sql`${table.sourceType} IN ('inventory_lot', 'manufacturing_order')`
       ),
       check(
         "stock_allocations_status_check",
         sql`${table.status} IN ('active', 'consumed', 'cancelled')`
       ),
       check("stock_allocations_quantity_check", sql`${table.quantity} > 0`),
-      check(
-        "stock_allocations_source_id_check",
-        sql`(${table.sourceType} = 'stock_pool' AND ${table.sourceId} IS NULL) OR (${table.sourceType} <> 'stock_pool' AND ${table.sourceId} IS NOT NULL)`
-      ),
       check(
         "stock_allocations_cancelled_check",
         sql`(${table.status} = 'cancelled' AND ${table.cancelledAt} IS NOT NULL) OR (${table.status} <> 'cancelled' AND ${table.cancelledAt} IS NULL)`

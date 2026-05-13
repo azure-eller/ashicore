@@ -4089,7 +4089,7 @@ async function getManufacturingOutputAllocationInTx(
             ),
             sourceLotIds.length > 0
               ? and(
-                  eq(stockAllocations.sourceType, "lot"),
+                  eq(stockAllocations.sourceType, "inventory_lot"),
                   inArray(stockAllocations.sourceId, sourceLotIds)
                 )
               : sql`FALSE`
@@ -4207,7 +4207,7 @@ async function getManufacturingOutputAllocationInTx(
             ),
             sourceLotIds.length > 0
               ? and(
-                  eq(stockAllocations.sourceType, "lot"),
+                  eq(stockAllocations.sourceType, "inventory_lot"),
                   inArray(stockAllocations.sourceId, sourceLotIds)
                 )
               : sql`FALSE`
@@ -4375,7 +4375,7 @@ export async function saveManufacturingOutputAllocation(
             ),
             sourceLotIds.length > 0
               ? and(
-                  eq(stockAllocations.sourceType, "lot"),
+                  eq(stockAllocations.sourceType, "inventory_lot"),
                   inArray(stockAllocations.sourceId, sourceLotIds)
                 )
               : sql`FALSE`
@@ -4529,7 +4529,7 @@ export async function saveManufacturingOutputAllocation(
             ),
             sourceLotIds.length > 0
               ? and(
-                  eq(stockAllocations.sourceType, "lot"),
+                  eq(stockAllocations.sourceType, "inventory_lot"),
                   inArray(stockAllocations.sourceId, sourceLotIds)
                 )
               : sql`FALSE`

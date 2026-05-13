@@ -1354,7 +1354,7 @@ test.describe("Sales write-path smoke", () => {
     expect(draftShipmentLine.quantity).toBe("4.0000");
   });
 
-  test("expanded order lines show available stock after confirmed reservations", async ({
+  test("expanded order lines do not count unallocated available stock as allocated", async ({
     page,
     db,
   }) => {
@@ -1404,7 +1404,8 @@ test.describe("Sales write-path smoke", () => {
     const expandedLine = salesOrderLineRow(page, materialName);
     await expect(expandedLine).toContainText(materialName);
     await expect(expandedLine).toContainText("150");
-    await expect(page.getByText("150 / 150 units allocated")).toBeVisible();
+    await expect(page.getByText("0 / 150 units allocated")).toBeVisible();
+    await expect(page.getByText("Remaining short: 150")).toBeVisible();
     await expect(expandedLine).not.toContainText("-200");
 
     await expandedLine
@@ -1415,6 +1416,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(sheet).toContainText("Supply · Storage");
     await expect(sheet).toContainText("Demand · Orders");
     await expect(sheet.getByTestId("current-allocation-bucket")).toContainText("150");
+    await expect(sheet.getByTestId("current-allocation-bucket")).toContainText("Short");
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
   });
@@ -1497,7 +1499,7 @@ test.describe("Sales write-path smoke", () => {
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
     const currentBucket = sheet.getByTestId("current-allocation-bucket");
-    const stockStack = sheet.getByRole("button", { name: /Allocate all from/ }).first();
+    const stockStack = sheet.getByRole("button", { name: /Allocate all from LOT-/ });
     await expect(stockStack).toBeVisible();
 
     await stockStack.click();
@@ -1582,7 +1584,7 @@ test.describe("Sales write-path smoke", () => {
         )
       );
     expect(allocations).toHaveLength(1);
-    expect(allocations[0].sourceType).toBe("lot");
+    expect(allocations[0].sourceType).toBe("inventory_lot");
     expect(Number(allocations[0].quantity)).toBe(6);
     const competingAllocations = await db
       .select()
@@ -1667,31 +1669,21 @@ test.describe("Sales write-path smoke", () => {
     );
     expect(firstAllocationResponse.status).toBe(200);
     const firstAllocation = await firstAllocationResponse.json();
-    expect(firstAllocation.targetLine.allocatedQty).toBe("70");
-    expect(firstAllocation.targetLine.shortQty).toBe("0");
-    expect(firstAllocation.targetLine.sourceSummary).toBe(
-      `70 ${allocationLot!.lotNumber}`
+    expect(firstAllocation.targetLine.allocatedQty).toBe("0");
+    expect(firstAllocation.targetLine.shortQty).toBe("70");
+    expect(firstAllocation.targetLine.sourceSummary).toBe("\u2014");
+    const firstLotSource = firstAllocation.supplySources.find(
+      (source: { sourceType: string }) => source.sourceType === "inventory_lot"
     );
-    expect(
-      firstAllocation.editableAllocations.find(
-        (allocation: { sourceType: string; sourceId: string | null }) =>
-          allocation.sourceType === "lot" &&
-          allocation.sourceId === allocationLot!.id
-      )
-    ).toMatchObject({
-      sourceType: "lot",
-      sourceId: allocationLot!.id,
-      quantity: "70",
-      coverageKind: "implicit",
-    });
+    expect(firstLotSource).toBeTruthy();
 
     const secondAllocationResponse = await testFetch(
       `/api/sales-order-lines/${lines[1].id}/allocation`
     );
     expect(secondAllocationResponse.status).toBe(200);
     const secondAllocation = await secondAllocationResponse.json();
-    expect(secondAllocation.targetLine.allocatedQty).toBe("30");
-    expect(secondAllocation.targetLine.shortQty).toBe("40");
+    expect(secondAllocation.targetLine.allocatedQty).toBe("0");
+    expect(secondAllocation.targetLine.shortQty).toBe("70");
 
     const overAllocateResponse = await testFetch(
       `/api/sales-order-lines/${lines[0].id}/allocation`,
@@ -1699,7 +1691,11 @@ test.describe("Sales write-path smoke", () => {
         method: "PUT",
         body: JSON.stringify({
           allocations: [
-            { sourceType: "stock_pool", sourceId: null, quantity: "80" },
+            {
+              sourceType: "inventory_lot",
+              sourceId: firstLotSource.sourceId,
+              quantity: "80",
+            },
           ],
         }),
       }
@@ -1783,7 +1779,7 @@ test.describe("Sales write-path smoke", () => {
     expect(allocationResponse.status).toBe(200);
     const allocationModel = await allocationResponse.json();
     const lotSource = allocationModel.supplySources.find(
-      (source: { sourceType: string }) => source.sourceType === "lot"
+      (source: { sourceType: string }) => source.sourceType === "inventory_lot"
     );
     expect(lotSource).toBeTruthy();
 
@@ -1794,11 +1790,10 @@ test.describe("Sales write-path smoke", () => {
         body: JSON.stringify({
           allocations: [
             {
-              sourceType: "lot",
+              sourceType: "inventory_lot",
               sourceId: lotSource.sourceId,
-              quantity: "10",
+              quantity: "11",
             },
-            { sourceType: "stock_pool", sourceId: null, quantity: "10" },
           ],
         }),
       }
@@ -1806,7 +1801,7 @@ test.describe("Sales write-path smoke", () => {
     expect(overAllocateResponse.status).toBe(409);
   });
 
-  test("mixed lot and stock-pool shipment consumes selected lots before FIFO", async ({
+  test("lot allocation shipment consumes selected lots before FIFO", async ({
     db,
   }) => {
     const suffix = `${ts}-LOT-SHIP`;
@@ -1821,7 +1816,7 @@ test.describe("Sales write-path smoke", () => {
       unitDefinitionId: unitId,
       sku: `FAST-LOT-SHIP-${suffix}`,
       category: `Fast Lot Ship ${suffix}`,
-      description: "Material for mixed lot and stock-pool shipping",
+      description: "Material for selected lot shipping",
       defaultPurchasePrice: "1",
       defaultSellingPrice: "10",
       stock: "10",
@@ -1848,7 +1843,7 @@ test.describe("Sales write-path smoke", () => {
     expect(allocationResponse.status).toBe(200);
     const allocationModel = await allocationResponse.json();
     const lotSource = allocationModel.supplySources.find(
-      (source: { sourceType: string }) => source.sourceType === "lot"
+      (source: { sourceType: string }) => source.sourceType === "inventory_lot"
     );
     expect(lotSource).toBeTruthy();
 
@@ -1859,11 +1854,10 @@ test.describe("Sales write-path smoke", () => {
         body: JSON.stringify({
           allocations: [
             {
-              sourceType: "lot",
+              sourceType: "inventory_lot",
               sourceId: lotSource.sourceId,
-              quantity: "5",
+              quantity: "10",
             },
-            { sourceType: "stock_pool", sourceId: null, quantity: "5" },
           ],
         }),
       }

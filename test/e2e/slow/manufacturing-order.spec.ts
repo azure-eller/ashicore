@@ -1424,14 +1424,14 @@ test.describe("Manufacturing order flow", () => {
         and(
           eq(stockAllocations.demandType, "sales_order_line"),
           eq(stockAllocations.demandId, salesLine.id),
-          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.status, "active")
         )
       );
     expect(lotHold).toMatchObject({
       demandType: "sales_order_line",
       demandId: salesLine.id,
-      sourceType: "lot",
+      sourceType: "inventory_lot",
       quantity: "100.0000",
       status: "active",
     });
@@ -2075,7 +2075,7 @@ test.describe("Manufacturing order flow", () => {
         and(
           eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
           eq(stockAllocations.demandId, downstreamIngredient.id),
-          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.status, "active")
         )
       );
@@ -2092,7 +2092,7 @@ test.describe("Manufacturing order flow", () => {
         and(
           eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
           eq(stockAllocations.demandId, downstreamIngredient.id),
-          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.status, "active")
         )
       );

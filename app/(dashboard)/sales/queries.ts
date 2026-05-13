@@ -2056,17 +2056,24 @@ type ConfirmationAllocationPlan = {
 };
 
 function allocationSourceKey(sourceType: string, sourceId: string | null) {
-  return `${sourceType}:${sourceId ?? "stock_pool"}`;
+  return `${sourceType}:${sourceId ?? ""}`;
 }
 
 async function buildConfirmationAllocationPlanInTx(
   tx: Tx,
   orgId: string,
-  orders: DraftOrderConfirmationPayload[]
+  orders: DraftOrderConfirmationPayload[],
+  itemsById: Map<string, SalesItemValidationRow>
 ): Promise<ConfirmationAllocationPlan> {
   const demandLines: ConfirmationAllocationPlan["demandLines"] = [];
   const reservationLines: ConfirmationAllocationPlan["reservationLines"] = [];
   const unmanagedLines: PreparedOrderLineBase[] = [];
+  const unmanagedAvailableByItem = new Map(
+    [...itemsById.entries()].map(([itemId, item]) => [
+      itemId,
+      Math.max(0, parseFloat(item.availableQty)),
+    ])
+  );
   const modelByItemId = new Map<
     string,
     Awaited<ReturnType<typeof getSalesAllocationReadModelForItemInTx>>
@@ -2088,11 +2095,19 @@ async function buildConfirmationAllocationPlanInTx(
 
       if (!line.allocationManagedAt) {
         unmanagedLines.push(line);
-        reservationLines.push({
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          quantity,
-        });
+        const availableQty = unmanagedAvailableByItem.get(line.itemId) ?? 0;
+        const reservationQty = Math.min(quantity, availableQty);
+        if (reservationQty > 0) {
+          reservationLines.push({
+            salesOrderLineId: line.salesOrderLineId,
+            itemId: line.itemId,
+            quantity: roundQuantity(reservationQty),
+          });
+        }
+        unmanagedAvailableByItem.set(
+          line.itemId,
+          Math.max(0, roundQuantity(availableQty - quantity))
+        );
         continue;
       }
 
@@ -2136,7 +2151,7 @@ async function buildConfirmationAllocationPlanInTx(
       }
 
       const stockQty = explicitSources
-        .filter((source) => source.sourceType === "stock_pool" || source.sourceType === "lot")
+        .filter((source) => source.sourceType === "inventory_lot")
         .reduce((sum, source) => sum + Number(source.quantity), 0);
 
       if (stockQty > 0) {
@@ -2156,7 +2171,8 @@ async function buildDraftAllocationTakeoverWarningInTx(
   tx: Tx,
   orgId: string,
   orders: DraftOrderConfirmationPayload[],
-  unmanagedLines: PreparedOrderLineBase[]
+  unmanagedLines: PreparedOrderLineBase[],
+  itemsById: Map<string, SalesItemValidationRow>
 ): Promise<DraftAllocationTakeoverWarningPayload | null> {
   const orderIds = new Set(orders.map((order) => order.id));
   const unmanagedQtyByItem = new Map<string, number>();
@@ -2170,13 +2186,54 @@ async function buildDraftAllocationTakeoverWarningInTx(
 
   if (unmanagedQtyByItem.size === 0) return null;
 
+  const orderIdSqlList = sql.join([...orderIds].map((orderId) => sql`${orderId}`), sql`, `);
+  const explicitFreeRows = await tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      quantity: trimScale(sql`
+        COALESCE(SUM(${inventoryLotBalances.quantity}), 0)
+        - COALESCE((
+          SELECT SUM(${stockAllocations.quantity})
+          FROM ${stockAllocations}
+          LEFT JOIN ${salesOrderLines} allocation_line
+            ON ${stockAllocations.demandType} = 'sales_order_line'
+           AND ${stockAllocations.demandId} = allocation_line.id
+          WHERE ${stockAllocations.organizationId} = ${orgId}
+            AND ${stockAllocations.itemId} = ${inventoryLotBalances.itemId}
+            AND ${stockAllocations.sourceType} = 'inventory_lot'
+            AND ${stockAllocations.status} = 'active'
+            AND (
+              allocation_line.sales_order_id IS NULL
+              OR allocation_line.sales_order_id NOT IN (${orderIdSqlList})
+            )
+        ), 0)
+      `).as("quantity"),
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, orgId),
+        eq(inventoryLotBalances.disposition, "available"),
+        inArray(inventoryLotBalances.itemId, [...unmanagedQtyByItem.keys()])
+      )
+    )
+    .groupBy(inventoryLotBalances.itemId);
+  const explicitFreeQtyByItem = new Map(
+    explicitFreeRows.map((row) => [
+      row.itemId,
+      Math.max(0, parseFloat(row.quantity)),
+    ])
+  );
+
   const takeoverQtyByItem = new Map<string, number>();
-  for (const [itemId, quantity] of unmanagedQtyByItem) {
-    const model = await getSalesAllocationReadModelForItemInTx(tx, orgId, itemId);
-    const stock = model.supplySources.find((source) => source.sourceType === "stock_pool");
-    const freeQty = Number(stock?.freeQty ?? 0);
-    const takeoverQty = Math.max(0, roundQuantity(quantity - freeQty));
-    if (takeoverQty > 0) takeoverQtyByItem.set(itemId, takeoverQty);
+  for (const [itemId, unmanagedQty] of unmanagedQtyByItem.entries()) {
+    const availableQty = Math.max(0, parseFloat(itemsById.get(itemId)?.availableQty ?? "0"));
+    const explicitFreeQty = explicitFreeQtyByItem.get(itemId) ?? 0;
+    const freeQty = Math.min(availableQty, explicitFreeQty);
+    const takeoverQty = roundQuantity(Math.max(0, unmanagedQty - freeQty));
+    if (takeoverQty > 0) {
+      takeoverQtyByItem.set(itemId, takeoverQty);
+    }
   }
 
   if (takeoverQtyByItem.size === 0) return null;
@@ -2203,7 +2260,7 @@ async function buildDraftAllocationTakeoverWarningInTx(
       and(
         eq(stockAllocations.organizationId, orgId),
         eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.sourceType, "stock_pool"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
         eq(stockAllocations.status, "active"),
         eq(salesOrders.status, "draft"),
         isNull(salesOrders.deletedAt),
@@ -2255,7 +2312,7 @@ async function applyDraftAllocationTakeoverInTx(
           eq(stockAllocations.organizationId, orgId),
           eq(stockAllocations.demandType, "sales_order_line"),
           eq(stockAllocations.demandId, allocation.salesOrderLineId),
-          eq(stockAllocations.sourceType, "stock_pool"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.status, "active")
         )
       )
@@ -6758,7 +6815,7 @@ export async function confirmSalesOrder(
       { lockItems: true }
     );
     const [order] = orders;
-    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders);
+    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders, itemsById);
 
     if (!confirmOversell) {
       const oversell = await buildOversellWarning(plan.unmanagedLines, itemsById);
@@ -6776,7 +6833,8 @@ export async function confirmSalesOrder(
       tx,
       orgId,
       orders,
-      plan.unmanagedLines
+      plan.unmanagedLines,
+      itemsById
     );
     if (takeover && !confirmDraftAllocationTakeover) {
       throw new SalesError(
@@ -6855,7 +6913,7 @@ export async function bulkConfirmSalesOrders(
       return result;
     }
 
-    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders);
+    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders, itemsById);
 
     if (!payload.confirmOversell) {
       const bulkOversell = await buildBulkOversellWarning(
@@ -6883,7 +6941,8 @@ export async function bulkConfirmSalesOrders(
       tx,
       orgId,
       orders,
-      plan.unmanagedLines
+      plan.unmanagedLines,
+      itemsById
     );
     if (takeover && payload.confirmDraftAllocationTakeover !== true) {
       throw new SalesError(

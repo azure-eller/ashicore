@@ -265,8 +265,8 @@ export type SalesOrderListShipment = {
   lineCount: number;
 };
 
-export type SalesAllocationCoverageKind = "explicit" | "implicit";
-export type SalesAllocationSourceType = "stock_pool" | "lot" | "manufacturing_order";
+export type SalesAllocationCoverageKind = "explicit";
+export type SalesAllocationSourceType = "inventory_lot" | "manufacturing_order";
 
 export type SalesAllocationLineSummary = {
   salesOrderLineId: string;

@@ -1602,7 +1602,7 @@ export async function getLots(itemId: string) {
       .where(
         and(
           eq(stockAllocations.demandType, "sales_order_line"),
-          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.status, "active"),
           eq(stockAllocations.itemId, itemId),
           isNull(salesOrders.deletedAt)

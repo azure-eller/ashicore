@@ -5,6 +5,7 @@ import {
   inventoryDemandSummary,
   inventoryItemBalances,
   inventoryReservationsSummary,
+  lots,
   manufacturingOrders,
   stockAllocations,
   salesOrderLines,
@@ -12,10 +13,12 @@ import {
 } from "../../../lib/db/schema";
 import {
   createCustomer,
+  completeManufacturingOrder,
   createItem,
   createManufacturingOrder,
   createSalesOrder,
   getUnitId,
+  releaseManufacturingOrder,
   testFetch,
 } from "../../helpers/api";
 import type { TestDb } from "../fixtures";
@@ -155,6 +158,17 @@ async function getActiveAllocations(db: TestDb, salesOrderLineId: string) {
     .orderBy(asc(stockAllocations.createdAt));
 }
 
+async function getFirstLotId(db: TestDb, itemId: string) {
+  const [lot] = await db
+    .select({ id: lots.id })
+    .from(lots)
+    .where(eq(lots.itemId, itemId))
+    .orderBy(asc(lots.receivedAt), asc(lots.createdAt), asc(lots.lotNumber), asc(lots.id));
+
+  expect(lot?.id).toBeTruthy();
+  return lot.id;
+}
+
 async function getItemBalance(db: TestDb, itemId: string) {
   const [balance] = await db
     .select({
@@ -246,6 +260,27 @@ async function saveAllocation(page: Page) {
   });
 }
 
+async function pickAllManufacturingIngredients(orderId: string) {
+  const executionResponse = await testFetch(`/api/manufacturing-orders/${orderId}/execution`);
+  const executionBody = await executionResponse.json().catch(() => null);
+
+  expect(executionResponse.status).toBe(200);
+
+  for (const ingredient of executionBody?.ingredients ?? []) {
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      }
+    );
+    const pickBody = await pickResponse.json().catch(() => null);
+
+    expect(pickResponse.status).toBe(200);
+    expect(pickBody?.id).toBe(ingredient.id);
+  }
+}
+
 test.describe("Sales allocation manager slow flow", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -283,12 +318,13 @@ test.describe("Sales allocation manager slow flow", () => {
       .getByTestId("readonly-allocation-bucket")
       .filter({ hasText: competingOrderNumber });
 
-    await sheet.getByRole("button", { name: /Allocate all from/ }).first().click();
+    await sheet.getByRole("button", { name: /Allocate all from LOT-/ }).click();
     await currentBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*6/);
     await expect(currentBucket).toContainText(/Short\s*—/);
 
-    await currentBucket.getByLabel(/Move 5 from/).click();
+    await page.keyboard.press("Escape");
+    await currentBucket.click();
     await competingBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*1/);
     await expect(currentBucket).toContainText(/Short\s*5/);
@@ -299,6 +335,7 @@ test.describe("Sales allocation manager slow flow", () => {
 
     const currentLine = await getLine(db, currentOrderId);
     const competingLine = await getLine(db, competingOrderId);
+    const lotId = await getFirstLotId(db, item.id);
 
     await expect
       .poll(async () => {
@@ -311,17 +348,17 @@ test.describe("Sales allocation manager slow flow", () => {
           competingManaged: refreshedCompetingLine.allocationManagedAt != null,
           current: currentAllocations
             .filter((row) => row.status === "active")
-            .map((row) => `${row.sourceType}:${row.quantity}`),
+            .map((row) => `${row.sourceType}:${row.sourceId}:${row.quantity}`),
           competing: competingAllocations
             .filter((row) => row.status === "active")
-            .map((row) => `${row.sourceType}:${row.quantity}`),
+            .map((row) => `${row.sourceType}:${row.sourceId}:${row.quantity}`),
         };
       })
       .toEqual({
         currentManaged: true,
         competingManaged: true,
-        current: ["lot:1.0000"],
-        competing: ["lot:5.0000"],
+        current: [`inventory_lot:${lotId}:1.0000`],
+        competing: [`inventory_lot:${lotId}:5.0000`],
       });
 
     const draftBalance = await getItemBalance(db, item.id);
@@ -454,6 +491,38 @@ test.describe("Sales allocation manager slow flow", () => {
         reservation: "0",
         demandSummary: "8.0000",
       });
+
+    const releaseResult = await releaseManufacturingOrder(manufacturingOrderId);
+    expect(releaseResult.status).toBe(200);
+    await pickAllManufacturingIngredients(manufacturingOrderId);
+    const completeResult = await completeManufacturingOrder(manufacturingOrderId, "8");
+    expect(completeResult.status).toBe(200);
+
+    await expect
+      .poll(async () => {
+        const materializedAllocations = await getActiveAllocations(db, line.id);
+        const balance = await getItemBalance(db, fixture.productId);
+        return {
+          allocationSources: materializedAllocations
+            .filter((row) => row.status === "active")
+            .map((row) => `${row.sourceType}:${row.quantity}`),
+          onHand: balance.onHandQty,
+          committed: balance.committedQty,
+          demand: balance.demandQty,
+          shortage: balance.shortageQty,
+          reservation: await getReservationTotal(db, fixture.productId),
+          demandSummary: await getDemandTotal(db, fixture.productId),
+        };
+      })
+      .toEqual({
+        allocationSources: ["inventory_lot:8.0000"],
+        onHand: "28.0000",
+        committed: "8.0000",
+        demand: "8.0000",
+        shortage: "0.0000",
+        reservation: "8.0000",
+        demandSummary: "8.0000",
+      });
   });
 
   test("unmanaged confirmation warns before taking draft stock allocations", async ({
@@ -478,6 +547,7 @@ test.describe("Sales allocation manager slow flow", () => {
     });
     const draftHeldLine = await getLine(db, draftHeldOrderId);
     const unmanagedOrderNumber = await getOrderNumber(db, unmanagedOrderId);
+    const lotId = await getFirstLotId(db, item.id);
 
     const allocationResponse = await testFetch(
       `/api/sales-order-lines/${draftHeldLine.id}/allocation`,
@@ -485,7 +555,7 @@ test.describe("Sales allocation manager slow flow", () => {
         method: "PUT",
         body: JSON.stringify({
           allocations: [
-            { sourceType: "stock_pool", sourceId: null, quantity: "8" },
+            { sourceType: "inventory_lot", sourceId: lotId, quantity: "8" },
           ],
         }),
       }
@@ -562,6 +632,74 @@ test.describe("Sales allocation manager slow flow", () => {
     });
   });
 
+  test("unmanaged confirmation does not take draft allocations when free stock covers it", async ({
+    db,
+  }) => {
+    const customerId = await createCustomerFixture("Slow allocation free stock customer");
+    const item = await createMaterialFixture({
+      namePrefix: "Slow allocation free stock item",
+      stock: "20",
+    });
+    const draftHeldOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "8",
+      shipDate: "2026-05-25",
+    });
+    const unmanagedOrderId = await createDraftOrder({
+      customerId,
+      itemId: item.id,
+      quantity: "10",
+      shipDate: "2026-05-26",
+    });
+    const draftHeldLine = await getLine(db, draftHeldOrderId);
+    const lotId = await getFirstLotId(db, item.id);
+
+    const allocationResponse = await testFetch(
+      `/api/sales-order-lines/${draftHeldLine.id}/allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          allocations: [
+            { sourceType: "inventory_lot", sourceId: lotId, quantity: "8" },
+          ],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+
+    const confirmResult = await confirmOrder(unmanagedOrderId);
+    expect(confirmResult.status).toBe(200);
+
+    expect(await getActiveAllocations(db, draftHeldLine.id)).toMatchObject([
+      {
+        sourceType: "inventory_lot",
+        sourceId: lotId,
+        quantity: "8.0000",
+        status: "active",
+      },
+    ]);
+
+    await expect
+      .poll(async () => {
+        const balance = await getItemBalance(db, item.id);
+        return {
+          committed: balance.committedQty,
+          demand: balance.demandQty,
+          shortage: balance.shortageQty,
+          reservation: await getReservationTotal(db, item.id),
+          demandSummary: await getDemandTotal(db, item.id),
+        };
+      })
+      .toEqual({
+        committed: "10.0000",
+        demand: "10.0000",
+        shortage: "0.0000",
+        reservation: "10.0000",
+        demandSummary: "10.0000",
+      });
+  });
+
   test("source over-allocation is rejected without changing prior allocations", async ({
     db,
   }) => {
@@ -582,6 +720,7 @@ test.describe("Sales allocation manager slow flow", () => {
     });
     const firstLine = await getLine(db, firstOrderId);
     const secondLine = await getLine(db, secondOrderId);
+    const lotId = await getFirstLotId(db, item.id);
 
     const firstAllocation = await testFetch(
       `/api/sales-order-lines/${firstLine.id}/allocation`,
@@ -589,7 +728,7 @@ test.describe("Sales allocation manager slow flow", () => {
         method: "PUT",
         body: JSON.stringify({
           allocations: [
-            { sourceType: "stock_pool", sourceId: null, quantity: "5" },
+            { sourceType: "inventory_lot", sourceId: lotId, quantity: "5" },
           ],
         }),
       }
@@ -602,19 +741,19 @@ test.describe("Sales allocation manager slow flow", () => {
         method: "PUT",
         body: JSON.stringify({
           allocations: [
-            { sourceType: "stock_pool", sourceId: null, quantity: "1" },
+            { sourceType: "inventory_lot", sourceId: lotId, quantity: "1" },
           ],
         }),
       }
     );
     expect(invalidAllocation.status).toBe(409);
     const invalidAllocationBody = await invalidAllocation.json();
-    expect(invalidAllocationBody.error).toMatch(/0 free stock/i);
+    expect(invalidAllocationBody.error).toMatch(/only has 0/i);
 
     expect(await getActiveAllocations(db, firstLine.id)).toMatchObject([
       {
-        sourceType: "stock_pool",
-        sourceId: null,
+        sourceType: "inventory_lot",
+        sourceId: lotId,
         quantity: "5.0000",
         status: "active",
       },
@@ -640,6 +779,7 @@ test.describe("Sales allocation manager slow flow", () => {
       quantity: "6",
     });
     const originalLine = await getLine(db, orderId);
+    const lotId = await getFirstLotId(db, item.id);
 
     const allocationResponse = await testFetch(
       `/api/sales-order-lines/${originalLine.id}/allocation`,
@@ -647,7 +787,7 @@ test.describe("Sales allocation manager slow flow", () => {
         method: "PUT",
         body: JSON.stringify({
           allocations: [
-            { sourceType: "stock_pool", sourceId: null, quantity: "4" },
+            { sourceType: "inventory_lot", sourceId: lotId, quantity: "4" },
           ],
         }),
       }

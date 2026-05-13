@@ -2,15 +2,20 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
   inventoryLotBalances,
+  inventoryReservationsSummary,
   manufacturingOrderIngredients,
   manufacturingOrderOutputs,
+  salesOrders,
   salesOrderLines,
+  salesShipmentLines,
+  salesShipments,
   stockAllocations,
   STOCK_ALLOCATION_DEMAND_TYPES,
   type StockAllocationDemandType,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import { applyReservationReferenceDeltasInTx } from "./common";
 import { consumeSpecificLotInTx } from "./stock-core";
 
 function quantityString(value: number) {
@@ -86,7 +91,7 @@ async function insertOrIncreaseLotAllocationInTx(
         eq(stockAllocations.demandType, params.demandType),
         eq(stockAllocations.demandId, params.demandId),
         eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "lot"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
         eq(stockAllocations.sourceId, params.lotId),
         eq(stockAllocations.status, "active")
       )
@@ -111,7 +116,7 @@ async function insertOrIncreaseLotAllocationInTx(
     demandType: params.demandType,
     demandId: params.demandId,
     itemId: params.itemId,
-    sourceType: "lot",
+    sourceType: "inventory_lot",
     sourceId: params.lotId,
     quantity: quantityString(params.quantity),
     status: "active",
@@ -140,12 +145,77 @@ async function getActiveLotAllocationQtyForDemandInTx(
         eq(stockAllocations.demandType, params.demandType),
         eq(stockAllocations.demandId, params.demandId),
         eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "lot"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
         eq(stockAllocations.status, "active")
       )
     );
 
   return roundQuantity(parseFloat(row?.quantity ?? "0"));
+}
+
+async function syncSalesLineStockReservationFromLotAllocationsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    salesOrderLineId: string;
+    itemId: string;
+    actorUserId?: string | null;
+  }
+) {
+  const [line] = await tx
+    .select({
+      status: salesOrders.status,
+    })
+    .from(salesOrderLines)
+    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+    .where(
+      and(
+        eq(salesOrderLines.id, params.salesOrderLineId),
+        eq(salesOrderLines.itemId, params.itemId)
+      )
+    );
+
+  if (line?.status !== "confirmed" && line?.status !== "partially_shipped") {
+    return;
+  }
+
+  const inventoryLotAllocationQty = await getActiveLotAllocationQtyForDemandInTx(tx, {
+    organizationId: params.organizationId,
+    demandType: "sales_order_line",
+    demandId: params.salesOrderLineId,
+    itemId: params.itemId,
+  });
+
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const [existingReservation] = await tx
+    .select({ quantity: inventoryReservationsSummary.quantity })
+    .from(inventoryReservationsSummary)
+    .where(
+      and(
+        eq(inventoryReservationsSummary.organizationId, params.organizationId),
+        eq(inventoryReservationsSummary.locationId, location.id),
+        eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+        eq(inventoryReservationsSummary.referenceId, params.salesOrderLineId)
+      )
+    );
+  const currentQty = roundQuantity(parseFloat(existingReservation?.quantity ?? "0"));
+  const deltaQty = roundQuantity(inventoryLotAllocationQty - currentQty);
+  if (deltaQty === 0) return;
+
+  await applyReservationReferenceDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    actorUserId: params.actorUserId ?? null,
+    eventSubtype: "sales_allocation",
+    deltas: [
+      {
+        itemId: params.itemId,
+        referenceType: "sales_order_line",
+        referenceId: params.salesOrderLineId,
+        quantity: deltaQty,
+      },
+    ],
+  });
 }
 
 async function getOpenDemandQtyForAllocationInTx(
@@ -162,19 +232,8 @@ async function getOpenDemandQtyForAllocationInTx(
   if (params.demandType === "sales_order_line") {
     const [line] = await tx
       .select({
-        remainingQty: sql<string>`GREATEST(
-          ${salesOrderLines.quantity}
-          - ${salesOrderLines.cancelledQuantity}
-          - COALESCE((
-            SELECT SUM(shipment_lines."quantity")
-            FROM "sales"."sales_shipment_lines" shipment_lines
-            INNER JOIN "sales"."sales_shipments" shipments
-              ON shipments."id" = shipment_lines."sales_shipment_id"
-            WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
-              AND shipments."status" = 'shipped'
-          ), 0),
-          0
-        )`,
+        quantity: salesOrderLines.quantity,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
       })
       .from(salesOrderLines)
       .where(
@@ -185,7 +244,27 @@ async function getOpenDemandQtyForAllocationInTx(
       )
       .for("update");
 
-    baseRemainingQty = roundQuantity(parseFloat(line?.remainingQty ?? "0"));
+    const [shipped] = await tx
+      .select({
+        quantity: sql<string>`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(salesShipments, eq(salesShipments.id, salesShipmentLines.salesShipmentId))
+      .where(
+        and(
+          eq(salesShipmentLines.salesOrderLineId, params.demandId),
+          eq(salesShipments.status, "shipped")
+        )
+      );
+
+    baseRemainingQty = roundQuantity(
+      Math.max(
+        0,
+        parseFloat(line?.quantity ?? "0") -
+          parseFloat(line?.cancelledQuantity ?? "0") -
+          parseFloat(shipped?.quantity ?? "0")
+      )
+    );
   } else if (params.demandType === "manufacturing_order_ingredient") {
     const [ingredient] = await tx
       .select({
@@ -239,7 +318,7 @@ export async function getUnavailableLotAllocationQtyByLotIdInTx(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
         eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "lot"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
         eq(stockAllocations.status, "active")
       )
     );
@@ -296,7 +375,7 @@ export async function consumeLotAllocationsForDemandInTx(
         eq(stockAllocations.demandType, params.demandType),
         eq(stockAllocations.demandId, params.demandId),
         eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "lot"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
         eq(stockAllocations.status, "active")
       )
     )
@@ -387,6 +466,7 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
     )
     .orderBy(asc(stockAllocations.createdAt), asc(stockAllocations.id))
     .for("update");
+  const salesLinesToSync = new Set<string>();
 
   for (const promise of promises) {
     if (remainingOutputQty <= 0) break;
@@ -416,6 +496,10 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
         actorUserId: params.actorUserId ?? null,
       });
 
+      if (demandType === "sales_order_line") {
+        salesLinesToSync.add(promise.demandId);
+      }
+
       await reduceOrCloseAllocationInTx(tx, {
         allocationId: promise.id,
         currentQuantity: promise.quantity,
@@ -443,6 +527,15 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
     }
 
     remainingOutputQty = roundQuantity(remainingOutputQty - holdQty);
+  }
+
+  for (const salesOrderLineId of salesLinesToSync) {
+    await syncSalesLineStockReservationFromLotAllocationsInTx(tx, {
+      organizationId: params.organizationId,
+      salesOrderLineId,
+      itemId: params.itemId,
+      actorUserId: params.actorUserId ?? null,
+    });
   }
 }
 
@@ -488,7 +581,7 @@ export async function materializeManufacturingOrderSourceAllocationsFromExisting
         and(
           eq(stockAllocations.organizationId, params.organizationId),
           eq(stockAllocations.itemId, params.itemId),
-          eq(stockAllocations.sourceType, "lot"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.sourceId, output.lotId),
           eq(stockAllocations.status, "active")
         )
@@ -531,7 +624,7 @@ export async function cancelActiveStockAllocationsInTx(
     actorUserId?: string | null;
     demandType?: StockAllocationDemandType;
     demandIds?: string[];
-    sourceType?: "stock_pool" | "lot" | "manufacturing_order";
+    sourceType?: "inventory_lot" | "manufacturing_order";
     sourceId?: string | null;
   }
 ) {

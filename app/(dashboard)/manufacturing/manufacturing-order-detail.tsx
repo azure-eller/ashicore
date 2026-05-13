@@ -64,7 +64,7 @@ import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from "./types";
-import { AllocationSheet } from "../sales/allocation-sheet";
+import { AllocationManagerSheet } from "@/components/allocation-manager/allocation-manager-sheet";
 
 type ManufacturingIngredient =
   ManufacturingOrderDetailType["ingredients"][number];
@@ -288,7 +288,7 @@ function OutputAllocationSection({
         )}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
-      <AllocationSheet
+      <AllocationManagerSheet
         lineId={null}
         open={sheetOpen}
         onOpenChange={(nextOpen) => {
@@ -310,9 +310,11 @@ function OutputAllocationSection({
 function IngredientTableRow({
   ingredient,
   canReorder,
+  onAllocate,
 }: {
   ingredient: ManufacturingIngredient;
   canReorder: boolean;
+  onAllocate: (ingredientId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, style } = useSortableReorderItem(
     ingredient.id
@@ -358,6 +360,16 @@ function IngredientTableRow({
           ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
           : "\u2014"}
       </TableCell>
+      <TableCell className="text-right">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onAllocate(ingredient.id)}
+        >
+          Allocate
+        </Button>
+      </TableCell>
     </TableRow>
   );
 }
@@ -373,6 +385,7 @@ function IngredientsTable({
   const [savedIngredientIds, setSavedIngredientIds] = useState(initialIngredientIds);
   const [ingredients, setIngredients] = useState(order.ingredients);
   const [error, setError] = useState<string | null>(null);
+  const [allocationIngredientId, setAllocationIngredientId] = useState<string | null>(null);
   const canReorder =
     order.status === "draft" ||
     (order.status === "released" && order.manufacturingMode !== "batch");
@@ -450,6 +463,7 @@ function IngredientsTable({
             <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
           </TableHead>
           <TableHead>Requirements</TableHead>
+          <TableHead className="text-right">Allocation</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -458,6 +472,7 @@ function IngredientsTable({
             key={ingredient.id}
             ingredient={ingredient}
             canReorder={canReorder}
+            onAllocate={setAllocationIngredientId}
           />
         ))}
       </TableBody>
@@ -492,6 +507,23 @@ function IngredientsTable({
           ingredientsTable
         )}
       </div>
+      <AllocationManagerSheet
+        open={allocationIngredientId != null}
+        onOpenChange={(open) => {
+          if (!open) setAllocationIngredientId(null);
+        }}
+        demandRef={
+          allocationIngredientId == null
+            ? undefined
+            : {
+                demandType: "manufacturing_order_ingredient",
+                demandId: allocationIngredientId,
+              }
+        }
+        onSaved={() => {
+          void onUpdated();
+        }}
+      />
     </div>
   );
 }

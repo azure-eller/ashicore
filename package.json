@@ -20,6 +20,7 @@
     "diff:projections": "tsx scripts/diff-projections.ts",
     "verify:inventory-state": "tsx scripts/verify-inventory-state.ts",
     "verify:inventory-kernel": "tsx scripts/verify-inventory-kernel.ts",
+    "audit:stock-allocations": "tsx scripts/audit-stock-allocations.ts",
     "verify:opening-stock-conversion": "tsx scripts/verify-opening-stock-conversion.ts",
     "verify:paonia-loader-data": "tsx scripts/verify-paonia-loader-data.ts",
     "verify:paonia-katana-skus": "tsx scripts/verify-paonia-katana-skus.ts",
