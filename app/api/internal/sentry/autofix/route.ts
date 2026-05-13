@@ -13,7 +13,16 @@ export const runtime = "nodejs";
 
 export const POST = apiHandler(async (request: Request) => {
   const body = await request.text();
-  const config = getSentryAutofixConfig();
+  let config: ReturnType<typeof getSentryAutofixConfig>;
+
+  try {
+    config = getSentryAutofixConfig();
+  } catch (error) {
+    if (error instanceof SentryAutofixError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    throw error;
+  }
 
   if (
     !verifySentryAutofixRequest({

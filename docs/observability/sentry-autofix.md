@@ -55,6 +55,10 @@ curl -X POST https://ashicore.app/api/internal/sentry/autofix \
 
 Expected result: a draft PR in the routed repo, a `.autofix/sentry/<issueId>.md` marker commit, a Sentry Autofix Packet in the PR body, and an `@codex` handoff comment.
 
+The intake route is intentionally exempt from Better Auth session redirects in
+`proxy.ts`; the route still rejects unauthenticated requests with the configured
+Sentry webhook secret.
+
 ## Dedupe
 
 The intake dedupes by GitHub PR search for `Sentry issue ID: <id>` in the target repo.

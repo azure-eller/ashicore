@@ -46,6 +46,24 @@ function isDevelopmentRoute(pathname: string) {
   return process.env.VERCEL_ENV !== "production" && pathname.startsWith("/dev/");
 }
 
+function isPublicRoute(pathname: string) {
+  return (
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/monitoring") ||
+    pathname.startsWith("/api/auth") ||
+    pathname === "/api/internal/sentry/autofix" ||
+    pathname === "/android" ||
+    pathname.startsWith("/downloads/") ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
+    pathname === "/sign-in" ||
+    pathname === "/sign-up" ||
+    pathname === "/accept-invitation" ||
+    isDevelopmentRoute(pathname)
+  );
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const requestId = request.headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID();
@@ -83,20 +101,7 @@ export function proxy(request: NextRequest) {
 
   let response: NextResponse;
 
-  if (
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico" ||
-    pathname.startsWith("/monitoring") ||
-    pathname.startsWith("/api/auth") ||
-    pathname === "/android" ||
-    pathname.startsWith("/downloads/") ||
-    pathname === "/forgot-password" ||
-    pathname === "/reset-password" ||
-    pathname === "/sign-in" ||
-    pathname === "/sign-up" ||
-    pathname === "/accept-invitation" ||
-    isDevelopmentRoute(pathname)
-  ) {
+  if (isPublicRoute(pathname)) {
     response = NextResponse.next({
       request: {
         headers: forwardedHeaders,
