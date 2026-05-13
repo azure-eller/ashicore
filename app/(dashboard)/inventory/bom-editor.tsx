@@ -1,21 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
-import { useFieldArray, useWatch, Controller, type Control } from "react-hook-form";
-import { Button } from "@/components/ui/button";
+import { useWatch, Controller, type Control } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import {
-  EditableLineGrid,
   EditableLineGridCell,
+  EditableLineGridRemoveButton,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { EditableLineItems } from "@/components/editable-line-items";
 import {
   SortableDragHandle,
-  SortableReorder,
   useSortableReorderItem,
 } from "@/components/sortable-reorder";
 import type {
@@ -34,7 +31,24 @@ type AvailableComponent = {
 type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
 
 const BOM_LINE_GRID_COLUMNS =
-  "2.5rem minmax(16rem, 1fr) 8rem 7rem 6rem 2.5rem";
+  "2.25rem minmax(14rem, 1.4fr) minmax(6rem, 0.65fr) minmax(6.5rem, 0.6fr) minmax(5.5rem, 0.5fr) 2.25rem";
+
+const blankBomLine = {
+  componentId: "",
+  quantity: null,
+  minimumLotAgeDays: null,
+  alternates: [],
+};
+
+function isBlankBomLine(
+  line: NonNullable<ItemFormValues["bom"]>[number] | undefined
+) {
+  const componentId = line?.componentId?.trim() ?? "";
+  const quantity = line?.quantity?.trim() ?? "";
+  const minimumLotAgeDays =
+    line?.minimumLotAgeDays == null ? "" : String(line.minimumLotAgeDays).trim();
+  return componentId === "" && quantity === "" && minimumLotAgeDays === "";
+}
 
 interface BomEditorProps {
   control: Control<ItemFormValues>;
@@ -44,11 +58,6 @@ interface BomEditorProps {
 
 export function BomEditor({ control, availableComponents, manufacturingMode = "discrete" }: BomEditorProps) {
   const isBatch = manufacturingMode === "batch";
-  const { fields, append, move, remove } = useFieldArray({
-    control,
-    name: "bom",
-  });
-
   const componentMap = useMemo(
     () => new Map(availableComponents.map((c) => [c.id, c])),
     [availableComponents]
@@ -64,61 +73,33 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
 
   return (
     <div className="flex w-full flex-col gap-6">
-      {fields.length > 0 ? (
-        <SortableReorder
-          ids={fields.map((field) => field.id)}
-          onMove={(fromIndex, toIndex) => move(fromIndex, toIndex)}
-        >
-          <EditableLineGrid
-            columns={BOM_LINE_GRID_COLUMNS}
-            minWidth="42rem"
-            headers={[
-              <span key="reorder" />,
-              "Component",
-              isBatch ? "Qty / Batch" : "Qty",
-              "Min Age",
-              "Unit",
-              <span key="actions" />,
-            ]}
-          >
-            {fields.map((field, index) => (
-              <BomRow
-                key={field.id}
-                lineKey={field.id}
-                index={index}
-                control={control}
-                componentOptions={componentOptions}
-                componentMap={componentMap}
-                onRemove={() => remove(index)}
-              />
-            ))}
-          </EditableLineGrid>
-        </SortableReorder>
-      ) : (
-        <div className="rounded-lg border border-dashed px-4 py-6">
-          <p className="text-sm text-muted-foreground">
-            {isBatch
-              ? "Add ingredients to define what goes into one batch of this product."
-              : "Add ingredients to define what goes into one unit of this product."}
-          </p>
-        </div>
-      )}
-
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() =>
-          append({
-            componentId: "",
-            quantity: null,
-            minimumLotAgeDays: null,
-            alternates: [],
-          })
-        }
-      >
-        + Add Ingredient
-      </Button>
+      <EditableLineItems<ItemFormValues, "bom">
+        control={control}
+        name="bom"
+        columns={BOM_LINE_GRID_COLUMNS}
+        minWidth="40rem"
+        blankLine={blankBomLine}
+        isBlankLine={isBlankBomLine}
+        headers={[
+          <span key="reorder" />,
+          "Component",
+          isBatch ? "Qty / Batch" : "Qty",
+          "Min Age",
+          "Unit",
+          <span key="actions" />,
+        ]}
+        renderRow={({ field, index, remove }) => (
+          <BomRow
+            key={field.id}
+            lineKey={field.id}
+            index={index}
+            control={control}
+            componentOptions={componentOptions}
+            componentMap={componentMap}
+            onRemove={remove}
+          />
+        )}
+      />
     </div>
   );
 }
@@ -145,7 +126,17 @@ function BomRow({
     useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} data-testid="bom-row" style={style}>
+    <EditableLineGridRow
+      ref={setNodeRef}
+      data-testid="bom-row"
+      style={style}
+      aria-label={[
+        selectedComponent?.name,
+        selectedComponent?.unit,
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(" ")}
+    >
       <EditableLineGridCell align="center">
         <SortableDragHandle
           attributes={attributes}
@@ -250,15 +241,7 @@ function BomRow({
         </div>
       </EditableLineGridCell>
       <EditableLineGridCell>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={onRemove}
-          className="text-muted-foreground"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-        </Button>
+        <EditableLineGridRemoveButton onClick={onRemove} />
       </EditableLineGridCell>
     </EditableLineGridRow>
   );

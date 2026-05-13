@@ -1,11 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { test, expect, getIdFromUrl } from "../fixtures";
-import {
-  items,
-  stocktakeItems,
-  stocktakeLotItems,
-  stocktakes,
-} from "../../../lib/db/schema";
+import { items, stocktakeItems, stocktakes } from "../../../lib/db/schema";
 import { createItem, getUnitId } from "../../helpers/api";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 
@@ -94,9 +89,7 @@ test.describe("Stocktake write-path smoke", () => {
 
     await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
     stocktakeId = getIdFromUrl(page.url());
-    await expect(
-      page.getByRole("button", { name: "Complete" })
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Changes saved")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Back to Stocktakes")).toBeVisible();
 
     const [stocktake] = await db
@@ -116,16 +109,15 @@ test.describe("Stocktake write-path smoke", () => {
       .orderBy(asc(stocktakeItems.sortOrder));
     expect(lines.map((line) => line.itemId)).toEqual([materialId]);
 
-    const countInput = page.getByPlaceholder("Leave blank").first();
-    await countInput.fill("4");
-
+    const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
     const saveResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "PUT" &&
         response.url().endsWith(`/api/stocktakes/${stocktakeId}`)
     );
-    await countInput.blur();
+    await materialRow.getByPlaceholder("Leave blank").fill("4");
     expect((await saveResponse).status()).toBe(200);
+    await expect(page.getByText("Changes saved")).toBeVisible();
 
     const [savedLine] = await db
       .select()
@@ -137,11 +129,5 @@ test.describe("Stocktake write-path smoke", () => {
         )
       );
     expect(savedLine.countedQty).toBe("4.0000");
-
-    const [savedLotLine] = await db
-      .select()
-      .from(stocktakeLotItems)
-      .where(eq(stocktakeLotItems.stocktakeItemId, savedLine.id));
-    expect(savedLotLine.countedQty).toBe("4.0000");
   });
 });

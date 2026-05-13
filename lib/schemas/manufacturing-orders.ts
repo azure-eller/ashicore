@@ -36,6 +36,46 @@ const ingredientRowSchema = z.object({
   quantityPerUnit: positiveDecimalString("Quantity per unit"),
 });
 
+const rawIngredientRowSchema = z.object({
+  itemId: z.string().nullable().optional(),
+  quantityPerUnit: z.string().nullable().optional(),
+});
+
+function isBlankIngredientRow(row: z.input<typeof rawIngredientRowSchema>) {
+  const itemId = row.itemId?.trim() ?? "";
+  const quantityPerUnit = row.quantityPerUnit?.trim() ?? "";
+  return itemId === "" && quantityPerUnit === "";
+}
+
+const cleanedIngredientRowsSchema = z
+  .array(rawIngredientRowSchema)
+  .transform((rows, ctx) => {
+    const cleanedRows: Array<z.infer<typeof ingredientRowSchema>> = [];
+
+    rows.forEach((row, index) => {
+      if (isBlankIngredientRow(row)) return;
+
+      const parsed = ingredientRowSchema.safeParse({
+        itemId: row.itemId ?? "",
+        quantityPerUnit: row.quantityPerUnit ?? null,
+      });
+
+      if (!parsed.success) {
+        parsed.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            ...issue,
+            path: [index, ...issue.path],
+          });
+        });
+        return;
+      }
+
+      cleanedRows.push(parsed.data);
+    });
+
+    return cleanedRows;
+  });
+
 const priorityRankSchema = z
   .union([
     z.number().int("Priority rank must be a whole number").positive("Priority rank must be positive"),
@@ -50,9 +90,8 @@ const priorityRankSchema = z
   .transform((value) => value ?? null)
   .refine((value) => value == null || value > 0, "Priority rank must be positive");
 
-const ingredientsSchema = z
-  .array(ingredientRowSchema)
-  .min(1, "At least one ingredient is required")
+const ingredientsSchema = cleanedIngredientRowsSchema
+  .refine((rows) => rows.length >= 1, "At least one ingredient is required")
   .superRefine((rows, ctx) => {
     const seen = new Set<string>();
 
@@ -125,7 +164,7 @@ export const manufacturingOrderCreateFormSchema = z
       "Planned date must be a real date in YYYY-MM-DD format"
     ),
     notes: nullableString,
-    ingredients: z.array(ingredientRowSchema),
+    ingredients: cleanedIngredientRowsSchema,
     confirmShortage: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {

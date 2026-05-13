@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -45,6 +45,7 @@ import {
 import {
   EditableLineGrid,
   EditableLineGridCell,
+  EditableLineGridRemoveButton,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
@@ -115,7 +116,15 @@ type ManufacturingProductTemplate = ManufacturingProductOption & {
 type ManufacturingOrderFormValues = ManufacturingOrderCreateFormValues;
 
 const MANUFACTURING_INGREDIENT_GRID_COLUMNS =
-  "minmax(18rem, 1fr) 9rem 9rem 6rem";
+  "minmax(14rem, 1.5fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr) minmax(5.5rem, 0.5fr) 2.25rem";
+
+function isBlankManufacturingIngredient(
+  ingredient: ManufacturingOrderFormValues["ingredients"][number] | undefined
+) {
+  const itemId = ingredient?.itemId?.trim() ?? "";
+  const quantityPerUnit = ingredient?.quantityPerUnit?.trim() ?? "";
+  return itemId === "" && quantityPerUnit === "";
+}
 
 type ApiError = {
   error?: string;
@@ -194,7 +203,7 @@ export function ManufacturingOrderForm({
         },
   });
 
-  const { fields } = useFieldArray({
+  const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "ingredients",
   });
@@ -256,8 +265,70 @@ export function ManufacturingOrderForm({
     editSalesLineOptions.map((line) => [line.salesOrderLineId, line])
   );
   const selectedProduct = productMap.get(watchedProductId ?? "");
+  const ingredientOptions = useMemo(() => {
+    const rows = isEditing ? initialData?.ingredients ?? [] : selectedProduct?.bom ?? [];
+    const options = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        displayName: string;
+        sku: string | null;
+        itemType: string;
+        unitName: string;
+      }
+    >();
+
+    rows.forEach((row) => {
+      options.set(row.itemId, {
+        id: row.itemId,
+        name: row.itemName,
+        displayName: row.itemName,
+        sku: row.itemSku,
+        itemType: row.itemType,
+        unitName: row.unitName,
+      });
+
+      if ("alternates" in row) {
+        row.alternates.forEach((alternate) => {
+          options.set(alternate.itemId, {
+            id: alternate.itemId,
+            name: alternate.itemName,
+            displayName: alternate.itemName,
+            sku: alternate.itemSku,
+            itemType: alternate.itemType,
+            unitName: alternate.unitName,
+          });
+        });
+      }
+    });
+
+    return Array.from(options.values()).sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
+  }, [initialData?.ingredients, isEditing, selectedProduct?.bom]);
+  const ingredientOptionMap = new Map(
+    ingredientOptions.map((option) => [option.id, option])
+  );
   const selectedSalesOrder = salesOrderMap.get(watchedSalesOrderId ?? "");
   const isSalesOrderMode = !isEditing && watchedSalesOrderId != null;
+
+  useEffect(() => {
+    if (!watchedProductId || isSalesOrderMode) return;
+    const rows = watchedIngredients ?? [];
+    const lastRow =
+      rows[fields.length - 1] ??
+      (fields[fields.length - 1] as ManufacturingOrderFormValues["ingredients"][number] | undefined);
+    if (fields.length === 0 || !isBlankManufacturingIngredient(lastRow)) {
+      append(
+        {
+          itemId: "",
+          quantityPerUnit: "",
+        },
+        { shouldFocus: false }
+      );
+    }
+  }, [append, fields, isSalesOrderMode, watchedIngredients, watchedProductId]);
 
   // For editing, use the snapshotted batch info from the MO
   const isBatchMode = isEditing
@@ -1003,7 +1074,7 @@ export function ManufacturingOrderForm({
                 {fields.length > 0 ? (
                   <EditableLineGrid
                     columns={MANUFACTURING_INGREDIENT_GRID_COLUMNS}
-                    minWidth="42rem"
+                    minWidth="38rem"
                     headers={[
                       "Ingredient",
                       <TooltipHeader
@@ -1021,30 +1092,13 @@ export function ManufacturingOrderForm({
                         tooltip={MANUFACTURING_PLANNED_TOTAL_TOOLTIP}
                       />,
                       <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
+                      <span key="actions" />,
                     ]}
                   >
                     {fields.map((field, index) => {
-                      const templateIngredient = isEditing
-                        ? initialData?.ingredients[index]
-                        : selectedProduct?.bom[index];
                       const selectedIngredientId =
                         watchedIngredients?.[index]?.itemId ?? field.itemId;
-                      const materialOptions = templateIngredient
-                        ? [
-                            {
-                              itemId: templateIngredient.itemId,
-                              itemName: templateIngredient.itemName,
-                              itemSku: templateIngredient.itemSku,
-                              itemType: templateIngredient.itemType,
-                              unitName: templateIngredient.unitName,
-                              quantityFactor: "1",
-                            },
-                          ]
-                        : [];
-                      const selectedMaterial =
-                        materialOptions.find(
-                          (option) => option.itemId === selectedIngredientId
-                        ) ?? materialOptions[0];
+                      const selectedMaterial = ingredientOptionMap.get(selectedIngredientId);
                       const quantityPerUnit =
                         watchedIngredients?.[index]?.quantityPerUnit ?? "";
                       const perUnit = parsePositive(quantityPerUnit);
@@ -1059,23 +1113,60 @@ export function ManufacturingOrderForm({
                           : "\u2014";
 
                       return (
-                        <EditableLineGridRow key={field.id}>
+                        <EditableLineGridRow
+                          key={field.id}
+                          aria-label={[
+                            selectedMaterial?.name,
+                            quantityPerUnit,
+                            plannedTotal,
+                            selectedMaterial?.unitName,
+                          ]
+                            .filter((part): part is string => Boolean(part))
+                            .join(" ")}
+                        >
                           <EditableLineGridCell>
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">
-                                  {selectedMaterial?.itemName ?? field.itemId}
-                                </span>
-                                <Badge variant="outline">
-                                  {selectedMaterial?.itemType ?? "item"}
-                                </Badge>
-                              </div>
-                              {selectedMaterial?.itemSku && (
-                                <p className="text-xs text-muted-foreground">
-                                  {selectedMaterial.itemSku}
-                                </p>
+                            <Controller
+                              control={form.control}
+                              name={`ingredients.${index}.itemId`}
+                              render={({ field: ingredientField, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                  <FieldLabel
+                                    className="sr-only"
+                                    htmlFor={`${field.id}-ingredient`}
+                                  >
+                                    Ingredient
+                                  </FieldLabel>
+                                  <InventoryItemCombobox
+                                    options={ingredientOptions}
+                                    value={ingredientField.value ?? ""}
+                                    onValueChange={(value) =>
+                                      ingredientField.onChange(value ?? "")
+                                    }
+                                    inputId={`${field.id}-ingredient`}
+                                    inputAriaInvalid={fieldState.invalid}
+                                    inputClassName="w-full min-w-0"
+                                    placeholder="Search ingredients..."
+                                    emptyMessage="No ingredients found"
+                                    contentClassName="w-[min(32rem,calc(100vw-2rem))]"
+                                    showTypeBadge
+                                    getSecondaryText={(option) =>
+                                      [option.sku, option.unitName]
+                                        .filter((part): part is string => Boolean(part))
+                                        .join(" · ")
+                                    }
+                                  />
+                                  {selectedMaterial ? (
+                                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                                      {selectedMaterial.name}
+                                      {selectedMaterial.sku ? ` · ${selectedMaterial.sku}` : ""}
+                                    </p>
+                                  ) : null}
+                                  {fieldState.invalid && (
+                                    <FieldError errors={[fieldState.error]} />
+                                  )}
+                                </Field>
                               )}
-                            </div>
+                            />
                           </EditableLineGridCell>
                           <EditableLineGridCell>
                             <Controller
@@ -1103,15 +1194,18 @@ export function ManufacturingOrderForm({
                                 </Field>
                               )}
                             />
-                            <input
-                              type="hidden"
-                              value={selectedIngredientId}
-                              {...form.register(`ingredients.${index}.itemId`)}
-                            />
                           </EditableLineGridCell>
-                          <EditableLineGridCell>{plannedTotal}</EditableLineGridCell>
-                          <EditableLineGridCell>
+                          <EditableLineGridCell className="font-mono text-sm tabular-nums">
+                            {plannedTotal}
+                          </EditableLineGridCell>
+                          <EditableLineGridCell className="truncate text-sm text-muted-foreground">
                             {selectedMaterial?.unitName ?? "\u2014"}
+                          </EditableLineGridCell>
+                          <EditableLineGridCell>
+                            <EditableLineGridRemoveButton
+                              onClick={() => remove(index)}
+                              label={`Remove ingredient ${index + 1}`}
+                            />
                           </EditableLineGridCell>
                         </EditableLineGridRow>
                       );

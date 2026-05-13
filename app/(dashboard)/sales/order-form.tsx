@@ -18,9 +18,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Add01Icon,
   ArrowLeft01Icon,
-  Cancel01Icon,
+  InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
@@ -72,6 +71,7 @@ import {
 import {
   EditableLineGrid,
   EditableLineGridCell,
+  EditableLineGridRemoveButton,
   EditableLineGridRow,
 } from "@/components/editable-line-grid";
 import { EntityCombobox } from "@/components/entity-combobox";
@@ -87,6 +87,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AddressFields } from "@/components/address-fields";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import {
@@ -127,6 +132,33 @@ function RequiredMarker() {
     <span className="text-destructive" aria-label="required">
       *
     </span>
+  );
+}
+
+function LineCellHint({
+  label,
+  tooltip,
+}: {
+  label: string;
+  tooltip: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="ml-auto mt-1 h-5 max-w-full justify-end gap-1 px-1 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+        >
+          <span className="truncate">{label}</span>
+          <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64 text-balance">
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -215,10 +247,17 @@ function SalesOrderSection({
 }
 
 const SALES_ORDER_LINE_GRID_COLUMNS =
-  "2.5rem minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem";
+  "2.25rem minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(8.5rem, 0.85fr) minmax(6.5rem, 0.65fr) minmax(6rem, 0.5fr) minmax(5.5rem, 0.45fr) 2.25rem";
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
 const NO_PROJECT_VALUE = "__no_project__";
+
+function isBlankSalesOrderLine(line: OrderFormValues["lines"][number] | undefined) {
+  const itemId = line?.itemId?.trim() ?? "";
+  const quantity = line?.quantity?.trim() ?? "";
+  const unitPrice = line?.unitPrice?.trim() ?? "";
+  return itemId === "" && quantity === "" && unitPrice === "";
+}
 
 type ApiError = {
   status?: number;
@@ -462,6 +501,21 @@ export function OrderForm({
     control: form.control,
     name: "lines",
   });
+
+  useEffect(() => {
+    const rows = watchedLines ?? [];
+    if (rows.length === 0 || !isBlankSalesOrderLine(rows[rows.length - 1])) {
+      append(
+        {
+          itemId: "",
+          quantity: null,
+          unitPrice: null,
+        },
+        { shouldFocus: false }
+      );
+    }
+  }, [append, watchedLines]);
+
   const [initialLineByFieldId] = useState(() => {
     const lineByFieldId = new Map<string, SalesOrderEditData["lines"][number]>();
     fields.forEach((field, index) => {
@@ -567,6 +621,9 @@ export function OrderForm({
       return sum + qty * price;
     }, 0);
   }, [watchedLines]);
+  const lineCount = (watchedLines ?? []).filter(
+    (line) => !isBlankSalesOrderLine(line)
+  ).length;
 
   const orderSummary = useMemo(() => {
     let cogs = 0;
@@ -1014,32 +1071,11 @@ export function OrderForm({
               title="Items"
               action={
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  {fields.length} {fields.length === 1 ? "item" : "items"}
+                  {lineCount} {lineCount === 1 ? "item" : "items"}
                 </span>
               }
               footer={
-                <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      append({
-                        itemId: "",
-                        quantity: null,
-                        unitPrice: null,
-                      })
-                    }
-                  >
-                    Add Item
-                    <HugeiconsIcon
-                      icon={Add01Icon}
-                      className="h-4 w-4"
-                      data-icon="inline-end"
-                      aria-hidden
-                    />
-                  </Button>
-
+                <div className="flex w-full justify-end">
                   <div className="text-sm">
                     <span className="text-muted-foreground">Subtotal</span>{" "}
                     <span className="font-mono font-medium tabular-nums">
@@ -1057,7 +1093,7 @@ export function OrderForm({
                   >
                     <EditableLineGrid
                       columns={SALES_ORDER_LINE_GRID_COLUMNS}
-                      minWidth="56rem"
+                      minWidth="50rem"
                       headers={[
                         <span key="reorder" />,
                         <TableHeaderLabel key="item" label="Item" required />,
@@ -1578,7 +1614,9 @@ function OrderLineRow({
       </EditableLineGridCell>
 
       <EditableLineGridCell className="font-mono text-sm text-muted-foreground">
-        {item?.unitName ?? "\u2014"}
+        <span className="block truncate">
+          {item?.unitName ?? "\u2014"}
+        </span>
       </EditableLineGridCell>
 
       <EditableLineGridCell align="right">
@@ -1624,32 +1662,39 @@ function OrderLineRow({
               ) : (
                 <>
                   {pricingQuery.isError ? (
-                    <p className="pt-1 text-xs text-muted-foreground">
-                      Unable to load suggested pricing. You can still enter a price manually.
-                    </p>
+                    <LineCellHint
+                      label="Pricing unavailable"
+                      tooltip="Suggested pricing could not load; enter the unit price manually."
+                    />
                   ) : pricingState?.suggestedUnitPrice != null ? (
                     <>
-                      <p className="pt-1 text-xs text-muted-foreground">
-                        Suggested {formatPrice(pricingState.suggestedUnitPrice) ?? "\u2014"}
-                        {pricingState.pricingSourceType === "schedule_break" &&
-                        pricingState.pricingScheduleName
-                          ? ` from ${pricingState.pricingScheduleName}${
-                              pricingState.pricingBreakLabel
-                                ? `, ${pricingState.pricingBreakLabel}`
-                                : ""
-                            }`
-                          : " from base price"}
-                      </p>
+                      <LineCellHint
+                        label={`Suggested ${
+                          formatPrice(pricingState.suggestedUnitPrice) ?? "\u2014"
+                        }`}
+                        tooltip={
+                          pricingState.pricingSourceType === "schedule_break" &&
+                          pricingState.pricingScheduleName
+                            ? `Suggested from ${pricingState.pricingScheduleName}${
+                                pricingState.pricingBreakLabel
+                                  ? `, ${pricingState.pricingBreakLabel}`
+                                  : ""
+                              }.`
+                            : "Suggested from the base price."
+                        }
+                      />
                       {isPriceOverridden && (
-                        <p className="pt-1 text-xs text-muted-foreground">
-                          Final price is a manual override.
-                        </p>
+                        <LineCellHint
+                          label="Manual override"
+                          tooltip="The entered unit price differs from the suggestion."
+                        />
                       )}
                     </>
                   ) : item?.defaultSellingPrice == null && item ? (
-                    <p className="pt-1 text-xs text-muted-foreground">
-                      No default selling price. Enter one manually.
-                    </p>
+                    <LineCellHint
+                      label="No default price"
+                      tooltip="This item has no default selling price; enter one manually."
+                    />
                   ) : null}
                 </>
               )}
@@ -1674,15 +1719,10 @@ function OrderLineRow({
       </EditableLineGridCell>
 
       <EditableLineGridCell>
-        <Button
-          type="button"
-          variant="destructive"
-          size="icon-sm"
+        <EditableLineGridRemoveButton
           onClick={onRemove}
-          aria-label={`Remove line ${index + 1}`}
-        >
-          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-        </Button>
+          label={`Remove line ${index + 1}`}
+        />
       </EditableLineGridCell>
     </EditableLineGridRow>
   );

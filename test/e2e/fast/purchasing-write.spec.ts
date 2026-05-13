@@ -137,17 +137,19 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByPlaceholder("0").first().fill("10");
     await page.getByPlaceholder("310").fill("312");
 
-    await page.getByRole("button", { name: "Add Material" }).click();
     const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
     await secondMaterialInput.click();
     await secondMaterialInput.pressSequentially(sandName);
     await page.getByRole("option", { name: sandOptionPattern }).click();
     await page.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
-    await page.getByRole("button", { name: "Add Cost" }).click();
-    await page.getByPlaceholder("Reference").fill("Freight smoke");
-    await page.getByPlaceholder("PO default").fill("400");
-    await page.getByPlaceholder("Amount").fill("12.50");
+    await page
+      .locator('input[name="additionalCosts.0.reference"]')
+      .fill("Freight smoke");
+    await page
+      .locator('input[name="additionalCosts.0.xeroPurchaseAccountCode"]')
+      .fill("400");
+    await page.locator('input[name="additionalCosts.0.amount"]').fill("12.50");
 
     const [createOrderResponse] = await Promise.all([
       page.waitForResponse(

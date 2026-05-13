@@ -3,11 +3,7 @@ import "server-only";
 import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
-  inventoryEvents,
-  inventoryLotBalances,
   items,
-  lots,
-  stocktakeLotItems,
   stocktakeItems,
   stocktakes,
   unitDefinitions,
@@ -24,20 +20,13 @@ import {
   projectedReservableOnHandQtyExpr,
   reconcileStocktakeCountInTx,
 } from "@/lib/inventory/kernel";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
-import {
-  consumeSpecificLotInTx,
-  appendPositiveStockToExistingLotInTx,
-  resolvePositiveStockUnitCostInTx,
-} from "@/lib/inventory/kernel/operations/stock-core";
-import { applyItemBalanceDeltasInTx } from "@/lib/inventory/kernel/projections";
 import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
 import type {
   CompleteStocktake,
-  CreateStocktake,
+  InsertStocktake,
   StocktakeScope,
   StocktakeScopeItemType,
   UpdateStocktakeCounts,
@@ -66,8 +55,6 @@ type SnapshotItem = {
   name: string;
   sku: string | null;
   itemType: string;
-  stocktakeType: StocktakeScopeItemType;
-  category: string | null;
   unitName: string;
   currentQty: string;
 };
@@ -108,42 +95,6 @@ function getVariance(expectedQty: string, countedQty: string | null) {
   return normalizeNumeric(Number(countedQty) - parseFloat(expectedQty));
 }
 
-function stocktakeTypeExpr() {
-  return sql<StocktakeScopeItemType>`CASE
-    WHEN ${items.itemType} = 'material' THEN 'material'
-    WHEN ${items.itemType} = 'product' AND ${items.sellable} = true THEN 'product'
-    ELSE 'subassembly'
-  END`;
-}
-
-function scopeConditions(scope: StocktakeScope) {
-  const parsedScope = parseStocktakeScope(scope);
-  const conditions = [isNull(items.deletedAt), eq(items.isMaster, false)];
-
-  if (parsedScope.kind === "type") {
-    if (parsedScope.itemType === "material") {
-      conditions.push(eq(items.itemType, "material"));
-    } else if (parsedScope.itemType === "product") {
-      conditions.push(eq(items.itemType, "product"), eq(items.sellable, true));
-    } else {
-      conditions.push(eq(items.itemType, "product"), eq(items.sellable, false));
-    }
-  }
-
-  if (parsedScope.kind === "category") {
-    conditions.push(eq(items.category, parsedScope.category));
-    if (parsedScope.itemType === "material") {
-      conditions.push(eq(items.itemType, "material"));
-    } else if (parsedScope.itemType === "product") {
-      conditions.push(eq(items.itemType, "product"), eq(items.sellable, true));
-    } else {
-      conditions.push(eq(items.itemType, "product"), eq(items.sellable, false));
-    }
-  }
-
-  return conditions;
-}
-
 async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStocktake | null> {
   const [stocktake] = await tx
     .select({
@@ -181,67 +132,20 @@ async function getStocktakeLinesInTx(
     .where(eq(stocktakeItems.stocktakeId, stocktakeId))
     .orderBy(asc(stocktakeItems.sortOrder), asc(stocktakeItems.createdAt));
 
-  if (rows.length === 0) {
-    return [];
-  }
-
-  const lotRows = await tx
-    .select({
-      id: stocktakeLotItems.id,
-      stocktakeItemId: stocktakeLotItems.stocktakeItemId,
-      lotId: stocktakeLotItems.lotId,
-      lotNumber: stocktakeLotItems.lotNumber,
-      expectedQty: trimScale(stocktakeLotItems.expectedQty).as("expectedQty"),
-      countedQty: trimScaleNullable(stocktakeLotItems.countedQty).as("countedQty"),
-      varianceQty: trimScaleNullable(stocktakeLotItems.varianceQty).as("varianceQty"),
-      appliedDeltaQty: trimScaleNullable(stocktakeLotItems.appliedDeltaQty).as("appliedDeltaQty"),
-      receivedAt: stocktakeLotItems.receivedAt,
-      sortOrder: stocktakeLotItems.sortOrder,
-      createdAt: stocktakeLotItems.createdAt,
-      updatedAt: stocktakeLotItems.updatedAt,
-    })
-    .from(stocktakeLotItems)
-    .where(inArray(stocktakeLotItems.stocktakeItemId, rows.map((row) => row.id)))
-    .orderBy(asc(stocktakeLotItems.sortOrder), asc(stocktakeLotItems.receivedAt));
-
-  const lotsByLineId = new Map<string, typeof lotRows>();
-  lotRows.forEach((lotLine) => {
-    const bucket = lotsByLineId.get(lotLine.stocktakeItemId) ?? [];
-    bucket.push(lotLine);
-    lotsByLineId.set(lotLine.stocktakeItemId, bucket);
-  });
-
-  return rows.map((row) => ({
-    ...row,
-    lots: (lotsByLineId.get(row.id) ?? []).map((lotLine) => ({
-      id: lotLine.id,
-      lotId: lotLine.lotId,
-      lotNumber: lotLine.lotNumber,
-      expectedQty: lotLine.expectedQty,
-      countedQty: lotLine.countedQty,
-      varianceQty: lotLine.varianceQty,
-      appliedDeltaQty: lotLine.appliedDeltaQty,
-      receivedAt: lotLine.receivedAt,
-      sortOrder: lotLine.sortOrder,
-      createdAt: lotLine.createdAt,
-      updatedAt: lotLine.updatedAt,
-    })),
-  })) as StocktakeDetailLine[];
+  return rows as StocktakeDetailLine[];
 }
 
-async function getSnapshotItemsForScopeInTx(
-  tx: Tx,
-  scope: StocktakeScope,
-  itemIds?: string[]
-) {
-  if (itemIds && itemIds.length === 0) {
-    return [];
+async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
+  const conditions = [isNull(items.deletedAt)];
+  const parsedScope = parseStocktakeScope(scope);
+
+  if (parsedScope.kind === "type") {
+    conditions.push(eq(items.itemType, parsedScope.itemType));
   }
 
-  const conditions = scopeConditions(scope);
-
-  if (itemIds && itemIds.length > 0) {
-    conditions.push(inArray(items.id, itemIds));
+  if (parsedScope.kind === "category") {
+    conditions.push(eq(items.itemType, parsedScope.itemType));
+    conditions.push(eq(items.category, parsedScope.category));
   }
 
   const lockedRows = await tx
@@ -261,8 +165,6 @@ async function getSnapshotItemsForScopeInTx(
       name: items.name,
       sku: items.sku,
       itemType: items.itemType,
-      stocktakeType: stocktakeTypeExpr().as("stocktakeType"),
-      category: items.category,
       unitName: unitDefinitions.name,
       currentQty: trimScale(
         projectedReservableOnHandQtyExpr(items.organizationId, items.id)
@@ -282,28 +184,107 @@ async function getSnapshotItemsForScopeInTx(
   });
 }
 
+async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
+  const uniqueIds = Array.from(new Set(itemIds));
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const lockedRows = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(and(isNull(items.deletedAt), inArray(items.id, uniqueIds)))
+    .orderBy(asc(items.id))
+    .for("update");
+
+  if (lockedRows.length !== uniqueIds.length) {
+    throw new StocktakeError("One or more selected items are no longer active.", 400, {
+      errors: {
+        itemIds: ["Refresh the preview and choose active items."],
+      },
+    });
+  }
+
+  const rows = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      sku: items.sku,
+      itemType: items.itemType,
+      unitName: unitDefinitions.name,
+      currentQty: trimScale(
+        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+      ).as("currentQty"),
+    })
+    .from(items)
+    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .where(inArray(items.id, lockedRows.map((row) => row.id)));
+
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  return uniqueIds.flatMap((id) => {
+    const row = rowById.get(id);
+    return row ? [row] : [];
+  });
+}
+
+export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: items.id,
+        name: items.name,
+        sku: items.sku,
+        itemType: items.itemType,
+        stocktakeType: sql<StocktakeScopeItemType>`${items.itemType}`.as(
+          "stocktakeType"
+        ),
+        category: items.category,
+        unitName: unitDefinitions.name,
+        currentQty: trimScale(
+          projectedReservableOnHandQtyExpr(items.organizationId, items.id)
+        ).as("currentQty"),
+      })
+      .from(items)
+      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .where(
+        and(
+          isNull(items.deletedAt),
+          eq(items.isMaster, false),
+          inArray(items.itemType, ["material", "product"])
+        )
+      )
+      .orderBy(asc(items.itemType), asc(items.name), asc(items.id));
+
+    return rows.map((row) => ({
+      ...row,
+      itemType: row.itemType as StocktakePreviewItem["itemType"],
+      stocktakeType: row.stocktakeType as StocktakeScopeItemType,
+      displayName: row.name,
+    }));
+  });
+}
+
 export async function getStocktakeScopeOptions(): Promise<StocktakeScopeOptionGroup[]> {
   return withAuthedOrgContext(async (tx) => {
     const rows = await tx
       .selectDistinct({
-        itemType: stocktakeTypeExpr().as("itemType"),
+        itemType: items.itemType,
         category: items.category,
       })
       .from(items)
       .where(
         and(
           isNull(items.deletedAt),
-          eq(items.isMaster, false),
           isNotNull(items.category),
           inArray(items.itemType, ["material", "product"])
         )
       )
-      .orderBy(asc(stocktakeTypeExpr()), asc(items.category));
+      .orderBy(asc(items.itemType), asc(items.category));
 
     const categoriesByType = new Map<StocktakeScopeItemType, string[]>([
       ["material", []],
       ["product", []],
-      ["subassembly", []],
     ]);
 
     rows.forEach((row) => {
@@ -326,7 +307,6 @@ export async function getStocktakeScopeOptions(): Promise<StocktakeScopeOptionGr
       { value: "all", label: "All Items" },
       { value: "material", label: "Materials" },
       { value: "product", label: "Products" },
-      { value: "subassembly", label: "Sub Assemblies" },
     ];
 
     return [
@@ -352,46 +332,7 @@ export async function getStocktakeScopeOptions(): Promise<StocktakeScopeOptionGr
             label: category,
           })),
       },
-      {
-        label: "Sub assembly categories",
-        options: categoriesByType
-          .get("subassembly")!
-          .map((category) => ({
-            value: buildStocktakeCategoryScope("subassembly", category),
-            label: category,
-          })),
-      },
     ].filter((group) => group.options.length > 0);
-  });
-}
-
-export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const rows = await tx
-      .select({
-        id: items.id,
-        name: items.name,
-        sku: items.sku,
-        itemType: items.itemType,
-        stocktakeType: stocktakeTypeExpr().as("stocktakeType"),
-        category: items.category,
-        unitName: unitDefinitions.name,
-        currentQty: trimScale(
-          projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-        ).as("currentQty"),
-      })
-      .from(items)
-      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(
-        and(
-          isNull(items.deletedAt),
-          eq(items.isMaster, false),
-          inArray(items.itemType, ["material", "product"])
-        )
-      )
-      .orderBy(asc(items.itemType), asc(items.name), asc(items.id));
-
-    return rows as StocktakePreviewItem[];
   });
 }
 
@@ -501,43 +442,16 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
   });
 }
 
-async function getSnapshotLotRowsInTx(tx: Tx, itemIds: string[]) {
-  if (itemIds.length === 0) {
-    return [];
-  }
-
-  return tx
-    .select({
-      itemId: lots.itemId,
-      lotId: lots.id,
-      lotNumber: lots.lotNumber,
-      expectedQty: trimScale(inventoryLotBalances.quantity).as("expectedQty"),
-      receivedAt: inventoryLotBalances.receivedAt,
-    })
-    .from(inventoryLotBalances)
-    .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
-    .where(
-      and(
-        inArray(inventoryLotBalances.itemId, itemIds),
-        eq(inventoryLotBalances.disposition, "available"),
-        sql`${inventoryLotBalances.quantity} > 0`
-      )
-    )
-    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
-}
-
-export async function createStocktake(data: CreateStocktake) {
+export async function createStocktake(data: InsertStocktake) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const snapshotItems = (await getSnapshotItemsForScopeInTx(
-      tx,
-      data.scope,
-      data.itemIds
-    )) as SnapshotItem[];
+    const snapshotItems = (data.itemIds?.length
+      ? await getSnapshotItemsForItemIdsInTx(tx, data.itemIds)
+      : await getSnapshotItemsForScopeInTx(tx, data.scope)) as SnapshotItem[];
 
     if (snapshotItems.length === 0) {
-      throw new StocktakeError("No active items match this scope.", 400, {
+      throw new StocktakeError("No active items are selected.", 400, {
         errors: {
-          scope: ["Choose a scope that includes at least one active item"],
+          itemIds: ["Choose at least one active item"],
         },
       });
     }
@@ -553,7 +467,7 @@ export async function createStocktake(data: CreateStocktake) {
       })
       .returning({ id: stocktakes.id });
 
-    const insertedLines = await tx.insert(stocktakeItems).values(
+    await tx.insert(stocktakeItems).values(
       snapshotItems.map((item, index) => ({
         stocktakeId: stocktake.id,
         itemId: item.id,
@@ -567,38 +481,7 @@ export async function createStocktake(data: CreateStocktake) {
         appliedDeltaQty: null,
         sortOrder: index,
       }))
-    ).returning({ id: stocktakeItems.id, itemId: stocktakeItems.itemId });
-
-    const lotRows = await getSnapshotLotRowsInTx(
-      tx,
-      snapshotItems.map((item) => item.id)
     );
-    const lineIdByItemId = new Map(
-      insertedLines.map((line) => [line.itemId, line.id])
-    );
-
-    if (lotRows.length > 0) {
-      await tx.insert(stocktakeLotItems).values(
-        lotRows.flatMap((lotLine, index) => {
-          const stocktakeItemId = lineIdByItemId.get(lotLine.itemId);
-          if (!stocktakeItemId) {
-            return [];
-          }
-
-          return {
-            stocktakeItemId,
-            lotId: lotLine.lotId,
-            lotNumber: lotLine.lotNumber,
-            expectedQty: normalizeNumeric(parseFloat(lotLine.expectedQty)),
-            countedQty: null,
-            varianceQty: null,
-            appliedDeltaQty: null,
-            receivedAt: lotLine.receivedAt,
-            sortOrder: index,
-          };
-        })
-      );
-    }
 
     return stocktake;
   });
@@ -618,12 +501,6 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
 
     const existingLines = await getStocktakeLinesInTx(tx, id);
     const lineMap = new Map(existingLines.map((line) => [line.id, line]));
-    const lotLineMap = new Map(
-      existingLines.flatMap((line) =>
-        line.lots.map((lotLine) => [lotLine.id, { ...lotLine, parent: line }] as const)
-      )
-    );
-    const affectedParentLineIds = new Set<string>();
 
     for (const line of data.lines) {
       const existingLine = lineMap.get(line.lineId);
@@ -639,14 +516,6 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       const countedQty = line.countedQty;
       const varianceQty = getVariance(existingLine.expectedQty, countedQty);
 
-      if (existingLine.lots.length > 1) {
-        throw new StocktakeError("Count individual lots for this item.", 400, {
-          errors: {
-            lines: ["Count individual lots for this item."],
-          },
-        });
-      }
-
       await tx
         .update(stocktakeItems)
         .set({
@@ -655,72 +524,6 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
           updatedAt: new Date(),
         })
         .where(eq(stocktakeItems.id, existingLine.id));
-
-      if (existingLine.lots.length === 1) {
-        const lotLine = existingLine.lots[0];
-        await tx
-          .update(stocktakeLotItems)
-          .set({
-            countedQty,
-            varianceQty: getVariance(lotLine.expectedQty, countedQty),
-            updatedAt: new Date(),
-          })
-          .where(eq(stocktakeLotItems.id, lotLine.id));
-      }
-    }
-
-    for (const line of data.lotLines) {
-      const existingLine = lotLineMap.get(line.lotLineId);
-
-      if (!existingLine) {
-        throw new StocktakeError("Stocktake lot line not found", 404, {
-          errors: {
-            lotLines: ["Refresh and try again."],
-          },
-        });
-      }
-
-      const countedQty = line.countedQty;
-      const varianceQty = getVariance(existingLine.expectedQty, countedQty);
-
-      await tx
-        .update(stocktakeLotItems)
-        .set({
-          countedQty,
-          varianceQty,
-          updatedAt: new Date(),
-        })
-        .where(eq(stocktakeLotItems.id, existingLine.id));
-
-      affectedParentLineIds.add(existingLine.parent.id);
-    }
-
-    for (const parentLineId of affectedParentLineIds) {
-      const parentLine = lineMap.get(parentLineId);
-      if (!parentLine) continue;
-
-      const countedLots = await tx
-        .select({
-          countedQty: trimScaleNullable(stocktakeLotItems.countedQty).as("countedQty"),
-        })
-        .from(stocktakeLotItems)
-        .where(eq(stocktakeLotItems.stocktakeItemId, parentLineId));
-      const countedValues = countedLots.flatMap((lotLine) =>
-        lotLine.countedQty == null ? [] : [Number(lotLine.countedQty)]
-      );
-      const parentCountedQty =
-        countedValues.length === 0
-          ? null
-          : normalizeNumeric(countedValues.reduce((sum, value) => sum + value, 0));
-
-      await tx
-        .update(stocktakeItems)
-        .set({
-          countedQty: parentCountedQty,
-          varianceQty: getVariance(parentLine.expectedQty, parentCountedQty),
-          updatedAt: new Date(),
-        })
-        .where(eq(stocktakeItems.id, parentLineId));
     }
 
     await tx
@@ -765,42 +568,19 @@ export async function completeStocktake(
     }
 
     const existingLines = await getStocktakeLinesInTx(tx, id);
-    const countedLotLines = existingLines.flatMap((line) =>
-      line.lots
-        .filter((lotLine) => lotLine.countedQty != null)
-        .map((lotLine) => ({ ...lotLine, parent: line }))
-    );
-    const countedLotParentIds = new Set(
-      countedLotLines.map((line) => line.parent.id)
-    );
-    const fullyCountedLotParentIds = new Set(
-      existingLines
-        .filter(
-          (line) =>
-            line.lots.length > 0 &&
-            line.lots.every((lotLine) => lotLine.countedQty != null)
-        )
-        .map((line) => line.id)
-    );
-    const countedLines = existingLines.filter(
-      (line) => line.countedQty != null && !countedLotParentIds.has(line.id)
-    );
+    const countedLines = existingLines.filter((line) => line.countedQty != null);
 
-    if (countedLines.length === 0 && countedLotLines.length === 0) {
+    if (countedLines.length === 0) {
       throw new StocktakeError("Enter at least one count before completing.", 400);
     }
 
     await lockItemsInTx(
       tx,
-      [...countedLines.map((line) => line.itemId), ...countedLotLines.map((line) => line.parent.itemId)]
+      countedLines.map((line) => line.itemId)
     );
 
     const staleItems: StocktakeStaleWarningPayload["items"] = [];
     const currentQtyByItemId = new Map<string, string>();
-    const location = await getDefaultInventoryLocationInTx(tx, orgId);
-    const currentLotQtyByLotLineId = new Map<string, string>();
-    const currentLotCostByLotLineId = new Map<string, string | null>();
-    const totalDeltaByParentLineId = new Map<string, number>();
 
     for (const line of countedLines) {
       const currentQty = normalizeNumeric(
@@ -821,226 +601,29 @@ export async function completeStocktake(
       }
     }
 
-    for (const line of existingLines.filter((line) =>
-      fullyCountedLotParentIds.has(line.id)
-    )) {
-      const currentQty = normalizeNumeric(
-        await getCurrentAvailableOnHandQtyInTx(tx, line.itemId)
-      );
-      currentQtyByItemId.set(line.itemId, currentQty);
-      totalDeltaByParentLineId.set(
-        line.id,
-        Number(line.countedQty) - Number(currentQty)
-      );
-
-      if (currentQty !== normalizeNumeric(parseFloat(line.expectedQty))) {
-        staleItems.push({
-          lineId: line.id,
-          itemId: line.itemId,
-          itemName: line.itemName,
-          unitName: line.unitName,
-          expectedQty: normalizeNumeric(parseFloat(line.expectedQty)),
-          currentQty,
-          countedQty: line.countedQty ?? "0",
-        });
-      }
-    }
-
-    for (const line of countedLotLines) {
-      const [currentLot] = await tx
-        .select({
-          quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
-          unitCost: trimScaleNullable(inventoryLotBalances.unitCost).as("unitCost"),
-        })
-        .from(inventoryLotBalances)
-        .where(
-          and(
-            eq(inventoryLotBalances.organizationId, orgId),
-            eq(inventoryLotBalances.locationId, location.id),
-            eq(inventoryLotBalances.itemId, line.parent.itemId),
-            eq(inventoryLotBalances.lotId, line.lotId),
-            eq(inventoryLotBalances.disposition, "available")
-          )
-        )
-        .for("update");
-      const currentQty = normalizeNumeric(parseFloat(currentLot?.quantity ?? "0"));
-      currentLotQtyByLotLineId.set(line.id, currentQty);
-      currentLotCostByLotLineId.set(line.id, currentLot?.unitCost ?? null);
-
-      if (currentQty !== normalizeNumeric(parseFloat(line.expectedQty))) {
-        staleItems.push({
-          lineId: line.parent.id,
-          lotLineId: line.id,
-          itemId: line.parent.itemId,
-          itemName: line.parent.itemName,
-          lotNumber: line.lotNumber,
-          unitName: line.parent.unitName,
-          expectedQty: normalizeNumeric(parseFloat(line.expectedQty)),
-          currentQty,
-          countedQty: line.countedQty ?? "0",
-        });
-      }
-    }
-
     if (staleItems.length > 0 && !confirmStale) {
       throw new StocktakeError("Stock changed since this stocktake started.", 409, {
         stale: { items: staleItems },
       });
     }
 
-    if (countedLines.length > 0) {
-      await reconcileStocktakeCountInTx(tx, {
-        organizationId: orgId,
-        stocktakeId: id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "complete-stocktake"
-        ),
-        lines: countedLines.map((line) => {
-          const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
-          return {
-            stocktakeLineId: line.id,
-            itemId: line.itemId,
-            variance: Number(line.countedQty) - Number(currentQty),
-          };
-        }),
-      });
-    }
-
-    const lotEventIds: string[] = [];
-    const lotDeltaByParentLineId = new Map<string, number>();
-    const now = new Date();
-    for (const [index, line] of countedLotLines.entries()) {
-      const currentQty = currentLotQtyByLotLineId.get(line.id) ?? "0";
-      const delta = Number(line.countedQty) - Number(currentQty);
-      lotDeltaByParentLineId.set(
-        line.parent.id,
-        (lotDeltaByParentLineId.get(line.parent.id) ?? 0) + delta
-      );
-      const idempotencyKey =
-        index === 0
-          ? deriveInventoryIdempotencyKey(options?.idempotencyKey, "complete-stocktake-lots")
-          : null;
-
-      if (delta > 0) {
-        const unitCost =
-          currentLotCostByLotLineId.get(line.id) ??
-          (await resolvePositiveStockUnitCostInTx(tx, {
-            itemId: line.parent.itemId,
-            reason: "stocktake_cost_policy",
-          }));
-        const event = await appendPositiveStockToExistingLotInTx(tx, {
-          organizationId: orgId,
-          locationId: location.id,
-          itemId: line.parent.itemId,
-          lotId: line.lotId,
-          quantity: delta,
-          unitCost,
-          eventType: "stocktake_gain",
-          eventSubtype: "stocktake_complete",
-          referenceType: "stocktake_line",
-          referenceId: line.parent.id,
-          actorUserId: userId,
-          idempotencyKey,
-          metadata: {
-            stocktakeId: id,
-            stocktakeLineId: line.parent.id,
-            stocktakeLotLineId: line.id,
-            lotId: line.lotId,
-          },
-        });
-        lotEventIds.push(event.eventId);
-      } else if (delta < 0) {
-        const consumed = await consumeSpecificLotInTx(tx, {
-          organizationId: orgId,
-          locationId: location.id,
-          itemId: line.parent.itemId,
-          lotId: line.lotId,
-          quantity: Math.abs(delta),
-          eventType: "stocktake_loss",
-          eventSubtype: "stocktake_complete",
-          referenceType: "stocktake_line",
-          referenceId: line.parent.id,
-          actorUserId: userId,
-          idempotencyKey,
-          metadata: {
-            stocktakeId: id,
-            stocktakeLineId: line.parent.id,
-            stocktakeLotLineId: line.id,
-            lotId: line.lotId,
-          },
-        });
-        lotEventIds.push(...consumed.eventIds);
-      } else {
-        const [event] = await tx
-          .insert(inventoryEvents)
-          .values({
-            organizationId: orgId,
-            locationId: location.id,
-            eventType: "stocktake_verification",
-            itemId: line.parent.itemId,
-            quantity: "0",
-            referenceType: "stocktake_line",
-            referenceId: line.parent.id,
-            actorUserId: userId,
-            idempotencyKey,
-            occurredAt: now,
-            metadata: {
-              stocktakeId: id,
-              stocktakeLineId: line.parent.id,
-              stocktakeLotLineId: line.id,
-              lotId: line.lotId,
-            },
-          })
-          .returning({ id: inventoryEvents.id });
-        lotEventIds.push(event.id);
-      }
-
-      await applyItemBalanceDeltasInTx(tx, [
-        {
-          organizationId: orgId,
-          locationId: location.id,
-          itemId: line.parent.itemId,
-          lastVerifiedAt: now,
-        },
-      ]);
-    }
-
-    const residualLines = Array.from(totalDeltaByParentLineId.entries()).flatMap(
-      ([parentLineId, totalDelta]) => {
-        const parentLine = existingLines.find((line) => line.id === parentLineId);
-        if (!parentLine) {
-          return [];
-        }
-
-        const lotDelta = lotDeltaByParentLineId.get(parentLineId) ?? 0;
-        const residualDelta = Number(normalizeNumeric(totalDelta - lotDelta));
-
-        if (residualDelta === 0) {
-          return [];
-        }
-
+    await reconcileStocktakeCountInTx(tx, {
+      organizationId: orgId,
+      stocktakeId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "complete-stocktake"
+      ),
+      lines: countedLines.map((line) => {
+        const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
         return {
-          stocktakeLineId: parentLine.id,
-          itemId: parentLine.itemId,
-          variance: residualDelta,
+          stocktakeLineId: line.id,
+          itemId: line.itemId,
+          variance: Number(line.countedQty) - Number(currentQty),
         };
-      }
-    );
-
-    if (residualLines.length > 0) {
-      await reconcileStocktakeCountInTx(tx, {
-        organizationId: orgId,
-        stocktakeId: id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "complete-stocktake-lot-residual"
-        ),
-        lines: residualLines,
-      });
-    }
+      }),
+    });
 
     for (const line of countedLines) {
       const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
@@ -1056,47 +639,6 @@ export async function completeStocktake(
           updatedAt: new Date(),
         })
         .where(eq(stocktakeItems.id, line.id));
-    }
-
-    for (const line of countedLotLines) {
-      const currentQty = currentLotQtyByLotLineId.get(line.id) ?? "0";
-      const delta = Number(line.countedQty) - Number(currentQty);
-      const normalizedVariance = getVariance(line.expectedQty, line.countedQty);
-      const normalizedDelta = normalizeNumeric(delta);
-
-      await tx
-        .update(stocktakeLotItems)
-        .set({
-          varianceQty: normalizedVariance,
-          appliedDeltaQty: normalizedDelta,
-          updatedAt: new Date(),
-        })
-        .where(eq(stocktakeLotItems.id, line.id));
-    }
-
-    const countedLotParents = new Map<string, typeof countedLotLines>();
-    for (const line of countedLotLines) {
-      const bucket = countedLotParents.get(line.parent.id) ?? [];
-      bucket.push(line);
-      countedLotParents.set(line.parent.id, bucket);
-    }
-
-    for (const [parentLineId, lotLines] of countedLotParents) {
-      const appliedDeltaQty = normalizeNumeric(
-        totalDeltaByParentLineId.get(parentLineId) ??
-          lotLines.reduce((sum, line) => {
-            const currentQty = currentLotQtyByLotLineId.get(line.id) ?? "0";
-            return sum + Number(line.countedQty) - Number(currentQty);
-          }, 0)
-      );
-
-      await tx
-        .update(stocktakeItems)
-        .set({
-          appliedDeltaQty,
-          updatedAt: new Date(),
-        })
-        .where(eq(stocktakeItems.id, parentLineId));
     }
 
     await tx
@@ -1166,14 +708,12 @@ export async function cloneStocktake(id: string) {
       .where(eq(stocktakeItems.stocktakeId, id))
       .orderBy(asc(stocktakeItems.sortOrder));
 
-    const cloned = await createStocktake({
+    return createStocktake({
       name: `${source.name} Copy`,
       scope: source.scope as StocktakeScope,
       notes: null,
       itemIds: sourceLines.map((line) => line.itemId),
     });
-
-    return cloned;
   });
 }
 

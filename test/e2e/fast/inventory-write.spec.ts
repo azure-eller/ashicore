@@ -133,13 +133,15 @@ test.describe("Inventory write-path smoke", () => {
     await page.getByLabel("Selling Price").fill("19.99");
     await page.getByLabel("Safety Stock").fill("5");
 
-    await page.getByText("+ Add Ingredient").click();
     const componentInput = page.getByPlaceholder("Search items...");
     await expect(componentInput).toBeVisible();
     await componentInput.click();
     await componentInput.fill(materialName);
     await page.getByRole("option", { name: materialName }).click();
-    await page.locator("input[inputmode='decimal']").last().fill("1.25");
+    await page
+      .getByRole("row", { name: new RegExp(materialName) })
+      .locator("input[inputmode='decimal']")
+      .fill("1.25");
 
     const [createResponse] = await Promise.all([
       page.waitForResponse(

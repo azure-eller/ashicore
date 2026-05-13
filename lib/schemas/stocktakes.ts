@@ -97,6 +97,8 @@ export const insertStocktakeSchema = createInsertSchema(stocktakes, {
   cancelledAt: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  itemIds: z.array(z.string().min(1)).min(1, "Choose at least one item").optional(),
 });
 
 export type InsertStocktake = z.infer<typeof insertStocktakeSchema>;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -9,6 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { AutosaveStatus } from "@/components/autosave-status";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,7 @@ import {
   UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { TooltipHeader } from "@/components/tooltip-header";
+import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
   formatScope,
@@ -97,16 +99,6 @@ function normalizeCountedQtyInput(value: string | null | undefined) {
   return trimmed === "" ? null : trimmed;
 }
 
-function formatSavedCountedQtyInput(value: string | null | undefined) {
-  const normalized = normalizeCountedQtyInput(value);
-
-  if (normalized == null) {
-    return null;
-  }
-
-  return Number(normalized).toFixed(4);
-}
-
 export function StocktakeDetail({
   stocktake,
   canViewLedger = false,
@@ -122,6 +114,7 @@ export function StocktakeDetail({
     useState<StocktakeStaleWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [countFilter, setCountFilter] = useState<CountFilter>("all");
+  const [lineSearch, setLineSearch] = useState("");
 
   const form = useForm<CountFormValues>({
     resolver: zodResolver(updateStocktakeCountsSchema),
@@ -131,12 +124,6 @@ export function StocktakeDetail({
         lineId: line.id,
         countedQty: line.countedQty,
       })),
-      lotLines: stocktake.lines.flatMap((line) =>
-        line.lots.map((lotLine) => ({
-          lotLineId: lotLine.id,
-          countedQty: lotLine.countedQty,
-        }))
-      ),
     },
   });
 
@@ -146,12 +133,6 @@ export function StocktakeDetail({
         lineId: line.id,
         countedQty: line.countedQty,
       })),
-      lotLines: stocktake.lines.flatMap((line) =>
-        line.lots.map((lotLine) => ({
-          lotLineId: lotLine.id,
-          countedQty: lotLine.countedQty,
-        }))
-      ),
     });
   }, [form, stocktake.lines]);
 
@@ -159,10 +140,7 @@ export function StocktakeDetail({
     control: form.control,
     name: "lines",
   });
-  const watchedLotLines = useWatch({
-    control: form.control,
-    name: "lotLines",
-  });
+  const canEditCounts = stocktake.status === "draft";
 
   const refreshStocktakeQueries = async () => {
     await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
@@ -172,7 +150,6 @@ export function StocktakeDetail({
     values: CountFormValues
   ): UpdateStocktakeCounts | null => {
     const dirtyLines = form.formState.dirtyFields.lines ?? [];
-    const dirtyLotLines = form.formState.dirtyFields.lotLines ?? [];
     const lines = (values.lines ?? []).flatMap((line, index) => {
       if (!dirtyLines[index]?.countedQty) {
         return [];
@@ -185,50 +162,12 @@ export function StocktakeDetail({
         },
       ];
     });
-    const lotLines = (values.lotLines ?? []).flatMap((line, index) => {
-      if (!dirtyLotLines[index]?.countedQty) {
-        return [];
-      }
 
-      return [
-        {
-          lotLineId: line.lotLineId,
-          countedQty: normalizeCountedQtyInput(line.countedQty),
-        },
-      ];
-    });
-
-    if (lines.length === 0 && lotLines.length === 0) {
+    if (lines.length === 0) {
       return null;
     }
 
-    return updateStocktakeCountsSchema.parse({ lines, lotLines });
-  };
-
-  const resetFormWithCurrentValues = (values: CountFormValues) => {
-    form.reset({
-      lines: (values.lines ?? []).map((line) => ({
-        lineId: line.lineId,
-        countedQty: formatSavedCountedQtyInput(line.countedQty),
-      })),
-      lotLines: (values.lotLines ?? []).map((line) => ({
-        lotLineId: line.lotLineId,
-        countedQty: formatSavedCountedQtyInput(line.countedQty),
-      })),
-    });
-  };
-
-  const saveDirtyCounts = async (values: CountFormValues) => {
-    const payload = buildDirtyCountPayload(values);
-
-    if (!payload) {
-      return false;
-    }
-
-    await saveMutation.mutateAsync(payload);
-    resetFormWithCurrentValues(values);
-    await refreshStocktakeQueries();
-    return true;
+    return updateStocktakeCountsSchema.parse({ lines });
   };
 
   const saveMutation = useMutation<void, ApiError, UpdateStocktakeCounts>({
@@ -262,6 +201,20 @@ export function StocktakeDetail({
         return;
       }
 
+      setActionError(error.error ?? "Failed to save counts.");
+    },
+  });
+
+  const autosave = useAutosaveForm<CountFormValues, UpdateStocktakeCounts>({
+    form,
+    enabled: canEditCounts,
+    buildPayload: buildDirtyCountPayload,
+    save: async (payload) => {
+      await saveMutation.mutateAsync(payload);
+      await refreshStocktakeQueries();
+      return form.getValues();
+    },
+    onError: (error) => {
       setActionError(error.error ?? "Failed to save counts.");
     },
   });
@@ -312,20 +265,11 @@ export function StocktakeDetail({
     );
   };
 
-  const autosaveCounts = form.handleSubmit(async (values) => {
-    try {
-      const didSave = await saveDirtyCounts(values);
-      if (didSave) router.refresh();
-    } catch {
-      return;
-    }
-  }, handleInvalidSubmit);
-
   const handleComplete = form.handleSubmit(
-    async (values) => {
+    async () => {
       try {
         if (form.formState.isDirty) {
-          await saveDirtyCounts(values);
+          await autosave.saveNow();
         }
 
         await completeMutation.mutateAsync(false);
@@ -359,69 +303,10 @@ export function StocktakeDetail({
     },
   });
 
-  const cloneMutation = useMutation<{ id: string }, Error, void>({
-    mutationFn: async () => {
-      const response = await fetch(`/api/stocktakes/${stocktake.id}/clone`, {
-        method: "POST",
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to clone stocktake.");
-      }
-      return body as { id: string };
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async (result) => {
-      await refreshStocktakeQueries();
-      router.push(`/inventory/stocktakes/${result.id}`);
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
   const displayLines = useMemo(() => {
-    const lotLineIndexById = new Map(
-      stocktake.lines
-        .flatMap((line) => line.lots)
-        .map((lotLine, index) => [lotLine.id, index])
-    );
-
     return stocktake.lines.map((line, index) => {
       const watchedLine = watchedLines?.[index];
-      const lotLines = line.lots.map((lotLine) => {
-        const lotFormIndex = lotLineIndexById.get(lotLine.id) ?? 0;
-        const watchedLotLine = watchedLotLines?.[lotFormIndex];
-        const currentCountedQty = normalizeCountedQtyInput(
-          watchedLotLine?.countedQty
-        );
-        const currentVarianceQty =
-          currentCountedQty == null
-            ? null
-            : normalizeNumeric(
-                Number(currentCountedQty) - parseFloat(lotLine.expectedQty)
-              );
-
-        return {
-          ...lotLine,
-          formIndex: lotFormIndex,
-          currentCountedQty,
-          currentVarianceQty,
-        };
-      });
-      const currentCountedQty =
-        lotLines.length > 0
-          ? lotLines.some((lotLine) => lotLine.currentCountedQty != null)
-            ? normalizeNumeric(
-                lotLines.reduce(
-                  (sum, lotLine) => sum + Number(lotLine.currentCountedQty ?? 0),
-                  0
-                )
-              )
-            : line.countedQty
-          : normalizeCountedQtyInput(watchedLine?.countedQty);
+      const currentCountedQty = normalizeCountedQtyInput(watchedLine?.countedQty);
       const currentVarianceQty =
         currentCountedQty == null
           ? null
@@ -434,12 +319,28 @@ export function StocktakeDetail({
         formIndex: index,
         currentCountedQty,
         currentVarianceQty,
-        lots: lotLines,
       };
     });
-  }, [stocktake.lines, watchedLines, watchedLotLines]);
+  }, [stocktake.lines, watchedLines]);
 
   const filteredLines = displayLines.filter((line) => {
+    const search = lineSearch.trim().toLowerCase();
+    if (search) {
+      const haystack = [
+        line.itemName,
+        line.itemSku,
+        line.itemType,
+        line.unitName,
+      ]
+        .filter((part): part is string => part != null && part !== "")
+        .join(" ")
+        .toLowerCase();
+
+      if (!haystack.includes(search)) {
+        return false;
+      }
+    }
+
     if (countFilter === "counted") {
       return line.currentCountedQty != null;
     }
@@ -464,11 +365,11 @@ export function StocktakeDetail({
     (line) => line.currentCountedQty != null
   ).length;
   const linesError = getFieldArrayError(form.formState.errors.lines);
-  const canEditCounts = stocktake.status === "draft";
   const canComplete =
     canEditCounts &&
     liveCountedCount > 0 &&
-    !completeMutation.isPending;
+    !completeMutation.isPending &&
+    !saveMutation.isPending;
 
   return (
     <>
@@ -510,11 +411,6 @@ export function StocktakeDetail({
                 ...(canEditCounts
                   ? [
                       {
-                        label: "Clone stocktake",
-                        onSelect: () => cloneMutation.mutate(),
-                        disabled: cloneMutation.isPending,
-                      },
-                      {
                         label: "Cancel stocktake",
                         onSelect: () => setCancelOpen(true),
                         disabled: cancelMutation.isPending,
@@ -526,6 +422,11 @@ export function StocktakeDetail({
             >
               {canEditCounts ? (
                 <>
+                  <AutosaveStatus
+                    state={autosave.state}
+                    message={autosave.message}
+                    className="px-2"
+                  />
                   <Button
                     size="sm"
                     onClick={handleComplete}
@@ -617,22 +518,31 @@ export function StocktakeDetail({
               </p>
             </div>
 
-            <ToggleGroup
-              type="single"
-              value={countFilter}
-              onValueChange={(value) => {
-                if (value) {
-                  setCountFilter(value as CountFilter);
-                }
-              }}
-              variant="outline"
-              size="sm"
-            >
-              <ToggleGroupItem value="all">All</ToggleGroupItem>
-              <ToggleGroupItem value="counted">Counted</ToggleGroupItem>
-              <ToggleGroupItem value="uncounted">Uncounted</ToggleGroupItem>
-              <ToggleGroupItem value="variance">Variance Only</ToggleGroupItem>
-            </ToggleGroup>
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                placeholder="Search..."
+                aria-label="Search stocktake items"
+                value={lineSearch}
+                onChange={(event) => setLineSearch(event.target.value)}
+                className="w-72 max-w-sm"
+              />
+              <ToggleGroup
+                type="single"
+                value={countFilter}
+                onValueChange={(value) => {
+                  if (value) {
+                    setCountFilter(value as CountFilter);
+                  }
+                }}
+                variant="outline"
+                size="sm"
+              >
+                <ToggleGroupItem value="all">All</ToggleGroupItem>
+                <ToggleGroupItem value="counted">Counted</ToggleGroupItem>
+                <ToggleGroupItem value="uncounted">Uncounted</ToggleGroupItem>
+                <ToggleGroupItem value="variance">Variance Only</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-lg border">
@@ -660,114 +570,58 @@ export function StocktakeDetail({
               <TableBody>
                 {filteredLines.length > 0 ? (
                   filteredLines.map((line) => (
-                    <Fragment key={line.id}>
-                      <TableRow key={line.id}>
-                        <TableCell>
-                          <Link
-                            href={itemDetailHref(line.itemType, line.itemId)}
-                            className="block space-y-0.5 hover:underline"
-                          >
-                            <div>{line.itemName}</div>
-                            {line.itemSku && (
-                              <div className="text-xs text-muted-foreground">
-                                {line.itemSku}
+                    <TableRow key={line.id}>
+                      <TableCell>
+                        <Link
+                          href={itemDetailHref(line.itemType, line.itemId)}
+                          className="block space-y-0.5 hover:underline"
+                        >
+                          <div>{line.itemName}</div>
+                          {line.itemSku && (
+                            <div className="text-xs text-muted-foreground">
+                              {line.itemSku}
+                            </div>
+                          )}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{line.itemType}</Badge>
+                      </TableCell>
+                      <TableCell>{line.unitName}</TableCell>
+                      <TableCell className="text-right">
+                        {formatQuantity(line.expectedQty)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {canEditCounts ? (
+                          <Controller
+                            name={`lines.${line.formIndex}.countedQty`}
+                            control={form.control}
+                            render={({ field, fieldState }) => (
+                              <div className="ml-auto max-w-32">
+                                <Input
+                                  {...field}
+                                  value={field.value ?? ""}
+                                  aria-invalid={fieldState.invalid}
+                                  inputMode="decimal"
+                                  placeholder="Leave blank"
+                                  className="text-right"
+                                />
+                                {fieldState.invalid && (
+                                  <FieldError className="mt-1" errors={[fieldState.error]} />
+                                )}
                               </div>
                             )}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{line.itemType}</Badge>
-                        </TableCell>
-                        <TableCell>{line.unitName}</TableCell>
-                        <TableCell className="text-right">
-                          {formatQuantity(line.expectedQty)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {line.lots.length > 0 ? (
-                            formatQuantity(line.currentCountedQty)
-                          ) : canEditCounts ? (
-                            <Controller
-                              name={`lines.${line.formIndex}.countedQty`}
-                              control={form.control}
-                              render={({ field, fieldState }) => (
-                                <div className="ml-auto max-w-32">
-                                  <Input
-                                    {...field}
-                                    value={field.value ?? ""}
-                                    aria-invalid={fieldState.invalid}
-                                    inputMode="decimal"
-                                    placeholder="Leave blank"
-                                    className="text-right"
-                                    onBlur={(event) => {
-                                      field.onBlur();
-                                      autosaveCounts(event);
-                                    }}
-                                  />
-                                  {fieldState.invalid && (
-                                    <FieldError className="mt-1" errors={[fieldState.error]} />
-                                  )}
-                                </div>
-                              )}
-                            />
-                          ) : (
-                            formatQuantity(line.countedQty)
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatQuantity(
-                            canEditCounts ? line.currentVarianceQty : line.varianceQty
-                          )}
-                        </TableCell>
-                      </TableRow>
-                      {line.lots.map((lotLine) => (
-                        <TableRow key={lotLine.id} className="bg-muted/30">
-                          <TableCell className="pl-8 font-mono text-xs">
-                            {lotLine.lotNumber}
-                          </TableCell>
-                          <TableCell />
-                          <TableCell>{line.unitName}</TableCell>
-                          <TableCell className="text-right">
-                            {formatQuantity(lotLine.expectedQty)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {canEditCounts ? (
-                              <Controller
-                                name={`lotLines.${lotLine.formIndex}.countedQty`}
-                                control={form.control}
-                                render={({ field, fieldState }) => (
-                                  <div className="ml-auto max-w-32">
-                                    <Input
-                                      {...field}
-                                      value={field.value ?? ""}
-                                      aria-invalid={fieldState.invalid}
-                                      inputMode="decimal"
-                                      placeholder="Leave blank"
-                                      className="text-right"
-                                      onBlur={(event) => {
-                                        field.onBlur();
-                                        autosaveCounts(event);
-                                      }}
-                                    />
-                                    {fieldState.invalid && (
-                                      <FieldError className="mt-1" errors={[fieldState.error]} />
-                                    )}
-                                  </div>
-                                )}
-                              />
-                            ) : (
-                              formatQuantity(lotLine.countedQty)
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatQuantity(
-                              canEditCounts
-                                ? lotLine.currentVarianceQty
-                                : lotLine.varianceQty
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </Fragment>
+                          />
+                        ) : (
+                          formatQuantity(line.countedQty)
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatQuantity(
+                          canEditCounts ? line.currentVarianceQty : line.varianceQty
+                        )}
+                      </TableCell>
+                    </TableRow>
                   ))
                 ) : (
                   <TableRow>

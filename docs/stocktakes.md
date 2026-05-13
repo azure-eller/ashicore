@@ -52,6 +52,16 @@ The live inventory truth remains the ledger and projections; `stocktake_items.ex
 
 There is no delete flow in v1.
 
+### Create preview
+
+The new-stocktake page previews the proposed snapshot before creation:
+
+- scope seeds the preview lines
+- users may remove seeded rows
+- users may add any active item before creating
+- `POST /api/stocktakes` receives the final selected `itemIds`
+- after creation, snapshot rows are fixed; count entry does not add/remove rows
+
 ### Saving counts
 
 Saving counts updates only the stocktake snapshot rows:

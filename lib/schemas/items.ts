@@ -40,6 +40,62 @@ const bomRowSchema = z.object({
     .default([]),
 });
 
+const rawBomRowSchema = z.object({
+  componentId: z.string().nullable().optional(),
+  quantity: z.string().nullable().optional(),
+  minimumLotAgeDays: z.union([z.string(), z.number()]).nullable().optional(),
+  alternates: z
+    .array(
+      z.object({
+        itemId: z.string().min(1, "Alternate is required"),
+      })
+    )
+    .optional()
+    .default([]),
+});
+
+function isBlankBomRow(row: z.input<typeof rawBomRowSchema>) {
+  const componentId = row.componentId?.trim() ?? "";
+  const quantity = row.quantity?.trim() ?? "";
+  const minimumLotAgeDays =
+    row.minimumLotAgeDays == null ? "" : String(row.minimumLotAgeDays).trim();
+
+  return componentId === "" && quantity === "" && minimumLotAgeDays === "";
+}
+
+const cleanedBomRowsSchema = z
+  .array(rawBomRowSchema)
+  .transform((rows, ctx) => {
+    const cleanedRows: Array<z.infer<typeof bomRowSchema>> = [];
+
+    rows.forEach((row, index) => {
+      if (isBlankBomRow(row)) {
+        return;
+      }
+
+      const parsed = bomRowSchema.safeParse({
+        componentId: row.componentId ?? "",
+        quantity: row.quantity ?? null,
+        minimumLotAgeDays: row.minimumLotAgeDays,
+        alternates: row.alternates,
+      });
+
+      if (!parsed.success) {
+        parsed.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            ...issue,
+            path: [index, ...issue.path],
+          });
+        });
+        return;
+      }
+
+      cleanedRows.push(parsed.data);
+    });
+
+    return cleanedRows;
+  });
+
 const currentStockUnitCostMessage =
   "Current stock unit cost must be a non-negative number";
 
@@ -89,7 +145,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
   ),
-  bom: z.array(bomRowSchema).optional(),
+  bom: cleanedBomRowsSchema.optional(),
   revisionNote: nullableStringOptional,
 });
 
@@ -261,7 +317,7 @@ export const insertVariantSchema = z.object({
   ),
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
-  bom: z.array(bomRowSchema).optional(),
+  bom: cleanedBomRowsSchema.optional(),
   revisionNote: nullableStringOptional,
 }).superRefine((data, ctx) => {
   batchYieldRefine(data, ctx);

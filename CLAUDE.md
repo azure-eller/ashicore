@@ -462,7 +462,7 @@ Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCel
 
 ### Editable line-item forms
 
-Multi-control line rows use `EditableLineGrid` from `components/editable-line-grid.tsx`. Keep each input in a shadcn `Field`, give every column an explicit track, and use horizontal overflow when the total minimum width exceeds the card.
+Mutable multi-control arrays use `EditableLineItems` from `components/editable-line-items.tsx`; it wraps `EditableLineGrid`, owns add/remove/reorder, and keeps one blank row at the bottom. Do not add manual add-row buttons. Use flexible `minmax(..., fr)` tracks and a compact `minWidth`; use bare `EditableLineGrid` only for fixed editable grids like stocktake counts.
 
 ### Shared dashboard tables
 

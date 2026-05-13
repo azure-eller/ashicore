@@ -158,8 +158,6 @@ test.describe("Purchasing flow", () => {
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
     await page.getByPlaceholder("0").first().fill("10");
 
-    await page.getByRole("button", { name: "Add Material" }).click();
-
     const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
     const secondMaterialInput = secondRow.getByRole("combobox").first();
     await secondMaterialInput.click();

@@ -1,14 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch, type Control, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   CreatePageGrid,
@@ -17,6 +15,12 @@ import {
   CreateSection,
   CreateSidebarCard,
 } from "@/components/create-page";
+import {
+  EditableLineGridCell,
+  EditableLineGridRemoveButton,
+  EditableLineGridRow,
+} from "@/components/editable-line-grid";
+import { EditableLineItems } from "@/components/editable-line-items";
 import {
   Field,
   FieldError,
@@ -34,25 +38,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  EditableLineGrid,
-  EditableLineGridCell,
-  EditableLineGridRow,
-} from "@/components/editable-line-grid";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
-  createStocktakeSchema,
+  insertStocktakeSchema,
   parseStocktakeScope,
   stocktakeDefaultValues,
   type StocktakeScope,
 } from "@/lib/schemas/stocktakes";
+import { formatQuantity, getFirstFormErrorMessage } from "@/lib/format";
 import {
-  formatQuantity,
-  getFieldArrayError,
-  getFirstFormErrorMessage,
-} from "@/lib/format";
-import { STOCKTAKE_SCOPE_TOOLTIP } from "@/lib/tooltip-copy";
+  STOCKTAKE_CURRENT_QTY_TOOLTIP,
+  STOCKTAKE_SCOPE_TOOLTIP,
+  UNIT_TOOLTIP,
+} from "@/lib/tooltip-copy";
+import { TooltipHeader as TableTooltipHeader } from "@/components/tooltip-header";
 import {
   buildStocktakeName,
   type StocktakePreviewItem,
@@ -64,121 +64,112 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
-const stocktakeFormSchema = createStocktakeSchema
-  .omit({ itemIds: true })
-  .extend({
-    lines: z
-      .array(
-        z.object({
-          itemId: z.string().uuid("Choose an item"),
-        })
-      )
-      .min(1, "Add at least one item"),
-  })
-  .superRefine((values, ctx) => {
-    const seen = new Set<string>();
+type StocktakePreviewLine = {
+  itemId: string;
+};
 
-    values.lines.forEach((line, index) => {
-      if (!line.itemId || seen.has(line.itemId)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: line.itemId ? "Item is already selected" : "Choose an item",
-          path: ["lines", index, "itemId"],
-        });
-        return;
-      }
+type StocktakeCreatePayload = z.input<typeof insertStocktakeSchema>;
+type StocktakeFormValues = StocktakeCreatePayload & {
+  previewLines: StocktakePreviewLine[];
+};
 
-      seen.add(line.itemId);
-    });
-  });
+const STOCKTAKE_PREVIEW_GRID_COLUMNS =
+  "minmax(14rem,1.5fr) minmax(6rem,0.55fr) minmax(7rem,0.65fr) minmax(7.5rem,0.75fr) 2.25rem";
 
-type StocktakeFormValues = z.input<typeof stocktakeFormSchema>;
+const blankPreviewLine: StocktakePreviewLine = {
+  itemId: "",
+};
 
-function getItemsForScope(
-  scope: StocktakeScope,
-  previewItems: StocktakePreviewItem[]
-) {
-  const parsed = parseStocktakeScope(scope);
-
-  return previewItems.filter((item) => {
-    if (parsed.kind === "type") {
-      return item.stocktakeType === parsed.itemType;
-    }
-
-    if (parsed.kind === "category") {
-      return (
-        item.stocktakeType === parsed.itemType &&
-        item.category === parsed.category
-      );
-    }
-
-    return true;
-  });
+function isBlankPreviewLine(line: StocktakePreviewLine | undefined) {
+  return !line?.itemId;
 }
 
-function stocktakeTypeLabel(item: StocktakePreviewItem) {
-  return item.stocktakeType === "subassembly"
-    ? "Sub assembly"
-    : item.stocktakeType === "material"
-      ? "Material"
-      : "Product";
+function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
+  const parsedScope = parseStocktakeScope(scope);
+
+  if (parsedScope.kind === "all") {
+    return true;
+  }
+
+  if (parsedScope.kind === "type") {
+    return item.stocktakeType === parsedScope.itemType;
+  }
+
+  return item.stocktakeType === parsedScope.itemType && item.category === parsedScope.category;
 }
 
 export function StocktakeForm({
-  previewItems,
   scopeGroups,
+  previewItems,
 }: {
-  previewItems: StocktakePreviewItem[];
   scopeGroups: StocktakeScopeOptionGroup[];
+  previewItems: StocktakePreviewItem[];
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [formError, setFormError] = useState<string | null>(null);
   const [nameDate] = useState(() => new Date());
 
+  const defaultPreviewLines = useMemo(
+    () =>
+      previewItems
+        .filter((item) => itemMatchesScope(item, stocktakeDefaultValues.scope))
+        .map((item) => ({ itemId: item.id })),
+    [previewItems]
+  );
+
   const form = useForm<StocktakeFormValues>({
-    resolver: zodResolver(stocktakeFormSchema),
+    resolver: zodResolver(insertStocktakeSchema.passthrough()) as unknown as Resolver<StocktakeFormValues>,
     mode: "onBlur",
     defaultValues: {
       ...stocktakeDefaultValues,
       name: buildStocktakeName(stocktakeDefaultValues.scope, nameDate),
-      lines: getItemsForScope(stocktakeDefaultValues.scope, previewItems).map(
-        (item) => ({ itemId: item.id })
-      ),
+      previewLines: defaultPreviewLines,
     },
   });
-  const watchedLines = useWatch({ control: form.control, name: "lines" });
-  const selectedLines = useMemo(() => watchedLines ?? [], [watchedLines]);
-  const {
-    fields: lineFields,
-    append,
-    remove,
-    replace,
-  } = useFieldArray({
+
+  const watchedScope = useWatch({
     control: form.control,
-    name: "lines",
+    name: "scope",
+  });
+  const watchedPreviewLines = useWatch({
+    control: form.control,
+    name: "previewLines",
   });
 
-  const previewItemById = useMemo(
+  const previewItemMap = useMemo(
     () => new Map(previewItems.map((item) => [item.id, item])),
     [previewItems]
   );
   const selectedItemIds = useMemo(
-    () => new Set(selectedLines.map((line) => line.itemId).filter(Boolean)),
-    [selectedLines]
+    () =>
+      Array.from(
+        new Set(
+          (watchedPreviewLines ?? [])
+            .map((line) => line?.itemId)
+            .filter((itemId): itemId is string => Boolean(itemId))
+        )
+      ),
+    [watchedPreviewLines]
   );
+  const selectedItemCount = selectedItemIds.length;
 
-  const mutation = useMutation<{ id: string }, ApiError, StocktakeFormValues>({
+  useEffect(() => {
+    form.setValue(
+      "previewLines",
+      previewItems
+        .filter((item) => itemMatchesScope(item, watchedScope as StocktakeScope))
+        .map((item) => ({ itemId: item.id })),
+      { shouldDirty: true, shouldValidate: true }
+    );
+  }, [form, previewItems, watchedScope]);
+
+  const mutation = useMutation<{ id: string }, ApiError, StocktakeCreatePayload>({
     mutationFn: async (values) => {
       const response = await fetch("/api/stocktakes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: values.name,
-          scope: values.scope,
-          notes: values.notes,
-          itemIds: values.lines.map((line) => line.itemId),
-        }),
+        body: JSON.stringify(values),
       });
 
       const body = await response.json().catch(() => null);
@@ -223,7 +214,22 @@ export function StocktakeForm({
   };
 
   const handleCancel = useSmartBack("/inventory/stocktakes");
-  const linesError = getFieldArrayError(form.formState.errors.lines);
+  const handleSubmit = form.handleSubmit((values) => {
+    const itemIds = Array.from(
+      new Set(
+        values.previewLines
+          .map((line) => line.itemId)
+          .filter((itemId): itemId is string => itemId.trim() !== "")
+      )
+    );
+
+    mutation.mutate({
+      name: values.name,
+      scope: values.scope,
+      notes: values.notes,
+      itemIds,
+    });
+  }, handleInvalidSubmit);
 
   return (
     <CreatePageShell>
@@ -232,16 +238,16 @@ export function StocktakeForm({
         title="New Stocktake"
         actions={
           <>
-            <Button type="button" variant="outline" onClick={handleCancel}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form="stocktake-form"
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending ? "Creating..." : "Create Stocktake"}
-            </Button>
+          <Button type="button" variant="outline" onClick={handleCancel}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="stocktake-form"
+            disabled={mutation.isPending || selectedItemCount === 0}
+          >
+            {mutation.isPending ? "Creating..." : "Create Stocktake"}
+          </Button>
           </>
         }
       />
@@ -287,11 +293,9 @@ export function StocktakeForm({
       >
         <form
           id="stocktake-form"
-          onSubmit={form.handleSubmit(
-            (values) => mutation.mutate(values),
-            handleInvalidSubmit
-          )}
+          onSubmit={handleSubmit}
         >
+          <FieldGroup className="gap-6">
           <CreateSection title="Basics">
             <FieldGroup>
               <Controller
@@ -325,24 +329,18 @@ export function StocktakeForm({
                       name={field.name}
                       value={field.value}
                       onValueChange={(value) => {
-                        const scope = value as StocktakeScope;
                         field.onChange(value);
-                        replace(
-                          getItemsForScope(scope, previewItems).map((item) => ({
-                            itemId: item.id,
-                          }))
-                        );
                         form.setValue(
                           "name",
-                          buildStocktakeName(scope, nameDate),
+                          buildStocktakeName(value as StocktakeScope, nameDate),
                           { shouldDirty: true, shouldValidate: true }
                         );
                       }}
-                    >
-                      <SelectTrigger
-                        id={field.name}
-                        className="w-full"
-                        aria-invalid={fieldState.invalid}
+                      >
+                        <SelectTrigger
+                          id={field.name}
+                          className="w-full"
+                          aria-invalid={fieldState.invalid}
                       >
                         <SelectValue placeholder="Select scope" />
                       </SelectTrigger>
@@ -384,155 +382,145 @@ export function StocktakeForm({
             </FieldGroup>
           </CreateSection>
 
-          <CreateSection title="Lines">
-            <div className="space-y-3">
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => append({ itemId: "" })}
-                >
-                  Add Item
-                  <HugeiconsIcon
-                    icon={Add01Icon}
-                    className="h-4 w-4"
-                    data-icon="inline-end"
-                    aria-hidden
-                  />
-                </Button>
-              </div>
-
-              {linesError ? <FieldError>{linesError}</FieldError> : null}
-
-              <EditableLineGrid
-                columns="minmax(18rem,1fr) 8rem 8rem 8rem 3rem"
-                headers={["Item", "Type", "Unit", "Available", ""]}
-                minWidth="48rem"
-              >
-                {lineFields.length > 0 ? (
-                  lineFields.map((line, index) => {
-                    const selectedItem = previewItemById.get(
-                      selectedLines[index]?.itemId
-                    );
-                    const availableOptions = previewItems.filter(
-                      (item) =>
-                        item.id === selectedLines[index]?.itemId ||
-                        !selectedItemIds.has(item.id)
-                    );
-
-                    return (
-                      <EditableLineGridRow key={line.id}>
-                        <EditableLineGridCell>
-                          <Controller
-                            control={form.control}
-                            name={`lines.${index}.itemId`}
-                            render={({ field, fieldState }) => (
-                              <Field data-invalid={fieldState.invalid}>
-                                <FieldLabel
-                                  className="sr-only"
-                                  htmlFor={`stocktake-line-${line.id}-item`}
-                                >
-                                  Item
-                                </FieldLabel>
-                                <InventoryItemCombobox
-                                  options={availableOptions}
-                                  value={field.value ?? ""}
-                                  onValueChange={(value) =>
-                                    field.onChange(value ?? "")
-                                  }
-                                  inputId={`stocktake-line-${line.id}-item`}
-                                  inputAriaInvalid={fieldState.invalid}
-                                  inputClassName="w-full min-w-0"
-                                  placeholder="Search items..."
-                                  emptyMessage="No items found"
-                                  contentClassName="w-[min(36rem,calc(100vw-2rem))]"
-                                  showTypeBadge
-                                  createLinks={[
-                                    {
-                                      href: "/inventory/products/new",
-                                      label: "Create product",
-                                    },
-                                    {
-                                      href: "/inventory/materials/new",
-                                      label: "Create material",
-                                    },
-                                  ]}
-                                  getSecondaryText={(item) =>
-                                    [
-                                      item.sku,
-                                      item.unitName,
-                                      `Available ${formatQuantity(
-                                        item.currentQty
-                                      )}`,
-                                    ]
-                                      .filter(
-                                        (part): part is string =>
-                                          part != null && part.trim() !== ""
-                                      )
-                                      .join(" · ")
-                                  }
-                                />
-                                {selectedItem ? (
-                                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                                    {selectedItem.sku
-                                      ? `${selectedItem.sku} · `
-                                      : ""}
-                                    Available{" "}
-                                    {formatQuantity(selectedItem.currentQty)}
-                                  </p>
-                                ) : null}
-                                {fieldState.invalid ? (
-                                  <FieldError errors={[fieldState.error]} />
-                                ) : null}
-                              </Field>
-                            )}
-                          />
-                        </EditableLineGridCell>
-                        <EditableLineGridCell className="text-sm text-muted-foreground">
-                          {selectedItem ? stocktakeTypeLabel(selectedItem) : "-"}
-                        </EditableLineGridCell>
-                        <EditableLineGridCell className="text-sm text-muted-foreground">
-                          {selectedItem?.unitName ?? "-"}
-                        </EditableLineGridCell>
-                        <EditableLineGridCell
-                          align="right"
-                          className="text-sm tabular-nums"
-                        >
-                          {selectedItem
-                            ? formatQuantity(selectedItem.currentQty)
-                            : "-"}
-                        </EditableLineGridCell>
-                        <EditableLineGridCell align="center">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => remove(index)}
-                            aria-label="Remove item"
-                          >
-                            <HugeiconsIcon
-                              icon={Cancel01Icon}
-                              className="h-4 w-4"
-                              aria-hidden
-                            />
-                          </Button>
-                        </EditableLineGridCell>
-                      </EditableLineGridRow>
-                    );
-                  })
-                ) : (
-                  <EditableLineGridRow>
-                    <EditableLineGridCell className="col-span-full py-8 text-center text-sm text-muted-foreground">
-                      No items selected.
-                    </EditableLineGridCell>
-                  </EditableLineGridRow>
-                )}
-              </EditableLineGrid>
-            </div>
+          <CreateSection
+            title="Preview"
+            action={
+              <span className="text-xs text-muted-foreground">
+                {selectedItemCount} item{selectedItemCount === 1 ? "" : "s"}
+              </span>
+            }
+          >
+            <EditableLineItems<StocktakeFormValues, "previewLines">
+              control={form.control}
+              name="previewLines"
+              columns={STOCKTAKE_PREVIEW_GRID_COLUMNS}
+              minWidth="38rem"
+              headers={[
+                "Item",
+                "Type",
+                <TableTooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
+                <TableTooltipHeader
+                  key="available"
+                  label="Available"
+                  tooltip={STOCKTAKE_CURRENT_QTY_TOOLTIP}
+                />,
+                <span key="actions" />,
+              ]}
+              blankLine={blankPreviewLine}
+              isBlankLine={isBlankPreviewLine}
+              enableReorder={false}
+              error={
+                selectedItemCount === 0
+                  ? "Choose at least one item for this stocktake."
+                  : null
+              }
+              renderRow={({ field, index, remove }) => (
+                <StocktakePreviewRow
+                  key={field.id}
+                  lineKey={field.id}
+                  index={index}
+                  control={form.control}
+                  items={previewItems}
+                  itemMap={previewItemMap}
+                  selectedItemIds={selectedItemIds}
+                  onRemove={remove}
+                />
+              )}
+              footer={
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Snapshot items</span>{" "}
+                  <span className="font-mono font-medium tabular-nums">
+                    {selectedItemCount}
+                  </span>
+                </div>
+              }
+            />
           </CreateSection>
+          </FieldGroup>
         </form>
       </CreatePageGrid>
     </CreatePageShell>
+  );
+}
+
+function StocktakePreviewRow({
+  lineKey,
+  index,
+  control,
+  items,
+  itemMap,
+  selectedItemIds,
+  onRemove,
+}: {
+  lineKey: string;
+  index: number;
+  control: Control<StocktakeFormValues>;
+  items: StocktakePreviewItem[];
+  itemMap: Map<string, StocktakePreviewItem>;
+  selectedItemIds: string[];
+  onRemove: () => void;
+}) {
+  const itemId = useWatch({
+    control,
+    name: `previewLines.${index}.itemId`,
+  });
+  const item = itemId ? itemMap.get(itemId) : undefined;
+  const options = items.filter(
+    (option) => option.id === itemId || !selectedItemIds.includes(option.id)
+  );
+
+  return (
+    <EditableLineGridRow>
+      <EditableLineGridCell>
+        <Controller
+          name={`previewLines.${index}.itemId`}
+          control={control}
+          render={({ field, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${lineKey}-item`}>
+                Item
+              </FieldLabel>
+              <InventoryItemCombobox
+                options={options}
+                value={field.value ?? ""}
+                onValueChange={(value) => field.onChange(value ?? "")}
+                inputId={`${lineKey}-item`}
+                inputAriaInvalid={fieldState.invalid}
+                inputClassName="w-full min-w-0"
+                placeholder="Search items..."
+                emptyMessage="No active items found"
+                contentClassName="w-[min(36rem,calc(100vw-2rem))]"
+                showTypeBadge
+                getSecondaryText={(current) =>
+                  [
+                    current.sku,
+                    current.unitName,
+                    `Available ${formatQuantity(current.currentQty)}`,
+                  ]
+                    .filter((part): part is string => part != null && part !== "")
+                    .join(" · ")
+                }
+              />
+              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+      <EditableLineGridCell className="text-sm text-muted-foreground">
+        {item?.itemType ?? "—"}
+      </EditableLineGridCell>
+      <EditableLineGridCell className="text-sm text-muted-foreground">
+        {item?.unitName ?? "—"}
+      </EditableLineGridCell>
+      <EditableLineGridCell className="font-mono text-sm tabular-nums">
+        {item ? formatQuantity(item.currentQty) : "—"}
+      </EditableLineGridCell>
+      <EditableLineGridCell>
+        <EditableLineGridRemoveButton
+          onClick={onRemove}
+          label={`Remove preview line ${index + 1}`}
+        />
+      </EditableLineGridCell>
+    </EditableLineGridRow>
   );
 }

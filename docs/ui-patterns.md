@@ -183,23 +183,28 @@ For standard dashboard list pages, use the shared `DashboardDataTable` shell ins
 
 ## Editable Line Items
 
-Use `EditableLineGrid` from `components/editable-line-grid.tsx` for repeated multi-control rows such as sales order lines, PO lines, BOM ingredients, and manufacturing ingredients. shadcn `Table` can hold simple fixed-width controls, but dense form arrays need explicit grid tracks so long item labels do not shrink sibling inputs.
+Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns add/remove/reorder wiring, and keeps one blank row at the bottom. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
 
-- Define explicit grid tracks for every column, e.g. `minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem`.
-- Give numeric inputs stable columns (`6rem` or wider for quantity, `10rem` or wider for money).
+- Define explicit flexible grid tracks for every column, e.g. `minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)`.
+- Give numeric inputs stable but compact columns; use `fr` tracks so empty cells do not force a small horizontal scroll.
 - Do not put a control `min-w-*` inside a padded cell unless the column track includes that padding.
 - Put the row group in horizontal overflow when the total minimum width exceeds the card.
+- Do not add manual “Add row” buttons when `EditableLineItems` owns the trailing blank row.
 - Keep combobox result popups readable; long item/customer labels may use a width wider than the trigger.
 - Keep each editable control wrapped in shadcn `Field`, with a label relationship and `aria-invalid` state.
 - Keep array validation under the grid, using `FieldError` or the existing field-array error helper.
+- Filter fully blank rows in the schema or submit payload so the trailing row never saves or validates as data.
 
 ```tsx
-<EditableLineGrid
-  columns="minmax(18rem, 1fr) 6rem 4.5rem 10rem 7rem 6rem 2.5rem"
-  minWidth="54rem"
+<EditableLineItems
+  control={form.control}
+  name="lines"
+  columns="minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)"
+  minWidth="40rem"
   headers={[itemHeader, qtyHeader, unitHeader, priceHeader, totalHeader, marginHeader, null]}
->
-  {fields.map((field, index) => (
+  blankLine={{ itemId: "", quantity: null, unitPrice: null }}
+  isBlankLine={isBlankLine}
+  renderRow={({ field, index, remove }) => (
     <EditableLineGridRow key={field.id}>
       <EditableLineGridCell>
         <Field>
@@ -219,8 +224,8 @@ Use `EditableLineGrid` from `components/editable-line-grid.tsx` for repeated mul
       </EditableLineGridCell>
       <EditableLineGridCell>{/* unit */}</EditableLineGridCell>
     </EditableLineGridRow>
-  ))}
-</EditableLineGrid>
+  )}
+/>
 ```
 
 ## Portal Components (Dialogs, Dropdowns, Popovers, Tooltips)

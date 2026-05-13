@@ -485,7 +485,6 @@ test.describe("Sales order flow", () => {
     await page.getByRole("option", { name: new RegExp(primaryProductName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
 
-    await page.getByRole("button", { name: "Add Item" }).click();
     const row2 = page.getByRole("row", { name: /Reorder line 2/ });
     const row2ItemInput = row2.getByRole("combobox").first();
     await row2ItemInput.click();

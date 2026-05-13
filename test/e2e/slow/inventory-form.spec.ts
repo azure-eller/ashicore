@@ -432,7 +432,6 @@ test.describe("Inventory creation flow", () => {
     await page.getByLabel("Selling Price").fill("29.99");
 
     // BOM row 1 — Sand
-    await page.getByText("+ Add Ingredient").click();
     let row = page.getByTestId("bom-row").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(fullMaterialName);
@@ -441,7 +440,6 @@ test.describe("Inventory creation flow", () => {
     await page.getByText("Recipe / Bill of Materials").click();
 
     // BOM row 2 — Gravel
-    await page.getByText("+ Add Ingredient").click();
     row = page.getByTestId("bom-row").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(minimalMaterialName);
@@ -450,7 +448,6 @@ test.describe("Inventory creation flow", () => {
     await page.getByText("Recipe / Bill of Materials").click();
 
     // BOM row 3 — Base Mix
-    await page.getByText("+ Add Ingredient").click();
     row = page.getByTestId("bom-row").last();
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(simpleProductName);

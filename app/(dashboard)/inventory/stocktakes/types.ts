@@ -16,6 +16,18 @@ export type StocktakeScopeOptionGroup = {
   options: StocktakeScopeOption[];
 };
 
+export type StocktakePreviewItem = {
+  id: string;
+  name: string;
+  displayName: string;
+  sku: string | null;
+  itemType: ItemType;
+  stocktakeType: StocktakeScopeItemType;
+  category: string | null;
+  unitName: string;
+  currentQty: string;
+};
+
 export function formatScope(scope: StocktakeScope) {
   const parsed = parseStocktakeScope(scope);
 
@@ -117,15 +129,4 @@ export type StocktakeStaleWarningPayload = {
     currentQty: string;
     countedQty: string;
   }>;
-};
-
-export type StocktakePreviewItem = {
-  id: string;
-  name: string;
-  sku: string | null;
-  itemType: ItemType;
-  stocktakeType: StocktakeScopeItemType;
-  category: string | null;
-  unitName: string;
-  currentQty: string;
 };

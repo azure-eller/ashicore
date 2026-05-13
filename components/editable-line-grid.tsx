@@ -1,6 +1,16 @@
-import type { ComponentProps, CSSProperties, ReactNode } from "react";
+"use client";
 
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+
+import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type EditableLineGridProps = {
@@ -20,22 +30,29 @@ function EditableLineGrid({
   className,
   headerClassName,
 }: EditableLineGridProps) {
+  const widthStyle = minWidth
+    ? {
+        "--editable-line-grid-columns": columns,
+        "--editable-line-grid-min-width": minWidth,
+        "--editable-line-grid-width":
+          "max(100%, var(--editable-line-grid-min-width))",
+      }
+    : {
+        "--editable-line-grid-columns": columns,
+        "--editable-line-grid-width": "100%",
+      };
+
   return (
-    <div className={cn("overflow-x-auto rounded-lg border", className)}>
+    <div className={cn("w-full overflow-x-auto rounded-lg border bg-card", className)}>
       <FieldGroup
         role="table"
-        className="min-w-(--editable-line-grid-min-width) gap-0"
-        style={
-          {
-            "--editable-line-grid-columns": columns,
-            "--editable-line-grid-min-width": minWidth,
-          } as CSSProperties
-        }
+        className="w-(--editable-line-grid-width) gap-0"
+        style={widthStyle as CSSProperties}
       >
         <div
           role="row"
           className={cn(
-            "grid grid-cols-(--editable-line-grid-columns) border-b bg-muted/50",
+            "grid min-w-0 grid-cols-(--editable-line-grid-columns) border-b bg-muted/50",
             headerClassName
           )}
         >
@@ -43,7 +60,7 @@ function EditableLineGrid({
             <div
               key={index}
               role="columnheader"
-              className="px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-left align-middle text-sm font-medium whitespace-nowrap text-foreground"
+              className="min-w-0 truncate px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-left align-middle text-sm font-medium whitespace-nowrap text-foreground"
             >
               {header}
             </div>
@@ -64,7 +81,7 @@ function EditableLineGridRow({
     <div
       role="row"
       className={cn(
-        "grid grid-cols-(--editable-line-grid-columns) border-b transition-colors last:border-b-0 hover:bg-muted/50",
+        "group/line-grid-row grid min-w-0 grid-cols-(--editable-line-grid-columns) border-b transition-colors last:border-b-0 hover:bg-muted/50",
         className
       )}
       {...props}
@@ -88,7 +105,7 @@ function EditableLineGridCell({
     <div
       role="cell"
       className={cn(
-        "min-w-0 px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle",
+        "min-w-0 overflow-hidden px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle [&_[data-slot=field]]:min-w-0 [&_input]:min-w-0 [&_p]:max-w-full [&_p]:overflow-hidden",
         align === "right" && "text-right",
         align === "center" && "text-center",
         className
@@ -114,9 +131,39 @@ function EditableLineGridFullWidth({
   );
 }
 
+function EditableLineGridRemoveButton({
+  label = "Remove row",
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Button>, "children" | "size" | "variant"> & {
+  label?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className={cn(
+            "text-muted-foreground opacity-0 transition-opacity hover:bg-transparent hover:text-destructive focus-visible:opacity-100 group-hover/line-grid-row:opacity-100 group-focus-within/line-grid-row:opacity-100",
+            className
+          )}
+          aria-label={label}
+          {...props}
+        >
+          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Remove row.</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export {
   EditableLineGrid,
   EditableLineGridCell,
   EditableLineGridFullWidth,
+  EditableLineGridRemoveButton,
   EditableLineGridRow,
 };
