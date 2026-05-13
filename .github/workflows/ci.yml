@@ -37,6 +37,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -61,8 +63,83 @@ jobs:
       - name: Run migrations
         run: pnpm drizzle-kit migrate
 
+      - name: Verify database schema
+        run: pnpm verify:db-schema
+
       - name: Build
         run: pnpm build
+
+  migration-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'pull_request'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL_APP: postgresql://app_user:postgres@localhost:5432/postgres
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      BETTER_AUTH_SECRET: ci-test-secret-not-for-production
+    steps:
+      - name: Checkout base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install base dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create app_user role
+        run: psql "$DATABASE_URL" -c "CREATE ROLE app_user WITH LOGIN PASSWORD 'postgres';"
+
+      - name: Run base migrations
+        run: pnpm drizzle-kit migrate
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          clean: true
+
+      - name: Point origin at base repository
+        run: git remote set-url origin "https://github.com/${{ github.repository }}.git"
+
+      - name: Install PR dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check PR migration order
+        run: pnpm db:check-migrations
+
+      - name: Run PR migrations
+        run: pnpm drizzle-kit migrate
+
+      - name: Verify upgraded database schema
+        run: pnpm verify:db-schema
 
   lint:
     runs-on: ubuntu-latest
@@ -70,6 +147,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
