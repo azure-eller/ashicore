@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   useFieldArray,
+  useWatch,
   type Control,
   type FieldArray,
   type FieldArrayPath,
   type FieldArrayWithId,
+  type FieldPath,
   type FieldValues,
 } from "react-hook-form";
 import { Add01Icon } from "@hugeicons/core-free-icons";
@@ -44,6 +46,7 @@ export function EditableLineItems<
   error,
   footer,
   enableReorder = true,
+  isLineBlank,
 }: {
   control: Control<TValues>;
   name: TName;
@@ -57,12 +60,18 @@ export function EditableLineItems<
   error?: string | null;
   footer?: ReactNode;
   enableReorder?: boolean;
+  isLineBlank?: (line: FieldArray<TValues, TName> | undefined) => boolean;
 }) {
   const { fields, append, remove, move } = useFieldArray({
     control,
     name,
   });
+  const watchedLines = useWatch({ control, name: name as FieldPath<TValues> }) as
+    | FieldArray<TValues, TName>[]
+    | undefined;
   const rootRef = useRef<HTMLDivElement>(null);
+  const autoAppendInitializedRef = useRef(false);
+  const autoAppendedRowIdsRef = useRef(new Set<string>());
   const [focusRequest, setFocusRequest] = useState(0);
 
   const focusLastPrimaryControl = useCallback(() => {
@@ -89,6 +98,36 @@ export function EditableLineItems<
     const frameId = requestAnimationFrame(focusLastPrimaryControl);
     return () => cancelAnimationFrame(frameId);
   }, [focusLastPrimaryControl, focusRequest, fields.length]);
+
+  useEffect(() => {
+    if (!isLineBlank) {
+      return;
+    }
+
+    if (!autoAppendInitializedRef.current) {
+      fields.forEach((field, index) => {
+        if (!isLineBlank(watchedLines?.[index])) {
+          autoAppendedRowIdsRef.current.add(field.id);
+        }
+      });
+      autoAppendInitializedRef.current = true;
+      return;
+    }
+
+    const lastIndex = fields.length - 1;
+    const lastField = fields[lastIndex];
+    if (!lastField) {
+      return;
+    }
+
+    if (
+      !isLineBlank(watchedLines?.[lastIndex]) &&
+      !autoAppendedRowIdsRef.current.has(lastField.id)
+    ) {
+      autoAppendedRowIdsRef.current.add(lastField.id);
+      append(createLine(), { shouldFocus: false });
+    }
+  }, [append, createLine, fields, isLineBlank, watchedLines]);
 
   const grid = (
     <EditableLineGrid columns={columns} minWidth={minWidth} headers={headers}>

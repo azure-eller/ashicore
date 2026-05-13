@@ -159,6 +159,9 @@ test.describe("Purchasing write-path smoke", () => {
     await page
       .locator('input[name="additionalCosts.0.reference"]')
       .fill("Freight smoke");
+    await expect(
+      page.locator('input[name^="additionalCosts."][name$=".amount"]')
+    ).toHaveCount(2);
     await page
       .locator('input[name="additionalCosts.0.xeroPurchaseAccountCode"]')
       .fill("400");

@@ -1287,6 +1287,7 @@ export function PurchaseOrderForm({
                 columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
                 minWidth="66rem"
                 createLine={() => ({ ...blankPurchaseOrderLine })}
+                isLineBlank={isBlankPurchaseOrderLine}
                 addLabel="Add material"
                 emptyMessage="No materials yet."
                 error={linesError}
@@ -1320,7 +1321,7 @@ export function PurchaseOrderForm({
                   "Allocated",
                   "Landed Total",
                 ]}
-                renderRow={({ field, index, isLastRow, addLine, remove }) => (
+                renderRow={({ field, index, remove }) => (
                   <PurchaseOrderLineRow
                     key={field.id}
                     lineKey={field.id}
@@ -1360,9 +1361,6 @@ export function PurchaseOrderForm({
                           shouldValidate: true,
                         }
                       );
-                      if (materialId && isLastRow) {
-                        addLine();
-                      }
                     }}
                     onRemove={remove}
                   />
@@ -1425,6 +1423,7 @@ export function PurchaseOrderForm({
                 columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
                 minWidth="50rem"
                 createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
+                isLineBlank={isBlankPurchaseOrderAdditionalCost}
                 addLabel="Add cost"
                 emptyMessage="No additional costs yet."
                 error={additionalCostsError}

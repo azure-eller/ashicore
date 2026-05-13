@@ -462,7 +462,7 @@ Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCel
 
 ### Editable line-item forms
 
-Mutable multi-control arrays use `EditableLineItems` from `components/editable-line-items.tsx`; it wraps `EditableLineGrid`, owns add/remove/reorder, and adds rows from its Add row button. Item/material/component selectors may append the next blank row only after a real selection on the last row. Mark the first editable row control with `data-editable-line-primary` so Add row can focus it. Use flexible `minmax(..., fr)` tracks and a compact `minWidth`; use bare `EditableLineGrid` only for fixed editable grids like stocktake counts.
+Mutable multi-control arrays use `EditableLineItems` from `components/editable-line-items.tsx`; it wraps `EditableLineGrid`, owns add/remove/reorder, and adds rows from its Add row button. Pass `isLineBlank` when the last row should append one blank row after it becomes nonblank; do not hand-code append logic in row controls. Mark the first editable row control with `data-editable-line-primary` so Add row can focus it. Use flexible `minmax(..., fr)` tracks and a compact `minWidth`; use bare `EditableLineGrid` only for fixed editable grids like stocktake counts.
 
 ### Shared dashboard tables
 

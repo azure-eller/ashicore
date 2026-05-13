@@ -183,7 +183,7 @@ For standard dashboard list pages, use the shared `DashboardDataTable` shell ins
 
 ## Editable Line Items
 
-Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns add/remove/reorder wiring, and adds rows through its Add row button. Item-style rows may also append the next blank row after the last row's item selector receives a real item selection. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
+Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns add/remove/reorder wiring, and adds rows through its Add row button. Pass `isLineBlank` when a grid should append one blank row after the last row becomes nonblank. Focus, Tab, and deleting a blank row must not recreate rows. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
 
 - Define explicit flexible grid tracks for every column, e.g. `minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)`.
 - Give numeric inputs stable but compact columns; use `fr` tracks so empty cells do not force a small horizontal scroll.
@@ -191,7 +191,7 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
 - Put the row group in horizontal overflow when the total minimum width exceeds the card.
 - Use `createLine` and `addLabel`; clicking Add row focuses the new row's first control.
 - Mark the first editable control in each row with `data-editable-line-primary`.
-- For item/material/component selectors, append from `renderRow` only after a real selection on the last row.
+- Use `isLineBlank` for auto-append behavior; do not hand-code append logic inside row controls.
 - Keep combobox result popups readable; long item/customer labels may use a width wider than the trigger.
 - Keep each editable control wrapped in shadcn `Field`, with a label relationship and `aria-invalid` state.
 - Keep array validation under the grid, using `FieldError` or the existing field-array error helper.
@@ -205,6 +205,11 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
   minWidth="40rem"
   headers={[itemHeader, qtyHeader, unitHeader, priceHeader, totalHeader, marginHeader, null]}
   createLine={() => ({ itemId: "", quantity: null, unitPrice: null })}
+  isLineBlank={(line) =>
+    (line?.itemId?.trim() ?? "") === "" &&
+    (line?.quantity?.trim() ?? "") === "" &&
+    (line?.unitPrice?.trim() ?? "") === ""
+  }
   addLabel="Add item"
   renderRow={({ field, index, remove }) => (
     <EditableLineGridRow key={field.id}>

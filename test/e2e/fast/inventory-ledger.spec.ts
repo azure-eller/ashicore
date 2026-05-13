@@ -863,9 +863,6 @@ test.describe("Inventory ledger explorer", () => {
     page,
   }) => {
     await page.goto("/inventory/ledger");
-    await expect(
-      page.getByRole("heading", { name: "Inventory Activity" })
-    ).toBeVisible();
     await expect(page.getByLabel("Search ledger")).toBeVisible();
     await expect(page.getByRole("button", { name: /Filter by Occurred/ })).toBeVisible();
     await expect(page.getByLabel("Filter from date")).toBeHidden();

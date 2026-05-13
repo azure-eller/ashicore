@@ -82,6 +82,10 @@ const blankPreviewLine: StocktakePreviewLine = {
   itemId: "",
 };
 
+function isBlankPreviewLine(line: StocktakePreviewLine | undefined) {
+  return (line?.itemId?.trim() ?? "") === "";
+}
+
 function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
   const parsedScope = parseStocktakeScope(scope);
 
@@ -405,6 +409,7 @@ export function StocktakeForm({
                 <span key="actions" />,
               ]}
               createLine={() => ({ ...blankPreviewLine })}
+              isLineBlank={isBlankPreviewLine}
               addLabel="Add item"
               emptyMessage="No items selected yet."
               enableReorder={false}
@@ -413,7 +418,7 @@ export function StocktakeForm({
                   ? "Choose at least one item for this stocktake."
                   : null
               }
-              renderRow={({ field, index, isLastRow, addLine, remove }) => (
+              renderRow={({ field, index, remove }) => (
                 <StocktakePreviewRow
                   key={field.id}
                   lineKey={field.id}
@@ -422,11 +427,6 @@ export function StocktakeForm({
                   items={previewItems}
                   itemMap={previewItemMap}
                   selectedItemIds={selectedItemIds}
-                  onItemChange={(itemId) => {
-                    if (itemId && isLastRow) {
-                      addLine();
-                    }
-                  }}
                   onRemove={remove}
                 />
               )}
@@ -454,7 +454,6 @@ function StocktakePreviewRow({
   items,
   itemMap,
   selectedItemIds,
-  onItemChange,
   onRemove,
 }: {
   lineKey: string;
@@ -463,7 +462,6 @@ function StocktakePreviewRow({
   items: StocktakePreviewItem[];
   itemMap: Map<string, StocktakePreviewItem>;
   selectedItemIds: string[];
-  onItemChange: (itemId: string) => void;
   onRemove: () => void;
 }) {
   const itemId = useWatch({
@@ -489,11 +487,7 @@ function StocktakePreviewRow({
               <InventoryItemCombobox
                 options={options}
                 value={field.value ?? ""}
-                onValueChange={(value) => {
-                  const nextItemId = value ?? "";
-                  field.onChange(nextItemId);
-                  onItemChange(nextItemId);
-                }}
+                onValueChange={(value) => field.onChange(value ?? "")}
                 inputId={`${lineKey}-item`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus

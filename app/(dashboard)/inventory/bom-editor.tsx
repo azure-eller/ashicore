@@ -42,6 +42,14 @@ const blankBomLine = {
   alternates: [],
 };
 
+function isBlankBomLine(line: NonNullable<ItemFormValues["bom"]>[number] | undefined) {
+  const componentId = line?.componentId?.trim() ?? "";
+  const quantity = line?.quantity?.trim() ?? "";
+  const minimumLotAgeDays =
+    line?.minimumLotAgeDays == null ? "" : String(line.minimumLotAgeDays).trim();
+  return componentId === "" && quantity === "" && minimumLotAgeDays === "";
+}
+
 interface BomEditorProps {
   control: Control<ItemFormValues>;
   availableComponents: AvailableComponent[];
@@ -71,6 +79,7 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         columns={BOM_LINE_GRID_COLUMNS}
         minWidth="40rem"
         createLine={() => ({ ...blankBomLine, alternates: [] })}
+        isLineBlank={isBlankBomLine}
         addLabel="Add ingredient"
         emptyMessage="No ingredients yet."
         headers={[
@@ -81,7 +90,7 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
           "Unit",
           <span key="actions" />,
         ]}
-        renderRow={({ field, index, isLastRow, addLine, remove }) => (
+        renderRow={({ field, index, remove }) => (
           <BomRow
             key={field.id}
             lineKey={field.id}
@@ -89,11 +98,6 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
             control={control}
             componentOptions={componentOptions}
             componentMap={componentMap}
-            onComponentChange={(id) => {
-              if (id && isLastRow) {
-                addLine();
-              }
-            }}
             onRemove={remove}
           />
         )}
@@ -109,7 +113,6 @@ function BomRow({
   control,
   componentOptions,
   componentMap,
-  onComponentChange,
   onRemove,
 }: {
   lineKey: string;
@@ -117,7 +120,6 @@ function BomRow({
   control: Control<ItemFormValues>;
   componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
-  onComponentChange: (id: string) => void;
   onRemove: () => void;
 }) {
   const componentId = useWatch({ control, name: `bom.${index}.componentId` });
@@ -156,11 +158,7 @@ function BomRow({
               <InventoryItemCombobox
                 options={componentOptions}
                 value={f.value ?? ""}
-                onValueChange={(id) => {
-                  const nextId = id ?? "";
-                  f.onChange(nextId);
-                  onComponentChange(nextId);
-                }}
+                onValueChange={(id) => f.onChange(id ?? "")}
                 inputId={`${lineKey}-component`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus

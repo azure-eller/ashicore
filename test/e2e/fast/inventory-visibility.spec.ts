@@ -173,7 +173,7 @@ test.describe("inventory visibility", () => {
 
   test("shows only sellable catalog rows in Products", async ({ page }) => {
     await page.goto("/inventory/products");
-    await expect(page.getByRole("link", { name: "Sub-assemblies", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "New Product" })).toBeVisible();
 
     await filterList(page, "Search items", sellableOnlyName);
     await expect(page.getByRole("link", { name: sellableOnlyName })).toBeVisible();
