@@ -3,11 +3,12 @@ read_when:
   - Adding or changing Sentry capture
   - Changing web or Android API observability
   - Investigating cross-platform request correlation
+  - Building Sentry Autofix PR packets
 ---
 
 # Sentry Vocabulary
 
-This repo owns the canonical ERP Sentry vocabulary. Android mirrors this contract.
+This repo owns the canonical ERP Sentry vocabulary. Android mirrors this contract. Sentry Autofix PR packets must use this vocabulary plus the sanitizer rules in `docs/observability/sentry-autofix.md`.
 
 ## Shared Tags
 
