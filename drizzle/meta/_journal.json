@@ -131,7 +131,7 @@
     {
       "idx": 18,
       "version": "7",
-      "when": 1774569285090,
+      "when": 1774651696494,
       "tag": "0018_repair_purchasing_order_sequence",
       "breakpoints": true
     },
@@ -180,7 +180,7 @@
     {
       "idx": 25,
       "version": "7",
-      "when": 1775514057425,
+      "when": 1775586873397,
       "tag": "0025_late_taskmaster",
       "breakpoints": true
     },
@@ -201,7 +201,7 @@
     {
       "idx": 28,
       "version": "7",
-      "when": 1775796784779,
+      "when": 1775841565204,
       "tag": "0027_flaky_randall",
       "breakpoints": true
     },
@@ -250,28 +250,28 @@
     {
       "idx": 35,
       "version": "7",
-      "when": 1776288624839,
+      "when": 1776305162906,
       "tag": "0034_rename_fulfilled_to_shipped",
       "breakpoints": true
     },
     {
       "idx": 36,
       "version": "7",
-      "when": 1776289449467,
+      "when": 1776305162907,
       "tag": "0035_address_split",
       "breakpoints": true
     },
     {
       "idx": 37,
       "version": "7",
-      "when": 1776289672557,
+      "when": 1776305162908,
       "tag": "0036_sales_order_ship_to",
       "breakpoints": true
     },
     {
       "idx": 38,
       "version": "7",
-      "when": 1776290134883,
+      "when": 1776305162909,
       "tag": "0037_xero",
       "breakpoints": true
     },
@@ -313,7 +313,7 @@
     {
       "idx": 44,
       "version": "7",
-      "when": 1776624547928,
+      "when": 1776629909088,
       "tag": "0044_shocking_iron_lad",
       "breakpoints": true
     },
@@ -453,7 +453,7 @@
     {
       "idx": 64,
       "version": "7",
-      "when": 1778186977337,
+      "when": 1778189041470,
       "tag": "0064_tiresome_karnak",
       "breakpoints": true
     },
@@ -544,21 +544,21 @@
     {
       "idx": 77,
       "version": "7",
-      "when": 1778582400000,
+      "when": 1778612757256,
       "tag": "0077_purchase_order_shipping_cost",
       "breakpoints": true
     },
     {
       "idx": 78,
       "version": "7",
-      "when": 1778589600000,
+      "when": 1778612757257,
       "tag": "0078_purchase_order_additional_costs",
       "breakpoints": true
     },
     {
       "idx": 79,
       "version": "7",
-      "when": 1778593200000,
+      "when": 1778612757258,
       "tag": "0079_purchase_order_xero_accounts_delivery",
       "breakpoints": true
     },
@@ -567,6 +567,13 @@
       "version": "7",
       "when": 1778617543345,
       "tag": "0080_slimy_songbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1778620000000,
+      "tag": "0081_repair_purchase_order_schema",
       "breakpoints": true
     }
   ]

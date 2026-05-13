@@ -451,12 +451,37 @@ defaultValues: {
 
 ```bash
 pnpm db:generate            # generates SQL migration file (wraps drizzle-kit + idempotency rewriter)
+pnpm db:check-migrations    # verifies idempotency and migration ordering
+pnpm verify:migration-order # verifies journal idx/when/tag order against origin/main
 pnpm drizzle-kit migrate    # applies pending migrations
 ```
 
 **Never use `drizzle push`** — it bypasses the migration file system and causes drift.
 
 **Never run `drizzle-kit generate` directly.** `pnpm db:generate` chains it with `scripts/make-migrations-idempotent.ts`, which adds `IF NOT EXISTS` / `DROP IF EXISTS` guards. Drizzle has no built-in flag for this. CI rejects non-idempotent migrations.
+
+Generate migrations from a fresh `origin/main`. Drizzle decides which migrations
+are pending from the journal timestamp order, not just the filename. A migration
+inserted behind the newest migration already applied in production can be skipped
+forever by an upgrade even though a fresh database would look correct. Do not
+backdate or renumber migrations behind existing main migrations; add a new
+highest-number, highest-timestamp forward migration instead.
+
+Fresh database CI is not enough for migration safety. It proves the final schema
+can be created from scratch, but it does not prove a production database can
+upgrade from the already-applied main branch state. CI therefore also runs an
+upgrade-path check: migrate a database at the PR base, check out the PR head,
+run migrations again, and verify critical schema shape. Add new critical tables
+or columns to `scripts/verify-db-schema.ts` when a missing object would break
+runtime code after deploy. After production deploys, run:
+
+```bash
+DATABASE_URL=<production-owner-url> pnpm verify:production-schema
+```
+
+This is read-only. It verifies the latest repo migration is recorded in
+`drizzle.__drizzle_migrations` and checks critical tables/columns, including the
+purchase-order repair columns/table.
 
 When a module generates human-readable document numbers with `nextval()` in the DAL, patch the migration SQL to create and grant the backing sequence explicitly. Drizzle does not currently keep these sequence definitions in the schema files we use for sales/manufacturing/purchasing, so the SQL migration is the source of truth.
 
