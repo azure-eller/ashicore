@@ -73,6 +73,10 @@ export function getUomOptions(): UomGroup[] {
 }
 
 export function areUnitsCompatible(sourceUom: string, targetUom: string) {
+  if (sourceUom === targetUom) {
+    return true;
+  }
+
   if (sourceUom === "ea" || targetUom === "ea") {
     return sourceUom === targetUom;
   }
@@ -92,7 +96,7 @@ export function derivePurchaseToStockFactor(
     return null;
   }
 
-  if (purchaseUnit.uom === "ea" && stockingUnit.uom === "ea") {
+  if (purchaseUnit.uom === stockingUnit.uom) {
     const purchaseSize = Number(purchaseUnit.size);
     const stockingSize = Number(stockingUnit.size);
 
