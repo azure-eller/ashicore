@@ -28,6 +28,11 @@ read_when:
   can reset a completed run when imported rows are not referenced by orders.
   Fetch active contacts, update matching ERP rows by Xero ID/email/name, but
   only create new rows for Xero contacts flagged as customers or suppliers.
+- **Purchasing sync** — `lib/xero/import-purchasing.ts`. Preview-first,
+  history-driven supplier item sync. Fetches purchased Xero items plus recent
+  POs/bills, but writes only selected rows that already match an ERP supplier
+  and item. It populates `supplier_items` and external Xero item metadata; it
+  does not bulk-create ERP items from Xero catalog rows.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
   beyond that, idempotency comes from reconcile-by-reference, not

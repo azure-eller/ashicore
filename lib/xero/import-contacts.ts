@@ -9,7 +9,6 @@ import {
   suppliers,
   xeroImportRunRows,
   xeroImportRuns,
-  type XeroImportEntityType,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
@@ -17,7 +16,7 @@ import { normalizeAddressFields } from "@/lib/format";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 
-export type ContactImportEntity = XeroImportEntityType;
+export type ContactImportEntity = "customers" | "suppliers";
 
 export type ImportResult = {
   runId: string;
@@ -96,6 +95,11 @@ type SupplierSnapshot = SupplierAddressFields & {
   email: string | null;
   phone: string | null;
   xeroContactId: string | null;
+  xeroContactNumber: string | null;
+  xeroAccountNumber: string | null;
+  xeroPurchasesDefaultAccountCode: string | null;
+  xeroAccountsPayableTaxType: string | null;
+  xeroUpdatedAt: Date | null;
 };
 
 type ExistingCustomer = CustomerSnapshot & { id: string };
@@ -129,6 +133,11 @@ function supplierSnapshot(row: ExistingSupplier): SupplierSnapshot {
     email: row.email,
     phone: row.phone,
     xeroContactId: row.xeroContactId,
+    xeroContactNumber: row.xeroContactNumber,
+    xeroAccountNumber: row.xeroAccountNumber,
+    xeroPurchasesDefaultAccountCode: row.xeroPurchasesDefaultAccountCode,
+    xeroAccountsPayableTaxType: row.xeroAccountsPayableTaxType,
+    xeroUpdatedAt: row.xeroUpdatedAt,
     billingLine1: row.billingLine1,
     billingLine2: row.billingLine2,
     billingCity: row.billingCity,
@@ -171,6 +180,12 @@ function phoneValue(phone: Phone | undefined) {
       .join(" "),
     50
   );
+}
+
+function cleanDate(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function mapPhone(contact: Contact) {
@@ -305,6 +320,11 @@ function supplierSelect() {
     email: suppliers.email,
     phone: suppliers.phone,
     xeroContactId: suppliers.xeroContactId,
+    xeroContactNumber: suppliers.xeroContactNumber,
+    xeroAccountNumber: suppliers.xeroAccountNumber,
+    xeroPurchasesDefaultAccountCode: suppliers.xeroPurchasesDefaultAccountCode,
+    xeroAccountsPayableTaxType: suppliers.xeroAccountsPayableTaxType,
+    xeroUpdatedAt: suppliers.xeroUpdatedAt,
     billingLine1: suppliers.billingLine1,
     billingLine2: suppliers.billingLine2,
     billingCity: suppliers.billingCity,
@@ -624,6 +644,19 @@ async function importSupplierInTx(
     email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
     phone: mapPhone(contact) ?? existing?.phone ?? null,
     xeroContactId: cleanString(contact.contactID) ?? existing?.xeroContactId ?? null,
+    xeroContactNumber:
+      cleanString(contact.contactNumber, 100) ?? existing?.xeroContactNumber ?? null,
+    xeroAccountNumber:
+      cleanString(contact.accountNumber, 100) ?? existing?.xeroAccountNumber ?? null,
+    xeroPurchasesDefaultAccountCode:
+      cleanString(contact.purchasesDefaultAccountCode, 20) ??
+      existing?.xeroPurchasesDefaultAccountCode ??
+      null,
+    xeroAccountsPayableTaxType:
+      cleanString(contact.accountsPayableTaxType, 50) ??
+      existing?.xeroAccountsPayableTaxType ??
+      null,
+    xeroUpdatedAt: cleanDate(contact.updatedDateUTC) ?? existing?.xeroUpdatedAt ?? null,
     billingLine1: addr.billingLine1 ?? existing?.billingLine1 ?? null,
     billingLine2: addr.billingLine2 ?? existing?.billingLine2 ?? null,
     billingCity: addr.billingCity ?? existing?.billingCity ?? null,
@@ -680,6 +713,9 @@ async function loadUndoPreviewInTx(
 
   if (!run) {
     throw new XeroError("Xero import run not found.", 404);
+  }
+  if (run.entityType !== "customers" && run.entityType !== "suppliers") {
+    throw new XeroError("Only customer and supplier imports can be reset.", 409);
   }
 
   const rows = await tx
@@ -766,6 +802,9 @@ export async function getXeroImportRunEntityType(
     if (!run) {
       throw new XeroError("Xero import run not found.", 404);
     }
+    if (run.entityType !== "customers" && run.entityType !== "suppliers") {
+      throw new XeroError("Only customer and supplier imports can be reset.", 409);
+    }
 
     return run.entityType;
   });
@@ -809,6 +848,12 @@ export async function undoXeroImportRun(
 
     if (!lockedRun) {
       throw new XeroError("Xero import run not found.", 404);
+    }
+    if (
+      lockedRun.entityType !== "customers" &&
+      lockedRun.entityType !== "suppliers"
+    ) {
+      throw new XeroError("Only customer and supplier imports can be reset.", 409);
     }
     if (lockedRun.status !== "completed") {
       throw new XeroError("This Xero import run has already been reset.", 409);

@@ -80,7 +80,7 @@ export const xeroConnections = xeroSchema
   )
   .enableRLS();
 
-export type XeroImportEntityType = "customers" | "suppliers";
+export type XeroImportEntityType = "customers" | "suppliers" | "purchasing";
 export type XeroImportRunStatus = "completed" | "undone";
 export type XeroImportRowAction = "created" | "updated";
 

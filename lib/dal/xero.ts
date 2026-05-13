@@ -36,7 +36,7 @@ export type XeroConnectionSummary = {
 
 export type XeroImportRunSummary = {
   id: string;
-  entityType: "customers" | "suppliers";
+  entityType: "customers" | "suppliers" | "purchasing";
   tenantName: string;
   status: string;
   createdCount: number;
@@ -107,7 +107,7 @@ export async function getRecentXeroImportRuns(
         undoneAt: xeroImportRuns.undoneAt,
       })
       .from(xeroImportRuns)
-      .where(inArray(xeroImportRuns.entityType, ["customers", "suppliers"]))
+      .where(inArray(xeroImportRuns.entityType, ["customers", "suppliers", "purchasing"]))
       .orderBy(desc(xeroImportRuns.createdAt))
       .limit(limit);
 

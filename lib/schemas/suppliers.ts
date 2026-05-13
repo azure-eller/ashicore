@@ -26,6 +26,12 @@ const baseSupplierSchema = createInsertSchema(suppliers, {
 }).omit({
   id: true,
   organizationId: true,
+  xeroContactId: true,
+  xeroContactNumber: true,
+  xeroAccountNumber: true,
+  xeroPurchasesDefaultAccountCode: true,
+  xeroAccountsPayableTaxType: true,
+  xeroUpdatedAt: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,

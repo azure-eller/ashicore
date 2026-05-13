@@ -575,6 +575,13 @@
       "when": 1778620000000,
       "tag": "0081_repair_purchase_order_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1778623200000,
+      "tag": "0082_xero_purchasing_sync",
+      "breakpoints": true
     }
   ]
 }

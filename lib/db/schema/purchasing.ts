@@ -37,6 +37,16 @@ export const suppliers = purchasingSchema
       billingPostcode: varchar("billing_postcode", { length: 30 }),
       billingCountry: varchar("billing_country", { length: 120 }),
       xeroContactId: text("xero_contact_id"),
+      xeroContactNumber: varchar("xero_contact_number", { length: 100 }),
+      xeroAccountNumber: varchar("xero_account_number", { length: 100 }),
+      xeroPurchasesDefaultAccountCode: varchar(
+        "xero_purchases_default_account_code",
+        { length: 20 }
+      ),
+      xeroAccountsPayableTaxType: varchar("xero_accounts_payable_tax_type", {
+        length: 50,
+      }),
+      xeroUpdatedAt: timestamp("xero_updated_at", { withTimezone: true }),
       paymentTerms: varchar("payment_terms", { length: 100 }),
       notes: text("notes"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),

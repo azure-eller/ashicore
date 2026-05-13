@@ -27,6 +27,16 @@ Purchasing v1 does not include:
 - receiving locations
 - supplier lot numbers or expiry dates
 
+## Supplier Items
+
+`supplier_items` stores supplier-specific purchasing defaults. Xero purchasing
+sync may create or update these rows from selected PO/bill history candidates:
+
+- `supplierSku` comes from the Xero line item code
+- `unitCost` comes from recent Xero purchase history
+- rows are written only after an existing ERP supplier and item are matched
+- Xero item codes stay external metadata and must not replace ERP `items.sku`
+
 ## Purchase Units And Inventory Cost
 
 Purchase orders may store additional costs for `shipping`, `customs`, and
