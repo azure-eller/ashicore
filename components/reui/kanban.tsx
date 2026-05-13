@@ -23,10 +23,13 @@ import {
   MeasuringStrategy,
   Modifiers,
   MouseSensor,
+  pointerWithin,
+  rectIntersection,
   TouchSensor,
   UniqueIdentifier,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DraggableAttributes,
   type DraggableSyntheticListeners,
 } from "@dnd-kit/core"
@@ -109,6 +112,13 @@ const dropAnimationConfig: DropAnimation = {
       },
     },
   }),
+}
+
+const pointerFirstCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args)
+  return pointerCollisions.length > 0
+    ? pointerCollisions
+    : rectIntersection(args)
 }
 
 export interface KanbanMoveEvent {
@@ -383,6 +393,7 @@ function Kanban<T>({
       <DndContext
         id={id ?? "reui-kanban"}
         sensors={sensors}
+        collisionDetection={pointerFirstCollisionDetection}
         modifiers={modifiers}
         measuring={{
           droppable: {

@@ -35,6 +35,8 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm db:local:start` — optional manual Postgres start
 - `pnpm db:local:stop` — optional manual Postgres stop
 - `pnpm db:generate` — generate migration (use this, not `drizzle-kit generate` directly)
+- `pnpm verify:migration-order` — verify migration journal/file ordering against fresh `origin/main`
+- `pnpm db:check-migrations` — verify migration idempotency and ordering
 - `pnpm drizzle-kit migrate` — apply migrations
 
 ## Documentation Structure
@@ -85,6 +87,7 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - API routes for all mutations — no server actions
 - NEVER import db directly in pages, components, or API routes — use DAL
 - NEVER use `drizzle push` — always `pnpm db:generate` + `pnpm drizzle-kit migrate` (CI rejects non-idempotent migrations)
+- New migrations must be generated from fresh `origin/main`. Never insert/backdate migrations behind existing main migrations. Run `pnpm verify:migration-order` or `pnpm db:check-migrations`.
 - After any production migration deploy, verify both: latest `drizzle.__drizzle_migrations` row matches the newest repo migration hash/timestamp, and production schema has the expected columns/types. Do not assume “migrations applied successfully” means historical migration ledger is clean.
 - Icons: HugeIcons only (`@hugeicons/core` / `@hugeicons/react`) — never Lucide
 - shadcn/ui style: `radix-nova` with `stone` base color. Check `components.json` for aliases.
