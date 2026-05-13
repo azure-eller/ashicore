@@ -87,8 +87,11 @@ function boardLogicOrder(
   return {
     id: overrides.id,
     orderNumber: overrides.orderNumber,
+    customerId: overrides.customerId ?? "00000000-0000-0000-0000-000000009998",
     customerName: overrides.customerName ?? "Board Customer",
     customerEmail: overrides.customerEmail ?? null,
+    customerProjectId: overrides.customerProjectId ?? null,
+    customerProjectName: overrides.customerProjectName ?? null,
     notes: overrides.notes ?? null,
     status: overrides.status ?? "confirmed",
     orderDate: overrides.orderDate ?? "2026-04-01",
@@ -137,33 +140,50 @@ function boardLogicOrder(
   };
 }
 
-async function dragToCenter(page: Page, source: Locator, target: Locator) {
+function salesOrderLane(page: Page, lane: string) {
+  return page.locator(`[data-slot="kanban-column"][data-value="${lane}"]`);
+}
+
+async function dragToLane({
+  page,
+  source,
+  targetLane,
+}: {
+  source: Locator;
+  page: Page;
+  targetLane: string;
+}) {
+  await expect(source).toBeVisible();
+  await source.hover();
   const sourceBox = await source.boundingBox();
-  const targetBox = await target.boundingBox();
+  const targetBox = await salesOrderLane(page, targetLane).boundingBox();
 
   if (!sourceBox || !targetBox) {
-    throw new Error("Could not resolve drag source or target bounds.");
+    throw new Error("Could not resolve drag source or target lane bounds.");
   }
 
-  await page.mouse.move(
-    sourceBox.x + sourceBox.width / 2,
-    sourceBox.y + sourceBox.height / 2
+  const sourceX = sourceBox.x + sourceBox.width / 2;
+  const sourceY = sourceBox.y + sourceBox.height / 2;
+  const targetX = targetBox.x + targetBox.width / 2;
+  const targetY = Math.max(
+    targetBox.y + 48,
+    Math.min(sourceY, targetBox.y + targetBox.height - 48)
   );
+
+  await page.mouse.move(sourceX, sourceY);
   await page.waitForTimeout(75);
   await page.mouse.down();
   await page.waitForTimeout(75);
-  await page.mouse.move(
-    (sourceBox.x + sourceBox.width / 2 + targetBox.x + targetBox.width / 2) / 2,
-    (sourceBox.y + sourceBox.height / 2 + targetBox.y + targetBox.height / 2) / 2,
-    { steps: 12 }
-  );
+  await page.mouse.move((sourceX + targetX) / 2, (sourceY + targetY) / 2, {
+    steps: 12,
+  });
   await page.waitForTimeout(75);
-  await page.mouse.move(
-    targetBox.x + targetBox.width / 2,
-    targetBox.y + targetBox.height / 2,
-    { steps: 24 }
+  await page.mouse.move(targetX, targetY, { steps: 24 });
+  await page.waitForTimeout(150);
+  await expect(salesOrderLane(page, targetLane)).toHaveAttribute(
+    "data-drop-target",
+    "true"
   );
-  await page.waitForTimeout(75);
   await page.mouse.up();
 }
 
@@ -257,6 +277,11 @@ test.describe("Sales order board pure helpers", () => {
       status: "shipped",
       shippingReadiness: { state: "shipped", message: "Shipped", blockers: [] },
     });
+    const cancelled = boardLogicOrder({
+      id: "00000000-0000-0000-0000-000000000015",
+      orderNumber: "SO-15",
+      status: "cancelled",
+    });
 
     expect(
       getSalesOrderDropCommand({ order: draft, fromLane: "draft", toLane: "ready_to_ship" })
@@ -284,6 +309,15 @@ test.describe("Sales order board pure helpers", () => {
     expect(
       getSalesOrderDropCommand({ order: shipped, fromLane: "shipped", toLane: "ready_to_ship" })
     ).toMatchObject({ type: "blocked" });
+    expect(
+      getSalesOrderDropCommand({ order: ready, fromLane: "ready_to_ship", toLane: "ready_to_ship" })
+    ).toEqual({ type: "noop" });
+    expect(
+      getSalesOrderDropCommand({ order: ready, fromLane: "ready_to_ship", toLane: "draft" })
+    ).toMatchObject({ type: "blocked", title: "Cannot move back to draft" });
+    expect(
+      getSalesOrderDropCommand({ order: cancelled, fromLane: "cancelled", toLane: "ready_to_ship" })
+    ).toMatchObject({ type: "blocked", title: "Cancelled orders cannot be moved" });
   });
 
   test("aggregates product lens lines without changing lifecycle lanes", () => {
@@ -894,6 +928,81 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("option", { name: "Product Lens: Off" }).click();
     await filterList(page, "Search orders", primaryOrder.orderNumber);
     await expect(salesOrderCard(page, primaryOrder.orderNumber)).toBeVisible();
+  });
+
+  test("board drops open the action for the lane under the pointer", async ({
+    page,
+    db,
+  }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+
+    const shortOrderResult = await createSalesOrder({
+      customerId,
+      status: "draft",
+      shipDate: "2026-04-19",
+      requestedDate: "2026-04-19",
+      notes: "Board drag target fidelity coverage",
+      lines: [{ itemId: productId, quantity: "20", unitPrice: "34.99" }],
+    });
+    expect(shortOrderResult.status).toBe(201);
+
+    const confirmResponse = await testFetch(
+      `/api/sales-orders/${shortOrderResult.body.id}/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmOversell: true }),
+      }
+    );
+    expect(confirmResponse.status).toBe(200);
+
+    const [shortOrder] = await db
+      .select({
+        id: salesOrders.id,
+        orderNumber: salesOrders.orderNumber,
+        status: salesOrders.status,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, shortOrderResult.body.id as string));
+    expect(shortOrder.status).toBe("confirmed");
+
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", shortOrder.orderNumber);
+
+    const shortCard = salesOrderCard(page, shortOrder.orderNumber);
+    await expect(shortCard).toBeVisible();
+
+    await dragToLane({
+      page,
+      source: shortCard.getByTestId("sales-order-drag-handle"),
+      targetLane: "in_production",
+    });
+    const createMoDialog = page.getByRole("dialog", {
+      name: "Create Manufacturing Orders",
+    });
+    await expect(createMoDialog).toBeVisible();
+    await expect(
+      createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(createMoDialog).toHaveCount(0);
+
+    await dragToLane({
+      page,
+      source: shortCard.getByTestId("sales-order-drag-handle"),
+      targetLane: "ready_to_ship",
+    });
+    const prepareDialog = page.getByRole("dialog", {
+      name: `Prepare ${shortOrder.orderNumber} for shipping?`,
+    });
+    await expect(prepareDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(prepareDialog).toHaveCount(0);
+
+    const cancelResponse = await testFetch(`/api/sales-orders/${shortOrder.id}/cancel-remaining`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(cancelResponse.status).toBe(200);
   });
 
   test("saving a draft without line items is allowed", async ({ db }) => {
