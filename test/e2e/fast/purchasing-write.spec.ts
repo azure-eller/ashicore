@@ -160,10 +160,11 @@ test.describe("Purchasing write-path smoke", () => {
       .locator('input[name="additionalCosts.0.xeroPurchaseAccountCode"]')
       .fill("400");
     await page.locator('input[name="additionalCosts.0.amount"]').fill("12.50");
-    await expect(page.getByText("Landed into inventory")).toBeVisible();
-    await expect(page.getByText("$12.50")).toHaveCount(3);
-    await expect(page.getByText(/\$2\.91 \//)).toBeVisible();
-    await expect(page.getByText(/\$2\.18 \//)).toBeVisible();
+    await expect(page.getByText("Additional cost allocation")).toBeVisible();
+    await expect(page.getByText("Distributed to item costs")).toBeVisible();
+    await expect(page.getByText("Landed unit costs")).toHaveCount(2);
+    await expect(page.getByText(/\$2\.91 \//)).toHaveCount(2);
+    await expect(page.getByText(/\$2\.18 \//)).toHaveCount(2);
 
     const [saveOrderResponse] = await Promise.all([
       page.waitForResponse(
