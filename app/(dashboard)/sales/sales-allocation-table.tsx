@@ -7,7 +7,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
-  DeleteColumnIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
@@ -741,11 +740,11 @@ export function SalesAllocationTable({
                   </button>
                   <button
                     type="button"
-                    className={styles.columnAction}
+                    className={`${styles.columnAction} ${styles.hideColumnAction}`}
                     aria-label={`Hide ${product.label}`}
                     onClick={() => hideColumn(product.itemId)}
                   >
-                    <HugeiconsIcon icon={DeleteColumnIcon} size={12} strokeWidth={2} />
+                    ×
                   </button>
                 </div>
               </div>
