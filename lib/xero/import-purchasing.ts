@@ -9,6 +9,7 @@ import {
   items,
   supplierItems,
   suppliers,
+  unitDefinitions,
 } from "@/lib/db/schema";
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -74,15 +75,19 @@ export type XeroPurchasingCandidate = {
   id: string;
   status: XeroPurchasingCandidateStatus;
   selectedByDefault: boolean;
+  selectable: boolean;
   exclusionReason: string | null;
   supplierId: string | null;
   supplierName: string;
+  xeroSupplierContactId: string | null;
   itemId: string | null;
   itemName: string | null;
   itemSku: string | null;
+  xeroItemId: string | null;
   xeroItemCode: string;
   xeroItemName: string | null;
   xeroPurchaseDescription: string | null;
+  productKey: string;
   latestUnitCost: string | null;
   xeroItemUnitPrice: string | null;
   existingSupplierItemUnitCost: string | null;
@@ -113,6 +118,8 @@ export type XeroPurchasingSyncApplyResult = {
   tenantName: string;
   created: number;
   updated: number;
+  createdSuppliers: number;
+  createdItems: number;
   skipped: number;
   errors: string[];
 };
@@ -259,6 +266,24 @@ function productFingerprint(line: SourceLine, xeroItem: XeroItemSummary | undefi
 function normalizePrice(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return null;
   return normalizeNumeric(value);
+}
+
+function candidateCanBeApplied(params: {
+  status: XeroPurchasingCandidateStatus;
+  supplierId: string | null;
+  supplierName: string | null;
+  itemId: string | null;
+  itemName: string | null;
+  xeroItemCode: string | null;
+  latestUnitCost: string | null;
+}) {
+  if (params.status === "excluded") return false;
+  if (!params.latestUnitCost) return false;
+  if (!params.supplierId && !cleanString(params.supplierName)) return false;
+  if (!params.itemId && !cleanString(params.itemName) && !cleanString(params.xeroItemCode)) {
+    return false;
+  }
+  return true;
 }
 
 function isDemoCompanyTenant(tenantName: string) {
@@ -661,6 +686,18 @@ function buildCandidates(
     const latestXeroItem = latestItemCode
       ? xeroData.xeroItemsByCode.get(normalizeKey(latestItemCode)!)
       : undefined;
+    const itemName =
+      group.item?.name ??
+      latestXeroItem?.name ??
+      cleanString(latest?.description) ??
+      latestItemCode;
+    const supplierName =
+      group.supplier?.name ?? latest?.supplierName ?? "Unmatched supplier";
+    const productKey =
+      latestXeroItem?.itemId ??
+      productFingerprint(latest, latestXeroItem) ??
+      normalizeKey(latestItemCode) ??
+      latestItemCode;
     const latestUnitCost = normalizePrice(latest?.unitAmount);
     const status: XeroPurchasingCandidateStatus = group.exclusionReason
       ? "excluded"
@@ -682,15 +719,27 @@ function buildCandidates(
       }),
       status,
       selectedByDefault: status === "ready",
+      selectable: candidateCanBeApplied({
+        status,
+        supplierId: group.supplier?.id ?? null,
+        supplierName,
+        itemId: group.item?.id ?? null,
+        itemName,
+        xeroItemCode: latestItemCode,
+        latestUnitCost,
+      }),
       exclusionReason: group.exclusionReason,
       supplierId: group.supplier?.id ?? null,
-      supplierName: group.supplier?.name ?? latest?.supplierName ?? "Unmatched supplier",
+      supplierName,
+      xeroSupplierContactId: latest?.supplierContactId ?? null,
       itemId: group.item?.id ?? null,
       itemName: group.item?.name ?? null,
       itemSku: group.item?.sku ?? null,
+      xeroItemId: latestXeroItem?.itemId ?? null,
       xeroItemCode: latestItemCode,
       xeroItemName: latestXeroItem?.name ?? null,
       xeroPurchaseDescription: latestXeroItem?.purchaseDescription ?? latest?.description ?? null,
+      productKey,
       latestUnitCost,
       xeroItemUnitPrice: normalizePrice(latestXeroItem?.purchaseUnitPrice),
       existingSupplierItemUnitCost: existingSupplierItem?.unitCost ?? null,
@@ -802,20 +851,150 @@ async function upsertSupplierItemInTx(
   return { action: "created" as const, id: created.id };
 }
 
-async function updateItemXeroMetadataInTx(
+function supplierCreationKey(candidate: XeroPurchasingCandidate) {
+  return (
+    normalizeKey(candidate.xeroSupplierContactId) ??
+    normalizeKey(candidate.supplierName) ??
+    null
+  );
+}
+
+function itemCreationKey(candidate: XeroPurchasingCandidate) {
+  return (
+    normalizeKey(candidate.xeroItemId) ??
+    compactKey(candidate.productKey) ??
+    normalizeKey(candidate.xeroItemCode) ??
+    null
+  );
+}
+
+async function getOrCreateDefaultImportedItemUnitInTx(tx: Tx, orgId: string) {
+  const [existing] = await tx
+    .select({ id: unitDefinitions.id })
+    .from(unitDefinitions)
+    .where(
+      and(
+        eq(unitDefinitions.organizationId, orgId),
+        eq(unitDefinitions.name, "Each"),
+        eq(unitDefinitions.uom, "ea"),
+        isNull(unitDefinitions.deletedAt)
+      )
+    )
+    .limit(1);
+
+  if (existing) return existing.id;
+
+  const [created] = await tx
+    .insert(unitDefinitions)
+    .values({
+      organizationId: orgId,
+      name: "Each",
+      size: "1",
+      uom: "ea",
+    })
+    .returning({ id: unitDefinitions.id });
+
+  return created.id;
+}
+
+async function createSupplierFromCandidateInTx(
   tx: Tx,
   orgId: string,
+  candidate: XeroPurchasingCandidate
+) {
+  const name = cleanString(candidate.supplierName);
+  if (!name || name === "Unmatched supplier") return null;
+
+  const [created] = await tx
+    .insert(suppliers)
+    .values({
+      organizationId: orgId,
+      name,
+    })
+    .returning({ id: suppliers.id });
+
+  if (candidate.xeroSupplierContactId) {
+    await tx
+      .insert(integrationExternalRecords)
+      .values({
+        organizationId: orgId,
+        provider: ACCOUNTING_PROVIDER_XERO,
+        entityType: "supplier",
+        localRecordId: created.id,
+        externalId: candidate.xeroSupplierContactId,
+        externalName: name,
+        lastSyncedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationExternalRecords.organizationId,
+          integrationExternalRecords.provider,
+          integrationExternalRecords.entityType,
+          integrationExternalRecords.localRecordId,
+        ],
+        set: {
+          externalId: candidate.xeroSupplierContactId,
+          externalName: name,
+          lastSyncedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  return created.id;
+}
+
+async function createItemFromCandidateInTx(
+  tx: Tx,
+  orgId: string,
+  candidate: XeroPurchasingCandidate
+) {
+  const unitDefinitionId = await getOrCreateDefaultImportedItemUnitInTx(tx, orgId);
+  const name =
+    cleanString(candidate.xeroItemName) ??
+    cleanString(candidate.xeroPurchaseDescription) ??
+    cleanString(candidate.xeroItemCode) ??
+    "Imported Xero item";
+  const defaultPurchasePrice = candidate.latestUnitCost ?? candidate.xeroItemUnitPrice;
+
+  const [created] = await tx
+    .insert(items)
+    .values({
+      organizationId: orgId,
+      name,
+      description: candidate.xeroPurchaseDescription,
+      sku: null,
+      itemType: "material",
+      unitDefinitionId,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      safetyStock: "0",
+      defaultPurchasePrice,
+      currentStockUnitCost: defaultPurchasePrice,
+      defaultSellingPrice: null,
+      sellable: false,
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+    })
+    .returning({ id: items.id });
+
+  return created.id;
+}
+
+async function upsertItemExternalMetadataInTx(
+  tx: Tx,
+  orgId: string,
+  itemId: string,
   candidate: XeroPurchasingCandidate,
   xeroItem: XeroItemSummary | undefined
 ) {
-  if (!candidate.itemId) return;
   await tx
     .insert(integrationExternalRecords)
     .values({
       organizationId: orgId,
       provider: ACCOUNTING_PROVIDER_XERO,
       entityType: "item",
-      localRecordId: candidate.itemId,
+      localRecordId: itemId,
       externalId: xeroItem?.itemId ?? null,
       externalCode: candidate.xeroItemCode,
       externalName: candidate.xeroItemName,
@@ -846,7 +1025,7 @@ async function updateItemXeroMetadataInTx(
       organizationId: orgId,
       provider: ACCOUNTING_PROVIDER_XERO,
       entityType: "item",
-      localRecordId: candidate.itemId,
+      localRecordId: itemId,
       accountCode: candidate.accountingPurchaseAccountCode,
       taxType: candidate.xeroPurchaseTaxType,
     })
@@ -908,12 +1087,16 @@ export async function applyXeroPurchasingSync(
       tenantName: xeroData.tenantName,
       created: 0,
       updated: 0,
+      createdSuppliers: 0,
+      createdItems: 0,
       skipped: 0,
       errors: [],
     };
+    const createdSupplierIdsByKey = new Map<string, string>();
+    const createdItemIdsByKey = new Map<string, string>();
 
     for (const candidate of candidates) {
-      if (candidate.status !== "ready") {
+      if (!candidate.selectable) {
         result.skipped += 1;
         continue;
       }
@@ -923,9 +1106,68 @@ export async function applyXeroPurchasingSync(
           const xeroItem = xeroData.xeroItemsByCode.get(
             normalizeKey(candidate.xeroItemCode)!
           );
-          await updateItemXeroMetadataInTx(rowTx, orgId, candidate, xeroItem);
-          const rowUpsert = await upsertSupplierItemInTx(rowTx, orgId, candidate);
-          if (!rowUpsert.id) return rowUpsert;
+          const supplierKey = supplierCreationKey(candidate);
+          const cachedSupplierId = supplierKey
+            ? createdSupplierIdsByKey.get(supplierKey)
+            : null;
+          const createdSupplierId =
+            candidate.supplierId ??
+            cachedSupplierId ??
+            (await createSupplierFromCandidateInTx(rowTx, orgId, candidate));
+          const itemKey = itemCreationKey(candidate);
+          const cachedItemId = itemKey ? createdItemIdsByKey.get(itemKey) : null;
+          const createdItemId =
+            candidate.itemId ??
+            cachedItemId ??
+            (await createItemFromCandidateInTx(rowTx, orgId, candidate));
+
+          if (!createdSupplierId || !createdItemId) {
+            return {
+              action: "skipped" as const,
+              id: null,
+              createdSupplierKey: null,
+              createdSupplierId: null,
+              createdItemKey: null,
+              createdItemId: null,
+            };
+          }
+
+          const resolvedCandidate = {
+            ...candidate,
+            supplierId: createdSupplierId,
+            itemId: createdItemId,
+          };
+          await upsertItemExternalMetadataInTx(
+            rowTx,
+            orgId,
+            createdItemId,
+            resolvedCandidate,
+            xeroItem
+          );
+          const rowUpsert = await upsertSupplierItemInTx(
+            rowTx,
+            orgId,
+            resolvedCandidate
+          );
+          const createdSupplierKey =
+            !candidate.supplierId && !cachedSupplierId && supplierKey
+              ? supplierKey
+              : null;
+          const newSupplierId =
+            !candidate.supplierId && !cachedSupplierId ? createdSupplierId : null;
+          const createdItemKey =
+            !candidate.itemId && !cachedItemId && itemKey ? itemKey : null;
+          const newItemId = !candidate.itemId && !cachedItemId ? createdItemId : null;
+
+          if (!rowUpsert.id) {
+            return {
+              ...rowUpsert,
+              createdSupplierKey: null,
+              createdSupplierId: null,
+              createdItemKey: null,
+              createdItemId: null,
+            };
+          }
 
           await rowTx.insert(integrationImportRunRows).values({
             organizationId: orgId,
@@ -941,12 +1183,29 @@ export async function applyXeroPurchasingSync(
             previousData: null,
           });
 
-          return rowUpsert;
+          return {
+            ...rowUpsert,
+            createdSupplierKey,
+            createdSupplierId: newSupplierId,
+            createdItemKey,
+            createdItemId: newItemId,
+          };
         });
 
         if (!upsert.id) {
           result.skipped += 1;
           continue;
+        }
+        if (upsert.createdSupplierKey && upsert.createdSupplierId) {
+          createdSupplierIdsByKey.set(
+            upsert.createdSupplierKey,
+            upsert.createdSupplierId
+          );
+          result.createdSuppliers += 1;
+        }
+        if (upsert.createdItemKey && upsert.createdItemId) {
+          createdItemIdsByKey.set(upsert.createdItemKey, upsert.createdItemId);
+          result.createdItems += 1;
         }
         if (upsert.action === "created") result.created += 1;
         else result.updated += 1;
