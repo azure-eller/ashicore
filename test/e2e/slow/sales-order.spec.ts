@@ -1359,22 +1359,18 @@ test.describe("Sales order flow", () => {
   /* ================================================================ */
 
   test("blocks deleting a customer with an active order", async ({ page, db }) => {
-    await page.goto("/sales/orders/new");
-
-    const customerInput = page.getByPlaceholder("Search customers...");
-    await customerInput.click();
-    await customerInput.pressSequentially(customerName);
-    await page.getByRole("option", { name: new RegExp(customerName) }).click();
-
-    const itemInput = page.getByPlaceholder("Search items...").first();
-    await itemInput.click();
-    await itemInput.pressSequentially(secondaryProductName);
-    await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
-    await page.locator('input[placeholder="0"]').first().fill("1");
-
-    await page.getByRole("button", { name: "Create Order" }).click();
-    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
-    guardOrderId = page.url().split("/").pop()!;
+    guardOrderId = await createDraftSalesOrder({
+      customerId,
+      notes: "Customer delete guard coverage",
+      confirmOversell: true,
+      lines: [
+        {
+          itemId: secondaryProductId,
+          quantity: "1",
+          unitPrice: "12.00",
+        },
+      ],
+    });
 
     const [guardOrder] = await db
       .select()
@@ -1382,7 +1378,7 @@ test.describe("Sales order flow", () => {
       .where(eq(salesOrders.id, guardOrderId));
     expect(guardOrder).toBeTruthy();
     expect(guardOrder.customerId).toBe(customerId);
-    expect(guardOrder.status).toBe("draft");
+    expect(guardOrder.status).toBe("confirmed");
     expect(guardOrder.deletedAt).toBeNull();
 
     await page.goto(`/sales/customers/${customerId}`);
