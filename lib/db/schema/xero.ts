@@ -30,8 +30,9 @@ export const xeroConnections = xeroSchema
         .$type<XeroAuthorizedTenant[]>()
         .notNull()
         .default(sql`'[]'::jsonb`),
-      accessToken: text("access_token").notNull(),
-      refreshToken: text("refresh_token").notNull(),
+      accessTokenCiphertext: text("access_token_ciphertext").notNull(),
+      refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
+      tokenEncryptionKeyId: varchar("token_encryption_key_id", { length: 100 }).notNull(),
       tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
       defaultAccountCode: varchar("default_account_code", { length: 20 }),
       defaultTaxType: varchar("default_tax_type", { length: 50 }),

@@ -5,6 +5,11 @@ import { eq } from "drizzle-orm";
 import { xeroConnections } from "@/lib/db/schema";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import { XeroError, redactXeroError } from "./errors";
+import {
+  decryptXeroToken,
+  encryptXeroToken,
+  getXeroTokenEncryptionKeyId,
+} from "./token-crypto";
 
 const REQUIRED_SCOPES = [
   "accounting.contacts",
@@ -37,6 +42,10 @@ export function createXeroClient(): XeroClient {
 }
 
 type ConnectionRow = typeof xeroConnections.$inferSelect;
+type StoredTokenPair = {
+  accessToken: string;
+  refreshToken: string;
+};
 
 async function loadLockedConnection(
   tx: Tx,
@@ -60,15 +69,25 @@ async function persistTokenSet(
     expiresAt: Date;
   }
 ) {
+  const accessToken = encryptXeroToken(params.accessToken);
+  const refreshToken = encryptXeroToken(params.refreshToken);
   await tx
     .update(xeroConnections)
     .set({
-      accessToken: params.accessToken,
-      refreshToken: params.refreshToken,
+      accessTokenCiphertext: accessToken.ciphertext,
+      refreshTokenCiphertext: refreshToken.ciphertext,
+      tokenEncryptionKeyId: refreshToken.keyId,
       tokenExpiresAt: params.expiresAt,
       updatedAt: new Date(),
     })
     .where(eq(xeroConnections.organizationId, orgId));
+}
+
+function resolveStoredTokenPair(row: ConnectionRow): StoredTokenPair {
+  return {
+    accessToken: decryptXeroToken(row.accessTokenCiphertext),
+    refreshToken: decryptXeroToken(row.refreshTokenCiphertext),
+  };
 }
 
 function tokenSetToPersistable(
@@ -122,7 +141,7 @@ function isPermanentRefreshFailure(error: unknown): boolean {
   return false;
 }
 
-async function refreshWithRetry(
+async function refreshOnce(
   client: XeroClient,
   fallbackRefreshToken: string
 ) {
@@ -134,17 +153,8 @@ async function refreshWithRetry(
   // race in our code.
   await client.initialize();
 
-  try {
-    const refreshed = await client.refreshToken();
-    return tokenSetToPersistable(refreshed, fallbackRefreshToken);
-  } catch (error) {
-    if (isPermanentRefreshFailure(error)) throw error;
-    // Transient — one retry after a short backoff. Keeps us resilient to
-    // network blips without amplifying real outages.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const refreshed = await client.refreshToken();
-    return tokenSetToPersistable(refreshed, fallbackRefreshToken);
-  }
+  const refreshed = await client.refreshToken();
+  return tokenSetToPersistable(refreshed, fallbackRefreshToken);
 }
 
 /**
@@ -166,14 +176,15 @@ export async function getAuthedXeroClient(orgId: string): Promise<{
     }
 
     const client = createXeroClient();
+    const storedTokens = resolveStoredTokenPair(existing);
 
     const expiresInSeconds = Math.floor(
       (existing.tokenExpiresAt.getTime() - Date.now()) / 1000
     );
 
     client.setTokenSet({
-      access_token: existing.accessToken,
-      refresh_token: existing.refreshToken,
+      access_token: storedTokens.accessToken,
+      refresh_token: storedTokens.refreshToken,
       expires_in: Math.max(expiresInSeconds, 0),
       token_type: "Bearer",
       scope: REQUIRED_SCOPES.join(" "),
@@ -184,28 +195,20 @@ export async function getAuthedXeroClient(orgId: string): Promise<{
 
     if (shouldRefresh) {
       try {
-        const persistable = await refreshWithRetry(
+        // Validate encryption config before consuming Xero's rotating refresh token.
+        getXeroTokenEncryptionKeyId();
+        const persistable = await refreshOnce(
           client,
-          existing.refreshToken
+          storedTokens.refreshToken
         );
         await persistTokenSet(tx, orgId, persistable);
       } catch (error) {
-        // Surface the actual reason in the server log so we never debug
-        // blind again. Error fields are non-enumerable so plain redaction
-        // leaves us with `{}`; pull the useful pieces explicitly.
         console.error("Xero token refresh failed:", {
-          message: (error as Error)?.message,
           name: (error as Error)?.name,
           oauthError: (error as { error?: string })?.error,
-          oauthErrorDescription: (error as { error_description?: string })
-            ?.error_description,
           status:
             (error as { response?: { statusCode?: number } })?.response
               ?.statusCode ?? (error as { statusCode?: number })?.statusCode,
-          body: redactXeroError(
-            (error as { response?: { body?: unknown } })?.response?.body ??
-              (error as { body?: unknown })?.body
-          ),
         });
 
         if (isPermanentRefreshFailure(error)) {
@@ -276,14 +279,17 @@ export async function upsertXeroConnection(
   }
 ) {
   await withOrgContext(orgId, async (tx) => {
+    const accessToken = encryptXeroToken(params.accessToken);
+    const refreshToken = encryptXeroToken(params.refreshToken);
     await tx
       .insert(xeroConnections)
       .values({
         organizationId: orgId,
         tenantId: params.tenantId,
         tenantName: params.tenantName,
-        accessToken: params.accessToken,
-        refreshToken: params.refreshToken,
+        accessTokenCiphertext: accessToken.ciphertext,
+        refreshTokenCiphertext: refreshToken.ciphertext,
+        tokenEncryptionKeyId: refreshToken.keyId,
         tokenExpiresAt: params.expiresAt,
         authorizedTenants: params.authorizedTenants,
       })
@@ -292,8 +298,9 @@ export async function upsertXeroConnection(
         set: {
           tenantId: params.tenantId,
           tenantName: params.tenantName,
-          accessToken: params.accessToken,
-          refreshToken: params.refreshToken,
+          accessTokenCiphertext: accessToken.ciphertext,
+          refreshTokenCiphertext: refreshToken.ciphertext,
+          tokenEncryptionKeyId: refreshToken.keyId,
           tokenExpiresAt: params.expiresAt,
           authorizedTenants: params.authorizedTenants,
           updatedAt: new Date(),

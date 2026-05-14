@@ -64,6 +64,7 @@ When you discover a new pattern or gotcha:
 | MRP-lite planning | `docs/planning.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
+| Xero App Store / partner readiness | `docs/xero-partner-readiness.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Sales orders, customers, shipping | `docs/sales.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |

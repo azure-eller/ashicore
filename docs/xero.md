@@ -4,15 +4,19 @@ read_when:
   - changing the OAuth scope list in `lib/xero/client.ts`
   - debugging a `xero_push_status='failed'` row in sales_orders or purchase_orders
   - smoke-testing a Xero change before opening a PR
+  - preparing Xero App Store certification or partner-readiness work
 ---
 
 # Xero integration
 
+For App Store / App Partner certification gaps, rollout sequencing, and future
+security work, read `docs/xero-partner-readiness.md`.
+
 ## Where things live
 
 - **OAuth + token refresh** — `lib/xero/client.ts`. `getAuthedXeroClient`
-  locks the connection row `FOR UPDATE`, refreshes if the token is within
-  60 s of expiry, persists the rotated tokens.
+  locks the connection row `FOR UPDATE`, decrypts stored tokens, refreshes if
+  the token is near expiry, and persists the rotated token pair encrypted.
 - **Sales push** — `lib/xero/push-invoice.ts`. Reconciles by
   `InvoiceNumber` before issuing a create.
 - **PO push** — `lib/xero/push-purchase-order.ts`. Reconciles by

@@ -12,6 +12,7 @@
     "db:local:setup": "tsx scripts/setup-local-db.ts",
     "dev:seed-user": "tsx scripts/seed-dev-user.ts",
     "xero:smoke": "tsx scripts/xero-smoke.ts",
+    "verify:xero-token-crypto": "tsx scripts/verify-xero-token-crypto.ts",
     "load:paonia": "tsx scripts/load/paonia.ts",
     "load:paonia:dry-run": "tsx scripts/load/paonia.ts --dry-run",
     "load:paonia:reset": "tsx scripts/load/paonia.ts --reset",

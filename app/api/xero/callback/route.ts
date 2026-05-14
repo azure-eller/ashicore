@@ -9,7 +9,7 @@ import {
   tokenSetToPersistable,
   upsertXeroConnection,
 } from "@/lib/xero/client";
-import { XeroError, redactXeroError } from "@/lib/xero/errors";
+import { XeroError } from "@/lib/xero/errors";
 
 function settingsRedirect(baseUrl: string, error?: string) {
   const url = new URL("/settings/integrations", baseUrl);
@@ -92,17 +92,11 @@ export const GET = apiHandler(async (request: Request) => {
     });
   } catch (error) {
     console.error("Xero OAuth callback failed:", {
-      message: (error as Error)?.message,
       name: (error as Error)?.name,
       status:
         (error as { response?: { statusCode?: number } })?.response
           ?.statusCode ??
         (error as { statusCode?: number })?.statusCode,
-      body: redactXeroError(
-        (error as { response?: { body?: unknown } })?.response?.body ??
-          (error as { body?: unknown })?.body
-      ),
-      redacted: redactXeroError(error),
     });
     return settingsRedirect(request.url, "callback_failed");
   }
