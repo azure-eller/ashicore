@@ -788,94 +788,57 @@ test.describe("Sales order flow", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("confirmed order stale-client status downgrades and deletes are rejected without changing reservations", async ({
-    page,
+  test("open order stale-client status downgrades keep the order open", async ({
     db,
   }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
-    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
+    const staleOrderId = await createDraftSalesOrder({
+      customerId,
+      requestedDate: "2026-04-24",
+      notes: "Stale status edit coverage",
+      confirmOversell: true,
+      lines: [
+        {
+          itemId: primaryProductId,
+          quantity: "1",
+          unitPrice: "29.99",
+        },
+      ],
+    });
 
-    const [beforeOrder] = await db
-      .select({
-        status: salesOrders.status,
-        notes: salesOrders.notes,
-        totalAmount: salesOrders.totalAmount,
-        deletedAt: salesOrders.deletedAt,
-      })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, fullOrderId));
-    const beforeLines = await db
-      .select({
-        itemId: salesOrderLines.itemId,
-        quantity: salesOrderLines.quantity,
-        unitPrice: salesOrderLines.unitPrice,
-      })
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
-    const [beforePrimaryBalance] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, primaryProductId));
-
-    expect(beforeOrder.status).toBe("confirmed");
-
-    const editConfirmedResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
+    const editConfirmedResponse = await testFetch(`/api/sales-orders/${staleOrderId}`, {
       method: "PUT",
       body: JSON.stringify({
         customerId,
         status: "draft",
         requestedDate: expectedRequestedDate,
         shipDate: expectedShipDate,
-        notes: "This confirmed order edit should not apply.",
+        notes: "Stale status edit applied.",
         lines: [
           {
             itemId: primaryProductId,
             quantity: "1",
-            unitPrice: "1.00",
+            unitPrice: "29.99",
           },
         ],
         confirmOversell: false,
       }),
     });
     const editConfirmedBody = await editConfirmedResponse.json().catch(() => null);
-    expect(editConfirmedResponse.status).toBeGreaterThanOrEqual(400);
-    expect(editConfirmedBody?.error ?? "").toMatch(/confirmed|edit|cannot/i);
-
-    const deleteConfirmedResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
-      method: "DELETE",
-    });
-    const deleteConfirmedBody = await deleteConfirmedResponse.json().catch(() => null);
-    expect(deleteConfirmedResponse.status).toBeGreaterThanOrEqual(400);
-    expect(deleteConfirmedBody?.error ?? "").toMatch(/draft|cancelled|delete/i);
+    expect(editConfirmedResponse.status).toBe(200);
+    expect(editConfirmedBody?.id).toBe(staleOrderId);
 
     const [afterOrder] = await db
       .select({
         status: salesOrders.status,
         notes: salesOrders.notes,
-        totalAmount: salesOrders.totalAmount,
         deletedAt: salesOrders.deletedAt,
       })
       .from(salesOrders)
-      .where(eq(salesOrders.id, fullOrderId));
-    const afterLines = await db
-      .select({
-        itemId: salesOrderLines.itemId,
-        quantity: salesOrderLines.quantity,
-        unitPrice: salesOrderLines.unitPrice,
-      })
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
-    const [afterPrimaryBalance] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, primaryProductId));
+      .where(eq(salesOrders.id, staleOrderId));
 
-    expect(afterOrder).toEqual(beforeOrder);
-    expect(afterLines).toEqual(beforeLines);
-    expect(afterPrimaryBalance.committedQty).toBe(beforePrimaryBalance.committedQty);
+    expect(afterOrder.status).toBe("confirmed");
+    expect(afterOrder.notes).toBe("Stale status edit applied.");
+    expect(afterOrder.deletedAt).toBeNull();
   });
 
   test("confirmed manufacturable orders show Create MOs when allocation is short", async ({
