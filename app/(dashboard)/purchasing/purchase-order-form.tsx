@@ -472,7 +472,6 @@ export function PurchaseOrderForm({
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
-  const [supplierOptions, setSupplierOptions] = useState(suppliers);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
     initialData?.id ?? null
@@ -504,7 +503,7 @@ export function PurchaseOrderForm({
     () => new Map(materials.map((material) => [material.id, material])),
     [materials]
   );
-  const supplierOptionsSorted = [...supplierOptions].sort((a, b) =>
+  const supplierOptionsSorted = [...suppliers].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
   const initialFormValues: PurchaseOrderFormValues = initialData
@@ -1121,12 +1120,6 @@ export function PurchaseOrderForm({
                     suppliers={supplierOptionsSorted}
                     value={field.value}
                     onValueChange={(nextValue) => field.onChange(nextValue ?? "")}
-                    onSupplierCreated={(supplier) => {
-                      setSupplierOptions((current) => {
-                        const existing = current.filter((row) => row.id !== supplier.id);
-                        return [...existing, supplier];
-                      });
-                    }}
                     errorMessage={fieldState.error?.message}
                   />
                 )}
@@ -1262,63 +1255,60 @@ export function PurchaseOrderForm({
               />
           </section>
 
-          <CreateSection
-            title="Additional Costs"
-            action={
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4 px-1">
+              <h2 className="text-base font-semibold">Additional Costs</h2>
               <span className="text-xs text-muted-foreground">
                 {additionalCostCount} cost
                 {additionalCostCount === 1 ? "" : "s"}
               </span>
-            }
-          >
-            <FieldGroup className="gap-4">
-              <EditableLineItems<PurchaseOrderFormValues, "additionalCosts">
-                control={form.control}
-                name="additionalCosts"
-                columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
-                minWidth="50rem"
-                createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
-                addLabel="Add cost"
-                emptyMessage="No additional costs yet."
-                error={additionalCostsError}
-                headers={[
-                  <TooltipHeader
-                    key="cost"
-                    label="Cost"
-                    tooltip={PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="reference"
-                    label="Reference"
-                    tooltip={PURCHASE_COST_REFERENCE_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="distribution"
-                    label="Distribution"
-                    tooltip={PURCHASE_COST_DISTRIBUTION_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="account"
-                    label="Accounting Account"
-                    tooltip={PURCHASE_ACCOUNT_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="amount"
-                    label="Amount"
-                    tooltip={PURCHASE_COST_AMOUNT_TOOLTIP}
-                  />,
-                ]}
-                renderRow={({ field, index }) => (
-                  <PurchaseOrderAdditionalCostRow
-                    key={field.id}
-                    index={index}
-                    control={form.control}
-                    xeroAccounts={xeroAccounts}
-                  />
-                )}
-              />
-            </FieldGroup>
-          </CreateSection>
+            </div>
+            <EditableLineItems<PurchaseOrderFormValues, "additionalCosts">
+              control={form.control}
+              name="additionalCosts"
+              columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
+              minWidth="50rem"
+              createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
+              addLabel="Add cost"
+              emptyMessage="No additional costs yet."
+              error={additionalCostsError}
+              headers={[
+                <TooltipHeader
+                  key="cost"
+                  label="Cost"
+                  tooltip={PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP}
+                />,
+                <TooltipHeader
+                  key="reference"
+                  label="Reference"
+                  tooltip={PURCHASE_COST_REFERENCE_TOOLTIP}
+                />,
+                <TooltipHeader
+                  key="distribution"
+                  label="Distribution"
+                  tooltip={PURCHASE_COST_DISTRIBUTION_TOOLTIP}
+                />,
+                <TooltipHeader
+                  key="account"
+                  label="Accounting Account"
+                  tooltip={PURCHASE_ACCOUNT_TOOLTIP}
+                />,
+                <TooltipHeader
+                  key="amount"
+                  label="Amount"
+                  tooltip={PURCHASE_COST_AMOUNT_TOOLTIP}
+                />,
+              ]}
+              renderRow={({ field, index }) => (
+                <PurchaseOrderAdditionalCostRow
+                  key={field.id}
+                  index={index}
+                  control={form.control}
+                  xeroAccounts={xeroAccounts}
+                />
+              )}
+            />
+          </section>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.85fr)]">
             <CreateSection title="Notes">

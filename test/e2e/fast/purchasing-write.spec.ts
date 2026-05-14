@@ -147,9 +147,12 @@ test.describe("Purchasing write-path smoke", () => {
     await page.locator("#po-line-ship-region").fill("CO");
     await page.locator("#po-line-ship-postcode").fill("80301");
     await page.getByRole("button", { name: "Add Address" }).click();
-    await page
-      .locator('input[name="lines.0.xeroPurchaseAccountCode"]')
-      .fill("312");
+    await expect(page.getByRole("dialog", { name: "Add Address" })).toBeHidden();
+    const firstLineAccountInput = page.locator(
+      'input[name="lines.0.xeroPurchaseAccountCode"]'
+    );
+    await firstLineAccountInput.fill("312");
+    await expect(firstLineAccountInput).toHaveValue("312");
 
     const secondMaterialInput = page.getByPlaceholder("Search materials...").nth(1);
     await secondMaterialInput.click();
