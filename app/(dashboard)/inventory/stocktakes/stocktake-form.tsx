@@ -78,10 +78,6 @@ const blankPreviewLine: StocktakePreviewLine = {
   itemId: "",
 };
 
-function isBlankPreviewLine(line: StocktakePreviewLine | undefined) {
-  return (line?.itemId?.trim() ?? "") === "";
-}
-
 function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
   const parsedScope = parseStocktakeScope(scope);
 
@@ -404,7 +400,6 @@ export function StocktakeForm({
                 />,
               ]}
               createLine={() => ({ ...blankPreviewLine })}
-              isLineBlank={isBlankPreviewLine}
               addLabel="Add item"
               emptyMessage="No items selected yet."
               enableReorder={false}
@@ -413,7 +408,7 @@ export function StocktakeForm({
                   ? "Choose at least one item for this stocktake."
                   : null
               }
-              renderRow={({ field, index }) => (
+              renderRow={({ field, index, appendLineAfterCommit }) => (
                 <StocktakePreviewRow
                   key={field.id}
                   index={index}
@@ -421,6 +416,7 @@ export function StocktakeForm({
                   items={previewItems}
                   itemMap={previewItemMap}
                   selectedItemIds={selectedItemIds}
+                  appendLineAfterCommit={appendLineAfterCommit}
                 />
               )}
               footer={
@@ -446,12 +442,14 @@ function StocktakePreviewRow({
   items,
   itemMap,
   selectedItemIds,
+  appendLineAfterCommit,
 }: {
   index: number;
   control: Control<StocktakeFormValues>;
   items: StocktakePreviewItem[];
   itemMap: Map<string, StocktakePreviewItem>;
   selectedItemIds: string[];
+  appendLineAfterCommit: () => void;
 }) {
   const rowDomId = useId();
   const itemId = useWatch({
@@ -477,7 +475,12 @@ function StocktakePreviewRow({
               <InventoryItemCombobox
                 options={options}
                 value={field.value ?? ""}
-                onValueChange={(value) => field.onChange(value ?? "")}
+                onValueChange={(value) => {
+                  field.onChange(value ?? "");
+                  if (value) {
+                    appendLineAfterCommit();
+                  }
+                }}
                 inputId={`${rowDomId}-item`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus

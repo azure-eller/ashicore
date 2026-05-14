@@ -184,7 +184,7 @@ For standard dashboard list pages, use the shared `DashboardDataTable` shell ins
 
 ## Editable Line Items
 
-Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns row chrome (drag handle, right-side remove, add button), always creates one initial blank row, and adds rows through its Add row button. Pass only data columns/headers. Pass `isLineBlank` when a grid should append one blank row after the last row becomes nonblank. Focus and Tab must not create rows. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
+Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns row chrome (drag handle, right-side remove, add button), always creates one initial blank row, and adds rows through its Add row button. Pass only data columns/headers. Rows may call `appendLineAfterCommit()` after a committed picker selection. Do not create rows from text input, focus, blur, or Tab. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
 
 - Define explicit flexible grid tracks for every column, e.g. `minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)`.
 - Give numeric inputs stable but compact columns; use `fr` tracks so empty cells do not force a small horizontal scroll.
@@ -193,7 +193,7 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
 - Use `createLine` and `addLabel`; clicking Add row focuses the new row's first control.
 - Do not include reorder/remove tracks in `columns` or `headers`; the component owns them.
 - Mark the first editable control in each row with `data-editable-line-primary`.
-- Use `isLineBlank` for auto-append behavior; do not hand-code append/remove/reorder logic inside row controls.
+- Call `appendLineAfterCommit()` only after a committed picker selection, not while a user is typing search text.
 - Keep combobox result popups readable; long item/customer labels may use a width wider than the trigger.
 - Keep each editable control wrapped in shadcn `Field`, with a label relationship and `aria-invalid` state.
 - Keep array validation under the grid, using `FieldError` or the existing field-array error helper.
@@ -207,13 +207,8 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
   minWidth="40rem"
   headers={[itemHeader, qtyHeader, unitHeader, priceHeader, totalHeader, marginHeader]}
   createLine={() => ({ itemId: "", quantity: null, unitPrice: null })}
-  isLineBlank={(line) =>
-    (line?.itemId?.trim() ?? "") === "" &&
-    (line?.quantity?.trim() ?? "") === "" &&
-    (line?.unitPrice?.trim() ?? "") === ""
-  }
   addLabel="Add item"
-  renderRow={({ field, index }) => (
+  renderRow={({ field, index, appendLineAfterCommit }) => (
     <>
       <EditableLineGridCell>
         <Field>
@@ -221,6 +216,7 @@ Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable re
             Item
           </FieldLabel>
           {/* item combobox with data-editable-line-primary on its input */}
+          {/* call appendLineAfterCommit() after a real item selection */}
         </Field>
       </EditableLineGridCell>
       <EditableLineGridCell align="right">

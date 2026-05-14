@@ -1257,7 +1257,6 @@ export function PurchaseOrderForm({
                 columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
                 minWidth="0"
                 createLine={() => ({ ...blankPurchaseOrderLine })}
-                isLineBlank={isBlankPurchaseOrderLine}
                 addLabel="Add material"
                 emptyMessage="No materials yet."
                 error={linesError}
@@ -1303,7 +1302,7 @@ export function PurchaseOrderForm({
                     tooltip={PO_LINE_TOTAL_TOOLTIP}
                   />,
                 ]}
-                renderRow={({ field, index }) => (
+                renderRow={({ field, index, appendLineAfterCommit }) => (
                   <PurchaseOrderLineRow
                     key={field.id}
                     index={index}
@@ -1342,6 +1341,9 @@ export function PurchaseOrderForm({
                           shouldValidate: true,
                         }
                       );
+                      if (materialId) {
+                        appendLineAfterCommit();
+                      }
                     }}
                   />
                 )}
@@ -1364,7 +1366,6 @@ export function PurchaseOrderForm({
                 columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
                 minWidth="50rem"
                 createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
-                isLineBlank={isBlankPurchaseOrderAdditionalCost}
                 addLabel="Add cost"
                 emptyMessage="No additional costs yet."
                 error={additionalCostsError}

@@ -132,6 +132,10 @@ test.describe("Purchasing write-path smoke", () => {
     const firstMaterialInput = page.getByPlaceholder("Search materials...").first();
     await firstMaterialInput.click();
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(1);
+    await firstMaterialInput.fill(barkName.slice(0, 1));
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(1);
+    await firstMaterialInput.press("Backspace");
+    await expect(page.getByPlaceholder("Search materials...")).toHaveCount(1);
     await firstMaterialInput.fill(barkName);
     await page.getByRole("option", { name: barkOptionPattern }).click();
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(2);
@@ -164,7 +168,7 @@ test.describe("Purchasing write-path smoke", () => {
       .fill("Freight smoke");
     await expect(
       page.locator('input[name^="additionalCosts."][name$=".amount"]')
-    ).toHaveCount(2);
+    ).toHaveCount(1);
     await page
       .locator('input[name="additionalCosts.0.xeroPurchaseAccountCode"]')
       .fill("400");

@@ -34,14 +34,6 @@ const blankBomLine = {
   alternates: [],
 };
 
-function isBlankBomLine(line: NonNullable<ItemFormValues["bom"]>[number] | undefined) {
-  const componentId = line?.componentId?.trim() ?? "";
-  const quantity = line?.quantity?.trim() ?? "";
-  const minimumLotAgeDays =
-    line?.minimumLotAgeDays == null ? "" : String(line.minimumLotAgeDays).trim();
-  return componentId === "" && quantity === "" && minimumLotAgeDays === "";
-}
-
 interface BomEditorProps {
   control: Control<ItemFormValues>;
   availableComponents: AvailableComponent[];
@@ -71,7 +63,6 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         columns={BOM_LINE_GRID_COLUMNS}
         minWidth="40rem"
         createLine={() => ({ ...blankBomLine, alternates: [] })}
-        isLineBlank={isBlankBomLine}
         addLabel="Add ingredient"
         emptyMessage="No ingredients yet."
         headers={[
@@ -80,13 +71,14 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
           "Min Age",
           "Unit",
         ]}
-        renderRow={({ field, index }) => (
+        renderRow={({ field, index, appendLineAfterCommit }) => (
           <BomRow
             key={field.id}
             index={index}
             control={control}
             componentOptions={componentOptions}
             componentMap={componentMap}
+            appendLineAfterCommit={appendLineAfterCommit}
           />
         )}
       />
@@ -100,11 +92,13 @@ function BomRow({
   control,
   componentOptions,
   componentMap,
+  appendLineAfterCommit,
 }: {
   index: number;
   control: Control<ItemFormValues>;
   componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
+  appendLineAfterCommit: () => void;
 }) {
   const rowDomId = useId();
   const componentId = useWatch({ control, name: `bom.${index}.componentId` });
@@ -124,7 +118,12 @@ function BomRow({
               <InventoryItemCombobox
                 options={componentOptions}
                 value={f.value ?? ""}
-                onValueChange={(id) => f.onChange(id ?? "")}
+                onValueChange={(id) => {
+                  f.onChange(id ?? "");
+                  if (id) {
+                    appendLineAfterCommit();
+                  }
+                }}
                 inputId={`${rowDomId}-component`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus

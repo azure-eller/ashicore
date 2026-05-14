@@ -3,12 +3,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   useFieldArray,
-  useWatch,
   type Control,
   type FieldArray,
   type FieldArrayPath,
   type FieldArrayWithId,
-  type FieldPath,
   type FieldValues,
 } from "react-hook-form";
 import { Add01Icon } from "@hugeicons/core-free-icons";
@@ -34,6 +32,7 @@ type RenderRowContext<
 > = {
   field: FieldArrayWithId<TValues, TName>;
   index: number;
+  appendLineAfterCommit: () => void;
 };
 
 const ACTION_COLUMN_WIDTH = "2.25rem";
@@ -54,7 +53,6 @@ export function EditableLineItems<
   error,
   footer,
   enableReorder = true,
-  isLineBlank,
 }: {
   control: Control<TValues>;
   name: TName;
@@ -68,19 +66,16 @@ export function EditableLineItems<
   error?: string | null;
   footer?: ReactNode;
   enableReorder?: boolean;
-  isLineBlank?: (line: FieldArray<TValues, TName> | undefined) => boolean;
 }) {
   const { fields, append, remove, move } = useFieldArray({
     control,
     name,
   });
-  const watchedLines = useWatch({ control, name: name as FieldPath<TValues> }) as
-    | FieldArray<TValues, TName>[]
-    | undefined;
   const rootRef = useRef<HTMLDivElement>(null);
   const initialRowCreatedRef = useRef(false);
-  const autoAppendInitializedRef = useRef(false);
-  const autoAppendedRowIdsRef = useRef(new Set<string>());
+  const [appendedAfterCommitRowIds, setAppendedAfterCommitRowIds] = useState(
+    () => new Set<string>()
+  );
   const [focusRequest, setFocusRequest] = useState(0);
 
   const focusLastPrimaryControl = useCallback(() => {
@@ -120,36 +115,6 @@ export function EditableLineItems<
     }
   }, [control, createLine, fields.length, name]);
 
-  useEffect(() => {
-    if (!isLineBlank) {
-      return;
-    }
-
-    if (!autoAppendInitializedRef.current) {
-      fields.forEach((field, index) => {
-        if (!isLineBlank(watchedLines?.[index])) {
-          autoAppendedRowIdsRef.current.add(field.id);
-        }
-      });
-      autoAppendInitializedRef.current = true;
-      return;
-    }
-
-    const lastIndex = fields.length - 1;
-    const lastField = fields[lastIndex];
-    if (!lastField) {
-      return;
-    }
-
-    if (
-      !isLineBlank(watchedLines?.[lastIndex]) &&
-      !autoAppendedRowIdsRef.current.has(lastField.id)
-    ) {
-      autoAppendedRowIdsRef.current.add(lastField.id);
-      append(createLine(), { shouldFocus: false });
-    }
-  }, [append, createLine, fields, isLineBlank, watchedLines]);
-
   const gridColumns = `${enableReorder ? `${ACTION_COLUMN_WIDTH} ` : ""}${columns} ${ACTION_COLUMN_WIDTH}`;
   const gridHeaders = [
     ...(enableReorder ? [<span key="reorder" />] : []),
@@ -157,6 +122,22 @@ export function EditableLineItems<
     <span key="actions" />,
   ];
   const rowTestId = `${String(name)}-row`;
+
+  const appendLineAfterCommit = useCallback(
+    (fieldId: string, index: number) => {
+      if (index !== fields.length - 1) {
+        return;
+      }
+
+      if (appendedAfterCommitRowIds.has(fieldId)) {
+        return;
+      }
+
+      setAppendedAfterCommitRowIds((current) => new Set(current).add(fieldId));
+      append(createLine(), { shouldFocus: false });
+    },
+    [append, appendedAfterCommitRowIds, createLine, fields.length]
+  );
 
   const grid = (
     <EditableLineGrid columns={gridColumns} minWidth={minWidth} headers={gridHeaders}>
@@ -170,7 +151,12 @@ export function EditableLineItems<
               rowTestId={rowTestId}
               onRemove={() => remove(index)}
             >
-              {renderRow({ field, index })}
+              {renderRow({
+                field,
+                index,
+                appendLineAfterCommit: () =>
+                  appendLineAfterCommit(field.id, index),
+              })}
             </SortableEditableLineItemRow>
           ) : (
             <StaticEditableLineItemRow
@@ -179,7 +165,12 @@ export function EditableLineItems<
               rowTestId={rowTestId}
               onRemove={() => remove(index)}
             >
-              {renderRow({ field, index })}
+              {renderRow({
+                field,
+                index,
+                appendLineAfterCommit: () =>
+                  appendLineAfterCommit(field.id, index),
+              })}
             </StaticEditableLineItemRow>
           )
         )
