@@ -52,7 +52,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -203,14 +202,6 @@ function marginToneClass(value: string | null | undefined) {
   if (parsed < 20) return "text-destructive";
   if (parsed >= 40) return "text-success";
   return "text-foreground";
-}
-
-function statusLabel(value: string | null | undefined) {
-  return value === "confirmed" ? "Confirmed" : "Draft";
-}
-
-function statusBadgeVariant(value: string | null | undefined) {
-  return value === "confirmed" ? "default" : "secondary";
 }
 
 function SalesOrderSection({
@@ -487,17 +478,11 @@ export function OrderForm({
     control: form.control,
     name: "customerProjectId",
   });
-  const status = useWatch({
-    control: form.control,
-    name: "status",
-  });
   const selectedCustomer = customerId ? customerMap.get(customerId) : undefined;
   const projectOptions = useMemo(
     () => selectedCustomer?.projects ?? [],
     [selectedCustomer]
   );
-  const isConfirmedEdit = initialData?.status === "confirmed";
-
   const { fields, append, move, remove } = useFieldArray({
     control: form.control,
     name: "lines",
@@ -761,14 +746,6 @@ export function OrderForm({
     }
   );
 
-  const handleSaveDraft = () => {
-    form.setValue("status", "draft", {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    void submitOrder();
-  };
-
   const linesError = getFieldArrayError(form.formState.errors.lines);
 
   if (!isHydrated) {
@@ -808,25 +785,11 @@ export function OrderForm({
                   <h1 className="text-[22px] font-bold leading-tight tracking-tight">
                     {isEditing ? "Edit Sales Order" : "Add Sales Order"}
                   </h1>
-                  <Badge variant={statusBadgeVariant(status)}>
-                    {statusLabel(status)}
-                  </Badge>
                 </div>
               </div>
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row">
-              {!isEditing && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSaveDraft}
-                  disabled={mutation.isPending}
-                >
-                  Save Draft
-                </Button>
-              )}
               <Button type="button" variant="outline" onClick={handleCancel}>
                 Cancel
               </Button>
@@ -988,35 +951,6 @@ export function OrderForm({
 
                   <Controller
                     control={form.control}
-                    name="status"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel className="w-full">
-                          <FieldLabelWithMarker required>
-                            Status
-                          </FieldLabelWithMarker>
-                        </FieldLabel>
-                        <Select
-                          name={field.name}
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          disabled={isConfirmedEdit}
-                        >
-                          <SelectTrigger aria-invalid={fieldState.invalid}>
-                            <SelectValue placeholder="Select a status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="draft">Draft</SelectItem>
-                            <SelectItem value="confirmed">Confirmed</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                      </Field>
-                    )}
-                  />
-
-                  <Controller
-                    control={form.control}
                     name="orderDate"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
@@ -1043,7 +977,7 @@ export function OrderForm({
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name} className="w-full">
-                          <FieldLabelWithMarker required={status === "confirmed"}>
+                          <FieldLabelWithMarker required>
                             <TooltipHeader
                               label="Ship Date"
                               tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
@@ -1273,12 +1207,6 @@ export function OrderForm({
                   <span className="font-mono font-medium tabular-nums">
                     {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
                   </span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Status</span>
-                  <Badge variant={statusBadgeVariant(status)}>
-                    {statusLabel(status)}
-                  </Badge>
                 </div>
               </CardContent>
               <CardFooter className="justify-between bg-muted/25 px-5">

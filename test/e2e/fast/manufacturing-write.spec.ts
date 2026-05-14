@@ -315,12 +315,13 @@ test.describe("Manufacturing write-path smoke", () => {
       .click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toContainText("Released", { timeout: 15_000 });
+      .getByRole("link", { name: "Execute" })
+    ).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    await page.getByRole("radio", { name: "Show Completed orders" }).click();
+    await page.getByRole("radio", { name: "Show done orders" }).click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
     ).toBeHidden();

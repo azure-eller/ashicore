@@ -30,6 +30,7 @@ export type SalesOrderManufacturingLineSummary = {
   salesOrderId: string;
   salesOrderLineId: string;
   itemId: string;
+  itemType: string | null;
   itemName: string;
   masterName: string;
   attrs: string[];
@@ -351,6 +352,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
       salesOrderId: line.salesOrderId,
       salesOrderLineId: line.salesOrderLineId,
       itemId: line.itemId,
+      itemType: item?.itemType ?? null,
       itemName: line.itemName,
       masterName: display.masterName,
       attrs: display.attrs,

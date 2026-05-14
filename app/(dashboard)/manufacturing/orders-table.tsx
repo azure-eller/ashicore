@@ -11,6 +11,10 @@ import {
   DashboardDataTable,
   DashboardDataTableDragHandle,
 } from "@/components/dashboard-data-table";
+import {
+  OperationalStateCell,
+  type OperationalState,
+} from "@/components/operational-state-cell";
 import { DateTimeText } from "@/components/date-time-text";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -18,24 +22,16 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDate } from "@/lib/format";
 import {
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
-  MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP,
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   MANUFACTURING_SALES_ORDER_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
-import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 
-const MANUFACTURING_STATUS_FILTER_OPTIONS = [
-  { value: "draft", label: "Draft" },
-  { value: "released", label: "Released" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-] as const;
-
 const OPEN_MANUFACTURING_STATUSES = ["draft", "released"] as const;
+const DONE_MANUFACTURING_STATUSES = ["completed", "cancelled"] as const;
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -91,7 +87,7 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
   }
 
   if (order.status === "draft") {
-    return { percent: 0, label: "Draft" };
+    return { percent: 0, label: "Not started" };
   }
 
   if (order.manufacturingMode === "batch") {
@@ -140,6 +136,60 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
       </div>
     </div>
   );
+}
+
+function getIngredientState(order: ManufacturingOrderListRow): OperationalState {
+  if (order.status === "cancelled") {
+    return { label: "Cancelled", tone: "destructive" };
+  }
+
+  if (order.ingredientReadiness === "picked") {
+    return { label: "Picked", tone: "success" };
+  }
+
+  if (order.ingredientReadiness === "picking") {
+    return { label: "Picking", tone: "warning" };
+  }
+
+  if (order.ingredientReadiness === "in_stock") {
+    return { label: "In stock", tone: "success" };
+  }
+
+  if (order.ingredientReadiness === "expected") {
+    return { label: "Expected", tone: "warning" };
+  }
+
+  return { label: "Not available", tone: "destructive" };
+}
+
+function getProductionState(order: ManufacturingOrderListRow): OperationalState {
+  if (order.status === "completed") {
+    return { label: "Completed", tone: "success" };
+  }
+
+  if (order.status === "cancelled") {
+    return { label: "Cancelled", tone: "destructive" };
+  }
+
+  if (order.status === "released") {
+    if (
+      order.pickProgressStatus === "in_progress" ||
+      order.pickProgressStatus === "picked" ||
+      order.completedBatchCount > 0
+    ) {
+      return { label: "Work in progress", tone: "warning" };
+    }
+
+    return { label: "Not started", tone: "muted" };
+  }
+
+  return { label: "Not started", tone: "muted" };
+}
+
+function doneManufacturingOrderRank(order: ManufacturingOrderListRow) {
+  if (order.status === "cancelled") return 1;
+  if (order.status === "completed") return 0;
+  return -1;
 }
 
 function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingOrderListRow }) {
@@ -243,6 +293,31 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
     meta: { className: "w-40" },
   },
   {
+    accessorKey: "ingredientReadiness",
+    header: ({ column }) => <SortableHeader column={column} label="Ingredients" />,
+    sortingFn: (a, b) =>
+      getIngredientState(a.original).label.localeCompare(
+        getIngredientState(b.original).label
+      ),
+    cell: ({ row }) => <OperationalStateCell state={getIngredientState(row.original)} />,
+    meta: { className: "w-40" },
+  },
+  {
+    id: "productionState",
+    header: ({ column }) => <SortableHeader column={column} label="Production" />,
+    sortingFn: (a, b) => {
+      const doneRank =
+        doneManufacturingOrderRank(a.original) -
+        doneManufacturingOrderRank(b.original);
+      if (doneRank !== 0) return doneRank;
+      return getProductionState(a.original).label.localeCompare(
+        getProductionState(b.original).label
+      );
+    },
+    cell: ({ row }) => <OperationalStateCell state={getProductionState(row.original)} />,
+    meta: { className: "w-44" },
+  },
+  {
     accessorKey: "actualQuantity",
     header: () => (
       <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
@@ -277,15 +352,10 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
   {
     accessorKey: "status",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Status"
-        tooltip={MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP}
-      />
-    ),
+    header: "",
     filterFn: multiValueFilter,
-    cell: ({ row }) => <ManufacturingOrderStatusBadge status={row.original.status} />,
+    cell: () => null,
+    meta: { className: "hidden" },
   },
   {
     accessorKey: "completedAt",
@@ -393,7 +463,7 @@ export function OrdersTable({
         confirmTitle: (count) =>
           `Delete ${count} manufacturing order${count !== 1 ? "s" : ""}?`,
         confirmDescription: () =>
-          "Draft, completed, or cancelled orders will be soft-deleted and removed from normal views. Released orders must be cancelled first.",
+          "Completed or cancelled orders will be soft-deleted and removed from normal views. Open orders must be cancelled first.",
       }}
     />
   );
@@ -411,13 +481,13 @@ function ManufacturingOrderStatusTabs({
     selected.includes("draft") &&
     selected.includes("released")
       ? "open"
-      : selected.length === 1
-        ? selected[0]
-        : "all";
+      : "done";
 
   const statusCounts = statusColumn?.getFacetedUniqueValues();
   const openCount =
     (statusCounts?.get("draft") ?? 0) + (statusCounts?.get("released") ?? 0);
+  const doneCount =
+    (statusCounts?.get("completed") ?? 0) + (statusCounts?.get("cancelled") ?? 0);
 
   return (
     <ToggleGroup
@@ -426,40 +496,36 @@ function ManufacturingOrderStatusTabs({
       value={value}
       onValueChange={(nextValue) => {
         if (!statusColumn || !nextValue) return;
-        if (nextValue === "all") {
-          statusColumn.setFilterValue(undefined);
-          return;
-        }
         if (nextValue === "open") {
           statusColumn.setFilterValue([...OPEN_MANUFACTURING_STATUSES]);
           return;
         }
-        statusColumn.setFilterValue([nextValue]);
+        statusColumn.setFilterValue([...DONE_MANUFACTURING_STATUSES]);
       }}
       aria-label="Filter manufacturing orders by status"
       className="max-w-full flex-wrap rounded-lg bg-muted p-1"
     >
-      <ToggleGroupItem value="open" aria-label="Show open orders" className="gap-1.5">
+      <ToggleGroupItem
+        value="open"
+        aria-label="Show open orders"
+        className="gap-1.5"
+        onClick={() =>
+          statusColumn?.setFilterValue([...OPEN_MANUFACTURING_STATUSES])
+        }
+      >
         Open
         <span className="text-muted-foreground">{openCount}</span>
       </ToggleGroupItem>
-      {MANUFACTURING_STATUS_FILTER_OPTIONS.filter(
-        (option) => option.value !== "draft" && option.value !== "released"
-      ).map((option) => (
-        <ToggleGroupItem
-          key={option.value}
-          value={option.value}
-          aria-label={`Show ${option.label} orders`}
-          className="gap-1.5"
-        >
-          {option.label}
-          <span className="text-muted-foreground">
-            {statusCounts?.get(option.value) ?? 0}
-          </span>
-        </ToggleGroupItem>
-      ))}
-      <ToggleGroupItem value="all" aria-label="Show all orders" className="gap-1.5">
-        All
+      <ToggleGroupItem
+        value="done"
+        aria-label="Show done orders"
+        className="gap-1.5"
+        onClick={() =>
+          statusColumn?.setFilterValue([...DONE_MANUFACTURING_STATUSES])
+        }
+      >
+        Done
+        <span className="text-muted-foreground">{doneCount}</span>
       </ToggleGroupItem>
     </ToggleGroup>
   );

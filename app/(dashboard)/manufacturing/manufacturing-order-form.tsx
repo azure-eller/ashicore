@@ -394,6 +394,7 @@ export function ManufacturingOrderForm({
                   .map((line) => line.salesOrderLineId) ?? [],
               priorityRank: values.priorityRank,
               notes: values.notes,
+              confirmShortage: true,
             }),
           }
         );
@@ -457,7 +458,7 @@ export function ManufacturingOrderForm({
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
-            confirmShortage: false,
+            confirmShortage: true,
           };
 
       const response = await fetch(

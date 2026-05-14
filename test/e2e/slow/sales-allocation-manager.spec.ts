@@ -32,10 +32,7 @@ function sku(prefix: string) {
 }
 
 function salesOrderCard(page: Page, orderNumber: string) {
-  return page
-    .locator('[data-testid="sales-order-card"]')
-    .filter({ hasText: orderNumber })
-    .first();
+  return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
 async function createCustomerFixture(namePrefix: string) {

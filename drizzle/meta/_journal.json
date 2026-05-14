@@ -617,6 +617,13 @@
       "when": 1778771839297,
       "tag": "0087_lethal_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1778771839300,
+      "tag": "0090_rapid_quasar",
+      "breakpoints": true
     }
   ]
 }

@@ -130,7 +130,10 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     (value) => value == null || z.string().uuid().safeParse(value).success,
     "Invalid project"
   ),
-  status: z.enum(["draft", "confirmed"]),
+  status: z
+    .enum(["draft", "confirmed"])
+    .optional()
+    .transform(() => "confirmed" as const),
   orderDate: z
     .string()
     .optional()
@@ -190,7 +193,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     if (values.status === "confirmed" && !values.shipDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Shipping date is required to confirm a sales order",
+        message: "Ship date is required to create a sales order",
         path: ["shipDate"],
       });
     }
@@ -364,7 +367,7 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   orderNumber: null,
   customerId: "",
   customerProjectId: null,
-  status: "draft",
+  status: "confirmed",
   orderDate: new Date().toISOString().slice(0, 10),
   shipDate: null,
   requestedDate: null,

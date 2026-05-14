@@ -1,10 +1,11 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgSchema,
   text,
   timestamp,
   boolean,
   index,
+  jsonb,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -138,11 +139,43 @@ export const invitation = systemSchema.table(
   ],
 );
 
+export const userViewPreferences = systemSchema.table(
+  "user_view_preferences",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    viewKey: text("view_key").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_view_preferences_user_org_view_uidx").on(
+      table.userId,
+      table.organizationId,
+      table.viewKey
+    ),
+    index("user_view_preferences_organization_id_idx").on(table.organizationId),
+    index("user_view_preferences_user_id_idx").on(table.userId),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
   members: many(member),
   invitations: many(invitation),
+  viewPreferences: many(userViewPreferences),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -185,3 +218,17 @@ export const invitationRelations = relations(invitation, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const userViewPreferencesRelations = relations(
+  userViewPreferences,
+  ({ one }) => ({
+    organization: one(organization, {
+      fields: [userViewPreferences.organizationId],
+      references: [organization.id],
+    }),
+    user: one(user, {
+      fields: [userViewPreferences.userId],
+      references: [user.id],
+    }),
+  })
+);

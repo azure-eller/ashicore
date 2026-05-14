@@ -877,6 +877,10 @@ function openLinkedManufacturingOrders<T extends SalesLinkedManufacturingOrder>(
   return orders.filter((order) => order.status === "draft" || order.status === "released");
 }
 
+function isEditableOpenSalesOrderStatus(status: string) {
+  return status === "draft" || status === "confirmed";
+}
+
 function serializeLinkedManufacturingOrder(
   order: LinkedManufacturingOrderRead
 ): SalesLinkedManufacturingOrder {
@@ -4516,6 +4520,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             lines: summaryLines.map((line) => ({
               id: line.salesOrderLineId,
               itemId: line.itemId,
+              itemType: line.itemType,
               masterName: line.masterName,
               attrs: line.attrs,
               itemSku: line.itemSku,
@@ -5414,7 +5419,7 @@ export async function duplicateSalesOrder(
       orderNumber: null,
       customerId: order.customerId,
       customerProjectId: order.customerProjectId,
-      status: "draft",
+      status: "confirmed",
       orderDate: order.orderDate,
       shipDate: order.shipDate,
       requestedDate: order.requestedDate,
@@ -5430,7 +5435,7 @@ export async function duplicateSalesOrder(
         quantity: line.quantity,
         unitPrice: line.unitPrice,
       })),
-      confirmOversell: false,
+      confirmOversell: true,
     },
     options
   );
@@ -5466,7 +5471,7 @@ export async function updateSalesOrder(
 
     const existingLines = await getOrderLinesInTx(tx, id);
 
-    if (existingOrder.status === "confirmed") {
+    if (isEditableOpenSalesOrderStatus(existingOrder.status)) {
       if (isCancelPayload(data)) {
         await tx
           .update(salesOrders)
@@ -5482,7 +5487,7 @@ export async function updateSalesOrder(
           actorUserId: userId,
           idempotencyKey: deriveInventoryIdempotencyKey(
             options?.idempotencyKey,
-            "cancel-confirmed-order"
+            "cancel-open-order"
           ),
           reason: "cancelled",
           salesOrderLineIds: existingLines.map((line) => line.id),
@@ -5496,10 +5501,6 @@ export async function updateSalesOrder(
         return result;
       }
 
-      if (data.status !== "confirmed") {
-        throw new SalesError("Confirmed orders must stay confirmed while editing.", 400);
-      }
-
       await lockItemsInTx(tx, [
         ...existingLines.map((line) => line.itemId),
         ...data.lines.map((line) => line.itemId),
@@ -5511,7 +5512,7 @@ export async function updateSalesOrder(
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
-          "edit-confirmed-order-release"
+          "edit-open-order-release"
         ),
         reason: "edited",
         salesOrderLineIds: existingLines.map((line) => line.id),
@@ -5531,7 +5532,7 @@ export async function updateSalesOrder(
     }
 
     if (isCancelPayload(data)) {
-      throw new SalesError("Draft orders cannot be cancelled.", 400);
+      throw new SalesError("Only open sales orders can be cancelled.", 400);
     }
 
     const shouldCheckOversell =
@@ -5652,7 +5653,7 @@ export async function updateSalesOrder(
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
-          "update-to-confirmed"
+          "update-open-order"
         ),
         lines: insertedLines.map((line) => ({
           salesOrderLineId: line.salesOrderLineId,
@@ -6916,6 +6917,27 @@ export async function confirmSalesOrder(
 
     if (replay.replayed) {
       return replay.result;
+    }
+
+    const existingOrder = await getLockedSalesOrderInTx(tx, id);
+    if (!existingOrder) {
+      const result = null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
+    }
+
+    if (existingOrder.status === "confirmed") {
+      const result = { id };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(

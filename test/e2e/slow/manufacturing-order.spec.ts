@@ -270,7 +270,8 @@ async function showManufacturingOrderStatus(
   page: Parameters<typeof filterList>[0],
   status: "Draft" | "Released" | "Completed" | "Cancelled"
 ) {
-  await page.getByRole("radio", { name: `Show ${status} status` }).click();
+  const workflow = status === "Completed" || status === "Cancelled" ? "done" : "open";
+  await page.getByRole("radio", { name: `Show ${workflow} orders` }).click();
 }
 
 test.describe("Manufacturing order flow", () => {
@@ -582,7 +583,7 @@ test.describe("Manufacturing order flow", () => {
     const draftRow = page.getByRole("row", { name: new RegExp(linkedOrder.orderNumber) });
     await expect(draftRow).toContainText(productName);
     await expect(draftRow).toContainText(salesOrderNumber);
-    await expect(draftRow).toContainText("Draft");
+    await expect(draftRow).toContainText("Not started");
   });
 
   test("creates manufacturing orders from a confirmed sales order and skips non-manufacturable lines", async ({
@@ -945,7 +946,7 @@ test.describe("Manufacturing order flow", () => {
     await showManufacturingOrderStatus(page, "Released");
     await filterList(page, "Search manufacturing orders", releasedOrder.orderNumber);
     const releasedRow = page.getByRole("row", { name: new RegExp(releasedOrder.orderNumber) });
-    await expect(releasedRow).toContainText("Released");
+    await expect(releasedRow).toContainText("Not started");
   });
 
   test("cancels a released order without mutating lots or stock movements", async ({

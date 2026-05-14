@@ -17,11 +17,11 @@ import {
 import type {
   DraftAllocationTakeoverWarningPayload,
   OversellWarningPayload,
-} from "../types";
+} from "./types";
 import {
   OVERSELL_WARNING_DESCRIPTION,
   OversellWarningTable,
-} from "../oversell-warning-table";
+} from "./oversell-warning-table";
 
 type ConfirmError = Error & {
   status: number;

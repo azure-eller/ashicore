@@ -430,7 +430,7 @@ export async function createSalesOrder(data: {
     method: "POST",
     body: JSON.stringify({
       customerId: data.customerId,
-      status: data.status ?? "draft",
+      status: data.status ?? "confirmed",
       orderDate:
         data.orderDate ??
         data.shipDate ??
@@ -443,7 +443,7 @@ export async function createSalesOrder(data: {
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
-      confirmOversell: data.confirmOversell ?? false,
+      confirmOversell: data.confirmOversell ?? true,
     }),
   });
   const body = await res.json().catch(() => null);
@@ -474,7 +474,7 @@ export async function updateSalesOrder(
     method: "PUT",
     body: JSON.stringify({
       customerId: data.customerId,
-      status: data.status ?? "draft",
+      status: data.status ?? "confirmed",
       orderDate:
         data.orderDate ??
         data.shipDate ??
@@ -487,7 +487,7 @@ export async function updateSalesOrder(
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
-      confirmOversell: data.confirmOversell ?? false,
+      confirmOversell: data.confirmOversell ?? true,
     }),
   });
   const body = await res.json().catch(() => null);

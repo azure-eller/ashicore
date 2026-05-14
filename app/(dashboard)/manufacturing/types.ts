@@ -106,6 +106,13 @@ export type ManufacturingPickProgressStatus =
   | "in_progress"
   | "picked";
 
+export type ManufacturingIngredientReadiness =
+  | "in_stock"
+  | "expected"
+  | "not_available"
+  | "picking"
+  | "picked";
+
 export type ManufacturingOrderListRow = {
   id: string;
   orderNumber: string;
@@ -129,6 +136,7 @@ export type ManufacturingOrderListRow = {
   numberOfBatches: number | null;
   pickProgressStatus: ManufacturingPickProgressStatus;
   pickProgressPercent: number;
+  ingredientReadiness: ManufacturingIngredientReadiness;
   completedBatchCount: number;
   actionableBatchCount: number;
   deletedAt: Date | null;
