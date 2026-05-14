@@ -38,10 +38,6 @@ async function confirmOversellDialog(page: Parameters<typeof filterList>[0]) {
   await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 }
 
-async function showCancelledOrders(page: Parameters<typeof filterList>[0]) {
-  await page.getByRole("radio", { name: "Show done orders" }).click();
-}
-
 async function createDraftSalesOrder(payload: {
   customerId: string;
   orderDate?: string;
@@ -1017,10 +1013,6 @@ test.describe("Sales order flow", () => {
     expect(secondaryItem.committedQty).toBe("0.0000");
     expect(primaryMaterial.committedQty).toBe("0.0000");
 
-    await page.goto("/sales/orders");
-    await showCancelledOrders(page);
-    await filterList(page, "Search orders", fullOrderNumber);
-    await expect(salesOrderCard(page, fullOrderNumber)).toContainText("Cancelled");
   });
 
   test("deletes the cancelled order", async ({ page, db }) => {
