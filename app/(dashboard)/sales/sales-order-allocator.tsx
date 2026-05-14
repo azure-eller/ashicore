@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,27 +14,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
-import { TooltipHeader } from "@/components/tooltip-header";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantity } from "@/lib/format";
-import {
-  ALLOCATION_ALLOCATE_TOOLTIP,
-  ALLOCATION_AVAILABLE_TOOLTIP,
-  ALLOCATION_CURRENT_TOOLTIP,
-  ALLOCATION_EXPECTED_TOOLTIP,
-  ALLOCATION_ON_HAND_TOOLTIP,
-  ALLOCATION_SOURCE_TOOLTIP,
-} from "@/lib/tooltip-copy";
 import { cn } from "@/lib/utils";
 import styles from "./sales-order-allocator.module.css";
+import { demandKey } from "@/lib/inventory/allocation/types";
 import type {
   AllocationAssignment,
   AllocationSourceRow,
@@ -95,15 +85,15 @@ function sourceRelativeLabel(source: AllocationSourceRow) {
   if (days == null) return formatSourceDate(source);
 
   if (source.sourceType === "inventory_lot") {
-    if (days === 0) return `Received today · ${date}`;
-    if (days === -1) return `Received yesterday · ${date}`;
-    if (days < 0) return `Received ${Math.abs(days)}d ago · ${date}`;
-    return `Received ${formatDate(date)} · ${date}`;
+    if (days === 0) return "Received today";
+    if (days === -1) return "Received yesterday";
+    if (days < 0) return `Received ${Math.abs(days)}d ago`;
+    return `Received ${formatDate(date)}`;
   }
 
-  if (days === 0) return `ETA today · ${date}`;
-  if (days > 0) return `ETA in ${days}d · ${date}`;
-  return `ETA ${Math.abs(days)}d late · ${date}`;
+  if (days === 0) return "ETA today";
+  if (days > 0) return `ETA in ${days}d`;
+  return `ETA ${Math.abs(days)}d late`;
 }
 
 function businessDateToUtcDays(value: string) {
@@ -134,31 +124,23 @@ function sourceInputKey(source: Pick<AllocationSourceRow, "sourceType" | "source
   return `${source.sourceType}:${source.sourceId}`;
 }
 
-function sourceTypeLabel(sourceType: AllocationSourceType) {
-  if (sourceType === "inventory_lot") return "Lots";
-  return "Manufacturing orders";
+function sourceMetaLabel(source: AllocationSourceRow) {
+  const relative = sourceRelativeLabel(source);
+  if (source.sourceType === "manufacturing_order") {
+    return [source.contextLabel, relative].filter(Boolean).join(" · ");
+  }
+  return relative;
 }
 
-function assignmentSummary(assignments: AllocationAssignment[]) {
-  if (assignments.length === 0) return null;
-  return assignments
-    .slice(0, 2)
-    .map(
-      (assignment) =>
-        `${formatQuantity(assignment.quantity)} ${assignment.demandLabel}`
-    )
-    .join(", ")
-    .concat(assignments.length > 2 ? `, +${assignments.length - 2} more` : "");
-}
-
-function sourceTotalLabel(sourceType: AllocationSourceType) {
-  return sourceType === "inventory_lot" ? "On hand" : "Expected";
-}
-
-function sourceTotalTooltip(sourceType: AllocationSourceType) {
-  return sourceType === "inventory_lot"
-    ? ALLOCATION_ON_HAND_TOOLTIP
-    : ALLOCATION_EXPECTED_TOOLTIP;
+function isPrimaryAssignment(
+  assignment: AllocationAssignment,
+  workspace: AllocationWorkspace
+) {
+  return (
+    workspace.primaryDemand != null &&
+    assignment.demandType === workspace.primaryDemand.demandType &&
+    assignment.demandId === workspace.primaryDemand.demandId
+  );
 }
 
 export function getLineRemainingQty(line: SalesOrderListLine) {
@@ -185,23 +167,6 @@ function getAllocationCellClass(line: SalesOrderListLine) {
   if (tone === "success") return "bg-success/10 text-success";
   if (tone === "warning") return "bg-warning/10 text-warning";
   return "bg-destructive/10 text-destructive";
-}
-
-function groupSources(sources: AllocationSourceRow[]) {
-  return [
-    {
-      sourceType: "inventory_lot" as const,
-      label: sourceTypeLabel("inventory_lot"),
-      sources: sources.filter((source) => source.sourceType === "inventory_lot"),
-    },
-    {
-      sourceType: "manufacturing_order" as const,
-      label: sourceTypeLabel("manufacturing_order"),
-      sources: sources.filter(
-        (source) => source.sourceType === "manufacturing_order"
-      ),
-    },
-  ];
 }
 
 export function AllocatorCell({
@@ -322,7 +287,7 @@ export function AllocationSourceDialog({
 
   return (
     <Dialog open={target != null} onOpenChange={onOpenChange}>
-      <DialogContent size="3xl" className="max-h-[90vh] overflow-hidden">
+      <DialogContent size="content" className={styles.sourceDialog}>
         <DialogHeader>
           <DialogTitle>Allocate {target?.product.label}</DialogTitle>
           <DialogDescription>
@@ -392,7 +357,7 @@ function AllocationSourceEditor({
   const [initialDraft] = useState(() => buildInitialDraft(targetQty, workspace));
   const [draft, setDraft] = useState(initialDraft);
   const [formError, setFormError] = useState<string | null>(null);
-  const sourceGroups = groupSources(workspace.sources);
+  const sources = workspace.sources;
   const selectedTotal = Object.values(draft).reduce(
     (sum, value) => sum + parseQuantity(value),
     0
@@ -402,8 +367,13 @@ function AllocationSourceEditor({
     0
   );
   const remainingToAssign = targetQty - selectedTotal;
-  const allocatedTone = selectedTotal >= targetQty && targetQty > 0 ? "met" : "neutral";
-  const remainingTone = remainingToAssign > 0.0001 ? "short" : "met";
+  const progressTone = selectedTotal >= targetQty && targetQty > 0 ? "met" : "neutral";
+  const statusTone =
+    selectedTotal > targetQty + 0.0001
+      ? "over"
+      : remainingToAssign > 0.0001
+        ? "short"
+        : "met";
   const hasChanges = Math.abs(selectedTotal - initialTotal) > 0.0001;
 
   const saveMutation = useMutation({
@@ -472,234 +442,256 @@ function AllocationSourceEditor({
     let remaining = targetQty;
     const next: SourceDraft = {};
 
-    for (const group of sourceGroups) {
-      for (const source of group.sources) {
-        if (remaining <= 0) break;
-        const qty = Math.min(remaining, parseQuantity(source.maxQtyForPrimaryDemand));
-        if (qty <= 0) continue;
-        next[sourceInputKey(source)] = quantityString(qty);
-        remaining -= qty;
-      }
+    for (const source of sources) {
+      if (remaining <= 0) break;
+      const qty = Math.min(remaining, parseQuantity(source.maxQtyForPrimaryDemand));
+      if (qty <= 0) continue;
+      next[sourceInputKey(source)] = quantityString(qty);
+      remaining -= qty;
     }
 
     setDraft(next);
   }
 
-  const assignmentsBySource = workspace.assignments.reduce((groups, assignment) => {
+  const demandsByKey = new Map(
+    workspace.demands.map((demand) => [demandKey(demand), demand])
+  );
+  const claimsBySource = workspace.assignments.reduce((groups, assignment) => {
+    if (isPrimaryAssignment(assignment, workspace)) return groups;
     const bucket = groups.get(sourceInputKey(assignment)) ?? [];
     bucket.push(assignment);
     groups.set(sourceInputKey(assignment), bucket);
     return groups;
   }, new Map<string, AllocationAssignment[]>());
 
+  function saveIfAllowed() {
+    if (saveMutation.isPending || !hasChanges) return;
+    saveMutation.mutate();
+  }
+
   return (
     <>
-      <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
-        <div className={styles.summary}>
-          <div>
-            <div className={styles.summaryLabel}>Demand</div>
-            <div className={styles.summaryValue}>
-              {formatQuantity(target.line.remainingQty ?? "0")} {target.line.unitName}
-            </div>
-            <div className={styles.summaryTrack}>
-              <span className={styles.summaryFill} style={{ width: "100%" }} />
-            </div>
+      <div
+        className={styles.modalBody}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          if (event.target instanceof HTMLInputElement) return;
+          event.preventDefault();
+          saveIfAllowed();
+        }}
+      >
+        <div className={styles.demandStrip}>
+          <div className={styles.demandNeed}>
+            <span>Need</span>
+            <strong>{formatQuantity(target.line.remainingQty ?? "0")}</strong>
+            <span>{target.line.unitName}</span>
           </div>
-          <div>
-            <div className={styles.summaryLabel}>Allocated</div>
-            <div className={styles.summaryValue}>
-              {formatQuantity(quantityString(selectedTotal))} {target.line.unitName}
-            </div>
-            <div className={styles.summaryTrack}>
-              <span
-                className={styles.summaryFill}
-                data-tone={allocatedTone}
-                style={{
-                  width: `${targetQty > 0 ? Math.min(100, (selectedTotal / targetQty) * 100) : 0}%`,
-                }}
-              />
-            </div>
+          <div className={styles.demandTrack}>
+            <span
+              className={styles.demandFill}
+              data-tone={progressTone}
+              style={{
+                width: `${targetQty > 0 ? Math.min(100, (selectedTotal / targetQty) * 100) : 0}%`,
+              }}
+            />
           </div>
-          <div>
-            <div className={styles.summaryLabel}>Remaining</div>
-            <div
-              className={cn(styles.summaryValue, remainingToAssign > 0.0001 ? "text-destructive" : "text-success")}
-            >
-              {remainingToAssign > 0.0001
-                ? `${formatQuantity(quantityString(remainingToAssign))} ${target.line.unitName}`
-                : "✓ fulfilled"}
-            </div>
-            <div className={styles.summaryTrack}>
-              <span
-                className={styles.summaryFill}
-                data-tone={remainingTone}
-                style={{
-                  width: `${targetQty > 0 ? Math.min(100, (Math.max(0, remainingToAssign) / targetQty) * 100) : 0}%`,
-                }}
-              />
-            </div>
+          <div className={styles.demandStatus} data-tone={statusTone}>
+            <span>Allocated</span>
+            <strong>{formatQuantity(quantityString(selectedTotal))}</strong>
+            {statusTone === "over" ? (
+              <em>+{formatQuantity(quantityString(selectedTotal - targetQty))} over</em>
+            ) : remainingToAssign > 0.0001 ? (
+              <em>-{formatQuantity(quantityString(remainingToAssign))} short</em>
+            ) : (
+              <em>✓ complete</em>
+            )}
           </div>
         </div>
 
-        {sourceGroups.map((group) => (
-          <div key={group.sourceType} className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-medium">
-                {group.sourceType === "inventory_lot"
-                  ? "Lots — on-hand inventory"
-                  : group.label}
-              </h3>
-              {group.sourceType === "inventory_lot" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={workspace.sources.length === 0}
-                  onClick={autofillFifo}
-                >
-                  Auto-fill (FIFO)
-                </Button>
-              ) : null}
-            </div>
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>
-                      <TooltipHeader
-                        label="Source"
-                        tooltip={ALLOCATION_SOURCE_TOOLTIP}
-                      />
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <div className="flex justify-end">
-                        <TooltipHeader
-                          label={sourceTotalLabel(group.sourceType)}
-                          tooltip={sourceTotalTooltip(group.sourceType)}
-                        />
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <div className="flex justify-end">
-                        <TooltipHeader
-                          label="Available"
-                          tooltip={ALLOCATION_AVAILABLE_TOOLTIP}
-                        />
-                      </div>
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <div className="flex justify-end">
-                        <TooltipHeader
-                          label="Current"
-                          tooltip={ALLOCATION_CURRENT_TOOLTIP}
-                        />
-                      </div>
-                    </TableHead>
-                    <TableHead className="w-32 text-right">
-                      <div className="flex justify-end">
-                        <TooltipHeader
-                          label="Allocate"
-                          tooltip={ALLOCATION_ALLOCATE_TOOLTIP}
-                        />
-                      </div>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {group.sources.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        className="h-16 text-center text-muted-foreground"
-                      >
-                        No sources.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    group.sources.map((source) => {
-                      const key = sourceInputKey(source);
-                      const sourceDate = sourceRelativeLabel(source);
-                      const selected = parseQuantity(draft[key]) > 0;
-                      const assignedSummary = assignmentSummary(
-                        assignmentsBySource.get(key) ?? []
-                      );
-                      return (
-                        <TableRow
-                          key={key}
-                          className={styles.sourceRow}
-                          data-selected={selected}
-                        >
-                          <TableCell>
-                            <div className="flex items-start gap-2">
-                              <span
-                                className={styles.sourceBadge}
-                                data-type={source.sourceType}
-                              >
-                                {source.sourceType === "inventory_lot" ? "LOT" : "MO"}
-                              </span>
-                              <div className="flex min-w-0 flex-col">
-                                <span className="font-mono text-xs">{source.label}</span>
-                                {sourceDate ? (
-                                  <span className="text-xs text-muted-foreground">
-                                    {sourceDate}
-                                  </span>
-                                ) : null}
-                                {source.contextLabel ? (
-                                  <span className="truncate text-xs text-muted-foreground">
-                                    {source.contextLabel}
-                                  </span>
-                                ) : null}
-                                {assignedSummary ? (
-                                  <span className="truncate text-xs text-muted-foreground">
-                                    Assigned {assignedSummary}
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatQuantity(source.totalQty)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatQuantity(source.maxQtyForPrimaryDemand)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatQuantity(source.currentPrimaryQty)}
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={draft[key] ?? ""}
-                              onChange={(event) =>
-                                updateSource(source, event.target.value.trim())
-                              }
-                              onFocus={(event) => event.currentTarget.select()}
-                              onMouseUp={(event) => event.preventDefault()}
-                              inputMode="decimal"
-                              aria-label={`Allocate from ${source.label}`}
-                              className={styles.sourceInput}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+        <div className={styles.sourcesToolbar}>
+          <h3>Sources</h3>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={sources.every(
+              (source) => parseQuantity(source.maxQtyForPrimaryDemand) <= 0
+            )}
+            onClick={autofillFifo}
+          >
+            Auto-fill (FIFO)
+          </Button>
+        </div>
+
+        <div className={styles.sourcesTable}>
+          <div className={styles.sourcesHeader}>
+            <span>Source</span>
+            <span>On hand</span>
+            <span>Claimed by</span>
+            <span>Free</span>
+            <span>Allocate</span>
           </div>
-        ))}
+          <div className={styles.sourcesRows}>
+            {sources.length === 0 ? (
+              <div className={styles.emptySources}>No sources.</div>
+            ) : (
+              sources.map((source) => {
+                const key = sourceInputKey(source);
+                const claims = claimsBySource.get(key) ?? [];
+                const free = parseQuantity(source.maxQtyForPrimaryDemand);
+                const onHand = parseQuantity(source.totalQty);
+                const fullyClaimed = onHand > 0 && free <= 0;
+                const sourceMeta = sourceMetaLabel(source);
+
+                return (
+                  <div
+                    key={key}
+                    className={styles.sourceRow}
+                    data-selected={parseQuantity(draft[key]) > 0}
+                  >
+                    <div className={styles.sourceCell}>
+                      <span
+                        className={styles.sourceBadge}
+                        data-type={source.sourceType}
+                      >
+                        {source.sourceType === "inventory_lot" ? "LOT" : "MO"}
+                      </span>
+                      <div className={styles.sourceIdentity}>
+                        <span className={styles.sourceId}>{source.label}</span>
+                        {sourceMeta ? (
+                          <span className={styles.sourceMeta}>{sourceMeta}</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className={styles.onHandCell} data-type={source.sourceType}>
+                      <span>{formatQuantity(source.totalQty)}</span>
+                      {source.sourceType === "manufacturing_order" ? (
+                        <em>incoming</em>
+                      ) : null}
+                    </div>
+
+                    <div className={styles.claimedCell}>
+                      {claims.length === 0 ? (
+                        <span className={styles.noClaims}>—</span>
+                      ) : (
+                        <ul className={styles.claimList} role="list">
+                          {claims.map((claim) => {
+                            const demand = demandsByKey.get(demandKey(claim));
+                            const due = demand?.requiredDate
+                              ? formatDate(demand.requiredDate)
+                              : null;
+                            const customer = demand?.contextLabel ?? null;
+                            const orderId =
+                              claim.demandType === "sales_order_line"
+                                ? demand?.parentDemandId ?? null
+                                : null;
+                            const tooltip = `${formatQuantity(claim.quantity)} reserved for ${claim.demandLabel}${customer ? ` — ${customer}` : ""}${due ? `, due ${due}` : ""}.`;
+
+                            return (
+                              <li
+                                key={`${claim.demandType}:${claim.demandId}:${claim.sourceType}:${claim.sourceId}`}
+                                aria-label={tooltip}
+                              >
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className={styles.claimChip}>
+                                      {formatQuantity(claim.quantity)}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">{tooltip}</TooltipContent>
+                                </Tooltip>
+                                {orderId ? (
+                                  <Link
+                                    href={`/sales/orders/${orderId}`}
+                                    target="_blank"
+                                    className={styles.claimOrder}
+                                  >
+                                    {claim.demandLabel}
+                                  </Link>
+                                ) : (
+                                  <span className={styles.claimOrder}>
+                                    {claim.demandLabel}
+                                  </span>
+                                )}
+                                {customer ? (
+                                  <span className={styles.claimCustomer}>
+                                    {customer}
+                                  </span>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className={styles.freeCell} data-claimed={fullyClaimed}>
+                      <span>{formatQuantity(source.maxQtyForPrimaryDemand)}</span>
+                      {fullyClaimed ? (
+                        <em aria-live="polite">fully claimed</em>
+                      ) : null}
+                    </div>
+
+                    <div className={styles.allocateCell}>
+                      <Input
+                        type="number"
+                        min="0"
+                        max={quantityString(free)}
+                        step="any"
+                        value={draft[key] ?? ""}
+                        placeholder="0"
+                        disabled={free <= 0}
+                        onChange={(event) =>
+                          updateSource(source, event.target.value.trim())
+                        }
+                        onFocus={(event) => event.currentTarget.select()}
+                        onMouseUp={(event) => event.preventDefault()}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          const inputs = Array.from(
+                            event.currentTarget
+                              .closest(`.${styles.sourcesRows}`)
+                              ?.querySelectorAll<HTMLInputElement>(
+                                "input:not(:disabled)"
+                              ) ?? []
+                          );
+                          const index = inputs.indexOf(event.currentTarget);
+                          const nextInput = inputs[index + 1];
+                          if (nextInput) {
+                            nextInput.focus();
+                          } else {
+                            saveIfAllowed();
+                          }
+                        }}
+                        inputMode="decimal"
+                        aria-label={`Allocate quantity for ${source.label}`}
+                        className={styles.sourceInput}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
 
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
       </div>
 
-      <DialogFooter>
+      <DialogFooter className={styles.sourceFooter}>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <div className="mr-auto text-xs text-muted-foreground">
+        <div className={styles.footerHint}>
           Esc to close · ⏎ to save
         </div>
-        <Button type="button" disabled={saveMutation.isPending || !hasChanges} onClick={() => saveMutation.mutate()}>
+        <Button
+          type="button"
+          disabled={saveMutation.isPending || !hasChanges}
+          onClick={saveIfAllowed}
+        >
           {saveMutation.isPending ? "Saving..." : "Save allocation"}
         </Button>
       </DialogFooter>

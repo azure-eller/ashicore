@@ -375,6 +375,25 @@ function applyProductOrder(
   });
 }
 
+function applyFamilyOrder(
+  products: AllocationProduct[],
+  familyOrder: string[]
+) {
+  if (familyOrder.length === 0) return products;
+  const familyIndex = new Map(familyOrder.map((family, index) => [family, index]));
+
+  return [...products].sort((left, right) => {
+    if (left.familyLabel === right.familyLabel) {
+      return products.indexOf(left) - products.indexOf(right);
+    }
+
+    const leftIndex = familyIndex.get(left.familyLabel) ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = familyIndex.get(right.familyLabel) ?? Number.MAX_SAFE_INTEGER;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+    return products.indexOf(left) - products.indexOf(right);
+  });
+}
+
 function todayLabel() {
   return formatShipDate(todayBusinessDate());
 }
@@ -400,6 +419,7 @@ export function SalesAllocationTable({
     null
   );
   const [productOrder, setProductOrder] = useState<string[]>([]);
+  const [familyOrder, setFamilyOrder] = useState<string[]>([]);
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -518,8 +538,12 @@ export function SalesAllocationTable({
     });
   }, [allProducts, allocationPools]);
   const orderedProducts = useMemo(
-    () => applyProductOrder(productsWithPools, productOrder),
-    [productsWithPools, productOrder]
+    () =>
+      applyProductOrder(
+        applyFamilyOrder(productsWithPools, familyOrder),
+        productOrder
+      ),
+    [productsWithPools, familyOrder, productOrder]
   );
   const visibleProducts = useMemo(
     () =>
@@ -587,6 +611,15 @@ export function SalesAllocationTable({
     preferenceMutation.mutate([...new Set([...hiddenProductIds, productId])]);
   }
 
+  function hideFamily(familyLabel: string) {
+    const familyProductIds = allProducts
+      .filter((product) => product.familyLabel === familyLabel)
+      .map((product) => product.itemId);
+    preferenceMutation.mutate([
+      ...new Set([...hiddenProductIds, ...familyProductIds]),
+    ]);
+  }
+
   function restoreColumn(productId: string) {
     preferenceMutation.mutate(hiddenProductIds.filter((id) => id !== productId));
   }
@@ -616,6 +649,27 @@ export function SalesAllocationTable({
       const swapIndex = next.findIndex((entry) => entry.itemId === swapWith.itemId);
       [next[currentIndex], next[swapIndex]] = [next[swapIndex], next[currentIndex]];
       return next.map((entry) => entry.itemId);
+    });
+  }
+
+  function moveFamily(familyLabel: string, direction: -1 | 1) {
+    setFamilyOrder((current) => {
+      const ordered = applyFamilyOrder(productsWithPools, current);
+      const visibleFamilyLabels = ordered.reduce<string[]>((labels, product) => {
+        if (hiddenProductIdSet.has(product.itemId)) return labels;
+        if (labels.includes(product.familyLabel)) return labels;
+        return [...labels, product.familyLabel];
+      }, []);
+      const currentIndex = visibleFamilyLabels.indexOf(familyLabel);
+      const swapWith = visibleFamilyLabels[currentIndex + direction];
+      if (!swapWith) return current;
+
+      const next = [...visibleFamilyLabels];
+      [next[currentIndex], next[currentIndex + direction]] = [
+        next[currentIndex + direction],
+        next[currentIndex],
+      ];
+      return next;
     });
   }
 
@@ -699,6 +753,34 @@ export function SalesAllocationTable({
                 style={{ gridColumn: `span ${products.length}` }}
               >
                 {familyLabel}
+                <div className={styles.columnActions}>
+                  <button
+                    type="button"
+                    className={styles.columnAction}
+                    aria-label={`Move ${familyLabel} left`}
+                    onClick={() => moveFamily(familyLabel, -1)}
+                    disabled={familyIndex === 0}
+                  >
+                    <HugeiconsIcon icon={ArrowLeft01Icon} size={12} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.columnAction}
+                    aria-label={`Move ${familyLabel} right`}
+                    onClick={() => moveFamily(familyLabel, 1)}
+                    disabled={familyIndex === families.length - 1}
+                  >
+                    <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.columnAction} ${styles.hideColumnAction}`}
+                    aria-label={`Hide ${familyLabel}`}
+                    onClick={() => hideFamily(familyLabel)}
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
             ))}
 
