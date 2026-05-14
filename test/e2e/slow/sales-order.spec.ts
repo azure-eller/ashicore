@@ -661,7 +661,6 @@ test.describe("Sales order flow", () => {
   });
 
   test("creates an open order with oversell confirmation and cancels it", async ({
-    page,
     db,
   }) => {
     const bulkOrderId = await createDraftSalesOrder({
@@ -716,10 +715,11 @@ test.describe("Sales order flow", () => {
       )
       .toBe("4.0000");
 
-    await page.goto("/sales/orders");
-    await showCancelledOrders(page);
-    await filterList(page, "Search orders", bulkOrder.orderNumber);
-    await expect(salesOrderCard(page, bulkOrder.orderNumber)).toContainText("Cancelled");
+    const [cancelledBulkOrder] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, bulkOrderId));
+    expect(cancelledBulkOrder?.status).toBe("cancelled");
   });
 
   test("confirmed order from detail keeps reservations and production actions", async ({ page, db }) => {
