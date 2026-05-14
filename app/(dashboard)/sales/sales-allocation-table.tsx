@@ -20,6 +20,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { apiJson } from "@/lib/client/api";
 import { formatQuantity } from "@/lib/format";
 import type { ItemRow } from "@/app/(dashboard)/inventory/types";
@@ -900,24 +905,26 @@ function CoverageHeader({
   }
 
   const label = getCoverageLabel(coverage);
-  const scale = Math.max(coverage.pool, coverage.demand, 1);
-  const stockWidth = Math.min(100, (coverage.stock / scale) * 100);
-  const incomingWidth = Math.min(100 - stockWidth, (coverage.incoming / scale) * 100);
-  const demandLeft = Math.min(100, (coverage.demand / scale) * 100);
-  const poolTitle = `Stock ${compactQuantity(coverage.stock)} · MO ${compactQuantity(coverage.incoming)} · Need ${compactQuantity(coverage.demand)}`;
+  const coverageTooltip = [
+    `Pool ${compactQuantity(coverage.pool)} = stock ${compactQuantity(coverage.stock)}`,
+    `+ MO ${compactQuantity(coverage.incoming)}.`,
+    `Need ${compactQuantity(coverage.demand)}.`,
+  ].join(" ");
 
   return (
     <div className={`${styles.headerCell} ${styles.headerCoverage} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""}`}>
-      <div className={styles.verdict} data-tone={label.tone}>{label.text}</div>
-      <div className={styles.coverageBar} title={poolTitle} aria-label={poolTitle}>
-        <span className={styles.stockSegment} style={{ width: `${stockWidth}%` }} />
-        <span className={styles.incomingSegment} style={{ width: `${incomingWidth}%` }} />
-        <span className={styles.demandMarker} style={{ left: `${demandLeft}%` }} />
-      </div>
-      <div className={styles.coverageSubline}>
-        <span>pool {compactQuantity(coverage.pool)}</span>
-        <span>need {compactQuantity(coverage.demand)}</span>
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className={styles.coverageSummary}>
+            <div className={styles.verdict} data-tone={label.tone}>{label.text}</div>
+            <div className={styles.coverageSubline}>
+              <span>pool {compactQuantity(coverage.pool)}</span>
+              <span>need {compactQuantity(coverage.demand)}</span>
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{coverageTooltip}</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

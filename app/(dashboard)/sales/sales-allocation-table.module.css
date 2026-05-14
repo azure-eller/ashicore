@@ -332,37 +332,9 @@
   color: var(--ok);
 }
 
-.coverageBar {
-  position: relative;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--rule);
-}
-
-.stockSegment,
-.incomingSegment {
-  display: block;
-  float: left;
-  height: 5px;
-}
-
-.stockSegment {
-  border-radius: 999px 0 0 999px;
-  background: var(--ok);
-}
-
-.incomingSegment {
-  border-radius: 0 999px 999px 0;
-  background: #4d79b9;
-}
-
-.demandMarker {
-  position: absolute;
-  top: 0;
-  width: 2px;
-  height: 5px;
-  background: var(--late);
+.coverageSummary {
+  display: grid;
+  gap: 3px;
 }
 
 .coverageSubline {
