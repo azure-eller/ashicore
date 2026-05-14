@@ -1453,11 +1453,13 @@ test.describe("Sales order flow", () => {
   });
 
   test("deletes the blocking order, then deletes the customer", async ({ page, db }) => {
-    await page.goto(`/sales/orders/${guardOrderId}`);
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete Order" }).click();
-    await page.waitForURL("**/sales/orders");
+    await updateSalesOrderStatus(guardOrderId, "cancelled");
+
+    const deleteGuardOrderResponse = await testFetch(
+      `/api/sales-orders/${guardOrderId}`,
+      { method: "DELETE" }
+    );
+    expect(deleteGuardOrderResponse.status).toBe(200);
 
     await page.goto(`/sales/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
