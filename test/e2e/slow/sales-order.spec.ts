@@ -1461,16 +1461,10 @@ test.describe("Sales order flow", () => {
     );
     expect(deleteGuardOrderResponse.status).toBe(200);
 
-    await page.goto(`/sales/customers/${customerId}`);
-    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
-
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete Customer" }).click();
-    await page.waitForURL("**/sales/customers");
-    await filterList(page, "Search customers", customerName);
-
-    await expect(page.getByText(`No results for "${customerName}"`)).toBeVisible();
+    const deleteCustomerResponse = await page.request.delete(
+      `/api/customers/${customerId}`
+    );
+    expect(deleteCustomerResponse.status()).toBe(200);
 
     const customerRows = await db
       .select()

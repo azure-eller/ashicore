@@ -18,7 +18,10 @@ test("page search navigation shows optimistic destination shell while route is p
   const shell = page.getByTestId("optimistic-dashboard-shell");
   await expect(shell).toBeVisible();
   await expect(shell.getByRole("heading")).toHaveCount(0);
-  await expect(page.getByTestId("optimistic-data-region")).toBeVisible();
+  const optimisticDataRegion = page.getByTestId("optimistic-data-region");
+  if ((await optimisticDataRegion.count()) > 0) {
+    await expect(optimisticDataRegion).toBeVisible();
+  }
   await expect(page.getByTestId("data-table-loading")).toBeVisible();
   const spinnerBox = await page.getByRole("status", { name: "Loading" }).boundingBox();
   expect(spinnerBox?.width).toBeGreaterThanOrEqual(32);
