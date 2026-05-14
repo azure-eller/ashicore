@@ -28,6 +28,8 @@ import {
   ALLOCATION_ALLOCATE_TOOLTIP,
   ALLOCATION_AVAILABLE_TOOLTIP,
   ALLOCATION_CURRENT_TOOLTIP,
+  ALLOCATION_EXPECTED_TOOLTIP,
+  ALLOCATION_ON_HAND_TOOLTIP,
   ALLOCATION_SOURCE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { cn } from "@/lib/utils";
@@ -147,6 +149,16 @@ function assignmentSummary(assignments: AllocationAssignment[]) {
     )
     .join(", ")
     .concat(assignments.length > 2 ? `, +${assignments.length - 2} more` : "");
+}
+
+function sourceTotalLabel(sourceType: AllocationSourceType) {
+  return sourceType === "inventory_lot" ? "On hand" : "Expected";
+}
+
+function sourceTotalTooltip(sourceType: AllocationSourceType) {
+  return sourceType === "inventory_lot"
+    ? ALLOCATION_ON_HAND_TOOLTIP
+    : ALLOCATION_EXPECTED_TOOLTIP;
 }
 
 export function getLineRemainingQty(line: SalesOrderListLine) {
@@ -562,6 +574,14 @@ function AllocationSourceEditor({
                     <TableHead className="text-right">
                       <div className="flex justify-end">
                         <TooltipHeader
+                          label={sourceTotalLabel(group.sourceType)}
+                          tooltip={sourceTotalTooltip(group.sourceType)}
+                        />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex justify-end">
+                        <TooltipHeader
                           label="Available"
                           tooltip={ALLOCATION_AVAILABLE_TOOLTIP}
                         />
@@ -589,7 +609,7 @@ function AllocationSourceEditor({
                   {group.sources.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={5}
                         className="h-16 text-center text-muted-foreground"
                       >
                         No sources.
@@ -636,6 +656,9 @@ function AllocationSourceEditor({
                                 ) : null}
                               </div>
                             </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatQuantity(source.totalQty)}
                           </TableCell>
                           <TableCell className="text-right">
                             {formatQuantity(source.maxQtyForPrimaryDemand)}
