@@ -996,11 +996,8 @@ test.describe("Sales write-path smoke", () => {
     await expect(createMoDialog).toBeVisible();
     await expect(createMoDialog).not.toContainText("Sales order not found");
     await expect(createMoDialog).toContainText(tokenMaterialName);
-    await expect(
-      createMoDialog.getByRole("textbox", {
-        name: `Quantity for ${tokenMaterialName}`,
-      })
-    ).toHaveValue("6");
+    await expect(createMoDialog).toContainText("Finished goods stock covers this sales line.");
+    await expect(createMoDialog.getByRole("button", { name: "Create MO" })).toBeDisabled();
     await createMoDialog.getByRole("button", { name: "Cancel" }).click();
     await expect(createMoDialog).toBeHidden();
 
@@ -2020,7 +2017,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(dialog.getByRole("button", { name: "Create 1 order" })).toBeEnabled();
   });
 
-  test("hides Create MOs when finished goods stock covers the order", async ({
+  test("creates MOs when earlier open demand consumes finished goods stock", async ({
     page,
     db,
   }) => {
@@ -2084,12 +2081,13 @@ test.describe("Sales write-path smoke", () => {
     );
     expect(previewResponse.status).toBe(200);
     const preview = await previewResponse.json();
-    expect(preview.hasManufacturableLines).toBe(false);
+    expect(preview.hasManufacturableLines).toBe(true);
     expect(preview.lines).toMatchObject([
       {
         itemName: productName,
-        status: "skipped",
-        skipReason: "stock_on_hand",
+        quantity: "2",
+        status: "will_create",
+        skipReason: null,
       },
     ]);
 
@@ -2111,7 +2109,7 @@ test.describe("Sales write-path smoke", () => {
     expect(oversellPreview.lines).toMatchObject([
       {
         itemName: productName,
-        quantity: "2",
+        quantity: "4",
         status: "will_create",
         skipReason: null,
       },
@@ -2125,8 +2123,8 @@ test.describe("Sales write-path smoke", () => {
       manufacturableLineCount: number;
     }>;
     expect(listRows.find((row) => row.id === stockedOrderId)).toMatchObject({
-      hasManufacturableLines: false,
-      manufacturableLineCount: 0,
+      hasManufacturableLines: true,
+      manufacturableLineCount: 1,
     });
     expect(listRows.find((row) => row.id === oversellOrderId)).toMatchObject({
       hasManufacturableLines: true,
@@ -2139,7 +2137,7 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesOrderLines.salesOrderId, oversellOrderId));
     const independentMoResult = await createManufacturingOrder({
       productId: stockedProductId,
-      plannedQuantity: "2",
+      plannedQuantity: "4",
       ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
     });
     expect(independentMoResult.status).toBe(201);
@@ -2150,7 +2148,7 @@ test.describe("Sales write-path smoke", () => {
         method: "PUT",
         body: JSON.stringify({
           salesAllocations: [
-            { salesOrderLineId: oversellLine.id, quantity: "2" },
+            { salesOrderLineId: oversellLine.id, quantity: "4" },
           ],
           productionAllocations: [],
         }),
@@ -2176,7 +2174,7 @@ test.describe("Sales write-path smoke", () => {
         {
           id: independentMoId,
           linkSource: "output_allocation",
-          status: "draft",
+          status: "released",
         },
       ],
       shippingReadiness: { state: "in_production" },
@@ -2192,7 +2190,7 @@ test.describe("Sales write-path smoke", () => {
     await filterList(page, "Search orders", order.orderNumber);
 
     const orderCard = salesOrderCard(page, order.orderNumber);
-    await expect(orderCard.getByRole("button", { name: "Create MOs" })).toHaveCount(0);
+    await expect(orderCard.getByRole("button", { name: "Create MOs" })).toBeVisible();
   });
 
   test("ships a draft shipment from sales order detail", async ({ page, db }) => {
@@ -2269,20 +2267,20 @@ test.describe("Sales write-path smoke", () => {
     expect(shippedShipment.shippedAt).not.toBeNull();
   });
 
-  test("plans a draft shipment before stock is allocated", async ({ db }) => {
-    const suffix = `${ts}-DRAFT-SHORT`;
+  test("plans a shipment before stock is allocated", async ({ db }) => {
+    const suffix = `${ts}-OPEN-SHORT`;
     const customerResult = await createCustomer({
-      name: `Fast Draft Short Customer ${suffix}`,
+      name: `Fast Open Short Customer ${suffix}`,
     });
     expect(customerResult.status).toBe(201);
 
     const itemResult = await createItem({
-      name: `Fast Draft Short Material ${suffix}`,
+      name: `Fast Open Short Material ${suffix}`,
       itemType: "material",
       unitDefinitionId: unitId,
-      sku: `FAST-DRAFT-SHORT-${suffix}`,
-      category: `Fast Draft Short ${suffix}`,
-      description: "Material for draft shipment planning without allocation",
+      sku: `FAST-OPEN-SHORT-${suffix}`,
+      category: `Fast Open Short ${suffix}`,
+      description: "Material for shipment planning without allocation",
       defaultPurchasePrice: "1",
       defaultSellingPrice: "10",
       stock: "0",
@@ -2295,11 +2293,12 @@ test.describe("Sales write-path smoke", () => {
       method: "POST",
       body: JSON.stringify({
         customerId: customerResult.body.id,
-        status: "draft",
+        status: "confirmed",
+        confirmOversell: true,
         orderDate: "2026-04-23",
         shipDate: "2026-04-23",
         requestedDate: "2026-04-23",
-        notes: "Draft shipment before allocation",
+        notes: "Shipment before allocation",
         lines: [
           {
             itemId: itemResult.body.id,
@@ -2313,11 +2312,6 @@ test.describe("Sales write-path smoke", () => {
     const orderBody = await orderResponse.json();
     const shortOrderId = orderBody.id as string;
 
-    const confirmResponse = await confirmSalesOrder(shortOrderId, {
-      confirmOversell: true,
-    });
-    expect(confirmResponse.status).toBe(200);
-
     const [line] = await db
       .select({ id: salesOrderLines.id })
       .from(salesOrderLines)
@@ -2328,7 +2322,7 @@ test.describe("Sales write-path smoke", () => {
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, shortOrderId));
     if (!initialDraftShipment) {
-      throw new Error("Expected confirmation to create a draft shipment.");
+      throw new Error("Expected open order creation to create a draft shipment.");
     }
 
     const splitExistingResponse = await testFetch(

@@ -410,6 +410,7 @@ export const salesOrders = salesSchema
       ),
       customerName: varchar("customer_name", { length: 255 }).notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
+      priorityRank: integer("priority_rank"),
       orderDate: date("order_date", { mode: "string" })
         .notNull()
         .default(sql`CURRENT_DATE`),
@@ -449,12 +450,21 @@ export const salesOrders = salesSchema
       index("sales_orders_customer_id_idx").on(table.customerId),
       index("sales_orders_customer_project_id_idx").on(table.customerProjectId),
       index("sales_orders_status_idx").on(table.status),
+      index("sales_orders_priority_rank_idx")
+        .on(table.organizationId, table.status, table.priorityRank)
+        .where(sql`deleted_at IS NULL AND priority_rank IS NOT NULL`),
+      uniqueIndex("sales_orders_open_priority_rank_uidx")
+        .on(table.organizationId, table.priorityRank)
+        .where(
+          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status IN ('draft', 'confirmed', 'partially_shipped')`
+        ),
       index("sales_orders_order_date_idx").on(table.orderDate),
       index("sales_orders_created_at_idx").on(table.createdAt),
       uniqueIndex("sales_orders_org_order_number_uidx").on(
         table.organizationId,
         table.orderNumber
       ),
+      check("sales_orders_priority_rank_positive_check", sql`${table.priorityRank} > 0`),
       pgPolicy("sales_orders_org_isolation", {
         for: "all",
         to: "public",

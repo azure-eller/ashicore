@@ -326,6 +326,18 @@ export const SALES_LINE_ALLOCATION_TOOLTIP =
 export const SALES_LINE_SHORT_TOOLTIP =
   "Remaining quantity not covered by allocation.";
 
+export const ALLOCATION_SOURCE_TOOLTIP =
+  "Lot or manufacturing order that can supply this demand.";
+
+export const ALLOCATION_AVAILABLE_TOOLTIP =
+  "Uncommitted quantity available from this source.";
+
+export const ALLOCATION_CURRENT_TOOLTIP =
+  "Quantity already assigned from this source to this line.";
+
+export const ALLOCATION_ALLOCATE_TOOLTIP =
+  "Quantity to assign from this source when saved.";
+
 export const SALES_UNIT_PRICE_TOOLTIP =
   "Price charged per sales unit.";
 

@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { type ColumnDef, type Table as TanStackTable } from "@tanstack/react-table";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
+import {
+  DashboardDataTable,
+  DashboardDataTableDragHandle,
+} from "@/components/dashboard-data-table";
 import { multiValueFilter } from "@/components/filterable-header";
 import {
   OperationalStateCell,
@@ -32,11 +35,15 @@ import {
 import { formatDate, formatPrice } from "@/lib/format";
 import { SoStageAction } from "./so-stage-action";
 import { OrderExpandedDetail } from "./order-expanded-detail";
-import { SalesOrderAllocator } from "./sales-order-allocator";
 import type { SalesOrderListRow } from "./types";
 
 const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
 const DONE_SALES_STATUSES = ["shipped", "cancelled"] as const;
+type SalesWorkflowFilterValue = "open" | "done";
+
+function isOpenSalesOrder(order: SalesOrderListRow) {
+  return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
+}
 
 function NotesCell({ notes }: { notes: string | null }) {
   const trimmedNotes = notes?.trim();
@@ -149,6 +156,41 @@ function doneSalesOrderRank(order: SalesOrderListRow) {
   return -1;
 }
 
+function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderListRow }) {
+  if (!isOpenSalesOrder(order)) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <DashboardDataTableDragHandle label={`Reorder ${order.orderNumber}`} />
+      <span className="w-6 text-sm text-muted-foreground tabular-nums">
+        {order.priorityRank ?? rowIndex + 1}
+      </span>
+    </div>
+  );
+}
+
+const rankColumn: ColumnDef<SalesOrderListRow> = {
+  accessorKey: "priorityRank",
+  header: "Rank",
+  sortingFn: (a, b) => {
+    const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const rankCompare = left - right;
+
+    if (rankCompare !== 0) {
+      return rankCompare;
+    }
+
+    return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
+      numeric: true,
+    });
+  },
+  cell: ({ row }) => <RankCell rowIndex={row.index} order={row.original} />,
+  meta: { className: "w-20" },
+};
+
 const columns: ColumnDef<SalesOrderListRow>[] = [
   {
     id: "select",
@@ -172,6 +214,7 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     enableSorting: false,
     enableHiding: false,
   },
+  rankColumn,
   {
     accessorKey: "orderNumber",
     header: ({ column }) => <SortableHeader column={column} label="Order" />,
@@ -313,7 +356,13 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
 ];
 
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
-  const [viewMode, setViewMode] = useState<"orders" | "allocator">("orders");
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] =
+    useState<SalesWorkflowFilterValue>("open");
+  const columnVisibility = useMemo(
+    () => ({ priorityRank: statusFilter === "open" }),
+    [statusFilter]
+  );
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -322,21 +371,45 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       }),
     initialData,
   });
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedRows: SalesOrderListRow[]) => {
+      await apiJson<{ updated: number }>("/api/sales-orders/priority-ranks", {
+        method: "PATCH",
+        body: { orderIds: orderedRows.map((row) => row.id) },
+        fallbackError: "Failed to reorder sales orders.",
+      });
+    },
+    onMutate: async (orderedRows) => {
+      await queryClient.cancelQueries({ queryKey: ["sales-orders"] });
+      const previous =
+        queryClient.getQueryData<SalesOrderListRow[]>(["sales-orders"]);
+      const rankById = new Map(
+        orderedRows.map((row, index) => [row.id, index + 1])
+      );
 
-  if (viewMode === "allocator") {
-    return (
-      <>
-        <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <SalesOrderViewToggle value={viewMode} onValueChange={setViewMode} />
-        </div>
-        <SalesOrderAllocator orders={orders} />
-      </>
-    );
-  }
+      queryClient.setQueryData<SalesOrderListRow[]>(
+        ["sales-orders"],
+        (current) =>
+          current?.map((row) => ({
+            ...row,
+            priorityRank: rankById.get(row.id) ?? row.priorityRank,
+          }))
+      );
+
+      return { previous };
+    },
+    onError: (_error, _orderedRows, context) => {
+      queryClient.setQueryData(["sales-orders"], context?.previous);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+    },
+  });
 
   return (
     <DashboardDataTable
       columns={columns}
+      columnVisibility={columnVisibility}
       data={orders}
       initialData={initialData}
       queryKey={["sales-orders"]}
@@ -345,22 +418,37 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       addAriaLabel="New Order"
       emptyMessage="No sales orders yet."
       toolbarContent={({ table }) => (
-        <>
-          <SalesOrderWorkflowTabs table={table} />
-          <SalesOrderViewToggle value={viewMode} onValueChange={setViewMode} />
-        </>
+        <SalesOrderWorkflowTabs
+          table={table}
+          onStatusChange={setStatusFilter}
+        />
       )}
-      initialSorting={[{ id: "shipDate", desc: false }]}
+      initialSorting={[{ id: "priorityRank", desc: false }]}
       initialColumnFilters={[{ id: "status", value: [...OPEN_SALES_STATUSES] }]}
       getRowCanExpand={() => true}
       renderExpandedRow={(row) => <OrderExpandedDetail orderId={row.original.id} />}
+      rowReorder={{
+        disabled: reorderMutation.isPending,
+        enabled: (table) => {
+          const selected =
+            (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
+          const columnFilters = table.getState().columnFilters;
+
+          return (
+            !table.getState().globalFilter &&
+            columnFilters.every((filter) => filter.id === "status") &&
+            selected.length === OPEN_SALES_STATUSES.length &&
+            OPEN_SALES_STATUSES.every((status) => selected.includes(status))
+          );
+        },
+        onReorder: (rows) => reorderMutation.mutate(rows),
+      }}
       deleteAction={{
         endpoint: "/api/sales-orders",
         invalidateQueryKeys: [["sales-orders"], ["items"]],
         defaultErrorMessage: "Failed to delete orders.",
         idempotencyKey: "sales-orders-delete",
-        confirmTitle: (count) =>
-          `Delete ${count} order${count !== 1 ? "s" : ""}?`,
+        confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>
           `The selected order${count !== 1 ? "s" : ""} will be soft-deleted.`,
       }}
@@ -368,40 +456,12 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   );
 }
 
-function SalesOrderViewToggle({
-  value,
-  onValueChange,
-}: {
-  value: "orders" | "allocator";
-  onValueChange: (value: "orders" | "allocator") => void;
-}) {
-  return (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue === "orders" || nextValue === "allocator") {
-          onValueChange(nextValue);
-        }
-      }}
-      aria-label="Sales orders view"
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
-    >
-      <ToggleGroupItem value="orders" aria-label="Show order table">
-        Orders
-      </ToggleGroupItem>
-      <ToggleGroupItem value="allocator" aria-label="Show allocator">
-        Allocator
-      </ToggleGroupItem>
-    </ToggleGroup>
-  );
-}
-
 function SalesOrderWorkflowTabs({
   table,
+  onStatusChange,
 }: {
   table: TanStackTable<SalesOrderListRow>;
+  onStatusChange: (status: SalesWorkflowFilterValue) => void;
 }) {
   const statusColumn = table.getColumn("status");
   const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
@@ -418,6 +478,16 @@ function SalesOrderWorkflowTabs({
     (sum, status) => sum + (statusCounts?.get(status) ?? 0),
     0
   );
+  const applyFilter = (nextValue: SalesWorkflowFilterValue) => {
+    if (!statusColumn) return;
+    onStatusChange(nextValue);
+    statusColumn.setFilterValue(
+      nextValue === "done" ? [...DONE_SALES_STATUSES] : [...OPEN_SALES_STATUSES]
+    );
+    table.setSorting([
+      { id: nextValue === "open" ? "priorityRank" : "orderNumber", desc: false },
+    ]);
+  };
 
   return (
     <ToggleGroup
@@ -425,10 +495,9 @@ function SalesOrderWorkflowTabs({
       size="sm"
       value={value}
       onValueChange={(nextValue) => {
-        if (!statusColumn || !nextValue) return;
-        statusColumn.setFilterValue(
-          nextValue === "done" ? [...DONE_SALES_STATUSES] : [...OPEN_SALES_STATUSES]
-        );
+        if (nextValue === "open" || nextValue === "done") {
+          applyFilter(nextValue);
+        }
       }}
       aria-label="Filter sales orders by workflow"
       className="max-w-full flex-wrap rounded-lg bg-muted p-1"
@@ -437,7 +506,7 @@ function SalesOrderWorkflowTabs({
         value="open"
         aria-label="Show open orders"
         className="gap-1.5"
-        onClick={() => statusColumn?.setFilterValue([...OPEN_SALES_STATUSES])}
+        onClick={() => applyFilter("open")}
       >
         Open
         <span className="text-muted-foreground">{openCount}</span>
@@ -446,7 +515,7 @@ function SalesOrderWorkflowTabs({
         value="done"
         aria-label="Show done orders"
         className="gap-1.5"
-        onClick={() => statusColumn?.setFilterValue([...DONE_SALES_STATUSES])}
+        onClick={() => applyFilter("done")}
       >
         Done
         <span className="text-muted-foreground">{doneCount}</span>

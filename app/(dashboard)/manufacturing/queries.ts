@@ -492,7 +492,7 @@ async function assertPriorityRankAvailableInTx(
   const filters = [
     eq(manufacturingOrders.organizationId, orgId),
     eq(manufacturingOrders.priorityRank, priorityRank),
-    eq(manufacturingOrders.status, "released"),
+    inArray(manufacturingOrders.status, ["draft", "released"]),
     isNull(manufacturingOrders.deletedAt),
   ];
 
@@ -523,7 +523,7 @@ async function rerankReleasedManufacturingOrdersInTx(tx: Tx, orgId: string) {
     .where(
       and(
         eq(manufacturingOrders.organizationId, orgId),
-        eq(manufacturingOrders.status, "released"),
+        inArray(manufacturingOrders.status, ["draft", "released"]),
         isNull(manufacturingOrders.deletedAt)
       )
     )
@@ -550,7 +550,7 @@ async function rerankReleasedManufacturingOrdersInTx(tx: Tx, orgId: string) {
     .where(
       and(
         eq(manufacturingOrders.organizationId, orgId),
-        eq(manufacturingOrders.status, "released"),
+        inArray(manufacturingOrders.status, ["draft", "released"]),
         isNull(manufacturingOrders.deletedAt)
       )
     );
@@ -3104,7 +3104,7 @@ export async function getManufacturingOrderEditData(
         and(
           eq(manufacturingOrders.id, id),
           isNull(manufacturingOrders.deletedAt),
-          eq(manufacturingOrders.status, "draft")
+          inArray(manufacturingOrders.status, ["draft", "released"])
         )
       );
 
@@ -3582,6 +3582,8 @@ export async function updateManufacturingOrder(
       });
     }
 
+    await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+
     return order;
   });
 }
@@ -3597,9 +3599,9 @@ export async function updateManufacturingOrderPriority(
       return null;
     }
 
-    if (order.status !== "released") {
+    if (order.status !== "draft" && order.status !== "released") {
       throw new ManufacturingError(
-        "Only released manufacturing orders can be ranked.",
+        "Only open manufacturing orders can be ranked.",
         400
       );
     }
@@ -3639,22 +3641,22 @@ export async function reorderManufacturingOrderPriorityRanks(
       )
       .for("update");
 
-    const releasedOrders = await tx
+    const openOrders = await tx
       .select({ id: manufacturingOrders.id })
       .from(manufacturingOrders)
       .where(
         and(
           eq(manufacturingOrders.organizationId, orgId),
-          eq(manufacturingOrders.status, "released"),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
           isNull(manufacturingOrders.deletedAt)
         )
       )
       .for("update");
 
     assertSameStringSet(
-      releasedOrders.map((order) => order.id),
+      openOrders.map((order) => order.id),
       payload.orderIds,
-      "Payload must include all released manufacturing orders."
+      "Payload must include all open manufacturing orders."
     );
 
     assertSameStringSet(
@@ -3665,12 +3667,12 @@ export async function reorderManufacturingOrderPriorityRanks(
 
     const invalidOrder = orders.find(
       (order) =>
-        order.status !== "released"
+        order.status !== "draft" && order.status !== "released"
     );
 
     if (invalidOrder) {
       throw new ManufacturingError(
-        "Only released manufacturing orders can be reordered.",
+        "Only open manufacturing orders can be reordered.",
         400
       );
     }
@@ -3685,7 +3687,7 @@ export async function reorderManufacturingOrderPriorityRanks(
       .where(
         and(
           eq(manufacturingOrders.organizationId, orgId),
-          eq(manufacturingOrders.status, "released"),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
           isNull(manufacturingOrders.deletedAt)
         )
       );

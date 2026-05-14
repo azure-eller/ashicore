@@ -85,7 +85,7 @@ export const manufacturingOrders = manufacturingSchema
       uniqueIndex("manufacturing_orders_active_priority_rank_uidx")
         .on(table.organizationId, table.priorityRank)
         .where(
-          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status = 'released'`
+          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status IN ('draft', 'released')`
         ),
       index("manufacturing_orders_product_id_idx").on(table.productId),
       index("manufacturing_orders_bom_revision_id_idx").on(table.bomRevisionId),

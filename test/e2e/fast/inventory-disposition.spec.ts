@@ -268,11 +268,9 @@ test.describe("Inventory disposition", () => {
       productId,
       plannedQuantity: "1",
       ingredients: [{ itemId: blockedComponentId, quantityPerUnit: "1" }],
+      confirmShortage: true,
     });
     expect(order.status).toBe(201);
-    expect(
-      (await releaseManufacturingOrder(order.body.id, { confirmShortage: true })).status
-    ).toBe(200);
 
     const [ingredient] = await db
       .select({ id: manufacturingOrderIngredients.id })

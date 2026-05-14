@@ -3,6 +3,7 @@ import {
   AddCircleIcon,
   ChartIcon,
   FactoryIcon,
+  GridTableIcon,
   Invoice01Icon,
   Package02Icon,
   PackageAddIcon,
@@ -69,6 +70,7 @@ const dashboardNavModules: DashboardNavModule[] = [
     module: "sales",
     items: [
       { title: "Sales Orders", href: "/sales/orders", icon: Invoice01Icon },
+      { title: "Sales Allocation", href: "/sales/allocation", icon: GridTableIcon },
       { title: "Customers", href: "/sales/customers", icon: Store01Icon },
       { title: "Pricing", href: "/sales/pricing", icon: ChartIcon },
     ],
@@ -179,6 +181,13 @@ export function getDashboardSearchActions(
         description: "View all sales orders",
         href: "/sales/orders",
         icon: Invoice01Icon,
+        group: "Sales",
+      },
+      {
+        title: "Sales Allocation",
+        description: "View open sales order allocations",
+        href: "/sales/allocation",
+        icon: GridTableIcon,
         group: "Sales",
       },
       {

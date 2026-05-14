@@ -332,6 +332,7 @@ export type SalesOrderListRow = {
   customerProjectName: string | null;
   notes: string | null;
   status: SalesOrderStatus;
+  priorityRank: number | null;
   orderDate: string;
   shipDate: string | null;
   requestedDate: string | null;
