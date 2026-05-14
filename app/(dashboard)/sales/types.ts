@@ -639,37 +639,6 @@ export type SalesOrderEditData = {
   }>;
 };
 
-export type OversellWarningProduct = {
-  itemId: string;
-  itemName: string;
-  itemSku: string | null;
-  unitName: string;
-  inStock: number;
-  availableQty: number;
-  committedQty: number;
-  demandQty: number;
-  shortageQty: number;
-  expectedQty: number;
-  safetyStock: number;
-  calculatedStock: number;
-  addedQty: number;
-  projectedDemandQty: number;
-  projectedShortageQty: number;
-  projectedCalculatedStock: number;
-};
-
-export type OversellWarningPayload = {
-  products: OversellWarningProduct[];
-};
-
-export type BulkOversellWarningPayload = {
-  orders: Array<{
-    salesOrderId: string;
-    salesOrderNumber: string;
-    products: OversellWarningProduct[];
-  }>;
-};
-
 export type DraftAllocationTakeoverWarningPayload = {
   allocations: Array<{
     salesOrderId: string;
@@ -681,4 +650,12 @@ export type DraftAllocationTakeoverWarningPayload = {
     unitName: string;
     quantity: number;
   }>;
+};
+
+export type NegativeStockWarningPayload = {
+  itemId: string;
+  itemName: string;
+  available: number;
+  requested: number;
+  shortage: number;
 };

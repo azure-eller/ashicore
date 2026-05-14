@@ -28,16 +28,6 @@ function salesOrderCard(page: Parameters<typeof filterList>[0], orderNumber: str
   return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
-async function confirmOversellDialog(page: Parameters<typeof filterList>[0]) {
-  const oversellDialog = page.getByRole("alertdialog", {
-    name: "Confirm Oversell?",
-  });
-  await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-  await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
-  await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
-  await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
-}
-
 async function createDraftSalesOrder(payload: {
   customerId: string;
   orderDate?: string;
@@ -170,7 +160,7 @@ test.describe("Sales order flow", () => {
       unitDefinitionId: unitId,
       sku: `SALES-TOPSOIL-${fixtureTs}`,
       category: `Sales ${fixtureTs}`,
-      description: "BOM-backed product for oversell and manufacturing coverage",
+      description: "BOM-backed product for shortage and manufacturing coverage",
       defaultPurchasePrice: null,
       defaultSellingPrice: "34.99",
       stock: "4",
@@ -429,7 +419,7 @@ test.describe("Sales order flow", () => {
 
   /* ================================================================ */
   /*  Flow 2 — Full sales order lifecycle                             */
-  /*  create → edit → confirm (oversell) → cancel → delete            */
+  /*  create → edit → confirm shortage demand → cancel → delete       */
   /* ================================================================ */
 
   // NOTE: Material line (row 3) removed — the pricing useEffect wipes
@@ -470,7 +460,6 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
     await page.getByRole("button", { name: "Create Order" }).click();
-    await confirmOversellDialog(page);
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
 
     // UI — verify the detail page
@@ -591,7 +580,6 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Notes").fill("Updated to 5 units");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
-    await confirmOversellDialog(page);
     await page.waitForURL(`**/sales/orders/${fullOrderId}`);
     await expect(
       page.getByRole("heading", { name: fullOrderNumber })
@@ -656,7 +644,7 @@ test.describe("Sales order flow", () => {
     );
   });
 
-  test("creates an open order with oversell confirmation and cancels it", async ({
+  test("creates an open order with shortage demand and cancels it", async ({
     db,
   }) => {
     const bulkOrderId = await createDraftSalesOrder({

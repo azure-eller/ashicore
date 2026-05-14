@@ -37,16 +37,6 @@ import {
 } from "@/lib/format";
 import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { calculateMarginMetrics, calculateUnitMarginMetrics } from "@/lib/margin";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -115,15 +105,10 @@ import {
 } from "@/lib/tooltip-copy";
 import type {
   CustomerOption,
-  OversellWarningPayload,
   SalesOrderEditData,
   SalesLinePricingResult,
   SalesOrderItemOption,
 } from "./types";
-import {
-  OVERSELL_WARNING_DESCRIPTION,
-  OversellWarningTable,
-} from "./oversell-warning-table";
 
 function lineTotalLabel(quantity: string | null | undefined, unitPrice: string | null | undefined) {
   const qty = parsePositive(quantity);
@@ -313,7 +298,6 @@ type ApiError = {
   status?: number;
   error?: string;
   errors?: Record<string, string[]>;
-  oversell?: OversellWarningPayload;
 };
 
 type LinePricingState = SalesLinePricingResult & {
@@ -543,8 +527,6 @@ export function OrderForm({
   const isEditing = Boolean(initialData);
   const fallbackPath = initialData ? `/sales/orders/${initialData.id}` : "/sales/orders";
   const [formError, setFormError] = useState<string | null>(null);
-  const [oversellWarning, setOversellWarning] = useState<OversellWarningPayload | null>(null);
-  const [pendingValues, setPendingValues] = useState<OrderFormValues | null>(null);
   const [addressBookOptions, setAddressBookOptions] = useState(() =>
     addresses
       .map(addressEntryToShippingOption)
@@ -873,7 +855,6 @@ export function OrderForm({
           status: response.status,
           error: body?.error ?? "Failed to save sales order.",
           errors: body?.errors,
-          oversell: body?.oversell,
         } satisfies ApiError;
       }
 
@@ -890,13 +871,7 @@ export function OrderForm({
       ]);
       router.push(initialData ? fallbackPath : `/sales/orders/${result.id}`);
     },
-    onError: (error: ApiError, values) => {
-      if (error.status === 409 && error.oversell) {
-        setPendingValues(values);
-        setOversellWarning(error.oversell);
-        return;
-      }
-
+    onError: (error: ApiError) => {
       if (error.errors) {
         setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
@@ -1639,47 +1614,6 @@ export function OrderForm({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
-        open={oversellWarning != null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setOversellWarning(null);
-            setPendingValues(null);
-          }
-        }}
-      >
-        <AlertDialogContent
-          size="2xl"
-          className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {OVERSELL_WARNING_DESCRIPTION}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <OversellWarningTable products={oversellWarning?.products ?? []} />
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={mutation.isPending}
-              onClick={() => {
-                if (!pendingValues) return;
-                mutation.mutate({
-                  ...pendingValues,
-                  confirmOversell: true,
-                });
-                setOversellWarning(null);
-                setPendingValues(null);
-              }}
-            >
-              {mutation.isPending ? "Confirming..." : "Confirm Anyway"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

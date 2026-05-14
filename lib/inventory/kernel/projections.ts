@@ -201,11 +201,10 @@ export async function recomputeAvailableToPromiseForItemsInTx(
             SELECT SUM(${inventoryLotBalances.quantity})
             FROM ${inventoryLotBalances}
             WHERE ${inventoryLotBalances.organizationId} = ${inventoryItemBalances.organizationId}
-              AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
-              AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
-              AND ${inventoryLotBalances.disposition} = 'available'
-              AND ${inventoryLotBalances.quantity} > 0
-          ), 0)
+	              AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
+	              AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
+	              AND ${inventoryLotBalances.disposition} = 'available'
+	          ), 0)
           - ${inventoryItemBalances.demandQty}
           + ${inventoryItemBalances.expectedQty}
         `,
@@ -309,7 +308,7 @@ export async function applyLotBalanceDeltasInTx(tx: Tx, deltas: LotBalanceDelta[
       continue;
     }
 
-    if (delta.quantityDelta < 0) {
+    if (delta.quantityDelta < 0 && (!delta.originEventId || !delta.receivedAt)) {
       throw new Error(
         `Cannot decrement missing lot balance ${delta.lotId}.`
       );

@@ -8,9 +8,10 @@ import {
 } from "@/app/(dashboard)/sales/queries";
 
 const shipOptionsSchema = z
-  .object({
-    syncAccounting: z.boolean().optional(),
-  })
+	  .object({
+	    syncAccounting: z.boolean().optional(),
+	    confirmNegativeStock: z.boolean().optional(),
+	  })
   .optional();
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {

@@ -333,9 +333,10 @@ export async function pickManufacturingIngredientInTx(
     quantity: number;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
-    minimumReceivedDate?: string | null;
-    confirmRequirementOverride?: boolean;
-  }
+	    minimumReceivedDate?: string | null;
+	    confirmRequirementOverride?: boolean;
+	    allowNegativeStock?: boolean;
+	  }
 ) {
   const replay = await beginInventoryOperationInTx<{ eventIds: string[] }>(tx, {
     organizationId: params.organizationId,
@@ -345,10 +346,11 @@ export async function pickManufacturingIngredientInTx(
       manufacturingOrderId: params.manufacturingOrderId,
       ingredientId: params.ingredientId,
       itemId: params.itemId,
-      quantity: params.quantity,
-      minimumReceivedDate: params.minimumReceivedDate ?? null,
-      confirmRequirementOverride: params.confirmRequirementOverride ?? false,
-    },
+	      quantity: params.quantity,
+	      minimumReceivedDate: params.minimumReceivedDate ?? null,
+	      confirmRequirementOverride: params.confirmRequirementOverride ?? false,
+	      allowNegativeStock: params.allowNegativeStock ?? false,
+	    },
   });
 
   if (replay.replayed) {
@@ -375,7 +377,7 @@ export async function pickManufacturingIngredientInTx(
   });
   const ownReservation = parseFloat(ownReservationRow?.quantity ?? "0");
 
-  if (available + ownReservation < params.quantity) {
+	  if (available + ownReservation < params.quantity && !params.allowNegativeStock) {
     throw new InsufficientStockError({
       itemId: params.itemId,
       available: available + ownReservation,
@@ -422,9 +424,10 @@ export async function pickManufacturingIngredientInTx(
           idempotencyKey: heldConsumed.idempotencyUsed
             ? null
             : params.idempotencyKey ?? null,
-          minimumReceivedDate: params.minimumReceivedDate ?? null,
-          allowIneligibleLots: params.confirmRequirementOverride ?? false,
-          metadata: { manufacturingOrderIngredientId: params.ingredientId },
+	          minimumReceivedDate: params.minimumReceivedDate ?? null,
+	          allowIneligibleLots: params.confirmRequirementOverride ?? false,
+	          allowNegativeStock: params.allowNegativeStock ?? false,
+	          metadata: { manufacturingOrderIngredientId: params.ingredientId },
           unavailableByLotId,
         })
       : { allocations: [], eventIds: [] };

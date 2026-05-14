@@ -201,28 +201,14 @@ test.describe("Reservation correctness", () => {
     const customerId = await createCustomerFixture(uniqueName("Reservation customer"));
     const itemId = await createMaterial(uniqueName("Limited sales material"), "4");
 
-    const warning = await createSalesOrder({
+    const orderResult = await createSalesOrder({
       customerId,
       status: "confirmed",
       lines: [{ itemId, quantity: "10", unitPrice: "9.00" }],
       confirmOversell: false,
     });
-    expect(warning.status).toBe(409);
-    expect(warning.body.oversell.products[0]).toMatchObject({
-      availableQty: 4,
-      committedQty: 0,
-      demandQty: 0,
-      shortageQty: 0,
-      projectedDemandQty: 10,
-      projectedShortageQty: 6,
-    });
-
-    const orderId = await createOpenSalesOrder({
-      customerId,
-      itemId,
-      quantity: "10",
-      confirmOversell: true,
-    });
+    expect(orderResult.status).toBe(201);
+    const orderId = orderResult.body.id as string;
 
     const [order] = await db
       .select({ status: salesOrders.status })
@@ -274,40 +260,16 @@ test.describe("Reservation correctness", () => {
     });
     expect((await confirmSalesOrder(orderId)).status).toBe(200);
 
-    const warning = await updateSalesOrder(orderId, {
+    const confirmedEdit = await updateSalesOrder(orderId, {
       customerId,
       status: "confirmed",
       shipDate: "2026-04-15",
       lines: [{ itemId, quantity: "7", unitPrice: "9.00" }],
       confirmOversell: false,
     });
-    expect(warning.status).toBe(409);
-    expect(warning.body.oversell.products[0]).toMatchObject({
-      availableQty: 5,
-      committedQty: 0,
-      demandQty: 0,
-      shortageQty: 0,
-      projectedDemandQty: 7,
-      projectedShortageQty: 2,
-    });
-
-    let balance = await getItemBalance(db, itemId);
-    expect(balance.committedQty).toBe("3.0000");
-    expect(balance.demandQty).toBe("3.0000");
-    expect(balance.shortageQty).toBe("0.0000");
-    expect(await getReservationTotal(db, itemId)).toBe("3.0000");
-    expect(await getDemandTotal(db, itemId)).toBe("3.0000");
-
-    const confirmedEdit = await updateSalesOrder(orderId, {
-      customerId,
-      status: "confirmed",
-      shipDate: "2026-04-15",
-      lines: [{ itemId, quantity: "7", unitPrice: "9.00" }],
-      confirmOversell: true,
-    });
     expect(confirmedEdit.status).toBe(200);
 
-    balance = await getItemBalance(db, itemId);
+    const balance = await getItemBalance(db, itemId);
     expect(balance.committedQty).toBe("5.0000");
     expect(balance.demandQty).toBe("7.0000");
     expect(balance.shortageQty).toBe("2.0000");
@@ -345,22 +307,13 @@ test.describe("Reservation correctness", () => {
     const blockedItemId = await createMaterial(uniqueName("Blocked ATP material"), "5");
     await setLotDisposition(db, blockedItemId, "blocked");
 
-    const blockedWarning = await createSalesOrder({
+    const blockedOrder = await createSalesOrder({
       customerId,
       status: "confirmed",
       lines: [{ itemId: blockedItemId, quantity: "5", unitPrice: "9.00" }],
       confirmOversell: false,
     });
-    expect(blockedWarning.status).toBe(409);
-    expect(blockedWarning.body.oversell.products[0].availableQty).toBe(0);
-
-    const blockedOrderId = await createOpenSalesOrder({
-      customerId,
-      itemId: blockedItemId,
-      quantity: "5",
-      confirmOversell: true,
-    });
-    expect(blockedOrderId).toBeTruthy();
+    expect(blockedOrder.status).toBe(201);
 
     const blockedBalance = await getItemBalance(db, blockedItemId);
     expect(blockedBalance.committedQty).toBe("0.0000");
@@ -410,24 +363,10 @@ test.describe("Reservation correctness", () => {
       materialId,
       "2"
     );
-    const warning = await createManufacturingOrder({
-      productId,
-      plannedQuantity: "3",
-      ingredients: [{ itemId: materialId, quantityPerUnit: "2" }],
-    });
-    expect(warning.status).toBe(409);
-    expect(warning.body.shortage.ingredients[0]).toMatchObject({
-      itemId: materialId,
-      needed: 6,
-      available: 3,
-      shortage: 3,
-    });
-
     const released = await createManufacturingOrder({
       productId,
       plannedQuantity: "3",
       ingredients: [{ itemId: materialId, quantityPerUnit: "2" }],
-      confirmShortage: true,
     });
     expect(released.status).toBe(201);
     const orderId = released.body.id as string;
@@ -582,21 +521,7 @@ test.describe("Reservation correctness", () => {
       ),
       page.getByRole("button", { name: "Create Order" }).click(),
     ]);
-    expect(createOrderResponse.status()).toBe(409);
-    const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible();
-    await expect(oversellDialog.getByText("Current Stock", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
-    const [confirmResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/sales-orders")
-      ),
-      oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click(),
-    ]);
-    expect(confirmResponse.status()).toBe(201);
+    expect(createOrderResponse.status()).toBe(201);
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
 
     await expect(

@@ -363,8 +363,22 @@ test.describe("Sales allocation manager slow flow", () => {
     expect(await getReservationTotal(db, item.id)).toBe("6.0000");
     expect(await getDemandTotal(db, item.id)).toBe("11.0000");
 
+    const takeoverWarning = await confirmOrder(currentOrderId);
+    expect(takeoverWarning.status).toBe(409);
+    expect(takeoverWarning.body.draftAllocationTakeover.allocations).toEqual([
+      expect.objectContaining({
+        orderNumber: competingOrderNumber,
+        quantity: 5,
+      }),
+    ]);
+    expect(
+      (
+        await confirmOrder(currentOrderId, {
+          confirmDraftAllocationTakeover: true,
+        })
+      ).status
+    ).toBe(200);
     expect((await confirmOrder(competingOrderId)).status).toBe(200);
-    expect((await confirmOrder(currentOrderId)).status).toBe(200);
 
     await expect
       .poll(async () => {

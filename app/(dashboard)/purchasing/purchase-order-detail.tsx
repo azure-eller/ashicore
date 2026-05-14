@@ -96,8 +96,18 @@ import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderDetail as PurchaseOrderDetailType } from "./types";
 
 type ApiError = {
+  status?: number;
   error?: string;
   errors?: Record<string, string[]>;
+  overReceipt?: {
+    lines: Array<{
+      lineId: string;
+      itemName: string;
+      remaining: string;
+      requested: string;
+      overage: string;
+    }>;
+  };
 };
 
 const ADDITIONAL_COST_TYPE_LABELS: Record<
@@ -241,7 +251,9 @@ export function PurchaseOrderDetail({
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [receiveOpen, setReceiveOpen] = useState(false);
+	  const [receiveOpen, setReceiveOpen] = useState(false);
+	  const [overReceiptWarning, setOverReceiptWarning] =
+	    useState<ApiError["overReceipt"] | null>(null);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitOptions, setSubmitOptions] = useState<AccountingActionOptions>({
     syncAccounting: false,
@@ -527,24 +539,31 @@ export function PurchaseOrderDetail({
         body: JSON.stringify(values),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          error: body?.error ?? "Failed to receive purchase order.",
-          errors: body?.errors,
-        } satisfies ApiError;
-      }
+	      if (!response.ok) {
+	        throw {
+	          status: response.status,
+	          error: body?.error ?? "Failed to receive purchase order.",
+	          errors: body?.errors,
+	          overReceipt: body?.overReceipt,
+	        } satisfies ApiError;
+	      }
     },
     onMutate: () => {
       setActionError(null);
       receiveForm.clearErrors();
     },
-    onSuccess: async () => {
-      await refreshQueries();
-      setReceiveOpen(false);
-      router.refresh();
-    },
-    onError: (error: ApiError) => {
-      if (error.errors) {
+	    onSuccess: async () => {
+	      await refreshQueries();
+	      setReceiveOpen(false);
+	      setOverReceiptWarning(null);
+	      router.refresh();
+	    },
+	    onError: (error: ApiError) => {
+	      if (error.status === 409 && error.overReceipt) {
+	        setOverReceiptWarning(error.overReceipt);
+	        return;
+	      }
+	      if (error.errors) {
         Object.entries(error.errors).forEach(([field, messages]) => {
           receiveForm.setError(field as never, {
             type: "server",
@@ -1251,7 +1270,7 @@ export function PurchaseOrderDetail({
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
+	      <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
         <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground">
           <DialogHeader>
             <DialogTitle>Receive Purchase Order</DialogTitle>
@@ -1398,7 +1417,48 @@ export function PurchaseOrderDetail({
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-    </>
-  );
-}
+	      </Dialog>
+
+	      <AlertDialog
+	        open={overReceiptWarning != null}
+	        onOpenChange={(open) => {
+	          if (!open) setOverReceiptWarning(null);
+	        }}
+	      >
+	        <AlertDialogContent className="bg-background text-foreground">
+	          <AlertDialogHeader>
+	            <AlertDialogTitle>Receive more than ordered?</AlertDialogTitle>
+	            <AlertDialogDescription>
+	              The ordered quantity will be increased to match this receipt.
+	            </AlertDialogDescription>
+	          </AlertDialogHeader>
+	          <div className="space-y-2 text-sm">
+	            {overReceiptWarning?.lines.map((line) => (
+	              <div key={line.lineId} className="rounded-md border p-3">
+	                <p className="font-medium">{line.itemName}</p>
+	                <p className="text-muted-foreground">
+	                  Receiving {formatQuantity(line.requested)} with{" "}
+	                  {formatQuantity(line.remaining)} remaining.
+	                </p>
+	              </div>
+	            ))}
+	          </div>
+	          <AlertDialogFooter>
+	            <AlertDialogCancel>Back</AlertDialogCancel>
+	            <AlertDialogAction
+	              disabled={receiveMutation.isPending}
+	              onClick={() =>
+	                receiveMutation.mutate({
+	                  ...receiveForm.getValues(),
+	                  confirmOverReceipt: true,
+	                })
+	              }
+	            >
+	              {receiveMutation.isPending ? "Receiving..." : "Receive Anyway"}
+	            </AlertDialogAction>
+	          </AlertDialogFooter>
+	        </AlertDialogContent>
+	      </AlertDialog>
+	    </>
+	  );
+	}

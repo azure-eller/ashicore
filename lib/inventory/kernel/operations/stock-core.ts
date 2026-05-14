@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import {
   normalizeNumeric,
@@ -138,13 +139,12 @@ export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
     .from(inventoryLotBalances)
-    .where(
-      and(
-        eq(inventoryLotBalances.itemId, itemId),
-        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-        sql`${inventoryLotBalances.quantity} > 0`
-      )
-    );
+	    .where(
+	      and(
+	        eq(inventoryLotBalances.itemId, itemId),
+	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+	      )
+	    );
 
   return parseFloat(row?.quantity ?? "0");
 }
@@ -155,13 +155,12 @@ export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
     .from(inventoryLotBalances)
-    .where(
-      and(
-        eq(inventoryLotBalances.itemId, itemId),
-        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-        sql`${inventoryLotBalances.quantity} > 0`
-      )
-    );
+	    .where(
+	      and(
+	        eq(inventoryLotBalances.itemId, itemId),
+	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+	      )
+	    );
   const [reserved] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
@@ -190,15 +189,14 @@ export async function getCurrentAvailableQtyAtLocationInTx(
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
     .from(inventoryLotBalances)
-    .where(
-      and(
-        eq(inventoryLotBalances.organizationId, params.organizationId),
-        eq(inventoryLotBalances.locationId, params.locationId),
-        eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-        sql`${inventoryLotBalances.quantity} > 0`
-      )
-    );
+	    .where(
+	      and(
+	        eq(inventoryLotBalances.organizationId, params.organizationId),
+	        eq(inventoryLotBalances.locationId, params.locationId),
+	        eq(inventoryLotBalances.itemId, params.itemId),
+	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+	      )
+	    );
   const [reserved] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
@@ -220,16 +218,42 @@ export async function getCurrentAvailableQtyAtLocationInTx(
   );
 }
 
+async function getCurrentAvailableLotBalanceQtyAtLocationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+  }
+) {
+  const [row] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+      )
+    );
+
+  return parseFloat(row?.quantity ?? "0");
+}
+
 export async function resolvePositiveStockUnitCostInTx(
   tx: Tx,
   params: {
     itemId: string;
     explicitUnitCost?: string | null;
-    reason:
-      | "opening_cost_required"
-      | "material_default_price"
-      | "product_bom_cost"
-      | "stocktake_cost_policy";
+	    reason:
+	      | "opening_cost_required"
+	      | "material_default_price"
+	      | "product_bom_cost"
+	      | "stocktake_cost_policy"
+	      | "negative_stock_cost_policy";
   }
 ): Promise<string> {
   async function deriveCost(currentItemId: string, visited = new Set<string>()): Promise<string> {
@@ -822,6 +846,7 @@ export async function consumeStockFifoInTx(
     metadata?: Record<string, unknown> | null;
     minimumReceivedDate?: string | null;
     allowIneligibleLots?: boolean;
+    allowNegativeStock?: boolean;
     unavailableByLotId?: Map<string, number>;
   }
 ) {
@@ -832,11 +857,19 @@ export async function consumeStockFifoInTx(
     const protectedQty = params.unavailableByLotId?.get(lot.lotId) ?? 0;
     return sum + Math.max(0, roundQuantity(parseFloat(lot.quantity) - protectedQty));
   }, 0);
+  const protectedQuantity = Array.from(params.unavailableByLotId?.values() ?? []).reduce(
+    (sum, quantity) => roundQuantity(sum + quantity),
+    0
+  );
+  const netAvailable = roundQuantity(
+    (await getCurrentAvailableLotBalanceQtyAtLocationInTx(tx, params)) -
+      protectedQuantity
+  );
 
-  if (totalAvailable < params.quantity) {
+  if (netAvailable < params.quantity && !params.allowNegativeStock) {
     throw new InsufficientStockError({
       itemId: params.itemId,
-      available: totalAvailable,
+      available: netAvailable,
       requested: params.quantity,
     });
   }
@@ -906,6 +939,42 @@ export async function consumeStockFifoInTx(
     remaining = roundQuantity(remaining - deduction);
   }
 
+  const negativeEventIds: string[] = [];
+  const negativeAllocations: FifoAllocation[] = [];
+  if (remaining > 0) {
+    if (!params.allowNegativeStock) {
+      throw new InsufficientStockError({
+        itemId: params.itemId,
+        available: totalAvailable,
+        requested: params.quantity,
+      });
+    }
+
+    const negative = await createNegativeStockEventInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      quantity: remaining,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? null,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: allocations.length === 0 ? params.idempotencyKey ?? null : null,
+      occurredAt: params.occurredAt,
+      metadata: {
+        ...(params.metadata ?? {}),
+        negativeStock: true,
+        requestedQuantity: roundQuantity(params.quantity),
+        availableQuantity: roundQuantity(totalAvailable),
+        shortageQuantity: remaining,
+      },
+    });
+    negativeAllocations.push(negative.allocation);
+    negativeEventIds.push(negative.eventId);
+    remaining = 0;
+  }
+
   const inserted = await insertInventoryEventsInTx(
     tx,
     allocations.map((allocation, index) => ({
@@ -926,7 +995,10 @@ export async function consumeStockFifoInTx(
       referenceType: params.referenceType ?? null,
       referenceId: params.referenceId ?? null,
       actorUserId: params.actorUserId ?? null,
-      idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
+      idempotencyKey:
+        index === 0 && negativeEventIds.length === 0
+          ? params.idempotencyKey ?? null
+          : null,
       occurredAt: params.occurredAt,
       metadata: params.metadata ?? null,
     }))
@@ -942,8 +1014,92 @@ export async function consumeStockFifoInTx(
   ]);
 
   return {
-    allocations,
-    eventIds: inserted.map((row) => row.id),
+    allocations: [...allocations, ...negativeAllocations],
+    eventIds: [...inserted.map((row) => row.id), ...negativeEventIds],
+  };
+}
+
+async function createNegativeStockEventInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    quantity: number;
+    eventType: NegativeStockEventType;
+    eventSubtype?: string | null;
+    referenceType?: string | null;
+    referenceId?: string | null;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    occurredAt?: Date;
+    metadata?: Record<string, unknown> | null;
+  }
+) {
+  const unitCost = await resolvePositiveStockUnitCostInTx(tx, {
+    itemId: params.itemId,
+    reason: "negative_stock_cost_policy",
+  });
+  const quantity = roundQuantity(params.quantity);
+  const occurredAt = params.occurredAt ?? new Date();
+  const lotNumber = `NEG-${occurredAt.toISOString().slice(0, 10)}-${randomUUID()}`;
+  const [lot] = await tx
+    .insert(lots)
+    .values({
+      organizationId: params.organizationId,
+      itemId: params.itemId,
+      lotNumber,
+      quantity: normalizeNumeric(-quantity),
+      receivedAt: occurredAt,
+      updatedAt: occurredAt,
+    })
+    .returning({ id: lots.id, lotNumber: lots.lotNumber });
+
+  const [event] = await insertInventoryEventsInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? "negative_stock",
+      itemId: params.itemId,
+      lotId: lot.id,
+      quantity: normalizeNumeric(quantity),
+      unitCost,
+      extendedCost: calculateExtendedCost(normalizeNumeric(quantity), unitCost),
+      disposition: DEFAULT_DISPOSITION,
+      fromDisposition: DEFAULT_DISPOSITION,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: params.idempotencyKey ?? null,
+      occurredAt,
+      metadata: params.metadata ?? null,
+    },
+  ]);
+
+  await applyLotBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      lotId: lot.id,
+      quantityDelta: -quantity,
+      unitCost,
+      receivedAt: occurredAt,
+      originEventId: event.id,
+      disposition: DEFAULT_DISPOSITION,
+    },
+  ]);
+
+  return {
+    allocation: {
+      lotId: lot.id,
+      lotNumber: lot.lotNumber,
+      quantity,
+      unitCost: parseFloat(unitCost),
+      receivedAt: occurredAt,
+    },
+    eventId: event.id,
   };
 }
 

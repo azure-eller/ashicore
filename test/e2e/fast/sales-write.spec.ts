@@ -784,11 +784,11 @@ test.describe("Sales write-path smoke", () => {
       orderNumber: reservedOrderNumber,
       itemName: materialName,
     });
-    await expect(sheet.getByText("Demand")).toBeVisible();
+    await expect(sheet.getByText("Need")).toBeVisible();
     await expect(sheet.getByText("Allocated")).toBeVisible();
-    await expect(sheet.getByText("Remaining")).toBeVisible();
-    await expect(sheet.getByText(/^150 /)).toHaveCount(2);
-    await expect(sheet.getByText(/^0 /)).toHaveCount(1);
+    await expect(sheet.getByText("-150 short")).toBeVisible();
+    await expect(sheet.getByText("150", { exact: true }).first()).toBeVisible();
+    await expect(sheet.getByText(/^0$/).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
   });
@@ -854,20 +854,23 @@ test.describe("Sales write-path smoke", () => {
       orderNumber: tokenOrderNumber,
       itemName: tokenMaterialName,
     });
-    await expect(sheet.getByText("Lots — on-hand inventory")).toBeVisible();
+    await expect(sheet.getByRole("heading", { name: "Sources" })).toBeVisible();
 
-    const sourceInput = sheet.getByRole("textbox", { name: /Allocate from LOT-/ }).first();
+    const sourceInput = sheet
+      .getByRole("spinbutton", { name: /Allocate quantity for LOT-/ })
+      .first();
     await expect(sourceInput).toBeVisible();
     await sourceInput.fill("6");
 
     await expect(sourceInput).toHaveValue("6");
-    await expect(sheet.getByText("✓ fulfilled")).toBeVisible();
+    await expect(sheet.getByText("✓ complete")).toBeVisible();
 
     const saveButton = sheet.getByRole("button", { name: "Save allocation" });
     await saveButton.click();
     await expect(page.getByRole("button", { name: "Saving..." })).toBeHidden({
       timeout: 15_000,
     });
+    await sheet.getByRole("button", { name: "Close" }).click();
     await expect(sheet).toBeHidden();
 
     const detailResponse = await testFetch(`/api/sales-orders/${tokenOrderId}`);
@@ -2072,7 +2075,7 @@ test.describe("Sales write-path smoke", () => {
     const webShipOrderId = orderResult.body.id as string;
 
     await page.goto(`/sales/orders/${webShipOrderId}`);
-    const shipmentRow = page.getByRole("row", { name: /Draft/ });
+    const shipmentRow = page.getByRole("row", { name: /Ready to ship/ });
     await shipmentRow.getByRole("button", { name: "Ship", exact: true }).click();
 
     const dialog = page.getByRole("alertdialog", { name: "Ship this shipment?" });

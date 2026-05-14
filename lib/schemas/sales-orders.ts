@@ -352,6 +352,7 @@ export type SalesFulfillmentPlanInput = z.infer<
 
 export const shipSalesShipmentSchema = z.object({
   syncAccounting: z.boolean().optional(),
+  confirmNegativeStock: z.boolean().optional(),
 });
 export type ShipSalesShipment = z.infer<typeof shipSalesShipmentSchema>;
 

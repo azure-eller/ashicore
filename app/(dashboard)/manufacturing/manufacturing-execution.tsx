@@ -526,10 +526,11 @@ export function ManufacturingExecution({
   });
 
   const pickMutation = useMutation({
-    mutationFn: async (input: {
-      ingredientId: string;
-      confirmRequirementOverride?: boolean;
-    }) => {
+	    mutationFn: async (input: {
+	      ingredientId: string;
+	      confirmRequirementOverride?: boolean;
+	      confirmNegativeStock?: boolean;
+	    }) => {
       const response = await fetch(
         `/api/manufacturing-orders/${execution.id}/ingredients/${input.ingredientId}/pick`,
         {
@@ -537,9 +538,10 @@ export function ManufacturingExecution({
           headers: createIdempotencyHeaders("manufacturing-pick", {
             "Content-Type": "application/json",
           }),
-          body: JSON.stringify({
-            confirmRequirementOverride: input.confirmRequirementOverride,
-          }),
+	          body: JSON.stringify({
+	            confirmRequirementOverride: input.confirmRequirementOverride,
+	            confirmNegativeStock: input.confirmNegativeStock,
+	          }),
         }
       );
       const body = await response.json().catch(() => null);
@@ -941,10 +943,15 @@ export function ManufacturingExecution({
                 disabled={pickMutation.isPending || pickWarning == null}
                 onClick={() => {
                   if (!pickWarning) return;
-                  pickMutation.mutate({
-                    ingredientId: pickWarning.ingredientId,
-                    confirmRequirementOverride: true,
-                  });
+	                  pickMutation.mutate({
+	                    ingredientId: pickWarning.ingredientId,
+	                    confirmRequirementOverride: pickWarning.warning.ingredients.some(
+	                      (ingredient) => ingredient.warningType === "requirement_violation"
+	                    ),
+	                    confirmNegativeStock: pickWarning.warning.ingredients.some(
+	                      (ingredient) => ingredient.warningType === "stock_shortage"
+	                    ),
+	                  });
                 }}
               >
                 {pickMutation.isPending ? "In Progress" : "Mark Done Anyway"}

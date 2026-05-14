@@ -16,7 +16,7 @@ Manufacturing v1 now covers both planning and simple execution:
 - BOM ingredients stored per unit of output
 - editable draft snapshots before release
 - optional sales-order-line traceability
-- release warning on shortage
+- release without shortage confirmation
 - mobile-first execution flow with a minimal web fallback
 - discrete orders picked once, then completed once
 - batch-mode orders executed one batch at a time
@@ -111,11 +111,10 @@ Release validates that:
 - ingredient items still exist and are active
 - draft ingredient rows are structurally valid
 
-Release checks live lot-backed stock against planned ingredient quantities:
-
-- if there is no shortage, release succeeds immediately
-- if shortages exist, the first response is `409` with `{ error, shortage }`
-- retrying with `confirmShortage: true` allows release
+Release does not warn on current ingredient shortages. It records planned
+ingredient demand/reservations and expected finished-good supply immediately.
+Picking remains the stock-consuming step and may warn/require confirmation for
+negative stock or lot eligibility.
 
 Release behavior differs by manufacturing mode:
 

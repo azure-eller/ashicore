@@ -68,12 +68,52 @@ export async function reserveForSalesInTx(
     eventSubtype: "sales_confirm",
     deltas,
   });
+  const availableByItem = new Map<string, number>();
+  const reservationLines: typeof deltas = [];
+
+  for (const line of params.lines) {
+    if (!availableByItem.has(line.itemId)) {
+      availableByItem.set(
+        line.itemId,
+        await getCurrentAvailableQtyAtLocationInTx(tx, {
+          organizationId: params.organizationId,
+          locationId: location.id,
+          itemId: line.itemId,
+        })
+      );
+    }
+
+    const available = availableByItem.get(line.itemId) ?? 0;
+    const reservedQuantity = roundQuantity(
+      Math.min(Math.max(available, 0), line.quantity)
+    );
+    if (reservedQuantity > 0) {
+      reservationLines.push({
+        itemId: line.itemId,
+        referenceType: "sales_order_line",
+        referenceId: line.salesOrderLineId,
+        quantity: reservedQuantity,
+      });
+      availableByItem.set(line.itemId, roundQuantity(available - reservedQuantity));
+    }
+  }
+
+  const reservationEvents =
+    reservationLines.length > 0
+      ? await applyReservationReferenceDeltasInTx(tx, {
+          organizationId: params.organizationId,
+          locationId: location.id,
+          actorUserId: params.actorUserId ?? null,
+          eventSubtype: "sales_confirm",
+          deltas: reservationLines,
+        })
+      : [];
   const result = { referenceIds: params.lines.map((line) => line.salesOrderLineId) };
 
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
     idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: demandEvents[0]?.id ?? null,
+    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
     result,
   });
 
@@ -407,8 +447,9 @@ export async function consumeForShipmentInTx(
     salesShipmentId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
-    shippedAt?: Date;
-    lines: Array<{
+	    shippedAt?: Date;
+	    allowNegativeStock?: boolean;
+	    lines: Array<{
       salesOrderLineId: string;
       itemId: string;
       quantity: number;
@@ -520,7 +561,10 @@ export async function consumeForShipmentInTx(
     const unreservedAvailable = availableByItem.get(line.itemId) ?? 0;
     const ownReservation = reservedByLineId.get(line.salesOrderLineId) ?? 0;
 
-    if (roundQuantity(unreservedAvailable + ownReservation) < line.quantity) {
+	    if (
+	      roundQuantity(unreservedAvailable + ownReservation) < line.quantity &&
+	      !params.allowNegativeStock
+	    ) {
       throw new InsufficientStockError({
         itemId: line.itemId,
         available: roundQuantity(unreservedAvailable + ownReservation),
@@ -548,7 +592,11 @@ export async function consumeForShipmentInTx(
       lineAllocations.reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
     );
 
-    if (managedLineIds.has(line.salesOrderLineId) && allocatedQty < line.quantity) {
+	    if (
+	      managedLineIds.has(line.salesOrderLineId) &&
+	      allocatedQty < line.quantity &&
+	      !params.allowNegativeStock
+	    ) {
       throw new InsufficientStockError({
         itemId: line.itemId,
         available: allocatedQty,
@@ -602,9 +650,10 @@ export async function consumeForShipmentInTx(
         idempotencyKey:
           index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
         occurredAt: params.shippedAt,
-        metadata,
-        unavailableByLotId,
-      });
+	        metadata,
+	        unavailableByLotId,
+	        allowNegativeStock: params.allowNegativeStock ?? false,
+	      });
       eventIds.push(...consumed.eventIds);
     }
   }

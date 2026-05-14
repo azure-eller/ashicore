@@ -100,14 +100,10 @@ import {
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
 import { SalesOrderStatusBadge } from "./status-badge";
 import { buildSalesOrderLineRemovalPayload } from "./order-line-removal";
-import {
-  OVERSELL_WARNING_DESCRIPTION,
-  OversellWarningTable,
-} from "./oversell-warning-table";
 import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 import type {
-  DraftAllocationTakeoverWarningPayload,
-  OversellWarningPayload,
+	  DraftAllocationTakeoverWarningPayload,
+	  NegativeStockWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
   SalesMarginSummary,
   SalesShipmentRow,
@@ -116,9 +112,9 @@ import type {
 type ActionError = {
   status?: number;
   error?: string;
-  oversell?: OversellWarningPayload;
-  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
-};
+	  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
+	  negativeStock?: NegativeStockWarningPayload;
+	};
 
 function formatMarginPercent(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
@@ -136,6 +132,7 @@ type ShipmentFormState = {
 type ShipmentActionPayload = {
   shipmentId: string;
   idempotencyKey: string;
+  confirmNegativeStock?: boolean;
 };
 
 type ShipmentInvoiceActionPayload = {
@@ -1278,9 +1275,14 @@ export function OrderDetail({
   const [cancelRemainingOpen, setCancelRemainingOpen] = useState(false);
   const [cancelRemainingIdempotencyKey, setCancelRemainingIdempotencyKey] =
     useState<string | null>(null);
-  const [shipmentToShip, setShipmentToShip] = useState<SalesShipmentRow | null>(null);
-  const [shipShipmentIdempotencyKey, setShipShipmentIdempotencyKey] =
-    useState<string | null>(null);
+	  const [shipmentToShip, setShipmentToShip] = useState<SalesShipmentRow | null>(null);
+	  const [shipShipmentIdempotencyKey, setShipShipmentIdempotencyKey] =
+	    useState<string | null>(null);
+	  const [negativeStockWarning, setNegativeStockWarning] = useState<{
+	    shipmentId: string;
+	    idempotencyKey: string;
+	    warning: NegativeStockWarningPayload;
+	  } | null>(null);
   const [shipmentForm, setShipmentForm] = useState<ShipmentFormState | null>(null);
   const [shipmentCostForm, setShipmentCostForm] =
     useState<ShipmentCostFormState | null>(null);
@@ -1288,8 +1290,6 @@ export function OrderDetail({
     useState<SalesOrderDetailType["lines"][number] | null>(null);
   const [deleteLineIdempotencyKey, setDeleteLineIdempotencyKey] =
     useState<string | null>(null);
-  const [oversellWarning, setOversellWarning] =
-    useState<OversellWarningPayload | null>(null);
   const [draftTakeoverWarning, setDraftTakeoverWarning] =
     useState<DraftAllocationTakeoverWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1615,22 +1615,32 @@ export function OrderDetail({
     },
   });
 
-  const shipShipmentMutation = useMutation({
-    mutationFn: async ({ shipmentId, idempotencyKey }: ShipmentActionPayload) => {
-      const response = await fetch(
-        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
-        {
-          method: "POST",
-          headers: {
-            "Idempotency-Key": idempotencyKey,
-          },
-        }
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to ship shipment.");
-      }
-    },
+	  const shipShipmentMutation = useMutation({
+	    mutationFn: async ({
+	      shipmentId,
+	      idempotencyKey,
+	      confirmNegativeStock,
+	    }: ShipmentActionPayload) => {
+	      const response = await fetch(
+	        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
+	        {
+	          method: "POST",
+	          headers: {
+	            "Idempotency-Key": idempotencyKey,
+	            "Content-Type": "application/json",
+	          },
+	          body: JSON.stringify({ confirmNegativeStock }),
+	        }
+	      );
+	      const body = await response.json().catch(() => null);
+	      if (!response.ok) {
+	        throw {
+	          status: response.status,
+	          error: getApiErrorMessage(body, "Failed to ship shipment."),
+	          negativeStock: body?.negativeStock,
+	        } satisfies ActionError;
+	      }
+	    },
     onMutate: () => {
       setActionError(null);
       openSyncDialog({
@@ -1641,7 +1651,7 @@ export function OrderDetail({
         includeEmail: false,
       });
     },
-    onSuccess: async () => {
+	    onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -1667,20 +1677,31 @@ export function OrderDetail({
         documentNumber: includeAccounting ? latestDocument.documentNumber : null,
         showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
       });
-      setShipmentToShip(null);
-      setShipShipmentIdempotencyKey(null);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-      failSyncDialog({
-        title: "Shipment Failed",
-        description: "The shipment was not marked shipped.",
-        localActionLabel: "Mark shipment shipped",
-        message: error.message,
-      });
-    },
-  });
+	      setShipmentToShip(null);
+	      setShipShipmentIdempotencyKey(null);
+	      setNegativeStockWarning(null);
+	      router.refresh();
+	    },
+	    onError: (error: ActionError, variables) => {
+	      if (error.status === 409 && error.negativeStock) {
+	        setNegativeStockWarning({
+	          shipmentId: variables.shipmentId,
+	          idempotencyKey: variables.idempotencyKey,
+	          warning: error.negativeStock,
+	        });
+	        setSyncDialog(null);
+	        return;
+	      }
+	      const message = error.error ?? "Failed to ship shipment.";
+	      setActionError(message);
+	      failSyncDialog({
+	        title: "Shipment Failed",
+	        description: "The shipment was not marked shipped.",
+	        localActionLabel: "Mark shipment shipped",
+	        message,
+	      });
+	    },
+	  });
 
   const cancelRemainingMutation = useMutation({
     mutationFn: async () => {
@@ -1716,7 +1737,6 @@ export function OrderDetail({
 
   const confirmMutation = useMutation({
     mutationFn: async (flags: {
-      confirmOversell?: boolean;
       confirmDraftAllocationTakeover?: boolean;
     }) => {
       const response = await fetch(`/api/sales-orders/${order.id}/confirm`, {
@@ -1732,7 +1752,6 @@ export function OrderDetail({
         throw {
           status: response.status,
           error: getApiErrorMessage(body, "Failed to confirm order."),
-          oversell: body?.oversell,
           draftAllocationTakeover: body?.draftAllocationTakeover,
         } satisfies ActionError;
       }
@@ -1744,17 +1763,12 @@ export function OrderDetail({
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
-      setOversellWarning(null);
       setDraftTakeoverWarning(null);
       router.refresh();
     },
     onError: (error: ActionError) => {
-      if (error.status === 409 && error.oversell) {
-        setOversellWarning(error.oversell);
-        return;
-      }
       if (error.status === 409 && error.draftAllocationTakeover) {
         setDraftTakeoverWarning(error.draftAllocationTakeover);
         return;
@@ -2581,33 +2595,6 @@ export function OrderDetail({
         />
       ) : null}
 
-      <AlertDialog open={oversellWarning != null} onOpenChange={(open) => {
-        if (!open) {
-          setOversellWarning(null);
-        }
-      }}>
-        <AlertDialogContent size="2xl" className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {OVERSELL_WARNING_DESCRIPTION}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <OversellWarningTable products={oversellWarning?.products ?? []} linkItems />
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={confirmMutation.isPending}
-              onClick={() => confirmMutation.mutate({ confirmOversell: true })}
-            >
-              {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <AlertDialog open={draftTakeoverWarning != null} onOpenChange={(open) => {
         if (!open) {
           setDraftTakeoverWarning(null);
@@ -2702,10 +2689,46 @@ export function OrderDetail({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+	      </AlertDialog>
+	
+	      <AlertDialog
+	        open={negativeStockWarning != null}
+	        onOpenChange={(open) => {
+	          if (!open) setNegativeStockWarning(null);
+	        }}
+	      >
+	        <AlertDialogContent className="bg-background text-foreground">
+	          <AlertDialogHeader>
+	            <AlertDialogTitle>Ship with negative stock?</AlertDialogTitle>
+	            <AlertDialogDescription>
+	              {negativeStockWarning
+	                ? `${negativeStockWarning.warning.itemName} is short by ${formatQuantity(
+	                    String(negativeStockWarning.warning.shortage)
+	                  )}. Continuing will record negative inventory.`
+	                : "Continuing will record negative inventory."}
+	            </AlertDialogDescription>
+	          </AlertDialogHeader>
+	          <AlertDialogFooter>
+	            <AlertDialogCancel>Back</AlertDialogCancel>
+	            <AlertDialogAction
+	              disabled={shipShipmentMutation.isPending}
+	              onClick={() => {
+	                if (!negativeStockWarning) return;
+	                shipShipmentMutation.mutate({
+	                  shipmentId: negativeStockWarning.shipmentId,
+	                  idempotencyKey: negativeStockWarning.idempotencyKey,
+	                  confirmNegativeStock: true,
+	                });
+	              }}
+	            >
+	              {shipShipmentMutation.isPending ? "Shipping..." : "Ship Anyway"}
+	            </AlertDialogAction>
+	          </AlertDialogFooter>
+	        </AlertDialogContent>
+	      </AlertDialog>
 
-      <AlertDialog
-        open={shipmentToShip != null}
+	      <AlertDialog
+	        open={shipmentToShip != null}
         onOpenChange={(open) => {
           if (!open) {
             setShipmentToShip(null);

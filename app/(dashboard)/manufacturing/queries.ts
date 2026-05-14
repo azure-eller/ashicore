@@ -58,7 +58,6 @@ import {
   decrementExistingLotStockInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
-  getCurrentAvailableQtyAtLocationInTx,
   getDefaultInventoryLocationInTx,
   getUnavailableLotAllocationQtyByLotIdInTx,
   getManufacturingIngredientReservationRowsInTx,
@@ -82,6 +81,7 @@ import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
+import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteManufacturingBatch,
@@ -981,7 +981,6 @@ async function activateManufacturingOrderInTx(
   orgId: string,
   order: LockedManufacturingOrder,
   params: {
-    confirmShortage: boolean;
     actorUserId?: string | null;
   }
 ) {
@@ -1006,23 +1005,6 @@ async function activateManufacturingOrderInTx(
     tx,
     ingredientRows.map((row) => row.itemId)
   );
-
-  const shortages = await getReleaseShortagesInTx(
-    tx,
-    orgId,
-    order.id,
-    order.plannedDate
-  );
-
-  if (shortages.length > 0 && !params.confirmShortage) {
-    throw new ManufacturingError(
-      `Short on ${summarizeShortageItems(shortages)}`,
-      409,
-      {
-        shortage: { ingredients: shortages },
-      }
-    );
-  }
 
   const [released] = await tx
     .update(manufacturingOrders)
@@ -1242,90 +1224,6 @@ async function validateActiveIngredientItemsInTx(
       400
     );
   }
-}
-
-async function getReleaseShortagesInTx(
-  tx: Tx,
-  organizationId: string,
-  orderId: string,
-  plannedDate: string | null
-): Promise<ManufacturingReleaseWarningPayload["ingredients"]> {
-  const location = await getDefaultInventoryLocationInTx(tx, organizationId);
-  const ingredients = await tx
-    .select({
-      id: manufacturingOrderIngredients.id,
-      itemId: manufacturingOrderIngredients.itemId,
-      itemName: manufacturingOrderIngredients.itemName,
-      unitName: manufacturingOrderIngredients.unitName,
-      plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
-        "plannedQuantity"
-      ),
-    })
-    .from(manufacturingOrderIngredients)
-    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId))
-    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
-
-  const shortages: ManufacturingReleaseWarningPayload["ingredients"] = [];
-  const constraintsByIngredientId = await getIngredientConstraintsByIdInTx(
-    tx,
-    ingredients.map((ingredient) => ingredient.id)
-  );
-  const requirementDate = plannedDate ?? isoDate(new Date());
-
-  for (const ingredient of ingredients) {
-    const needed = normalizeQuantityNumber(parseFloat(ingredient.plannedQuantity));
-    const available = normalizeQuantityNumber(
-      await getCurrentAvailableQtyAtLocationInTx(tx, {
-        organizationId,
-        locationId: location.id,
-        itemId: ingredient.itemId,
-      })
-    );
-
-    if (available < needed) {
-      shortages.push({
-        itemId: ingredient.itemId,
-        itemName: ingredient.itemName,
-        unitName: ingredient.unitName,
-        needed,
-        available,
-        shortage: normalizeQuantityNumber(needed - available),
-        warningType: "stock_shortage",
-      });
-      continue;
-    }
-
-    const minimumLotAgeDays = getMinimumLotAgeDays(
-      constraintsByIngredientId.get(ingredient.id)
-    );
-    if (minimumLotAgeDays == null) {
-      continue;
-    }
-
-    const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
-      organizationId,
-      locationId: location.id,
-      itemId: ingredient.itemId,
-      minimumLotAgeDays,
-      requiredDate: requirementDate,
-    });
-
-    if (ageAvailability.eligible < needed) {
-      shortages.push({
-        itemId: ingredient.itemId,
-        itemName: ingredient.itemName,
-        unitName: ingredient.unitName,
-        needed,
-        available: ageAvailability.eligible,
-        shortage: normalizeQuantityNumber(needed - ageAvailability.eligible),
-        warningType: "requirement_violation",
-        requirement: lotAgeRequirementText(minimumLotAgeDays),
-        nextEligibleDate: ageAvailability.nextEligibleDate,
-      });
-    }
-  }
-
-  return shortages;
 }
 
 async function getIngredientConstraintsByIdInTx(
@@ -3221,7 +3119,6 @@ export async function createManufacturingOrderInTx(
     throw new ManufacturingError("Order not found", 404);
   }
   await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
-    confirmShortage: payload.confirmShortage === true,
     actorUserId,
   });
 
@@ -3383,7 +3280,6 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       throw new ManufacturingError("Order not found", 404);
     }
     await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
-      confirmShortage: true,
       actorUserId,
     });
 
@@ -3859,7 +3755,6 @@ export async function releaseManufacturingOrder(
     }
 
     const released = await activateManufacturingOrderInTx(tx, orgId, order, {
-      confirmShortage,
       actorUserId: userId,
     });
 
@@ -5510,10 +5405,11 @@ export async function completeManufacturingBatch(
 export async function pickManufacturingIngredient(
   orderId: string,
   ingredientId: string,
-  options?: {
-    idempotencyKey?: string;
-    confirmRequirementOverride?: boolean;
-  }
+	  options?: {
+	    idempotencyKey?: string;
+	    confirmRequirementOverride?: boolean;
+	    confirmNegativeStock?: boolean;
+	  }
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
@@ -5521,10 +5417,11 @@ export async function pickManufacturingIngredient(
       operationName: "pickManufacturingIngredient",
       idempotencyKey: options?.idempotencyKey ?? null,
       payload: {
-        orderId,
-        ingredientId,
-        confirmRequirementOverride: options?.confirmRequirementOverride ?? false,
-      },
+	        orderId,
+	        ingredientId,
+	        confirmRequirementOverride: options?.confirmRequirementOverride ?? false,
+	        confirmNegativeStock: options?.confirmNegativeStock ?? false,
+	      },
     });
 
     if (replay.replayed) {
@@ -5672,20 +5569,48 @@ export async function pickManufacturingIngredient(
       }
     }
 
-    await pickManufacturingIngredientInTx(tx, {
-      organizationId: orgId,
-      manufacturingOrderId: orderId,
-      ingredientId,
-      itemId: ingredient.itemId,
-      quantity: remainingQuantity,
-      actorUserId: userId,
-      idempotencyKey: deriveInventoryIdempotencyKey(
-        options?.idempotencyKey,
-        `pick-ingredient:${ingredientId}`
-      ),
-      minimumReceivedDate,
-      confirmRequirementOverride: options?.confirmRequirementOverride,
-    });
+	    try {
+	      await pickManufacturingIngredientInTx(tx, {
+	        organizationId: orgId,
+	        manufacturingOrderId: orderId,
+	        ingredientId,
+	        itemId: ingredient.itemId,
+	        quantity: remainingQuantity,
+	        actorUserId: userId,
+	        idempotencyKey: deriveInventoryIdempotencyKey(
+	          options?.idempotencyKey,
+	          `pick-ingredient:${ingredientId}`
+	        ),
+	        minimumReceivedDate,
+	        confirmRequirementOverride: options?.confirmRequirementOverride,
+	        allowNegativeStock: options?.confirmNegativeStock === true,
+	      });
+	    } catch (error) {
+	      if (error instanceof InsufficientStockError) {
+	        throw new ManufacturingError(
+	          `Not enough ${ingredient.itemName}.`,
+	          409,
+	          {
+	            shortage: {
+	              ingredients: [
+	                {
+	                  itemId: ingredient.itemId,
+	                  itemName: ingredient.itemName,
+	                  unitName: ingredient.unitName,
+	                  needed: error.requested,
+	                  available: error.available,
+	                  shortage: normalizeQuantityNumber(
+	                    error.requested - error.available
+	                  ),
+	                  warningType: "stock_shortage",
+	                },
+	              ],
+	            },
+	          }
+	        );
+	      }
+	      throw error;
+	    }
 
     await tx
       .update(manufacturingOrderIngredients)

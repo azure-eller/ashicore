@@ -186,22 +186,54 @@ export type CreatePurchaseOrderDraftOptions = {
   xeroPushStatus?: "pushed" | "pending" | "failed" | null;
 };
 
-export class PurchasingError extends DomainError {
+export class PurchasingError extends DomainError<{
+  overReceipt: {
+    lines: Array<{
+      lineId: string;
+      itemName: string;
+      remaining: string;
+      requested: string;
+      overage: string;
+    }>;
+  };
+}> {
   errors?: Record<string, string[]>;
+  overReceipt?: {
+    lines: Array<{
+      lineId: string;
+      itemName: string;
+      remaining: string;
+      requested: string;
+      overage: string;
+    }>;
+  };
 
   constructor(
     message: string,
     status = 400,
-    options?: { errors?: Record<string, string[]> }
+    options?: {
+      errors?: Record<string, string[]>;
+      overReceipt?: {
+        lines: Array<{
+          lineId: string;
+          itemName: string;
+          remaining: string;
+          requested: string;
+          overage: string;
+        }>;
+      };
+    }
   ) {
     const errors: DomainFieldErrors | undefined = options?.errors;
 
     super(message, status, {
       name: "PurchasingError",
       errors,
+      extra: options?.overReceipt ? { overReceipt: options.overReceipt } : undefined,
     });
 
     this.errors = options?.errors;
+    this.overReceipt = options?.overReceipt;
   }
 }
 
@@ -1728,26 +1760,15 @@ export async function receivePurchaseOrder(
       getPurchaseOrderAdditionalCostsInTx(tx, id),
     ]);
     const lineMap = new Map(existingLines.map((line) => [line.id, line]));
-    const latestLandedCosts = calculatePurchaseOrderLandedCosts({
-      lines: existingLines.map((line) => ({
-        quantityOrdered: line.quantityOrdered,
-        unitCost: line.unitCost,
-        purchaseToStockFactor: line.purchaseToStockFactor,
-      })),
-      additionalCosts,
-      legacyShippingCost: order.shippingCost,
-    });
-    const landedStockUnitCostByLineId = new Map(
-      existingLines.map((line, index) => [
-        line.id,
-        normalizeLandedStockUnitCost(
-          latestLandedCosts.lines[index]?.landedStockUnitCost ?? null
-        ),
-      ])
-    );
-    const seenLineIds = new Set<string>();
-
-    const receiveEntries = data.lines.map((line, index) => {
+	    const seenLineIds = new Set<string>();
+	    const overReceiptWarnings: Array<{
+	      lineId: string;
+	      itemName: string;
+	      remaining: string;
+	      requested: string;
+	      overage: string;
+	    }> = [];
+	    const receiveEntries = data.lines.map((line, index) => {
       if (seenLineIds.has(line.lineId)) {
         throw new PurchasingError("Duplicate receipt line", 400, {
           errors: {
@@ -1774,27 +1795,42 @@ export async function receivePurchaseOrder(
         parseFloat(existingLine.quantityOrdered) -
         parseFloat(existingLine.quantityReceived);
 
-      if (quantityReceived > remaining) {
-        throw new PurchasingError("Cannot receive more than remaining quantity.", 400, {
-          errors: {
-            [`lines.${index}.quantityReceived`]: [
-              `Must be ${normalizeNumeric(remaining)} or less`,
-            ],
-          },
-        });
-      }
+	      if (quantityReceived > remaining && !data.confirmOverReceipt) {
+	        overReceiptWarnings.push({
+	          lineId: line.lineId,
+	          itemName: existingLine.itemName,
+	          remaining: normalizeNumeric(remaining),
+	          requested: normalizeNumeric(quantityReceived),
+	          overage: normalizeNumeric(quantityReceived - remaining),
+	        });
+	      } else if (quantityReceived > remaining && remaining < 0) {
+	        throw new PurchasingError("Cannot receive more than remaining quantity.", 400, {
+	          errors: {
+	            [`lines.${index}.quantityReceived`]: [
+	              `Must be ${normalizeNumeric(remaining)} or less`,
+	            ],
+	          },
+	        });
+	      }
 
       const stockQuantityReceived = parseFloat(
         normalizeNumeric(quantityReceived * parseFloat(existingLine.purchaseToStockFactor))
       );
 
-      return {
-        line: existingLine,
-        quantityReceived,
-        stockQuantityReceived,
-        disposition: line.disposition,
-      };
-    });
+	      return {
+	        line: existingLine,
+	        quantityReceived,
+	        stockQuantityReceived,
+	        disposition: line.disposition,
+	        overReceiptQuantity: Math.max(0, quantityReceived - Math.max(remaining, 0)),
+	      };
+	    });
+
+	    if (overReceiptWarnings.length > 0) {
+	      throw new PurchasingError("This receipt is above the ordered quantity.", 409, {
+	        overReceipt: { lines: overReceiptWarnings },
+	      });
+	    }
 
     await getValidatedMaterialsInTx(
       tx,
@@ -1817,29 +1853,110 @@ export async function receivePurchaseOrder(
         continue;
       }
 
-      const newQuantityReceived =
-        parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
-      const newStockQuantityReceived =
-        parseFloat(currentLine.stockQuantityReceived) + entry.stockQuantityReceived;
+	      const newQuantityReceived =
+	        parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
+	      const newStockQuantityReceived =
+	        parseFloat(currentLine.stockQuantityReceived) + entry.stockQuantityReceived;
+	      const newQuantityOrdered = Math.max(
+	        parseFloat(currentLine.quantityOrdered),
+	        newQuantityReceived
+	      );
+	      const newStockQuantityOrdered = Math.max(
+	        parseFloat(currentLine.stockQuantityOrdered),
+	        newStockQuantityReceived
+	      );
 
-      const normalizedReceived = normalizeNumeric(newQuantityReceived);
-      const normalizedStockReceived = normalizeNumeric(newStockQuantityReceived);
+	      const normalizedReceived = normalizeNumeric(newQuantityReceived);
+	      const normalizedStockReceived = normalizeNumeric(newStockQuantityReceived);
+	      const normalizedOrdered = normalizeNumeric(newQuantityOrdered);
+	      const normalizedStockOrdered = normalizeNumeric(newStockQuantityOrdered);
+	      const normalizedLineTotal = normalizeLandedMoney(
+	        newQuantityOrdered * parseFloat(currentLine.unitCost)
+	      );
 
-      await tx
-        .update(purchaseOrderLines)
-        .set({
-          quantityReceived: normalizedReceived,
-          stockQuantityReceived: normalizedStockReceived,
-          updatedAt: new Date(),
-        })
-        .where(eq(purchaseOrderLines.id, currentLine.id));
+	      await tx
+	        .update(purchaseOrderLines)
+	        .set({
+	          quantityOrdered: normalizedOrdered,
+	          stockQuantityOrdered: normalizedStockOrdered,
+	          quantityReceived: normalizedReceived,
+	          stockQuantityReceived: normalizedStockReceived,
+	          lineTotal: normalizedLineTotal,
+	          updatedAt: new Date(),
+	        })
+	        .where(eq(purchaseOrderLines.id, currentLine.id));
 
-      updatedLines.set(currentLine.id, {
-        ...currentLine,
-        quantityReceived: normalizedReceived,
-        stockQuantityReceived: normalizedStockReceived,
-        updatedAt: new Date(),
-      });
+	      updatedLines.set(currentLine.id, {
+	        ...currentLine,
+	        quantityReceived: normalizedReceived,
+	        stockQuantityReceived: normalizedStockReceived,
+	        quantityOrdered: normalizedOrdered,
+	        stockQuantityOrdered: normalizedStockOrdered,
+	        lineTotal: normalizedLineTotal,
+	        updatedAt: new Date(),
+	      });
+	    }
+
+	    const overReceiptExpectedLines = existingLines.map((line) => {
+	      const currentLine = updatedLines.get(line.id);
+	      return {
+	        purchaseOrderLineId: line.id,
+	        itemId: line.itemId,
+	        quantity: Math.max(
+	          parseFloat(currentLine?.stockQuantityOrdered ?? line.stockQuantityOrdered) -
+	            parseFloat(line.stockQuantityReceived),
+	          0
+	        ),
+	      };
+	    });
+
+	    if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
+	      await editExpectedFromPurchaseInTx(tx, {
+	        organizationId: orgId,
+	        purchaseOrderId: id,
+	        actorUserId: userId,
+	        idempotencyKey: deriveInventoryIdempotencyKey(
+	          options?.idempotencyKey,
+	          "over-receipt-expected"
+	        ),
+	        nextLines: overReceiptExpectedLines,
+	      });
+	    }
+
+    const finalLines = existingLines.map(
+      (line) => updatedLines.get(line.id) ?? line
+    );
+    const finalLandedCosts = calculatePurchaseOrderLandedCosts({
+      lines: finalLines.map((line) => ({
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+        purchaseToStockFactor: line.purchaseToStockFactor,
+      })),
+      additionalCosts,
+      legacyShippingCost: order.shippingCost,
+    });
+    const landedStockUnitCostByLineId = new Map(
+      finalLines.map((line, index) => [
+        line.id,
+        normalizeLandedStockUnitCost(
+          finalLandedCosts.lines[index]?.landedStockUnitCost ?? null
+        ),
+      ])
+    );
+
+    if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
+      await Promise.all(
+        finalLines.map((line) =>
+          tx
+            .update(purchaseOrderLines)
+            .set({
+              stockUnitCost:
+                landedStockUnitCostByLineId.get(line.id) ?? line.stockUnitCost,
+              updatedAt: new Date(),
+            })
+            .where(eq(purchaseOrderLines.id, line.id))
+        )
+      );
     }
 
     await receivePurchaseStockInTx(tx, {
@@ -1870,6 +1987,7 @@ export async function receivePurchaseOrder(
       .set({
         status: allReceived ? "received" : "partial",
         receivedAt: allReceived ? new Date() : null,
+        totalAmount: normalizeLandedMoney(finalLandedCosts.orderTotal),
         updatedAt: new Date(),
       })
       .where(eq(purchaseOrders.id, id));

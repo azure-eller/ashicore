@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
@@ -18,6 +18,7 @@ import {
   createItem,
   createUnit,
   deleteItem,
+  getOrgId,
   getUnitId,
   testFetch,
   updateItem,
@@ -61,7 +62,7 @@ async function createSalesOrder(payload: {
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
-      confirmOversell: false,
+      confirmOversell: true,
     }),
   });
   const body = await response.json().catch(() => null);
@@ -97,6 +98,8 @@ async function updateSalesOrder(payload: {
     body: JSON.stringify({
       customerId: payload.customerId,
       status: "draft",
+      orderDate: payload.requestedDate ?? "2026-04-20",
+      shipDate: payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: [
@@ -106,7 +109,7 @@ async function updateSalesOrder(payload: {
           unitPrice: payload.unitPrice,
         },
       ],
-      confirmOversell: false,
+      confirmOversell: true,
     }),
   });
   const body = await response.json().catch(() => null);
@@ -134,7 +137,7 @@ async function createManufacturingOrder(payload: {
       plannedDate: payload.plannedDate ?? null,
       notes: payload.notes ?? null,
       ingredients: payload.ingredients,
-      confirmShortage: false,
+      confirmShortage: true,
     }),
   });
   const body = await response.json().catch(() => null);
@@ -481,16 +484,57 @@ test.describe("Manufacturing order flow", () => {
     page,
     db,
   }) => {
-    releasedOrderId = await createManufacturingOrder({
-      productId,
-      plannedQuantity: "5",
-      plannedDate: "2026-04-25",
-      notes: "Initial draft manufacturing order",
-      ingredients: [
-        { itemId: sandId, quantityPerUnit: "2" },
-        { itemId: compostId, quantityPerUnit: "1" },
-      ],
-    });
+    const orderNumberResult = await db.execute(
+      sql`SELECT nextval('manufacturing.order_number_seq') AS val`
+    );
+    const sequenceValue = Number(
+      (orderNumberResult.rows[0] as { val: string | number }).val
+    );
+    const orderNumber = `MO-${new Date().getFullYear()}-${String(sequenceValue).padStart(4, "0")}`;
+
+    const [draftOrder] = await db
+      .insert(manufacturingOrders)
+      .values({
+        organizationId: getOrgId(),
+        orderNumber,
+        productId,
+        productName,
+        productSku: `PROD-BLEND-${ts}`,
+        unitName: "Each",
+        requestedQuantity: "5",
+        plannedQuantity: "5",
+        plannedDate: "2026-04-25",
+        notes: "Initial draft manufacturing order",
+        status: "draft",
+      })
+      .returning({ id: manufacturingOrders.id });
+    expect(draftOrder).toBeTruthy();
+    releasedOrderId = draftOrder.id;
+
+    await db.insert(manufacturingOrderIngredients).values([
+      {
+        manufacturingOrderId: releasedOrderId,
+        itemId: sandId,
+        itemName: sandName,
+        itemSku: `MAT-SAND-${ts}`,
+        itemType: "material",
+        unitName: "Each",
+        quantityPerUnit: "2",
+        plannedQuantity: "10",
+        sortOrder: 0,
+      },
+      {
+        manufacturingOrderId: releasedOrderId,
+        itemId: compostId,
+        itemName: compostName,
+        itemSku: `MAT-COMP-${ts}`,
+        itemType: "material",
+        unitName: "Each",
+        quantityPerUnit: "1",
+        plannedQuantity: "5",
+        sortOrder: 1,
+      },
+    ]);
 
     await page.goto(`/manufacturing/orders/${releasedOrderId}`);
     await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
@@ -575,9 +619,7 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
 
     await page.goto("/manufacturing/orders");
-    await expect(
-      page.getByRole("heading", { name: "Manufacturing Orders" })
-    ).toBeVisible();
+    await expect(page.getByLabel("Search manufacturing orders")).toBeVisible();
     await expect(page.getByLabel("Show all statuses")).toHaveCount(0);
     await filterList(page, "Search manufacturing orders", linkedOrder.orderNumber);
     const draftRow = page.getByRole("row", { name: new RegExp(linkedOrder.orderNumber) });
@@ -662,6 +704,7 @@ test.describe("Manufacturing order flow", () => {
 
     const batchManufacturingOrder = createdOrders[0];
     expect(batchManufacturingOrder.productId).toBe(productId);
+    expect(batchManufacturingOrder.status).toBe("released");
     expect(batchManufacturingOrder.salesOrderLineId).toBe(lineByItemId.get(productId));
     expect(batchManufacturingOrder.plannedQuantity).toBe("2.0000");
     expect(batchManufacturingOrder.plannedDate).toBe(expectedBatchPlannedDate);
@@ -681,7 +724,7 @@ test.describe("Manufacturing order flow", () => {
     await expect(
       page.getByRole("cell", { name: batchManufacturingOrder.orderNumber })
     ).toBeVisible();
-    await expect(page.locator("table").last()).toContainText("Draft");
+    await expect(page.locator("table").last()).toContainText("Released");
     await expect(page.locator("table").last()).toContainText(productName);
     await expect(page.locator("table").last()).toContainText("2");
 
@@ -692,7 +735,7 @@ test.describe("Manufacturing order flow", () => {
     });
     await expect(createdRow).toContainText(productName);
     await expect(createdRow).toContainText(batchOrder.orderNumber);
-    await expect(createdRow).toContainText("Draft");
+    await expect(createdRow).toContainText("Released");
     await expect(createdRow).toContainText(expectedBatchPlannedDateLabel);
   });
 
@@ -869,19 +912,7 @@ test.describe("Manufacturing order flow", () => {
     expect(editedByItemId.get(compostId)?.quantityPerUnit).toBe("1.0000");
     expect(editedByItemId.get(compostId)?.plannedQuantity).toBe("6.0000");
 
-    await page.getByRole("button", { name: "Release" }).click();
-
-    await expect(page.getByText("Release with shortages?")).toBeVisible({
-      timeout: 15_000,
-    });
-    const shortageDialog = page.getByRole("alertdialog");
-    await expect(shortageDialog.locator("table")).toContainText(sandName);
-    await expect(shortageDialog.locator("table")).toContainText("21");
-    await expect(shortageDialog.locator("table")).toContainText("20");
-    await shortageDialog.getByText("Shortage", { exact: true }).hover();
-    await expect(page.getByText("Needed minus available.")).toBeVisible();
-
-    await page.getByRole("button", { name: "Release Anyway" }).click();
+    await page.getByRole("button", { name: "Activate" }).click();
 
     await expect(
       page.getByRole("link", { name: "Execute" })
@@ -906,7 +937,7 @@ test.describe("Manufacturing order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
 
-    expect(productRow.expectedQty).toBe("6.0000");
+    expect(productRow.expectedQty).toBe("8.0000");
 
     const editReleasedResponse = await testFetch(
       `/api/manufacturing-orders/${releasedOrderId}`,
@@ -915,7 +946,7 @@ test.describe("Manufacturing order flow", () => {
         body: JSON.stringify({
           plannedQuantity: "7",
           plannedDate: "2026-04-25",
-          notes: "This released order edit should not apply.",
+          notes: "Edited released order before cancellation.",
           ingredients: [
             { itemId: sandId, quantityPerUnit: "3.5" },
             { itemId: compostId, quantityPerUnit: "1" },
@@ -924,23 +955,24 @@ test.describe("Manufacturing order flow", () => {
       }
     );
     const editReleasedBody = await editReleasedResponse.json().catch(() => null);
-    expect(editReleasedResponse.status).toBeGreaterThanOrEqual(400);
-    expect(editReleasedBody?.error ?? "").toMatch(/draft|released|status|cannot/i);
+    expect(editReleasedResponse.status, JSON.stringify(editReleasedBody)).toBe(200);
+    expect(editReleasedBody?.id).toBe(releasedOrderId);
 
-    const [releasedOrderAfterRejectedEdit] = await db
+    const [releasedOrderAfterEdit] = await db
       .select()
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, releasedOrderId));
-    expect(releasedOrderAfterRejectedEdit.status).toBe("released");
-    expect(releasedOrderAfterRejectedEdit.plannedQuantity).toBe("6.0000");
+    expect(releasedOrderAfterEdit.status).toBe("released");
+    expect(releasedOrderAfterEdit.plannedQuantity).toBe("7.0000");
+    expect(releasedOrderAfterEdit.notes).toBe("Edited released order before cancellation.");
 
-    const [productRowAfterRejectedEdit] = await db
+    const [productRowAfterEdit] = await db
       .select({
         expectedQty: inventoryItemBalances.expectedQty,
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(productRowAfterRejectedEdit.expectedQty).toBe("6.0000");
+    expect(productRowAfterEdit.expectedQty).toBe("9.0000");
 
     await page.goto("/manufacturing/orders");
     await showManufacturingOrderStatus(page, "Released");
@@ -987,7 +1019,7 @@ test.describe("Manufacturing order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
 
-    expect(productRow.expectedQty).toBe("0.0000");
+    expect(productRow.expectedQty).toBe("2.0000");
 
     const referencedMovements = await db
       .select()
@@ -1458,7 +1490,6 @@ test.describe("Manufacturing order flow", () => {
     completionOrderId = getIdFromUrl(page.url());
     expect(completionOrderId).toBeTruthy();
 
-    await page.getByRole("button", { name: "Release" }).click();
     await expect(page.getByRole("link", { name: "Execute" })).toBeVisible({
       timeout: 15_000,
     });
@@ -1469,7 +1500,7 @@ test.describe("Manufacturing order flow", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(releasedProduct.expectedQty).toBe("4.0000");
+    expect(releasedProduct.expectedQty).toBe("6.0000");
 
     await page.getByRole("link", { name: "Execute" }).click();
     await page.waitForURL(`**/manufacturing/orders/${completionOrderId}/execute`);
@@ -1616,7 +1647,7 @@ test.describe("Manufacturing order flow", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(completedProduct.expectedQty).toBe("0.0000");
+    expect(completedProduct.expectedQty).toBe("2.0000");
 
     const cancelCompletedResponse = await testFetch(
       `/api/manufacturing-orders/${completionOrderId}/cancel`,
@@ -1994,10 +2025,7 @@ test.describe("Manufacturing order flow", () => {
     await expect(page.getByRole("button", { name: "Saving..." })).toBeHidden({
       timeout: 15_000,
     });
-    await outputDestination.getByRole("button", { name: /Move 5/ }).click();
-    await expect(allocationDialog.getByTestId("allocation-holding-hud")).toBeVisible();
-    await expect(outputDestination.getByTestId("allocation-ghost-slot").first()).toBeVisible();
-    await expect(outputDestination).toContainText(/Allocated\s*0/);
+    await expect(outputDestination).toContainText(/Allocated\s*5/);
     await page.keyboard.press("Escape");
 
     const allocationResponse = await testFetch(
@@ -2224,7 +2252,7 @@ test.describe("Manufacturing order flow", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, guardOrderId));
 
-    expect(guardOrder.status).toBe("draft");
+    expect(guardOrder.status).toBe("released");
 
     const clearBomResult = await updateItem(guardProductId, {
       name: guardProductName,

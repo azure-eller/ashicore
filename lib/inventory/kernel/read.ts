@@ -309,13 +309,12 @@ export function projectedReservableOnHandQtyExpr(
     SELECT SUM(${inventoryLotBalances.quantity})
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
-      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-        organizationId
-      )}
-      AND ${inventoryLotBalances.itemId} = ${itemId}
-      AND ${inventoryLotBalances.disposition} = 'available'
-      AND ${inventoryLotBalances.quantity} > 0
-  ), 0)`;
+	      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+	        organizationId
+	      )}
+	      AND ${inventoryLotBalances.itemId} = ${itemId}
+	      AND ${inventoryLotBalances.disposition} = 'available'
+	  ), 0)`;
 }
 
 export function projectedAvailableQtyExpr(
@@ -343,10 +342,9 @@ export function projectedAgeEligibleAvailableQtyExpr(
         AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
           organizationId
         )}
-        AND ${inventoryLotBalances.itemId} = ${itemId}
-        AND ${inventoryLotBalances.disposition} = 'available'
-        AND ${inventoryLotBalances.quantity} > 0
-        AND ${inventoryLotBalances.receivedAt}::date <= (
+	        AND ${inventoryLotBalances.itemId} = ${itemId}
+	        AND ${inventoryLotBalances.disposition} = 'available'
+	        AND ${inventoryLotBalances.receivedAt}::date <= (
           CURRENT_DATE - (${minimumLotAgeDays}::int * INTERVAL '1 day')
         )
     ), 0)

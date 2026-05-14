@@ -227,11 +227,13 @@ const rawReceiveLineSchema = z.object({
 });
 
 export const receivePurchaseOrderSchema = z
-  .object({
-    lines: z.array(rawReceiveLineSchema).min(1),
-  })
-  .transform(({ lines }) => ({
-    lines: lines
+	  .object({
+	    lines: z.array(rawReceiveLineSchema).min(1),
+	    confirmOverReceipt: z.boolean().optional(),
+	  })
+	  .transform(({ lines, confirmOverReceipt }) => ({
+	    confirmOverReceipt: confirmOverReceipt ?? false,
+	    lines: lines
       .map((line) => ({
         lineId: line.lineId,
         quantityReceived: line.quantityReceived?.trim() ?? "",

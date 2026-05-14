@@ -14,24 +14,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type {
-  DraftAllocationTakeoverWarningPayload,
-  OversellWarningPayload,
-} from "./types";
-import {
-  OVERSELL_WARNING_DESCRIPTION,
-  OversellWarningTable,
-} from "./oversell-warning-table";
+import type { DraftAllocationTakeoverWarningPayload } from "./types";
 
 type ConfirmError = Error & {
   status: number;
   error: string;
-  oversell?: OversellWarningPayload;
   draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
 };
 
 type ConfirmFlags = {
-  confirmOversell?: boolean;
   confirmDraftAllocationTakeover?: boolean;
 };
 
@@ -42,8 +33,6 @@ export function useConfirmSalesOrderFlow(
   const queryClient = useQueryClient();
   const router = useRouter();
   const [actionError, setActionError] = useState<ConfirmError | null>(null);
-  const [oversellWarning, setOversellWarning] =
-    useState<OversellWarningPayload | null>(null);
   const [draftTakeoverWarning, setDraftTakeoverWarning] =
     useState<DraftAllocationTakeoverWarningPayload | null>(null);
 
@@ -68,7 +57,6 @@ export function useConfirmSalesOrderFlow(
           const payload = body as
             | {
                 error?: unknown;
-                oversell?: OversellWarningPayload;
                 draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
               }
             | null;
@@ -76,7 +64,6 @@ export function useConfirmSalesOrderFlow(
           return Object.assign(new Error(message), {
             status,
             error: message,
-            oversell: payload?.oversell,
             draftAllocationTakeover: payload?.draftAllocationTakeover,
           } satisfies Omit<ConfirmError, keyof Error>);
         },
@@ -84,7 +71,6 @@ export function useConfirmSalesOrderFlow(
     },
     onMutate: () => {
       setActionError(null);
-      setOversellWarning(null);
       setDraftTakeoverWarning(null);
     },
     onSuccess: async () => {
@@ -92,10 +78,6 @@ export function useConfirmSalesOrderFlow(
       options?.onSuccess?.();
     },
     onError: (error: ConfirmError) => {
-      if (error.status === 409 && error.oversell) {
-        setOversellWarning(error.oversell);
-        return;
-      }
       if (error.status === 409 && error.draftAllocationTakeover) {
         setDraftTakeoverWarning(error.draftAllocationTakeover);
         return;
@@ -110,81 +92,51 @@ export function useConfirmSalesOrderFlow(
     isPending: confirmMutation.isPending,
     errorMessage: actionError?.error ?? null,
     dialogs: (
-      <>
-        <AlertDialog
-          open={oversellWarning != null}
-          onOpenChange={(open) => {
-            if (!open) setOversellWarning(null);
-          }}
+      <AlertDialog
+        open={draftTakeoverWarning != null}
+        onOpenChange={(open) => {
+          if (!open) setDraftTakeoverWarning(null);
+        }}
+      >
+        <AlertDialogContent
+          size="2xl"
+          className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
         >
-          <AlertDialogContent
-            size="2xl"
-            className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
-          >
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm Oversell?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {OVERSELL_WARNING_DESCRIPTION}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <OversellWarningTable products={oversellWarning?.products ?? []} linkItems />
-            <AlertDialogFooter>
-              <AlertDialogCancel>Back</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={confirmMutation.isPending}
-                onClick={() => confirmMutation.mutate({ confirmOversell: true })}
+          <AlertDialogHeader>
+            <AlertDialogTitle>Take Open Allocations?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirming this order will reduce stock allocated to other open orders.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 text-sm">
+            {draftTakeoverWarning?.allocations.map((allocation) => (
+              <div
+                key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
+                className="flex justify-between gap-4 rounded-md border p-2"
               >
-                {confirmMutation.isPending ? "Confirming..." : "Confirm Anyway"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <AlertDialog
-          open={draftTakeoverWarning != null}
-          onOpenChange={(open) => {
-            if (!open) setDraftTakeoverWarning(null);
-          }}
-        >
-          <AlertDialogContent
-            size="2xl"
-            className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
-          >
-            <AlertDialogHeader>
-              <AlertDialogTitle>Take Open Allocations?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Confirming this order will reduce stock allocated to other open orders.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="space-y-2 text-sm">
-              {draftTakeoverWarning?.allocations.map((allocation) => (
-                <div
-                  key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
-                  className="flex justify-between gap-4 rounded-md border p-2"
-                >
-                  <span>
-                    {allocation.orderNumber} · {allocation.customerName} ·{" "}
-                    {allocation.itemName}
-                  </span>
-                  <span className="font-medium">
-                    {allocation.quantity} {allocation.unitName}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Back</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={confirmMutation.isPending}
-                onClick={() =>
-                  confirmMutation.mutate({ confirmDraftAllocationTakeover: true })
-                }
-              >
-                {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </>
+                <span>
+                  {allocation.orderNumber} · {allocation.customerName} ·{" "}
+                  {allocation.itemName}
+                </span>
+                <span className="font-medium">
+                  {allocation.quantity} {allocation.unitName}
+                </span>
+              </div>
+            ))}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmMutation.isPending}
+              onClick={() =>
+                confirmMutation.mutate({ confirmDraftAllocationTakeover: true })
+              }
+            >
+              {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     ),
   };
 }

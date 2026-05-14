@@ -478,7 +478,7 @@ List pages with search + add + optional bulk delete should use `DashboardDataTab
 API-facing business errors should extend `DomainError` from `lib/errors/domain-error.ts`. Use `errors` for field errors and `extra` for domain payloads.
 
 ```ts
-export class SalesError extends DomainError<{ oversell: OversellWarningPayload }> {}
+export class SalesError extends DomainError<{ negativeStock: NegativeStockWarningPayload }> {}
 ```
 
 ### Bulk delete mutations
@@ -603,7 +603,7 @@ See `docs/manufacturing.md`. Critical:
 - Round derived quantities to 4 decimals before shortage checks or stock deltas. Use `multiplyQuantity(...)` — never raw JS float multiplication.
 - MOs store `requestedQuantity` (user input) separately from `plannedQuantity` (batch-rounded). Forms edit `requestedQuantity`; execution math uses `plannedQuantity`.
 - Manual batch MOs may use decimal batch counts; store integer execution rows and scale the final batch's planned output/ingredients.
-- Release may warn `409` + shortage payload and continue after `confirmShortage: true`. Completion hard-blocks on shortages before any stock mutation.
+- Release does not warn on current ingredient shortages. Picking is the stock-consuming step and may warn before negative stock or lot-eligibility overrides.
 - Discrete orders pick every ingredient before `/complete`. Completion reuses persisted pick allocations — never deduct stock again. Detail/history pages link into `/execute`; the actual work lives in execution queue/detail routes.
 - Batch-mode orders create execution batches on release, pick/complete one batch at a time, stay `released` until the final batch completes, and produce one lot per batch. Direct parent completion is invalid for batch-mode.
 - BOM line alternates are draft-planning choices: choose the material before release; released execution only picks the chosen ingredient.
@@ -742,7 +742,7 @@ Never merge main into your branch — always rebase so history stays linear.
 - Inventory DAL queries: `app/(dashboard)/inventory/queries.ts` (barrel) → bulk in `app/(dashboard)/inventory/queries/internal.ts`; per-feature splits in sibling files
 - Sales DAL queries + SalesError: `app/(dashboard)/sales/queries.ts`
 - Item form (unified): `app/(dashboard)/inventory/item-form/index.tsx` (with `dialogs/`, `fields/` siblings)
-- Order form (line items + oversell): `app/(dashboard)/sales/order-form.tsx`
+- Order form (line items): `app/(dashboard)/sales/order-form.tsx`
 - BOM editor: `app/(dashboard)/inventory/bom-editor.tsx`
 - Data table: `app/(dashboard)/inventory/data-table.tsx`
 - Shared components: `components/sortable-header.tsx`

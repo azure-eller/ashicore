@@ -19,7 +19,6 @@ Sales v1 includes:
 - customer and product snapshots on saved orders
 - `draft`, `confirmed`, `partially_shipped`, `shipped`, and `cancelled` statuses
 - projection-backed committed supply from non-deleted confirmed orders with non-deleted lines
-- oversell warnings on confirm-entry actions only
 - sales shipments under confirmed and partially shipped orders
 - automatically generated draft shipment BOLs before loading
 - automatically generated final shipment BOLs after shipping
@@ -97,13 +96,12 @@ Historical rules:
 - products and customers used by active draft, confirmed, or partially shipped sales orders cannot be soft-deleted
 - shipped orders rely on snapshots for history and do not block customer or product soft delete
 
-## Oversell Warning
+## Oversell Behavior
 
 - overselling is allowed
-- warning applies only when the action would move the order into `confirmed`
-- use the main `POST` or `PUT` route
-- server returns `409` with warning payload unless `confirmOversell === true`
-- client shows a warning dialog and may retry with `confirmOversell: true`
+- creating, editing, or confirming a sales order does not show an oversell warning
+- `confirmOversell` may still appear in older clients, but the server ignores it
+- shipping is the stock-consuming step and may warn/require confirmation for negative stock
 
 ## Shipments and BOLs
 
@@ -118,7 +116,7 @@ Historical rules:
 - shipped shipments are immutable and automatically expose final shipment BOLs
 - shipment costs and customer freight recovery stay editable after shipping because they do not change stock movement history
 - shipping a draft shipment consumes live lot-backed stock FIFO for shipment quantities only
-- shipping hard-blocks on insufficient stock; there is no override path
+- shipping may warn before recording negative stock; retrying with `confirmNegativeStock` continues
 - successful shipment shipping writes `sales_consumption` inventory events against `referenceType = sales_shipment`
 - shipment shipping releases demand/reservation only for shipped quantities and flushes item/reservation projections in the same transaction
 - successful non-final shipment shipping sets order `status = partially_shipped`

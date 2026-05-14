@@ -239,6 +239,7 @@ export const completeManufacturingOrderSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
+  confirmNegativeStock: z.boolean().optional(),
 });
 export type CompleteManufacturingOrder = z.infer<
   typeof completeManufacturingOrderSchema
@@ -248,6 +249,7 @@ export const completeManufacturingBatchSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
+  confirmNegativeStock: z.boolean().optional(),
 });
 export type CompleteManufacturingBatch = z.infer<
   typeof completeManufacturingBatchSchema
@@ -260,6 +262,7 @@ export type StartManufacturingBatch = z.infer<
 
 export const pickManufacturingIngredientSchema = z.object({
   confirmRequirementOverride: z.boolean().optional(),
+  confirmNegativeStock: z.boolean().optional(),
 });
 export type PickManufacturingIngredient = z.infer<
   typeof pickManufacturingIngredientSchema
