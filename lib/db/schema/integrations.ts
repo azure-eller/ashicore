@@ -130,10 +130,10 @@ export const integrationExternalRecords = integrationsSchema
         table.entityType,
         table.localRecordId
       ),
-      uniqueIndex("external_records_external_id_uidx")
+      index("external_records_external_id_idx")
         .on(table.organizationId, table.provider, table.entityType, table.externalId)
         .where(sql`external_id IS NOT NULL`),
-      uniqueIndex("external_records_external_code_uidx")
+      index("external_records_external_code_idx")
         .on(table.organizationId, table.provider, table.entityType, table.externalCode)
         .where(sql`external_code IS NOT NULL`),
       pgPolicy("external_records_org_isolation", {

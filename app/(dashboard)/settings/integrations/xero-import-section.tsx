@@ -549,7 +549,7 @@ function PurchasingSyncDialog({
                 {(previewMutation.error as Error).message}
               </p>
             ) : preview ? (
-              <div className="flex h-full min-h-0 flex-col gap-3">
+              <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
                 <div className="grid gap-2 sm:grid-cols-5">
                   <PreviewMetric label="Matched" value={preview.summary.ready} />
                   <PreviewMetric label="Selected" value={selectedIds.size} />
@@ -573,11 +573,23 @@ function PurchasingSyncDialog({
                   />
                   <span>Select all matched rows from {preview.tenantName}</span>
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-background">
-                  <Table className="min-w-[64rem]">
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border bg-background">
+                  <Table
+                    className="min-w-[72rem] table-fixed"
+                    containerClassName="overflow-visible"
+                  >
+                    <colgroup>
+                      <col className="w-12" />
+                      <col className="w-28" />
+                      <col className="w-56" />
+                      <col className="w-72" />
+                      <col className="w-72" />
+                      <col className="w-36" />
+                      <col className="w-28" />
+                    </colgroup>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-10" />
+                        <TableHead />
                         <TableHead>Status</TableHead>
                         <TableHead>ERP supplier</TableHead>
                         <TableHead>ERP item match</TableHead>
@@ -619,19 +631,36 @@ function PurchasingSyncDialog({
                                 </div>
                               ) : null}
                             </TableCell>
-                            <TableCell>{candidate.supplierName}</TableCell>
                             <TableCell>
-                              {candidate.itemName ?? "—"}
+                              <div className="truncate" title={candidate.supplierName}>
+                                {candidate.supplierName}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div
+                                className="truncate"
+                                title={candidate.itemName ?? undefined}
+                              >
+                                {candidate.itemName ?? "—"}
+                              </div>
                               {candidate.itemSku ? (
-                                <div className="text-xs text-muted-foreground">
+                                <div
+                                  className="truncate text-xs text-muted-foreground"
+                                  title={candidate.itemSku}
+                                >
                                   {candidate.itemSku}
                                 </div>
                               ) : null}
                             </TableCell>
                             <TableCell>
-                              {candidate.xeroItemCode}
+                              <div className="truncate" title={candidate.xeroItemCode}>
+                                {candidate.xeroItemCode}
+                              </div>
                               {candidate.xeroItemName ? (
-                                <div className="max-w-64 truncate text-xs text-muted-foreground">
+                                <div
+                                  className="truncate text-xs text-muted-foreground"
+                                  title={candidate.xeroItemName}
+                                >
                                   {candidate.xeroItemName}
                                 </div>
                               ) : null}

@@ -953,7 +953,9 @@ export async function applyXeroPurchasingSync(
       } catch (error) {
         console.error("Xero purchasing sync row failed:", redactXeroError(error));
         result.errors.push(
-          `${candidate.supplierName} / ${candidate.xeroItemCode}: ${extractXeroMessage(error)}`
+          `${candidate.supplierName} / ${
+            candidate.xeroItemCode
+          }: ${formatPurchasingSyncRowError(error)}`
         );
       }
     }
@@ -973,4 +975,17 @@ export async function applyXeroPurchasingSync(
 
     return result;
   });
+}
+
+function formatPurchasingSyncRowError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (
+    message.includes("Failed query:") ||
+    message.includes("violates unique constraint") ||
+    message.includes("duplicate key value")
+  ) {
+    return "Could not save this row. The details were logged for support.";
+  }
+
+  return extractXeroMessage(error);
 }
