@@ -154,7 +154,7 @@ export async function editExpectedFromManufacturingInTx(
   return result;
 }
 
-export async function reserveIngredientsForManufacturingInTx(
+export async function addIngredientDemandForManufacturingInTx(
   tx: Tx,
   params: {
     organizationId: string;
@@ -170,7 +170,7 @@ export async function reserveIngredientsForManufacturingInTx(
 ) {
   const replay = await beginInventoryOperationInTx<{ referenceIds: string[] }>(tx, {
     organizationId: params.organizationId,
-    operationName: "reserveIngredientsForManufacturing",
+    operationName: "addIngredientDemandForManufacturing",
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       manufacturingOrderId: params.manufacturingOrderId,
@@ -197,13 +197,6 @@ export async function reserveIngredientsForManufacturingInTx(
     eventSubtype: "manufacturing_release",
     deltas,
   });
-  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: location.id,
-    actorUserId: params.actorUserId ?? null,
-    eventSubtype: "manufacturing_release",
-    deltas,
-  });
 
   const result = {
     referenceIds: params.ingredients.map((ingredient) => ingredient.ingredientId),
@@ -212,7 +205,7 @@ export async function reserveIngredientsForManufacturingInTx(
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
     idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
+    firstEventId: demandEvents[0]?.id ?? null,
     result,
   });
 
@@ -333,10 +326,10 @@ export async function pickManufacturingIngredientInTx(
     quantity: number;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
-	    minimumReceivedDate?: string | null;
-	    confirmRequirementOverride?: boolean;
-	    allowNegativeStock?: boolean;
-	  }
+    minimumReceivedDate?: string | null;
+    confirmRequirementOverride?: boolean;
+    allowNegativeStock?: boolean;
+  }
 ) {
   const replay = await beginInventoryOperationInTx<{ eventIds: string[] }>(tx, {
     organizationId: params.organizationId,
@@ -346,11 +339,11 @@ export async function pickManufacturingIngredientInTx(
       manufacturingOrderId: params.manufacturingOrderId,
       ingredientId: params.ingredientId,
       itemId: params.itemId,
-	      quantity: params.quantity,
-	      minimumReceivedDate: params.minimumReceivedDate ?? null,
-	      confirmRequirementOverride: params.confirmRequirementOverride ?? false,
-	      allowNegativeStock: params.allowNegativeStock ?? false,
-	    },
+      quantity: params.quantity,
+      minimumReceivedDate: params.minimumReceivedDate ?? null,
+      confirmRequirementOverride: params.confirmRequirementOverride ?? false,
+      allowNegativeStock: params.allowNegativeStock ?? false,
+    },
   });
 
   if (replay.replayed) {
@@ -377,7 +370,7 @@ export async function pickManufacturingIngredientInTx(
   });
   const ownReservation = parseFloat(ownReservationRow?.quantity ?? "0");
 
-	  if (available + ownReservation < params.quantity && !params.allowNegativeStock) {
+  if (available + ownReservation < params.quantity && !params.allowNegativeStock) {
     throw new InsufficientStockError({
       itemId: params.itemId,
       available: available + ownReservation,
@@ -424,10 +417,10 @@ export async function pickManufacturingIngredientInTx(
           idempotencyKey: heldConsumed.idempotencyUsed
             ? null
             : params.idempotencyKey ?? null,
-	          minimumReceivedDate: params.minimumReceivedDate ?? null,
-	          allowIneligibleLots: params.confirmRequirementOverride ?? false,
-	          allowNegativeStock: params.allowNegativeStock ?? false,
-	          metadata: { manufacturingOrderIngredientId: params.ingredientId },
+          minimumReceivedDate: params.minimumReceivedDate ?? null,
+          allowIneligibleLots: params.confirmRequirementOverride ?? false,
+          allowNegativeStock: params.allowNegativeStock ?? false,
+          metadata: { manufacturingOrderIngredientId: params.ingredientId },
           unavailableByLotId,
         })
       : { allocations: [], eventIds: [] };
@@ -581,23 +574,6 @@ export async function unpickManufacturingIngredientInTx(
     (sum, allocation) => sum + parseFloat(allocation.quantityUsed),
     0
   );
-
-  await applyReservationReferenceDeltasInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: location.id,
-    actorUserId: params.actorUserId ?? null,
-    eventSubtype: "unpicked",
-    deltas: totalQuantity
-      ? [
-          {
-            itemId: params.itemId,
-            referenceType: "manufacturing_order_ingredient",
-            referenceId: params.ingredientId,
-            quantity: totalQuantity,
-          },
-        ]
-      : [],
-  });
 
   await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,

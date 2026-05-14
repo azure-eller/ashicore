@@ -46,6 +46,7 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   addExpectedFromManufacturingInTx,
+  addIngredientDemandForManufacturingInTx,
   editExpectedFromManufacturingInTx,
   applyDemandReferenceDeltasInTx,
   applyExpectedReferenceDeltasInTx,
@@ -68,7 +69,6 @@ import {
   projectedLotUnitCost,
   reconcileIngredientActualsInTx,
   releaseIngredientReservationForManufacturingInTx,
-  reserveIngredientsForManufacturingInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
@@ -1059,7 +1059,7 @@ async function activateManufacturingOrderInTx(
     actorUserId: params.actorUserId ?? null,
   });
 
-  await reserveIngredientsForManufacturingInTx(tx, {
+  await addIngredientDemandForManufacturingInTx(tx, {
     organizationId: orgId,
     manufacturingOrderId: order.id,
     actorUserId: params.actorUserId ?? null,
@@ -3466,7 +3466,7 @@ export async function updateManufacturingOrder(
         }
       }
 
-      await reserveIngredientsForManufacturingInTx(tx, {
+      await addIngredientDemandForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
         actorUserId: userId,
@@ -5405,23 +5405,26 @@ export async function completeManufacturingBatch(
 export async function pickManufacturingIngredient(
   orderId: string,
   ingredientId: string,
-	  options?: {
-	    idempotencyKey?: string;
-	    confirmRequirementOverride?: boolean;
-	    confirmNegativeStock?: boolean;
-	  }
+  options?: {
+    idempotencyKey?: string;
+    confirmRequirementOverride?: boolean;
+    confirmNegativeStock?: boolean;
+  }
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const confirmRequirementOverride = options?.confirmRequirementOverride === true;
+    const confirmNegativeStock =
+      options?.confirmNegativeStock === true || confirmRequirementOverride;
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
       organizationId: orgId,
       operationName: "pickManufacturingIngredient",
       idempotencyKey: options?.idempotencyKey ?? null,
       payload: {
-	        orderId,
-	        ingredientId,
-	        confirmRequirementOverride: options?.confirmRequirementOverride ?? false,
-	        confirmNegativeStock: options?.confirmNegativeStock ?? false,
-	      },
+        orderId,
+        ingredientId,
+        confirmRequirementOverride,
+        confirmNegativeStock,
+      },
     });
 
     if (replay.replayed) {
@@ -5522,7 +5525,7 @@ export async function pickManufacturingIngredient(
 
       if (
         ageAvailability.eligible < remainingQuantity &&
-        !options?.confirmRequirementOverride
+        !confirmRequirementOverride
       ) {
         throw new ManufacturingError(
           `Not enough eligible ${ingredient.itemName}.`,
@@ -5569,48 +5572,42 @@ export async function pickManufacturingIngredient(
       }
     }
 
-	    try {
-	      await pickManufacturingIngredientInTx(tx, {
-	        organizationId: orgId,
-	        manufacturingOrderId: orderId,
-	        ingredientId,
-	        itemId: ingredient.itemId,
-	        quantity: remainingQuantity,
-	        actorUserId: userId,
-	        idempotencyKey: deriveInventoryIdempotencyKey(
-	          options?.idempotencyKey,
-	          `pick-ingredient:${ingredientId}`
-	        ),
-	        minimumReceivedDate,
-	        confirmRequirementOverride: options?.confirmRequirementOverride,
-	        allowNegativeStock: options?.confirmNegativeStock === true,
-	      });
-	    } catch (error) {
-	      if (error instanceof InsufficientStockError) {
-	        throw new ManufacturingError(
-	          `Not enough ${ingredient.itemName}.`,
-	          409,
-	          {
-	            shortage: {
-	              ingredients: [
-	                {
-	                  itemId: ingredient.itemId,
-	                  itemName: ingredient.itemName,
-	                  unitName: ingredient.unitName,
-	                  needed: error.requested,
-	                  available: error.available,
-	                  shortage: normalizeQuantityNumber(
-	                    error.requested - error.available
-	                  ),
-	                  warningType: "stock_shortage",
-	                },
-	              ],
-	            },
-	          }
-	        );
-	      }
-	      throw error;
-	    }
+    try {
+      await pickManufacturingIngredientInTx(tx, {
+        organizationId: orgId,
+        manufacturingOrderId: orderId,
+        ingredientId,
+        itemId: ingredient.itemId,
+        quantity: remainingQuantity,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          `pick-ingredient:${ingredientId}`
+        ),
+        minimumReceivedDate,
+        confirmRequirementOverride,
+        allowNegativeStock: confirmNegativeStock,
+      });
+    } catch (error) {
+      if (error instanceof InsufficientStockError) {
+        throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
+          shortage: {
+            ingredients: [
+              {
+                itemId: ingredient.itemId,
+                itemName: ingredient.itemName,
+                unitName: ingredient.unitName,
+                needed: error.requested,
+                available: error.available,
+                shortage: normalizeQuantityNumber(error.requested - error.available),
+                warningType: "stock_shortage",
+              },
+            ],
+          },
+        });
+      }
+      throw error;
+    }
 
     await tx
       .update(manufacturingOrderIngredients)

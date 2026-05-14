@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryEvents,
+  inventoryDemandSummary,
   inventoryItemBalances,
   inventoryReservationsSummary,
   lots,
@@ -943,6 +944,18 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(releasedIngredient.itemId).toBe(alternateMaterial.body.id);
     expect(releasedIngredient.plannedQuantity).toBe("3.9956");
 
+    const [alternateDemand] = await db
+      .select({
+        itemId: inventoryDemandSummary.itemId,
+        quantity: inventoryDemandSummary.quantity,
+      })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, releasedIngredient.id));
+    expect(alternateDemand).toEqual({
+      itemId: alternateMaterial.body.id,
+      quantity: "3.9956",
+    });
+
     const [alternateReservation] = await db
       .select({
         itemId: inventoryReservationsSummary.itemId,
@@ -950,10 +963,7 @@ test.describe("Manufacturing write-path smoke", () => {
       })
       .from(inventoryReservationsSummary)
       .where(eq(inventoryReservationsSummary.referenceId, releasedIngredient.id));
-    expect(alternateReservation).toEqual({
-      itemId: alternateMaterial.body.id,
-      quantity: "3.9956",
-    });
+    expect(alternateReservation).toBeUndefined();
 
     const pickResponse = await testFetch(
       `/api/manufacturing-orders/${alternateOrderId}/ingredients/${releasedIngredient.id}/pick`,

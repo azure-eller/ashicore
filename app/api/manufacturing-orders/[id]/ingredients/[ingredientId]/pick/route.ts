@@ -17,11 +17,11 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const data = pickManufacturingIngredientSchema.parse(body);
 
   try {
-	    const result = await pickManufacturingIngredient(id, ingredientId, {
-	      idempotencyKey,
-	      confirmRequirementOverride: data.confirmRequirementOverride,
-	      confirmNegativeStock: data.confirmNegativeStock,
-	    });
+    const result = await pickManufacturingIngredient(id, ingredientId, {
+      idempotencyKey,
+      confirmRequirementOverride: data.confirmRequirementOverride,
+      confirmNegativeStock: data.confirmNegativeStock,
+    });
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();

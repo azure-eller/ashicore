@@ -167,7 +167,7 @@ Inventory effects are now split between pick and produce:
 
 - `manufacturing_ingredient_consumption` events for ingredient deductions at pick time
 - `manufacturing_output` for the finished-product lot
-- `reservation_increase` / `reservation_release` for ingredient reservations
+- `demand_increase` / `demand_release` for manufacturing ingredient needs
 - `expected_increase` / `expected_release` for output-side expected supply
 
 Discrete completion must reuse persisted pick allocations and must not deduct ingredient stock a second time. Batch-mode completion uses the batch’s pick allocations and creates one finished lot per completed batch.
