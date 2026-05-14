@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
 
 type ApiError = Error & {
@@ -16,9 +22,15 @@ type ApiError = Error & {
 export function MoStageAction({
   orderId,
   status,
+  trigger,
+  triggerAriaLabel,
+  menuAlign = "end",
 }: {
   orderId: string;
   status: ManufacturingOrderStatus;
+  trigger?: ReactNode;
+  triggerAriaLabel?: string;
+  menuAlign?: "start" | "center" | "end";
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -56,6 +68,49 @@ export function MoStageAction({
       setActionError(error.error ?? "Failed to activate order.");
     },
   });
+
+  if (trigger && (status === "draft" || status === "released")) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={(event) => event.stopPropagation()}
+            aria-label={triggerAriaLabel ?? "Manufacturing order actions"}
+          >
+            {trigger}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align={menuAlign} className="w-48">
+          {status === "draft" ? (
+            <DropdownMenuItem
+              disabled={releaseMutation.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                releaseMutation.mutate();
+              }}
+              className="py-2.5 text-lg"
+            >
+              {releaseMutation.isPending ? "Activating..." : "Activate"}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem asChild className="py-2.5 text-lg">
+              <Link href={`/manufacturing/orders/${orderId}/execute`}>Execute</Link>
+            </DropdownMenuItem>
+          )}
+          {actionError ? (
+            <DropdownMenuItem
+              disabled
+              className="py-2.5 text-lg text-destructive"
+            >
+              {actionError}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 
   if (status === "draft") {
     return (

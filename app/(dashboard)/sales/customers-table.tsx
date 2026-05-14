@@ -67,7 +67,7 @@ const columns: ColumnDef<CustomerRow>[] = [
     header: ({ column }) => <SortableHeader column={column} label="Reference ID" />,
     cell: ({ row }) =>
       row.original.xeroContactId ? (
-        <span className="block max-w-56 truncate" title={row.original.xeroContactId}>
+        <span title={row.original.xeroContactId}>
           {row.original.xeroContactId}
         </span>
       ) : (
@@ -79,7 +79,7 @@ const columns: ColumnDef<CustomerRow>[] = [
     header: ({ column }) => <SortableHeader column={column} label="Comment" />,
     cell: ({ row }) =>
       row.original.notes ? (
-        <span className="block max-w-96 truncate" title={row.original.notes}>
+        <span title={row.original.notes}>
           {row.original.notes}
         </span>
       ) : (

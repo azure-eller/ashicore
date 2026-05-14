@@ -202,6 +202,28 @@ function getProductionState(order: ManufacturingOrderListRow): OperationalState 
   return { label: "Not started", tone: "muted" };
 }
 
+function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
+  const state = getProductionState(order);
+
+  if (order.status !== "draft" && order.status !== "released") {
+    return <OperationalStateCell state={state} />;
+  }
+
+  return (
+    <MoStageAction
+      orderId={order.id}
+      status={order.status}
+      trigger={
+        <OperationalStateCell
+          state={state}
+          className="transition-colors hover:border-primary/40 hover:bg-primary/10"
+        />
+      }
+      triggerAriaLabel={`Manufacturing actions for ${order.orderNumber}`}
+    />
+  );
+}
+
 function doneManufacturingOrderRank(order: ManufacturingOrderListRow) {
   if (order.status === "cancelled") return 1;
   if (order.status === "completed") return 0;
@@ -336,7 +358,7 @@ const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
         getProductionState(b.original).label
       );
     },
-    cell: ({ row }) => <OperationalStateCell state={getProductionState(row.original)} />,
+    cell: ({ row }) => <ProductionActionCell order={row.original} />,
     meta: { className: "w-44" },
   },
   {
@@ -383,14 +405,6 @@ const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
     accessorKey: "completedAt",
     header: ({ column }) => <SortableHeader column={column} label="Completed" />,
     cell: ({ row }) => <DateTimeText value={row.original.completedAt} />,
-  },
-  {
-    id: "action",
-    header: "",
-    cell: ({ row }) => (
-      <MoStageAction orderId={row.original.id} status={row.original.status} />
-    ),
-    enableSorting: false,
   },
 ];
 

@@ -272,10 +272,16 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    await expect(
-      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-      .getByRole("link", { name: "Execute" })
-    ).toBeVisible({ timeout: 15_000 });
+    const firstOrderRow = page.getByRole("row", {
+      name: new RegExp(firstOrderNumber),
+    });
+    await firstOrderRow
+      .getByRole("button", { name: new RegExp(`Manufacturing actions for ${firstOrderNumber}`) })
+      .click();
+    await expect(page.getByRole("menuitem", { name: "Execute" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.keyboard.press("Escape");
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();

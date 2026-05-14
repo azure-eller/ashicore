@@ -61,7 +61,7 @@ function NotesCell({ notes }: { notes: string | null }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="block max-w-48 truncate text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+          className="block w-full overflow-hidden text-ellipsis text-left text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
         >
           {trimmedNotes}
         </button>
