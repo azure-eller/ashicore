@@ -617,6 +617,13 @@
       "when": 1778771839297,
       "tag": "0087_lethal_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1778771839298,
+      "tag": "0088_wakeful_guardian",
+      "breakpoints": true
     }
   ]
 }

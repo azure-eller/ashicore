@@ -260,10 +260,10 @@ html.dark [data-sidebar-bar] {
   }
 
   .alloc-progress-fill-held {
-    background: oklch(0.68 0.2 270);
+    background: oklch(0.84 0.2 95);
     box-shadow:
-      0 0 2px oklch(0.64 0.2 270 / 0.72),
-      0 0 8px oklch(0.64 0.2 270 / 0.34);
+      0 0 2px oklch(0.84 0.2 95 / 0.72),
+      0 0 8px oklch(0.84 0.2 95 / 0.34);
   }
 
   .alloc-progress-fill-drop {

@@ -113,7 +113,7 @@ function PriorityRankEditor({
 }) {
   const [value, setValue] = useState(order.priorityRank?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
-  const canEdit = order.status === "draft" || order.status === "released";
+  const canEdit = order.status === "released";
 
   const mutation = useMutation({
     mutationFn: async (priorityRank: number | null) => {

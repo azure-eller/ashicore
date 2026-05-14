@@ -153,6 +153,7 @@ type LockedManufacturingOrder = {
   salesCustomerName: string | null;
   plannedQuantity: string;
   plannedDate: string | null;
+  priorityRank: number | null;
   bomRevisionId: string | null;
 };
 
@@ -452,6 +453,7 @@ async function getLockedManufacturingOrderInTx(
       salesCustomerName: manufacturingOrders.salesCustomerName,
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
       plannedDate: manufacturingOrders.plannedDate,
+      priorityRank: manufacturingOrders.priorityRank,
     })
     .from(manufacturingOrders)
     .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)))
@@ -488,7 +490,7 @@ async function assertPriorityRankAvailableInTx(
   const filters = [
     eq(manufacturingOrders.organizationId, orgId),
     eq(manufacturingOrders.priorityRank, priorityRank),
-    inArray(manufacturingOrders.status, ["draft", "released"]),
+    eq(manufacturingOrders.status, "released"),
     isNull(manufacturingOrders.deletedAt),
   ];
 
@@ -519,7 +521,7 @@ async function getNextManufacturingOrderPriorityRankInTx(tx: Tx, orgId: string) 
     .where(
       and(
         eq(manufacturingOrders.organizationId, orgId),
-        inArray(manufacturingOrders.status, ["draft", "released"]),
+        eq(manufacturingOrders.status, "released"),
         isNull(manufacturingOrders.deletedAt)
       )
     )
@@ -2937,10 +2939,6 @@ export async function createManufacturingOrderInTx(
     ingredientMultiplier,
     payload.ingredients
   );
-  const priorityRank =
-    payload.priorityRank ?? (await getNextManufacturingOrderPriorityRankInTx(tx, orgId));
-  await assertPriorityRankAvailableInTx(tx, orgId, priorityRank);
-
   const order = await insertManufacturingOrderInTx(tx, orgId, {
     product,
     bomRevisionId,
@@ -2948,7 +2946,7 @@ export async function createManufacturingOrderInTx(
     requestedQuantity: payload.plannedQuantity,
     plannedQuantity,
     numberOfBatches,
-    priorityRank,
+    priorityRank: null,
     plannedDate: payload.plannedDate ?? null,
     notes: payload.notes ?? null,
     ingredients,
@@ -3089,11 +3087,6 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       line.itemId,
       ingredientMultiplier
     );
-    const priorityRank =
-      (payload.priorityRank ??
-        (await getNextManufacturingOrderPriorityRankInTx(tx, orgId))) + created.length;
-    await assertPriorityRankAvailableInTx(tx, orgId, priorityRank);
-
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
       product,
       bomRevisionId,
@@ -3106,7 +3099,7 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       requestedQuantity,
       plannedQuantity,
       numberOfBatches,
-      priorityRank,
+      priorityRank: null,
       plannedDate,
       notes: payload.notes ?? null,
       ingredients,
@@ -3178,7 +3171,6 @@ export async function updateManufacturingOrder(
       ingredientMultiplier,
       payload.ingredients
     );
-    await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank, id);
     const existingIngredientRows = await tx
       .select({ id: manufacturingOrderIngredients.id })
       .from(manufacturingOrderIngredients)
@@ -3195,7 +3187,7 @@ export async function updateManufacturingOrder(
         requestedQuantity: normalizeNumeric(Number(payload.plannedQuantity)),
         plannedQuantity: normalizeNumeric(plannedQuantity),
         numberOfBatches,
-        priorityRank: payload.priorityRank,
+        priorityRank: null,
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
         updatedAt: new Date(),
@@ -3231,9 +3223,9 @@ export async function updateManufacturingOrderPriority(
       return null;
     }
 
-    if (order.status !== "draft" && order.status !== "released") {
+    if (order.status !== "released") {
       throw new ManufacturingError(
-        "Only draft or released manufacturing orders can be ranked.",
+        "Only released manufacturing orders can be ranked.",
         400
       );
     }
@@ -3273,22 +3265,22 @@ export async function reorderManufacturingOrderPriorityRanks(
       )
       .for("update");
 
-    const allActiveOrders = await tx
+    const releasedOrders = await tx
       .select({ id: manufacturingOrders.id })
       .from(manufacturingOrders)
       .where(
         and(
           eq(manufacturingOrders.organizationId, orgId),
-          inArray(manufacturingOrders.status, ["draft", "released"]),
+          eq(manufacturingOrders.status, "released"),
           isNull(manufacturingOrders.deletedAt)
         )
       )
       .for("update");
 
     assertSameStringSet(
-      allActiveOrders.map((order) => order.id),
+      releasedOrders.map((order) => order.id),
       payload.orderIds,
-      "Payload must include all active manufacturing orders."
+      "Payload must include all released manufacturing orders."
     );
 
     assertSameStringSet(
@@ -3299,12 +3291,12 @@ export async function reorderManufacturingOrderPriorityRanks(
 
     const invalidOrder = orders.find(
       (order) =>
-        order.status !== "draft" && order.status !== "released"
+        order.status !== "released"
     );
 
     if (invalidOrder) {
       throw new ManufacturingError(
-        "Only draft or released manufacturing orders can be reordered.",
+        "Only released manufacturing orders can be reordered.",
         400
       );
     }
@@ -3319,7 +3311,7 @@ export async function reorderManufacturingOrderPriorityRanks(
       .where(
         and(
           eq(manufacturingOrders.organizationId, orgId),
-          inArray(manufacturingOrders.status, ["draft", "released"]),
+          eq(manufacturingOrders.status, "released"),
           isNull(manufacturingOrders.deletedAt)
         )
       );
@@ -3519,10 +3511,15 @@ export async function releaseManufacturingOrder(
       );
     }
 
+    const priorityRank =
+      order.priorityRank ?? (await getNextManufacturingOrderPriorityRankInTx(tx, orgId));
+    await assertPriorityRankAvailableInTx(tx, orgId, priorityRank, id);
+
     const [released] = await tx
       .update(manufacturingOrders)
       .set({
         status: "released",
+        priorityRank,
         releasedAt: new Date(),
         updatedAt: new Date(),
       })

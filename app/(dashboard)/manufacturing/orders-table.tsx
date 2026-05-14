@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef, type Table as TanStackTable } from "@tanstack/react-table";
+import { type ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
@@ -12,9 +12,9 @@ import {
   DashboardDataTableDragHandle,
 } from "@/components/dashboard-data-table";
 import { DateTimeText } from "@/components/date-time-text";
+import { DataTableStatusFilter } from "@/components/data-table-status-filter";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDate } from "@/lib/format";
 import {
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
@@ -34,8 +34,6 @@ const MANUFACTURING_STATUS_FILTER_OPTIONS = [
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
-
-const OPEN_MANUFACTURING_STATUSES = ["draft", "released"] as const;
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -125,6 +123,10 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
 
 function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
   const progress = getOrderProgress(order);
+  const fillClassName =
+    order.status === "completed"
+      ? "alloc-progress-fill-supply"
+      : "alloc-progress-fill-held";
 
   return (
     <div className="min-w-32 space-y-1">
@@ -134,7 +136,7 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
       </div>
       <div className="alloc-progress-track h-2 rounded-full">
         <div
-          className="alloc-progress-fill-held h-full rounded-full transition-[width]"
+          className={`${fillClassName} h-full rounded-full transition-[width]`}
           style={{ width: `${progress.percent}%` }}
         />
       </div>
@@ -143,6 +145,10 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
 }
 
 function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingOrderListRow }) {
+  if (order.status !== "released") {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
   return (
     <div className="flex items-center gap-1.5">
       <DashboardDataTableDragHandle label={`Reorder ${order.orderNumber}`} />
@@ -366,10 +372,15 @@ export function OrdersTable({
       addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
       toolbarContent={({ table }) => (
-        <ManufacturingOrderStatusTabs table={table} />
+        <DataTableStatusFilter
+          table={table}
+          options={MANUFACTURING_STATUS_FILTER_OPTIONS}
+          ariaLabel="Filter manufacturing orders by status"
+          showAll={false}
+        />
       )}
       initialSorting={[{ id: "priorityRank", desc: false }]}
-      initialColumnFilters={[{ id: "status", value: [...OPEN_MANUFACTURING_STATUSES] }]}
+      initialColumnFilters={[{ id: "status", value: ["draft"] }]}
       rowReorder={{
         disabled: reorderMutation.isPending,
         enabled: (table) => {
@@ -380,8 +391,8 @@ export function OrdersTable({
           return (
             !table.getState().globalFilter &&
             columnFilters.every((filter) => filter.id === "status") &&
-            selected.length === OPEN_MANUFACTURING_STATUSES.length &&
-            OPEN_MANUFACTURING_STATUSES.every((status) => selected.includes(status))
+            selected.length === 1 &&
+            selected[0] === "released"
           );
         },
         onReorder: (orderedRows) => reorderMutation.mutate(orderedRows),
@@ -396,71 +407,5 @@ export function OrdersTable({
           "Draft, completed, or cancelled orders will be soft-deleted and removed from normal views. Released orders must be cancelled first.",
       }}
     />
-  );
-}
-
-function ManufacturingOrderStatusTabs({
-  table,
-}: {
-  table: TanStackTable<ManufacturingOrderListRow>;
-}) {
-  const statusColumn = table.getColumn("status");
-  const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
-  const value =
-    selected.length === 2 &&
-    selected.includes("draft") &&
-    selected.includes("released")
-      ? "open"
-      : selected.length === 1
-        ? selected[0]
-        : "all";
-
-  const statusCounts = statusColumn?.getFacetedUniqueValues();
-  const openCount =
-    (statusCounts?.get("draft") ?? 0) + (statusCounts?.get("released") ?? 0);
-
-  return (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      value={value}
-      onValueChange={(nextValue) => {
-        if (!statusColumn || !nextValue) return;
-        if (nextValue === "all") {
-          statusColumn.setFilterValue(undefined);
-          return;
-        }
-        if (nextValue === "open") {
-          statusColumn.setFilterValue([...OPEN_MANUFACTURING_STATUSES]);
-          return;
-        }
-        statusColumn.setFilterValue([nextValue]);
-      }}
-      aria-label="Filter manufacturing orders by status"
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
-    >
-      <ToggleGroupItem value="open" aria-label="Show open orders" className="gap-1.5">
-        Open
-        <span className="text-muted-foreground">{openCount}</span>
-      </ToggleGroupItem>
-      {MANUFACTURING_STATUS_FILTER_OPTIONS.filter(
-        (option) => option.value !== "draft" && option.value !== "released"
-      ).map((option) => (
-        <ToggleGroupItem
-          key={option.value}
-          value={option.value}
-          aria-label={`Show ${option.label} orders`}
-          className="gap-1.5"
-        >
-          {option.label}
-          <span className="text-muted-foreground">
-            {statusCounts?.get(option.value) ?? 0}
-          </span>
-        </ToggleGroupItem>
-      ))}
-      <ToggleGroupItem value="all" aria-label="Show all orders" className="gap-1.5">
-        All
-      </ToggleGroupItem>
-    </ToggleGroup>
   );
 }

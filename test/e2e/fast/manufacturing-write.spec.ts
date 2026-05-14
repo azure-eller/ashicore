@@ -257,48 +257,8 @@ test.describe("Manufacturing write-path smoke", () => {
     if (!firstOrderNumber || !secondOrderNumber || !firstCreatedOrder || !secondCreatedOrder) {
       throw new Error("Expected two manufacturing orders.");
     }
-    expect(firstCreatedOrder.priorityRank).toBeGreaterThan(0);
-    expect(secondCreatedOrder.priorityRank).toBeGreaterThan(
-      firstCreatedOrder.priorityRank ?? 0
-    );
-
-    const activeOrders = await db
-      .select({ id: manufacturingOrders.id })
-      .from(manufacturingOrders)
-      .where(
-        and(
-          inArray(manufacturingOrders.status, ["draft", "released"]),
-          isNull(manufacturingOrders.deletedAt)
-        )
-      )
-      .orderBy(asc(manufacturingOrders.priorityRank), asc(manufacturingOrders.orderNumber));
-    const reorderedActiveOrderIds = [
-      secondCreatedOrder.id,
-      firstCreatedOrder.id,
-      ...activeOrders
-        .map((order) => order.id)
-        .filter(
-          (id) => id !== firstCreatedOrder.id && id !== secondCreatedOrder.id
-        ),
-    ];
-    const reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
-      method: "PATCH",
-      body: JSON.stringify({ orderIds: reorderedActiveOrderIds }),
-    });
-    expect(reorderResult.status).toBe(200);
-
-    const rerankedOrders = await db
-      .select({
-        id: manufacturingOrders.id,
-        priorityRank: manufacturingOrders.priorityRank,
-      })
-      .from(manufacturingOrders)
-      .where(inArray(manufacturingOrders.id, [firstCreatedOrder.id, secondCreatedOrder.id]));
-    const rankById = new Map(
-      rerankedOrders.map((order) => [order.id, order.priorityRank])
-    );
-    expect(rankById.get(secondCreatedOrder.id)).toBe(1);
-    expect(rankById.get(firstCreatedOrder.id)).toBe(2);
+    expect(firstCreatedOrder.priorityRank).toBeNull();
+    expect(secondCreatedOrder.priorityRank).toBeNull();
 
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", productName);
@@ -315,12 +275,61 @@ test.describe("Manufacturing write-path smoke", () => {
       .click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toContainText("Released", { timeout: 15_000 });
+    ).toBeHidden({ timeout: 15_000 });
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    await page.getByRole("radio", { name: "Show Completed orders" }).click();
+    await page.getByRole("radio", { name: "Show Released status" }).click();
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toContainText("Released", { timeout: 15_000 });
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeHidden();
+
+    const secondRelease = await releaseManufacturingOrder(secondCreatedOrder.id);
+    expect(secondRelease.status).toBe(200);
+
+    const releasedOrders = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.status, "released"),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .orderBy(asc(manufacturingOrders.priorityRank), asc(manufacturingOrders.orderNumber));
+    const reorderedReleasedOrderIds = [
+      secondCreatedOrder.id,
+      firstCreatedOrder.id,
+      ...releasedOrders
+        .map((order) => order.id)
+        .filter(
+          (id) => id !== firstCreatedOrder.id && id !== secondCreatedOrder.id
+        ),
+    ];
+    const reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({ orderIds: reorderedReleasedOrderIds }),
+    });
+    expect(reorderResult.status).toBe(200);
+
+    const rerankedOrders = await db
+      .select({
+        id: manufacturingOrders.id,
+        priorityRank: manufacturingOrders.priorityRank,
+      })
+      .from(manufacturingOrders)
+      .where(inArray(manufacturingOrders.id, [firstCreatedOrder.id, secondCreatedOrder.id]));
+    const rankById = new Map(
+      rerankedOrders.map((order) => [order.id, order.priorityRank])
+    );
+    expect(rankById.get(secondCreatedOrder.id)).toBe(1);
+    expect(rankById.get(firstCreatedOrder.id)).toBe(2);
+
+    await page.getByRole("radio", { name: "Show Completed status" }).click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
     ).toBeHidden();
