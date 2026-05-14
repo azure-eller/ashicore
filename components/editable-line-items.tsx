@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useFieldArray,
   type Control,
@@ -32,6 +32,7 @@ type RenderRowContext<
 > = {
   field: FieldArrayWithId<TValues, TName>;
   index: number;
+  initialIndex: number | null;
   appendLineAfterCommit: () => void;
 };
 
@@ -53,6 +54,7 @@ export function EditableLineItems<
   error,
   footer,
   enableReorder = true,
+  onFieldsChange,
 }: {
   control: Control<TValues>;
   name: TName;
@@ -66,6 +68,7 @@ export function EditableLineItems<
   error?: string | null;
   footer?: ReactNode;
   enableReorder?: boolean;
+  onFieldsChange?: (fields: FieldArrayWithId<TValues, TName>[]) => void;
 }) {
   const { fields, append, remove, move } = useFieldArray({
     control,
@@ -73,6 +76,13 @@ export function EditableLineItems<
   });
   const rootRef = useRef<HTMLDivElement>(null);
   const initialRowCreatedRef = useRef(false);
+  const [initialFieldIds] = useState(() =>
+    fields.map((field, index) => ({ id: field.id, index }))
+  );
+  const initialIndexByFieldId = useMemo(
+    () => new Map(initialFieldIds.map((field) => [field.id, field.index])),
+    [initialFieldIds]
+  );
   const [appendedAfterCommitRowIds, setAppendedAfterCommitRowIds] = useState(
     () => new Set<string>()
   );
@@ -115,6 +125,10 @@ export function EditableLineItems<
     }
   }, [control, createLine, fields.length, name]);
 
+  useEffect(() => {
+    onFieldsChange?.(fields);
+  }, [fields, onFieldsChange]);
+
   const gridColumns = `${enableReorder ? `${ACTION_COLUMN_WIDTH} ` : ""}${columns} ${ACTION_COLUMN_WIDTH}`;
   const gridHeaders = [
     ...(enableReorder ? [<span key="reorder" />] : []),
@@ -154,6 +168,7 @@ export function EditableLineItems<
               {renderRow({
                 field,
                 index,
+                initialIndex: initialIndexByFieldId.get(field.id) ?? null,
                 appendLineAfterCommit: () =>
                   appendLineAfterCommit(field.id, index),
               })}
@@ -168,6 +183,7 @@ export function EditableLineItems<
               {renderRow({
                 field,
                 index,
+                initialIndex: initialIndexByFieldId.get(field.id) ?? null,
                 appendLineAfterCommit: () =>
                   appendLineAfterCommit(field.id, index),
               })}

@@ -1,4 +1,5 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { getAddressEntries } from "@/lib/dal/addresses";
 import { OrderForm } from "@/app/(dashboard)/sales/order-form";
 import {
   getSalesOrderCustomerOptions,
@@ -11,10 +12,11 @@ export default async function NewOrderPage({
   searchParams: Promise<{ customerId?: string; projectId?: string }>;
 }) {
   await requireModuleWriteAccess("sales");
-  const [{ customerId, projectId }, customerRows, items] = await Promise.all([
+  const [{ customerId, projectId }, customerRows, items, addresses] = await Promise.all([
     searchParams,
     getSalesOrderCustomerOptions(),
     getSalesOrderItemOptions(),
+    getAddressEntries(),
   ]);
 
   return (
@@ -22,6 +24,7 @@ export default async function NewOrderPage({
       <OrderForm
         customers={customerRows}
         items={items}
+        addresses={addresses}
         initialCustomerId={customerId}
         initialCustomerProjectId={projectId}
       />

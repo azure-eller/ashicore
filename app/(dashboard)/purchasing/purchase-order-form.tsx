@@ -87,6 +87,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AutosaveStatus } from "@/components/autosave-status";
 import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
@@ -438,6 +443,23 @@ function landedStockUnitCostLabel(
   return `${formatPrice(normalizeLandedDisplayNumber(value)) ?? "\u2014"} / ${
     stockingUnitName ?? "stock unit"
   }`;
+}
+
+function purchaseUnitDisplay(
+  purchaseUnitName: string | null | undefined,
+  stockingUnitName: string | null | undefined
+) {
+  if (purchaseUnitName && stockingUnitName && purchaseUnitName !== stockingUnitName) {
+    return {
+      label: `${purchaseUnitName} -> ${stockingUnitName}`,
+      tooltip: "Purchase unit converts to stocking unit.",
+    };
+  }
+
+  return {
+    label: purchaseUnitName ?? stockingUnitName ?? "\u2014",
+    tooltip: null,
+  };
 }
 
 function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
@@ -1665,6 +1687,10 @@ function PurchaseOrderLineRow({
   });
 
   const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
+  const unitDisplay = purchaseUnitDisplay(
+    material?.purchaseUnitName,
+    material?.stockingUnitName
+  );
 
   return (
     <>
@@ -1732,16 +1758,16 @@ function PurchaseOrderLineRow({
       </EditableLineGridCell>
 
       <EditableLineGridCell className="text-sm text-muted-foreground">
-        <div className="flex flex-col gap-1">
-          <div className="truncate">
-            {material?.purchaseUnitName ?? material?.stockingUnitName ?? "\u2014"}
-          </div>
-          {material?.purchaseUnitName && material.stockingUnitName !== material.purchaseUnitName ? (
-            <p className="truncate text-xs text-muted-foreground">
-              Stocked as {material.stockingUnitName}
-            </p>
-          ) : null}
-        </div>
+        {unitDisplay.tooltip ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block truncate">{unitDisplay.label}</span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{unitDisplay.tooltip}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="block truncate">{unitDisplay.label}</span>
+        )}
       </EditableLineGridCell>
 
       <EditableLineGridCell>
