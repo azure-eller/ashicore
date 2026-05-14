@@ -788,7 +788,7 @@ test.describe("Sales order flow", () => {
     db,
   }) => {
     const staleOrderId = await createDraftSalesOrder({
-      customerId,
+      customerId: extraCustomerId,
       requestedDate: "2026-04-24",
       notes: "Stale status edit coverage",
       confirmOversell: true,
@@ -804,7 +804,7 @@ test.describe("Sales order flow", () => {
     const editConfirmedResponse = await testFetch(`/api/sales-orders/${staleOrderId}`, {
       method: "PUT",
       body: JSON.stringify({
-        customerId,
+        customerId: extraCustomerId,
         status: "draft",
         requestedDate: expectedRequestedDate,
         shipDate: expectedShipDate,
