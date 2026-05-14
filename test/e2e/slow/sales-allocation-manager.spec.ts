@@ -326,7 +326,9 @@ test.describe("Sales allocation manager slow flow", () => {
     await page.keyboard.press("Escape");
     await currentBucket.click();
     await competingBucket.click();
-    await expect(currentBucket).toContainText(/Holding\s*1/);
+    await expect(sheet.getByTestId("allocation-holding-hud")).toContainText("Holding");
+    await expect(sheet.getByTestId("allocation-holding-hud")).toContainText("1");
+    await expect(currentBucket.getByTestId("allocation-ghost-slot")).toBeHidden();
     await currentBucket.click();
     await expect(currentBucket).toContainText(/Allocated\s*1/);
     await expect(currentBucket).toContainText(/Short\s*5/);

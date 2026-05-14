@@ -129,9 +129,9 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
         <span className="truncate text-muted-foreground">{progress.label}</span>
         <span className="font-mono tabular-nums">{progress.percent}%</span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-muted">
+      <div className="alloc-progress-track h-2 rounded-full">
         <div
-          className="h-full rounded-full bg-primary"
+          className="alloc-progress-fill-held h-full rounded-full transition-[width]"
           style={{ width: `${progress.percent}%` }}
         />
       </div>

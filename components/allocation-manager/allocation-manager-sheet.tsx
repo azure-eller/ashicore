@@ -4,8 +4,9 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
-  type MouseEvent,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +18,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import {
   inferItemVisual,
-  ItemToken,
+  ItemSprite,
 } from "@/components/inventory-visuals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -50,6 +50,11 @@ import type {
   AllocationSourceType,
   AllocationWorkspace,
 } from "@/lib/inventory/allocation/types";
+import type {
+  ItemColorFamily,
+  ItemSpriteKind,
+  ItemVisualSize,
+} from "@/components/inventory-visuals";
 
 type AllocationCoverageKind = "explicit";
 
@@ -347,6 +352,17 @@ type OutputCarryState = {
   originLabel?: string;
 } | null;
 
+type SpriteTransferAnimation = {
+  id: string;
+  kind: ItemSpriteKind;
+  color: ItemColorFamily;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  delayMs: number;
+};
+
 function allocationKey(sourceType: AllocationSourceType, sourceId: string | null) {
   return `${sourceType}:${sourceId ?? ""}`;
 }
@@ -395,6 +411,10 @@ function quantityLabel(value: number) {
   return formatQuantity(toQuantityString(value));
 }
 
+function compactChangeLabel(count: number) {
+  return `Unsaved · ${count} ${count === 1 ? "change" : "changes"}`;
+}
+
 function compactUnitName(unitName: string | null | undefined) {
   return formatCompactUnitLabel({ name: unitName }) ?? unitName ?? "units";
 }
@@ -403,31 +423,15 @@ function itemVisual(name: string | null | undefined, unitName: string | null | u
   return inferItemVisual({ name, unitName });
 }
 
-function demandStackSize(quantity: number) {
-  if (quantity >= 50) return 50;
-  if (quantity >= 20) return 10;
-  if (quantity >= 5) return 5;
-  return 1;
-}
-
-function splitQuantityStacks(quantity: number, stackSize: number) {
-  const normalized = readQuantity(toQuantityString(quantity));
-  if (normalized <= 0) return [];
-
-  const fullStackCount = Math.floor(normalized / stackSize);
-  const remainder = readQuantity(toQuantityString(normalized - fullStackCount * stackSize));
-  const stacks = Array.from({ length: fullStackCount }, () => stackSize);
-  if (remainder > 0) stacks.push(remainder);
-  return stacks;
+function getSpriteTransferTargetRect(container: Element) {
+  const target = container.querySelector<HTMLElement>(
+    '[data-testid="allocation-empty-slot"], [data-testid="allocation-ghost-slot"], [data-slot="allocation-sprite-tile"]'
+  );
+  return (target ?? container).getBoundingClientRect();
 }
 
 function clampQuantity(value: number, max: number) {
   return Math.max(0, Math.min(readQuantity(toQuantityString(value)), max));
-}
-
-function sourceKindLabel(source: AllocationSource) {
-  if (source.sourceType === "inventory_lot") return "Lot";
-  return source.status === "draft" ? "Draft production" : "Released production";
 }
 
 function demandContextLabel(row: AllocationSheetData["demandRows"][number]) {
@@ -437,10 +441,6 @@ function demandContextLabel(row: AllocationSheetData["demandRows"][number]) {
 function demandTypeOf(row: AllocationSheetData["demandRows"][number]) {
   return (row as { demandType?: "sales_order_line" | "manufacturing_order_ingredient" })
     .demandType;
-}
-
-function demandTypeShortLabel(row: AllocationSheetData["demandRows"][number]) {
-  return demandTypeOf(row) === "manufacturing_order_ingredient" ? "MO" : "SO";
 }
 
 function demandDateLabel(row: AllocationSheetData["demandRows"][number]) {
@@ -468,13 +468,13 @@ function ProgressBar({
 }) {
   const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div className="h-2 overflow-hidden rounded-sm bg-muted">
+    <div className="alloc-progress-track h-2 rounded-sm">
       <div
         className={cn(
           "h-full rounded-sm transition-all duration-300 motion-reduce:transition-none",
-          tone === "success" && "bg-success",
-          tone === "primary" && "bg-primary",
-          tone === "warning" && "bg-warning"
+          tone === "success" && "alloc-progress-fill-supply",
+          tone === "primary" && "alloc-progress-fill-held",
+          tone === "warning" && "alloc-progress-fill-allocated"
         )}
         style={{ width: `${pct}%` }}
       />
@@ -488,20 +488,36 @@ function AllocationEventLog({ events }: { events: AllocationEvent[] }) {
   return (
     <div
       data-testid="allocation-event-log"
-      className="pointer-events-none absolute bottom-4 left-4 z-30 flex w-[min(22rem,calc(100%-2rem))] flex-col gap-1.5"
+      className="pointer-events-none absolute bottom-3 left-3 z-30 flex w-[min(16rem,calc(100%-1.5rem))] flex-col gap-1"
       aria-live="polite"
       aria-atomic="false"
     >
-      {events.slice(-3).map((event) => (
+      <style>{`
+        @keyframes allocation-log-fade {
+          0% {
+            opacity: 0;
+          }
+          12% {
+            opacity: 1;
+          }
+          78% {
+            opacity: 1;
+          }
+          100% {
+            opacity: 0;
+          }
+        }
+      `}</style>
+      {events.slice(-2).map((event) => (
         <div
           key={event.id}
           data-testid="allocation-event-message"
           className={cn(
-            "rounded-md border bg-popover/95 px-3 py-2 text-xs font-medium text-popover-foreground shadow-lg backdrop-blur",
-            "animate-in fade-in slide-in-from-bottom-1 motion-reduce:animate-none",
-            event.tone === "success" && "border-success/45 text-success",
-            event.tone === "warning" && "border-warning/45 text-warning",
-            event.tone === "danger" && "border-destructive/45 text-destructive"
+            "dark w-fit rounded-full border border-border bg-popover/95 px-3 py-1.5 text-[11px] font-medium text-popover-foreground shadow-lg backdrop-blur",
+            "[animation:allocation-log-fade_1800ms_ease-out_both] motion-reduce:animate-none",
+            event.tone === "success" && "border-success/45",
+            event.tone === "warning" && "border-warning/45",
+            event.tone === "danger" && "border-destructive/45"
           )}
         >
           {event.message}
@@ -509,6 +525,292 @@ function AllocationEventLog({ events }: { events: AllocationEvent[] }) {
       ))}
     </div>
   );
+}
+
+type AllocationSpriteTileState =
+  | "available"
+  | "allocated"
+  | "inbound"
+  | "hold"
+  | "reserved"
+  | "shortage";
+
+const ALLOCATION_TILE_SIZE_CLASS: Record<ItemVisualSize, string> = {
+  xs: "size-8 rounded-md",
+  sm: "size-12 rounded-md",
+  md: "size-16 rounded-lg",
+  lg: "size-22 rounded-lg",
+};
+
+const ALLOCATION_SPRITE_SIZE_CLASS: Record<ItemVisualSize, string> = {
+  xs: "scale-90",
+  sm: "scale-100",
+  md: "scale-105",
+  lg: "scale-110",
+};
+
+const ALLOCATION_TILE_STATE_CLASS: Record<AllocationSpriteTileState, string> = {
+  available: "border-border bg-card",
+  allocated: "border-[var(--alloc-demand)] bg-warning/10",
+  inbound: "border-[var(--alloc-supply)] bg-success/5",
+  hold: "alloc-glow-held border-dashed opacity-65",
+  reserved: "border-[var(--alloc-disabled)] bg-muted text-muted-foreground",
+  shortage: "alloc-glow-short bg-destructive/5",
+};
+
+function AllocationSpriteTile({
+  kind,
+  color,
+  state = "available",
+  selected = false,
+  size = "md",
+  quantity,
+  className,
+  spriteClassName,
+}: {
+  kind: ItemSpriteKind;
+  color: ItemColorFamily;
+  state?: AllocationSpriteTileState;
+  selected?: boolean;
+  size?: ItemVisualSize;
+  quantity?: ReactNode;
+  className?: string;
+  spriteClassName?: string;
+}) {
+  return (
+    <span
+      data-slot="allocation-sprite-tile"
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden border transition-colors motion-reduce:transition-none",
+        ALLOCATION_TILE_SIZE_CLASS[size],
+        ALLOCATION_TILE_STATE_CLASS[state],
+        selected && "border-border bg-muted/20",
+        className
+      )}
+      aria-hidden
+    >
+      <ItemSprite
+        kind={kind}
+        color={color}
+        size={size}
+        className={cn(ALLOCATION_SPRITE_SIZE_CLASS[size], spriteClassName)}
+      />
+      {quantity != null ? (
+        <span
+          className={cn(
+            "pointer-events-none absolute right-1 top-1 font-semibold leading-none tabular-nums text-foreground",
+            size === "xs" && "text-[0.58rem]",
+            size === "sm" && "text-[0.65rem]",
+            size === "md" && "text-xs",
+            size === "lg" && "text-sm"
+          )}
+          aria-hidden
+        >
+          {quantity}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function SpriteTransferOverlay({
+  animations,
+  onDone,
+}: {
+  animations: SpriteTransferAnimation[];
+  onDone: (id: string) => void;
+}) {
+  if (animations.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50" aria-hidden>
+      <style>{`
+        @keyframes allocation-pickup-fly {
+          0% {
+            opacity: 0.95;
+            transform: translate3d(var(--from-x), var(--from-y), 0) scale(0.96);
+          }
+          100% {
+            opacity: 0.15;
+            transform: translate3d(var(--to-x), var(--to-y), 0) scale(0.58);
+          }
+        }
+      `}</style>
+      {animations.map((animation) => {
+        const style = {
+          "--from-x": `${animation.fromX}px`,
+          "--from-y": `${animation.fromY}px`,
+          "--to-x": `${animation.toX}px`,
+          "--to-y": `${animation.toY}px`,
+          animation: "allocation-pickup-fly 560ms cubic-bezier(0.2, 0.9, 0.2, 1) both",
+          animationDelay: `${animation.delayMs}ms`,
+        } as CSSProperties;
+
+        return (
+          <span
+            key={animation.id}
+            className="absolute left-0 top-0"
+            style={style}
+            onAnimationEnd={() => onDone(animation.id)}
+          >
+            <AllocationSpriteTile
+              kind={animation.kind}
+              color={animation.color}
+              size="md"
+              className="shadow-xl shadow-foreground/15"
+            />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function useSpriteTransferAnimations() {
+  const [animations, setAnimations] = useState<SpriteTransferAnimation[]>([]);
+  const [hudQuantityOverride, setHudQuantityOverride] = useState<number | null>(null);
+  const countTimersRef = useRef<number[]>([]);
+
+  const clearCountTimers = useCallback(() => {
+    if (typeof window === "undefined") return;
+    countTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    countTimersRef.current = [];
+  }, []);
+
+  const removeSpriteTransfer = useCallback((id: string) => {
+    setAnimations((current) => current.filter((animation) => animation.id !== id));
+  }, []);
+
+  const animateTransfer = useCallback(
+    ({
+      quantity,
+      fromRect,
+      toRect,
+      visual,
+      countIntoHud = false,
+    }: {
+      quantity: number;
+      fromRect: DOMRect;
+      toRect: DOMRect;
+      visual: ReturnType<typeof itemVisual>;
+      countIntoHud?: boolean;
+    }) => {
+      if (
+        typeof window === "undefined" ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        const fromX = fromRect.left + fromRect.width / 2 - 32;
+        const fromY = fromRect.top + fromRect.height / 2 - 32;
+        const toX = toRect.left + toRect.width / 2 - 32;
+        const toY = toRect.top + toRect.height / 2 - 32;
+        const cloneCount = Math.max(1, Math.min(5, Math.ceil(quantity)));
+        const batchId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        clearCountTimers();
+        if (countIntoHud) setHudQuantityOverride(0);
+        else setHudQuantityOverride(null);
+
+        if (countIntoHud) {
+          countTimersRef.current = Array.from({ length: cloneCount }, (_, index) => {
+            const isLast = index === cloneCount - 1;
+            const nextQuantity = isLast
+              ? quantity
+              : Math.max(1, Math.round((quantity * (index + 1)) / cloneCount));
+
+            return window.setTimeout(() => {
+              setHudQuantityOverride(nextQuantity);
+            }, 420 + index * 42);
+          });
+
+          countTimersRef.current.push(
+            window.setTimeout(() => {
+              setHudQuantityOverride(null);
+              countTimersRef.current = [];
+            }, 420 + (cloneCount - 1) * 42 + 220)
+          );
+        }
+
+        setAnimations((current) => [
+          ...current.slice(-10),
+          ...Array.from({ length: cloneCount }, (_, index) => ({
+            id: `${batchId}-${index}`,
+            kind: visual.kind,
+            color: visual.color,
+            fromX: fromX + index * 3,
+            fromY: fromY - index * 2,
+            toX: toX + index * 2,
+            toY: toY - index,
+            delayMs: index * 42,
+          })),
+        ]);
+      });
+    },
+    [clearCountTimers]
+  );
+
+  const getHudTileRect = useCallback(() => {
+    if (typeof document === "undefined") return null;
+    return document
+      .querySelector<HTMLElement>(
+        '[data-testid="allocation-holding-hud"] [data-slot="allocation-sprite-tile"]'
+      )
+      ?.getBoundingClientRect() ?? null;
+  }, []);
+
+  const animatePickupToHud = useCallback(
+    ({
+      quantity,
+      sourceRect,
+      visual,
+      countIntoHud = true,
+    }: {
+      quantity: number;
+      sourceRect: DOMRect;
+      visual: ReturnType<typeof itemVisual>;
+      countIntoHud?: boolean;
+    }) => {
+      const hudRect = getHudTileRect();
+      const fallbackRect = new DOMRect(window.innerWidth / 2 - 32, window.innerHeight - 128, 64, 64);
+      animateTransfer({
+        quantity,
+        fromRect: sourceRect,
+        toRect: hudRect ?? fallbackRect,
+        visual,
+        countIntoHud,
+      });
+    },
+    [animateTransfer, getHudTileRect]
+  );
+
+  const animateFromHud = useCallback(
+    ({
+      quantity,
+      targetRect,
+      visual,
+    }: {
+      quantity: number;
+      targetRect: DOMRect;
+      visual: ReturnType<typeof itemVisual>;
+    }) => {
+      const hudRect = getHudTileRect();
+      if (!hudRect) return;
+      animateTransfer({ quantity, fromRect: hudRect, toRect: targetRect, visual });
+    },
+    [animateTransfer, getHudTileRect]
+  );
+
+  useEffect(() => clearCountTimers, [clearCountTimers]);
+
+  return {
+    animations,
+    animateFromHud,
+    animatePickupToHud,
+    hudQuantityOverride,
+    removeSpriteTransfer,
+  };
 }
 
 function AffordanceChip({
@@ -594,7 +896,6 @@ function WorkspacePanel({
   footer,
   className,
   testId,
-  onClickCapture,
 }: {
   title: string;
   count?: string;
@@ -603,16 +904,14 @@ function WorkspacePanel({
   footer?: ReactNode;
   className?: string;
   testId?: string;
-  onClickCapture?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   return (
     <section
       className={cn(
-        "flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-card shadow-sm",
         className
       )}
       data-testid={testId}
-      onClickCapture={onClickCapture}
     >
       <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -634,7 +933,7 @@ function WorkspacePanel({
           </span>
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
         {children}
       </div>
       {footer ? <div className="border-t bg-muted/20 p-3">{footer}</div> : null}
@@ -649,6 +948,7 @@ function DemandQuantityStacks({
   allocations,
   held,
   demandLabel,
+  emptySlotClassName,
   onPick,
 }: {
   total: number;
@@ -664,9 +964,9 @@ function DemandQuantityStacks({
   }>;
   held?: { sourceKey: string; quantity: number } | null;
   demandLabel?: string;
-  onPick?: (token: AllocationTokenData) => void;
+  emptySlotClassName?: string;
+  onPick?: (token: AllocationTokenData, sourceRect?: DOMRect) => void;
 }) {
-  const stackSize = demandStackSize(Math.max(total, allocated));
   const sourceAllocations =
     allocations && allocations.length > 0
       ? allocations
@@ -683,36 +983,37 @@ function DemandQuantityStacks({
   const allocatedStacks = sourceAllocations.flatMap((allocation) => {
     const heldQty = held?.sourceKey === allocation.sourceKey ? held.quantity : 0;
     const visibleQty = Math.max(0, allocation.quantity - heldQty);
-    return splitQuantityStacks(visibleQty, stackSize).map((quantity, index) => ({
-      ...allocation,
-      quantity,
-      stackIndex: index,
-      isHeldGhost: false,
-    }));
+    if (visibleQty <= 0) return [];
+    return [
+      {
+        ...allocation,
+        quantity: visibleQty,
+        stackIndex: 0,
+        isHeldGhost: false,
+      },
+    ];
   });
+  const heldSource = held
+    ? sourceAllocations.find((allocation) => allocation.sourceKey === held.sourceKey)
+    : null;
   const heldStacks =
     held && held.quantity > 0
-      ? splitQuantityStacks(held.quantity, stackSize).map((quantity, index) => {
-          const source = sourceAllocations.find(
-            (allocation) => allocation.sourceKey === held.sourceKey
-          );
-          return {
+      ? [
+          {
             sourceKey: held.sourceKey,
-            sourceType: source?.sourceType ?? ("inventory_lot" as AllocationSourceType),
-            sourceId: source?.sourceId ?? null,
-            sourceLabel: source?.sourceLabel ?? "Source",
-            sourceIndex: source?.sourceIndex ?? 0,
-            quantity,
-            stackIndex: index,
+            sourceType: heldSource?.sourceType ?? ("inventory_lot" as AllocationSourceType),
+            sourceId: heldSource?.sourceId ?? null,
+            sourceLabel: heldSource?.sourceLabel ?? "Source",
+            sourceIndex: heldSource?.sourceIndex ?? 0,
+            quantity: held.quantity,
+            stackIndex: 0,
             isHeldGhost: true,
-          };
-        })
+          },
+        ]
       : [];
-  const totalStacks = splitQuantityStacks(total, stackSize);
-  const emptyCount = Math.max(
-    0,
-    totalStacks.length - allocatedStacks.length - heldStacks.length
-  );
+  const visibleQuantity = allocatedStacks.reduce((sum, stack) => sum + stack.quantity, 0);
+  const heldQuantity = heldStacks.reduce((sum, stack) => sum + stack.quantity, 0);
+  const emptyCount = total > visibleQuantity + heldQuantity ? 1 : 0;
 
   if (total <= 0 && allocated <= 0) {
     return <div className="h-12" />;
@@ -723,7 +1024,7 @@ function DemandQuantityStacks({
       {[...allocatedStacks, ...heldStacks].map((stack) => {
         const label = `${stack.isHeldGhost ? "Holding" : "Move"} ${quantityLabel(stack.quantity)} from ${stack.sourceLabel}${demandLabel ? ` on ${demandLabel}` : ""}`;
         const token = (
-          <ItemToken
+          <AllocationSpriteTile
             kind={visual.kind}
             color={visual.color}
             state={stack.isHeldGhost ? "hold" : "allocated"}
@@ -731,9 +1032,9 @@ function DemandQuantityStacks({
             size="sm"
             quantity={quantityLabel(stack.quantity)}
             className={cn(
-              "shadow-xs transition-transform duration-150 motion-reduce:transition-none",
+              "transition-transform duration-150 motion-reduce:transition-none",
               !stack.isHeldGhost && "hover:scale-105 focus-visible:scale-105 motion-reduce:hover:scale-100 motion-reduce:focus-visible:scale-100",
-              stack.isHeldGhost && "border-dashed opacity-65"
+              stack.isHeldGhost && "opacity-65"
             )}
           />
         );
@@ -759,14 +1060,17 @@ function DemandQuantityStacks({
             aria-label={label}
             onClick={(event) => {
               event.stopPropagation();
-              onPick({
-                sourceKey: stack.sourceKey,
-                sourceType: stack.sourceType,
-                sourceId: stack.sourceId,
-                sourceLabel: stack.sourceLabel,
-                sourceIndex: stack.sourceIndex,
-                quantity: stack.quantity,
-              });
+              onPick(
+                {
+                  sourceKey: stack.sourceKey,
+                  sourceType: stack.sourceType,
+                  sourceId: stack.sourceId,
+                  sourceLabel: stack.sourceLabel,
+                  sourceIndex: stack.sourceIndex,
+                  quantity: stack.quantity,
+                },
+                getSpriteTransferTargetRect(event.currentTarget)
+              );
             }}
           >
             {token}
@@ -776,7 +1080,10 @@ function DemandQuantityStacks({
       {Array.from({ length: emptyCount }).map((_, index) => (
         <span
           key={`empty-${index}`}
-          className="flex h-12 w-12 shrink-0 rounded-md border border-dashed bg-muted/15"
+          className={cn(
+            "flex h-12 w-12 shrink-0 rounded-md border border-dashed bg-muted/15",
+            emptySlotClassName
+          )}
           data-testid="allocation-empty-slot"
           aria-hidden
         />
@@ -844,25 +1151,18 @@ function VariantSwitcher({
                   <button
                     type="button"
                     className={cn(
-                      "relative flex size-10 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-                      item.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20",
-                      !item.isCurrent && isComplete && "border-success/70 bg-success/5",
-                      !item.isCurrent && !isComplete && short > 0 && "border-warning/70 bg-warning/5"
+                      "relative flex size-10 items-center justify-center rounded-md text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                     )}
                     aria-label={`${item.itemName} · ${unitLabel}`}
                       onClick={() => onSelectDemand(item.demandId)}
                     >
-                      <ItemToken
+                      <AllocationSpriteTile
                         kind={visual.kind}
                         color={visual.color}
                         state={isComplete ? "reserved" : short > 0 ? "shortage" : "available"}
                         selected={item.isCurrent}
                         size="xs"
-                        className="border-0 bg-transparent p-0 shadow-none ring-0"
                       />
-                      <span className="absolute bottom-0.5 right-0.5 rounded bg-background/95 px-0.5 text-[9px] font-semibold tabular-nums shadow-xs">
-                        {formatQuantity(item.allocatedQty)}/{formatQuantity(item.remainingQty)}
-                      </span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -879,10 +1179,7 @@ function VariantSwitcher({
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          className={cn(
-                            "flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-                            option.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20"
-                          )}
+                          className="flex size-9 items-center justify-center rounded-md text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                           aria-label={`${option.itemName} · ${optionUnitLabel}`}
                           onClick={() => {
                             if (option.demandId) {
@@ -892,12 +1189,11 @@ function VariantSwitcher({
                             onSelectItem(option.itemId);
                             }}
                           >
-                            <ItemToken
+                            <AllocationSpriteTile
                               kind={optionVisual.kind}
                               color={optionVisual.color}
                               selected={option.isCurrent}
                               size="xs"
-                              className="border-0 bg-transparent p-0 shadow-none ring-0"
                             />
                           </button>
                       </TooltipTrigger>
@@ -938,10 +1234,7 @@ function VariantSwitcher({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-md border bg-card text-foreground shadow-xs transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-                  option.isCurrent && "border-primary/70 bg-primary/5 ring-2 ring-primary/20"
-                )}
+                className="flex size-9 items-center justify-center rounded-md text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                 aria-label={`${option.itemName} · ${unitLabel}`}
                 onClick={() => {
                   if (option.demandId && !option.isCurrent) {
@@ -951,12 +1244,11 @@ function VariantSwitcher({
                     onSelectItem(option.itemId);
                   }}
                 >
-                  <ItemToken
+                  <AllocationSpriteTile
                     kind={visual.kind}
                     color={visual.color}
                     selected={option.isCurrent}
                     size="xs"
-                    className="border-0 bg-transparent p-0 shadow-none ring-0"
                   />
                 </button>
             </TooltipTrigger>
@@ -973,69 +1265,40 @@ function VariantSwitcher({
 function CarryPanel({
   carried,
   className,
+  displayQuantity,
 }: {
   carried: CarryState;
   className?: string;
+  displayQuantity?: number | null;
 }) {
   if (!carried) return null;
 
   const isProduction = carried.sourceType === "manufacturing_order";
+  const shownQuantity = displayQuantity ?? carried.quantity;
   const visual = itemVisual(carried.itemName ?? carried.sourceLabel, carried.unitName);
-  const sourceText = carried.originDemandId
-    ? `Reallocating from ${carried.originLabel ?? "demand"}`
-    : carried.sourceType === "inventory_lot"
-      ? `From ${carried.sourceLabel}`
-      : `From ${carried.sourceLabel}`;
-  const unitLabel = compactUnitName(carried.unitName);
 
   return (
     <div
       className={cn(
-        "pointer-events-none absolute left-1/2 z-20 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2",
+        "pointer-events-none absolute left-1/2 z-20 w-fit max-w-[calc(100%-2rem)] -translate-x-1/2",
         className
       )}
       data-testid="allocation-holding-hud"
     >
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/35 bg-popover/95 p-2.5 text-popover-foreground shadow-xl ring-2 ring-primary/20 backdrop-blur">
+      <div className="alloc-glow-held flex items-center gap-2 rounded-xl border bg-popover/95 p-2 text-popover-foreground shadow-xl backdrop-blur">
         <span className="sr-only">Holding</span>
-        <div className="flex min-w-0 items-center gap-3">
-          <ItemToken
-            kind={visual.kind}
-            color={visual.color}
-            state={isProduction ? "inbound" : "available"}
-            selected
-            size="md"
-            quantity={quantityLabel(carried.quantity)}
-          />
-          <div className="min-w-0">
-            <div className="text-[10px] font-black uppercase tracking-wide text-primary">
-              Holding
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-xl font-semibold tabular-nums leading-none">
-                {quantityLabel(carried.quantity)}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">{unitLabel}</span>
-            </div>
-            <div className="truncate text-sm font-medium">
-              {carried.itemName ?? carried.sourceLabel}
-            </div>
-            <div className="truncate text-xs text-muted-foreground">{sourceText}</div>
-          </div>
-        </div>
-        <div className="grid shrink-0 gap-1 text-[11px] text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">Esc</kbd>
-            <span>cancel</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">X</kbd>
-            <span>split</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <kbd className="w-12 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">wheel</kbd>
-            <span>adjust</span>
-          </div>
+        <AllocationSpriteTile
+          kind={visual.kind}
+          color={visual.color}
+          state={isProduction ? "inbound" : "available"}
+          selected
+          size="md"
+          quantity={quantityLabel(shownQuantity)}
+        />
+        <div className="grid shrink-0 gap-1 text-[10px] text-muted-foreground">
+          <kbd className="min-w-10 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">Esc</kbd>
+          <kbd className="min-w-10 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">X</kbd>
+          <kbd className="min-w-10 rounded border bg-muted px-1.5 py-0.5 text-center font-mono">wheel</kbd>
         </div>
       </div>
     </div>
@@ -1064,44 +1327,38 @@ function SupplyStack({
   previewFree: number;
   isSelected: boolean;
   carried: CarryState;
-  onPick: (token: AllocationTokenData) => void;
+  onPick: (token: AllocationTokenData, sourceRect?: DOMRect) => void;
   onSelect: (sourceKeyValue: string) => boolean;
   onInvalid: (message: string) => void;
   onOpenOutput: (id: string) => void;
 }) {
   const isMo = source.sourceType === "manufacturing_order";
   const isLot = source.sourceType === "inventory_lot";
-  const sourceHeldQty =
-    carried?.sourceKey === sourceKeyValue && carried.originDemandId == null
-      ? carried.quantity
-      : 0;
-  const quantityLabel = formatQuantity(toQuantityString(previewFree));
   const visual = itemVisual(itemName, unitName);
   const canPick = previewFree > 0 && source.canAllocate;
   const isHeldSource =
     carried?.originDemandId != null && carried.sourceKey === sourceKeyValue;
   const toneClasses = isMo
     ? {
-        selected: "border-primary/70 bg-primary/5 ring-2 ring-primary/25 shadow-md",
-        base: "border-primary/35 bg-primary/5",
-        hover: "hover:border-primary/50 hover:bg-primary/10",
+        selected: "",
+        base: "",
+        hover: "",
         icon: "bg-primary/10 text-primary",
         label: "text-primary",
       }
     : {
-        selected: "border-success/70 bg-success/5 ring-2 ring-success/25 shadow-md",
-        base: "border-border bg-background",
-        hover: "hover:border-success/50 hover:bg-success/5",
+        selected: "",
+        base: "",
+        hover: "",
         icon: "bg-success/10 text-success",
         label: "text-muted-foreground",
       };
   const stackClassName = cn(
-    "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md border text-left shadow-xs transition motion-reduce:transition-none",
+    "group relative flex h-[4.5rem] w-20 flex-col items-center justify-center rounded-md text-left transition motion-reduce:transition-none",
     toneClasses.base,
     toneClasses.hover,
-    "focus-within:ring-2 focus-within:ring-ring",
+    "focus-visible:outline-none focus-visible:[&>[data-slot=allocation-sprite-tile]]:border-ring",
     isSelected && toneClasses.selected,
-    isHeldSource && "border-warning/60 bg-warning/10",
     !canPick && "opacity-70"
   );
 
@@ -1110,45 +1367,39 @@ function SupplyStack({
       <div className="flex w-20 flex-col items-center gap-1">
         <button
           type="button"
-          className={cn(stackClassName, "focus-visible:outline-none")}
-          onClick={() => {
+          className={stackClassName}
+          onClick={(event) => {
             if (!onSelect(sourceKeyValue)) return;
             if (!canPick) {
               onInvalid(source.canAllocate ? "No available quantity" : "Source is not allocatable");
               return;
             }
-            onPick({
-              sourceKey: sourceKeyValue,
-              sourceType: source.sourceType,
-              sourceId: source.sourceId,
-              sourceLabel: source.label,
-              sourceIndex,
-              quantity: previewFree,
-              itemName,
-              unitName,
-            });
+            onPick(
+              {
+                sourceKey: sourceKeyValue,
+                sourceType: source.sourceType,
+                sourceId: source.sourceId,
+                sourceLabel: source.label,
+                sourceIndex,
+                quantity: previewFree,
+                itemName,
+                unitName,
+              },
+              getSpriteTransferTargetRect(event.currentTarget)
+            );
           }}
           aria-label={`Allocate all from ${source.label}`}
           data-allocation-interactive
+          data-allocation-source-key={sourceKeyValue}
         >
-          {sourceHeldQty > 0 ? (
-            <AffordanceChip tone="source" className="absolute left-1 top-1">
-              Holding
-            </AffordanceChip>
-          ) : null}
-          {isHeldSource ? (
-            <AffordanceChip tone="source" className="absolute left-1 top-1">
-              Source
-            </AffordanceChip>
-          ) : null}
-          <ItemToken
+          <AllocationSpriteTile
             kind={visual.kind}
             color={visual.color}
-            state="inbound"
+            state={isHeldSource ? "hold" : "inbound"}
             selected={isSelected}
             size="md"
-            quantity={quantityLabel}
-            className="border-0 bg-transparent p-0 shadow-none ring-0"
+            quantity={quantityLabel(previewFree)}
+            className={!carried && canPick ? "alloc-glow-demand" : undefined}
           />
         </button>
         <button
@@ -1172,49 +1423,43 @@ function SupplyStack({
   }
 
   return (
-    <div className="flex w-20 flex-col items-center gap-1">
+    <div className="flex w-20 flex-col items-center gap-0.5">
       <button
         type="button"
-        className={cn(stackClassName, "focus-visible:outline-none focus-visible:ring-2")}
-        onClick={() => {
+        className={stackClassName}
+        onClick={(event) => {
           if (!onSelect(sourceKeyValue)) return;
           if (!canPick) {
             onInvalid(source.canAllocate ? "No available quantity" : "Source is not allocatable");
             return;
           }
-          onPick({
-            sourceKey: sourceKeyValue,
-            sourceType: source.sourceType,
-            sourceId: source.sourceId,
-            sourceLabel: source.label,
-            sourceIndex,
-            quantity: previewFree,
-            itemName,
-            unitName,
-          });
+          onPick(
+            {
+              sourceKey: sourceKeyValue,
+              sourceType: source.sourceType,
+              sourceId: source.sourceId,
+              sourceLabel: source.label,
+              sourceIndex,
+              quantity: previewFree,
+              itemName,
+              unitName,
+            },
+            getSpriteTransferTargetRect(event.currentTarget)
+          );
         }}
         aria-label={`Allocate all from ${source.label}`}
         data-allocation-interactive
+        data-allocation-source-key={sourceKeyValue}
       >
-        {sourceHeldQty > 0 ? (
-          <AffordanceChip tone="source" className="absolute left-1 top-1">
-            Holding
-          </AffordanceChip>
-        ) : null}
-        {isHeldSource ? (
-          <AffordanceChip tone="source" className="absolute left-1 top-1">
-            Source
-          </AffordanceChip>
-        ) : null}
-        <ItemToken
-          kind={visual.kind}
-          color={visual.color}
-          state="available"
-          selected={isSelected}
-          size="md"
-          quantity={quantityLabel}
-          className="border-0 bg-transparent p-0 shadow-none ring-0"
-        />
+          <AllocationSpriteTile
+            kind={visual.kind}
+            color={visual.color}
+            state={isHeldSource ? "hold" : "available"}
+            selected={isSelected}
+            size="md"
+            quantity={quantityLabel(previewFree)}
+            className={!carried && canPick ? "alloc-glow-supply" : undefined}
+          />
       </button>
       <div className="max-w-full truncate text-center text-[11px] font-medium text-muted-foreground">
         {isLot ? source.lotNumber ?? source.label : source.label}
@@ -1230,7 +1475,6 @@ function SourceDetailPanel({
   destinations,
   previewAllocated,
   previewFree,
-  heldQuantity,
 }: {
   source: AllocationSource | null;
   itemName: string | null | undefined;
@@ -1238,7 +1482,6 @@ function SourceDetailPanel({
   destinations: Array<{ label: string; quantity: number; kind: "sales" | "production" }>;
   previewAllocated?: number;
   previewFree?: number;
-  heldQuantity?: number;
 }) {
   const organizationTimeZone = useOrganizationTimeZone();
 
@@ -1248,13 +1491,26 @@ function SourceDetailPanel({
   const allocated = previewAllocated ?? readQuantity(source.allocatedQty);
   const free = previewFree ?? readQuantity(source.freeQty);
   const visual = itemVisual(itemName, unitName);
+  const sourceMeta =
+    source.sourceType === "inventory_lot" ? (
+      <>
+        Received {formatInstantDate(source.receivedAt ?? source.date, organizationTimeZone)}
+      </>
+    ) : source.sourceType === "manufacturing_order" ? (
+      <>
+        {statusLabel(source.status)}
+        {source.date ? ` · ${formatDate(source.date)}` : ""}
+      </>
+    ) : (
+      "Available stock pool"
+    );
 
   return (
-    <div className="rounded-md border bg-background p-3 shadow-xs">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className="rounded-md border bg-background p-2.5 shadow-xs">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <ItemToken
+            <AllocationSpriteTile
               kind={visual.kind}
               color={visual.color}
               state={source.sourceType === "manufacturing_order" ? "inbound" : "available"}
@@ -1263,52 +1519,32 @@ function SourceDetailPanel({
             />
             <h3 className="truncate text-sm font-semibold">{source.label}</h3>
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {source.sourceType === "inventory_lot" ? (
-              <>
-                Received {formatInstantDate(source.receivedAt ?? source.date, organizationTimeZone)} · Created{" "}
-                {formatInstantDate(source.createdAt, organizationTimeZone)}
-              </>
-            ) : source.sourceType === "manufacturing_order" ? (
-              <>
-                {statusLabel(source.status)}
-                {source.date ? ` · ${formatDate(source.date)}` : ""}
-              </>
-            ) : (
-              "Available stock pool"
-            )}
-          </div>
         </div>
-        <Badge variant="secondary">{sourceKindLabel(source)}</Badge>
+        <div className="shrink-0 text-right text-[11px] text-muted-foreground">{sourceMeta}</div>
       </div>
 
-      <div className="space-y-2 text-sm">
-        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</span>
+      <div className="space-y-1.5 text-sm">
+        <div className="grid grid-cols-[4.5rem_1fr_2.5rem] items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Allocated</span>
           <ProgressBar value={allocated} max={Math.max(total, allocated + free)} tone="warning" />
           <span className="text-right font-medium tabular-nums">{quantityLabel(allocated)}</span>
         </div>
-        <div className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">Free</span>
+        <div className="grid grid-cols-[4.5rem_1fr_2.5rem] items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Free</span>
           <ProgressBar value={free} max={Math.max(total, allocated + free)} />
           <span className="text-right font-medium tabular-nums">{quantityLabel(free)}</span>
         </div>
-        {heldQuantity && heldQuantity > 0 ? (
-          <div className="flex justify-end">
-            <AffordanceChip tone="source">Holding {quantityLabel(heldQuantity)}</AffordanceChip>
-          </div>
-        ) : null}
       </div>
 
-      <div className="mt-3 border-t pt-3">
+      <div className="mt-2 border-t pt-2">
         {destinations.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No allocations from this source.</div>
+          <div className="text-xs text-muted-foreground">No allocations from this source.</div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {destinations.map((destination) => (
               <div
                 key={`${destination.kind}:${destination.label}`}
-                className="flex items-center justify-between gap-3 text-sm"
+                className="flex items-center justify-between gap-3 text-xs"
               >
                 <span className="truncate text-muted-foreground">
                   {destination.kind === "production" ? "Production" : "Sales"} ·{" "}
@@ -1369,7 +1605,7 @@ function OutputSourceDetailPanel({
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <ItemToken
+            <AllocationSpriteTile
               kind={visual.kind}
               color={visual.color}
               state="inbound"
@@ -1400,11 +1636,6 @@ function OutputSourceDetailPanel({
             {formatQuantity(toQuantityString(outputFree))}
           </span>
         </div>
-        {heldQuantity && heldQuantity > 0 ? (
-          <div className="flex justify-end">
-            <AffordanceChip tone="source">Holding {quantityLabel(heldQuantity)}</AffordanceChip>
-          </div>
-        ) : null}
       </div>
 
       <div className="mt-3 border-t pt-3">
@@ -1445,7 +1676,6 @@ function DemandCard({
   carried,
   onPlace,
   onPickToken,
-  onReturnOrigin,
   onInvalid,
 }: {
   row: AllocationSheetData["demandRows"][number];
@@ -1464,21 +1694,39 @@ function DemandCard({
   pendingPreview: number;
   lastPlacedDemandId: string | null;
   carried: CarryState;
-  onPlace: () => void;
-  onPickToken: (token: AllocationTokenData) => void;
-  onReturnOrigin: () => void;
+  onPlace: (targetRect?: DOMRect) => void;
+  onPickToken: (token: AllocationTokenData, sourceRect?: DOMRect) => void;
   onInvalid: (message: string) => void;
 }) {
   const [isHovering, setIsHovering] = useState(false);
+  const dropSlotRef = useRef<HTMLDivElement | null>(null);
   const remaining = readQuantity(row.remainingQty);
-  const isOrigin = carried?.originDemandId === row.demandId;
-  const canPlace = carried != null && !isOrigin && shortQty > 0;
-  const isInvalidWhileHolding = carried != null && !isOrigin && shortQty <= 0;
+  const canPlace = carried != null && shortQty > 0;
+  const isInvalidWhileHolding = carried != null && shortQty <= 0;
   const previewAllocated = canPlace ? allocatedQty + pendingPreview : allocatedQty;
   const previewShort = canPlace ? Math.max(0, remaining - previewAllocated) : shortQty;
   const showPreview = canPlace && isHovering && pendingPreview > 0;
   const visual = itemVisual(row.itemName, row.unitName);
   const demandLabel = demandContextLabel(row);
+  const canPickFromSameSourceWhileHolding =
+    carried != null &&
+    draftAllocations.some((allocation) => allocation.sourceKey === carried.sourceKey);
+  const canPickAllocatedToken = carried == null || canPickFromSameSourceWhileHolding;
+  const sameSourceAllocation = carried
+    ? draftAllocations.find(
+        (allocation) =>
+          allocation.sourceKey === carried.sourceKey && allocation.quantity > 0
+      )
+    : null;
+  const slotTargetClassName =
+    canPlace &&
+    (demandTypeOf(row) === "manufacturing_order_ingredient"
+      ? "alloc-glow-demand border-2 border-solid border-[var(--alloc-demand)]"
+      : "alloc-glow-drop border-2 border-solid border-[var(--alloc-drop)]");
+  const getDropTargetRect = (fallback: Element) =>
+    dropSlotRef.current
+      ? getSpriteTransferTargetRect(dropSlotRef.current)
+      : getSpriteTransferTargetRect(fallback);
 
   return (
     <div
@@ -1488,33 +1736,36 @@ function DemandCard({
       data-testid={isTarget ? "current-allocation-bucket" : "readonly-allocation-bucket"}
       data-allocation-interactive
       data-allocation-state={
-        isOrigin ? "origin" : canPlace ? "valid-target" : isInvalidWhileHolding ? "invalid-target" : "idle"
+        canPlace ? "valid-target" : isInvalidWhileHolding ? "invalid-target" : "idle"
       }
       className={cn(
         "cursor-pointer",
-        "w-full rounded-md border bg-background p-3 text-left shadow-xs transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-        isTarget && "border-primary/25 bg-primary/5",
-        isOrigin && "border-warning/65 bg-warning/10 ring-2 ring-warning/20",
-        canPlace && "border-success/45 bg-success/5 hover:border-success/70 hover:bg-success/10 hover:ring-2 hover:ring-success/15 focus-visible:ring-success/30",
+        "w-full rounded-md border bg-background p-2.5 text-left shadow-xs transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
         isInvalidWhileHolding && "opacity-65",
         lastPlacedDemandId === row.demandId &&
-          "animate-in zoom-in-95 ring-2 ring-success/30 motion-reduce:animate-none"
+          "animate-in zoom-in-95 motion-reduce:animate-none"
       )}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
       onFocus={() => setIsHovering(true)}
       onBlur={() => setIsHovering(false)}
-      onClick={() => {
+      onClick={(event) => {
         if (carried) {
-          if (isOrigin) {
-            onReturnOrigin();
+          if (sameSourceAllocation) {
+            onPickToken(
+              {
+                ...sameSourceAllocation,
+                quantity: sameSourceAllocation.quantity,
+              },
+              getSpriteTransferTargetRect(event.currentTarget)
+            );
             return;
           }
           if (!canPlace) {
             onInvalid(shortQty <= 0 ? "Order already full" : "Cannot place stock here");
             return;
           }
-          onPlace();
+          onPlace(getDropTargetRect(event.currentTarget));
           return;
         }
         if (allocatedQty <= 0) {
@@ -1526,17 +1777,23 @@ function DemandCard({
           onInvalid("Pick up stock first");
           return;
         }
-        onPickToken({
-          ...firstAllocation,
-          quantity: firstAllocation.quantity,
-        });
+        onPickToken(
+          {
+            ...firstAllocation,
+            quantity: firstAllocation.quantity,
+          },
+          getSpriteTransferTargetRect(event.currentTarget)
+        );
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           if (carried) {
-            if (isOrigin) {
-              onReturnOrigin();
+            if (sameSourceAllocation) {
+              onPickToken({
+                ...sameSourceAllocation,
+                quantity: sameSourceAllocation.quantity,
+              });
               return;
             }
             if (!canPlace) {
@@ -1557,73 +1814,79 @@ function DemandCard({
         }
       }}
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-          <Badge className="rounded-sm bg-warning/10 text-warning">{demandTypeShortLabel(row)}</Badge>
-          <span className="font-semibold">{row.label}</span>
-          <span className="truncate text-muted-foreground">{row.contextLabel}</span>
-          {isTarget ? <Badge variant="outline">This demand</Badge> : null}
-          {isOrigin ? <AffordanceChip tone="source">Return here</AffordanceChip> : null}
-          {canPlace ? <AffordanceChip tone="success">Place here</AffordanceChip> : null}
-          {isInvalidWhileHolding ? <AffordanceChip tone="warning">Full</AffordanceChip> : null}
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+            <Badge className="rounded-sm bg-warning/10 text-warning">{row.label}</Badge>
+            <span className="truncate text-muted-foreground">{row.contextLabel}</span>
+            {isTarget ? <Badge variant="outline">This order</Badge> : null}
+            {isInvalidWhileHolding ? <AffordanceChip tone="warning">Full</AffordanceChip> : null}
+          </div>
         </div>
-        <div className="mt-1 text-xs text-muted-foreground">
+        <div className="shrink-0 text-right text-xs text-muted-foreground">
           {demandDateLabel(row)} {row.requiredDate ? formatDate(row.requiredDate) : "\u2014"}
         </div>
       </div>
 
-      <div className="mt-3 space-y-2">
-        <DemandQuantityStacks
-          total={remaining}
-          allocated={allocatedQty}
-          visual={visual}
-          allocations={draftAllocations}
-          held={held}
-          demandLabel={demandLabel}
-          onPick={
-            carried == null
-              ? (token) =>
-                  onPickToken({
-                    ...token,
-                    itemName: row.itemName,
-                    unitName: row.unitName,
-                    originDemandId: row.demandId,
-                    originLabel: row.label,
-                    originContext: row.contextLabel,
-                  })
-              : undefined
-          }
-        />
-        <ProgressBar value={allocatedQty} max={remaining} />
-        <div className="flex flex-wrap items-center justify-end gap-3 text-sm">
-          {held ? (
-            <AffordanceChip tone="source">
-              Holding {quantityLabel(held.quantity)}
-            </AffordanceChip>
-          ) : null}
-          {showPreview ? (
-            <AffordanceChip tone="success">
-              Allocated {quantityLabel(allocatedQty)} → {quantityLabel(previewAllocated)}
-            </AffordanceChip>
-          ) : null}
-          <span>
-            <span className="text-muted-foreground">Allocated </span>
-            <span className="font-medium text-success">{formatQuantity(toQuantityString(allocatedQty))}</span>
-          </span>
-          <span>
-            <span className="text-muted-foreground">Short </span>
-            <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
-              {shortLabel(shortQty)}
-            </span>
-          </span>
-          {showPreview ? (
+      <div className="mt-2 space-y-2">
+        <div ref={dropSlotRef}>
+          <DemandQuantityStacks
+            total={remaining}
+            allocated={allocatedQty}
+            visual={visual}
+            allocations={draftAllocations}
+            held={held}
+            demandLabel={demandLabel}
+            emptySlotClassName={slotTargetClassName || undefined}
+            onPick={
+              canPickAllocatedToken
+                ? (token, sourceRect) =>
+                    onPickToken(
+                      {
+                        ...token,
+                        itemName: row.itemName,
+                        unitName: row.unitName,
+                        originDemandId: row.demandId,
+                        originLabel: row.label,
+                        originContext: row.contextLabel,
+                      },
+                      sourceRect
+                    )
+                : undefined
+            }
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="min-w-16 flex-1">
+            <ProgressBar value={allocatedQty} max={remaining} />
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 text-sm">
+            {showPreview ? (
+              <AffordanceChip tone="success">
+                Allocated {quantityLabel(allocatedQty)} → {quantityLabel(previewAllocated)}
+              </AffordanceChip>
+            ) : null}
             <span>
-              <span className="text-muted-foreground">Preview short </span>
-              <span className={cn("font-medium", previewShort > 0 && "text-destructive")}>
-                {shortLabel(previewShort)}
+              <span className="text-muted-foreground">Allocated </span>
+              <span className="font-medium text-success">
+                {formatQuantity(toQuantityString(allocatedQty))}
               </span>
             </span>
-          ) : null}
+            <span>
+              <span className="text-muted-foreground">Short </span>
+              <span className={cn("font-medium", shortQty > 0 && "text-destructive")}>
+                {shortLabel(shortQty)}
+              </span>
+            </span>
+            {showPreview ? (
+              <span>
+                <span className="text-muted-foreground">Preview short </span>
+                <span className={cn("font-medium", previewShort > 0 && "text-destructive")}>
+                  {shortLabel(previewShort)}
+                </span>
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -1649,6 +1912,15 @@ function OutputAllocationWorkspace({
   const [outputSelected, setOutputSelected] = useState(true);
   const [outputCarry, setOutputCarry] = useState<OutputCarryState>(null);
   const [events, setEvents] = useState<AllocationEvent[]>([]);
+  const outputCarryOriginRectRef = useRef<DOMRect | null>(null);
+  const productionSlotRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const {
+    animations: spriteTransfers,
+    animateFromHud,
+    animatePickupToHud,
+    hudQuantityOverride,
+    removeSpriteTransfer,
+  } = useSpriteTransferAnimations();
   const [draftState, setDraftState] = useState<{
     manufacturingOrderId: string | null;
     values: Record<string, string>;
@@ -1721,6 +1993,27 @@ function OutputAllocationWorkspace({
     ? itemVisual(data.sourceMo.productName, null)
     : itemVisual(null, null);
 
+  const animateOutputCarryFromHud = useCallback((quantity: number, targetRect?: DOMRect | null) => {
+    if (!targetRect) return;
+    animateFromHud({ quantity, targetRect, visual: outputVisual });
+  }, [animateFromHud, outputVisual]);
+
+  const animateOutputQuantityChange = useCallback((currentQty: number, nextQty: number) => {
+    const delta = readQuantity(toQuantityString(nextQty - currentQty));
+    if (delta > 0 && outputCarryOriginRectRef.current) {
+      animatePickupToHud({
+        quantity: delta,
+        sourceRect: outputCarryOriginRectRef.current,
+        visual: outputVisual,
+        countIntoHud: false,
+      });
+      return;
+    }
+    if (delta < 0) {
+      animateOutputCarryFromHud(Math.abs(delta), outputCarryOriginRectRef.current);
+    }
+  }, [animateOutputCarryFromHud, animatePickupToHud, outputVisual]);
+
   function pushOutputEvent(message: string, tone: AllocationEvent["tone"] = "success") {
     setEvents((current) => [
       ...current.slice(-2),
@@ -1730,7 +2023,7 @@ function OutputAllocationWorkspace({
 
   useEffect(() => {
     if (events.length === 0) return;
-    const timeout = window.setTimeout(() => setEvents((current) => current.slice(1)), 2500);
+    const timeout = window.setTimeout(() => setEvents((current) => current.slice(1)), 1800);
     return () => window.clearTimeout(timeout);
   }, [events]);
 
@@ -1853,23 +2146,24 @@ function OutputAllocationWorkspace({
     function handleKeyDown(event: KeyboardEvent) {
       if (outputCarry == null) return;
       if (event.key === "Escape") {
+        animateOutputCarryFromHud(outputCarry.quantity, outputCarryOriginRectRef.current);
+        outputCarryOriginRectRef.current = null;
         setOutputCarry(null);
-        pushOutputEvent("Cancelled pickup", "warning");
       } else if (event.key.toLowerCase() === "x") {
         const nextQty = Math.max(1, Math.floor(outputCarry.quantity / 2));
+        animateOutputQuantityChange(outputCarry.quantity, nextQty);
         setOutputCarry((current) => (current == null ? null : { ...current, quantity: nextQty }));
-        pushOutputEvent(`Split stack: holding ${quantityLabel(nextQty)}`, "warning");
       } else if (event.key === "+" || event.key === "=") {
         const nextQty = clampQuantity(
           outputCarry.quantity + (event.shiftKey ? 5 : 1),
           getOutputCarryMax(outputCarry)
         );
+        animateOutputQuantityChange(outputCarry.quantity, nextQty);
         setOutputCarry((current) => (current == null ? null : { ...current, quantity: nextQty }));
-        pushOutputEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
       } else if (event.key === "-") {
         const nextQty = Math.max(1, outputCarry.quantity - (event.shiftKey ? 5 : 1));
+        animateOutputQuantityChange(outputCarry.quantity, nextQty);
         setOutputCarry((current) => (current == null ? null : { ...current, quantity: nextQty }));
-        pushOutputEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
       } else {
         return;
       }
@@ -1880,7 +2174,7 @@ function OutputAllocationWorkspace({
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [getOutputCarryMax, outputCarry]);
+  }, [animateOutputCarryFromHud, animateOutputQuantityChange, getOutputCarryMax, outputCarry]);
 
   useEffect(() => {
     function handleWheel(event: WheelEvent) {
@@ -1893,13 +2187,13 @@ function OutputAllocationWorkspace({
           getOutputCarryMax(outputCarry)
         )
       );
+      animateOutputQuantityChange(outputCarry.quantity, nextQty);
       setOutputCarry((current) => (current == null ? null : { ...current, quantity: nextQty }));
-      pushOutputEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
     }
 
     window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
     return () => window.removeEventListener("wheel", handleWheel, { capture: true });
-  }, [getOutputCarryMax, outputCarry]);
+  }, [animateOutputQuantityChange, getOutputCarryMax, outputCarry]);
 
   function updateSalesDestination(demandId: string, quantity: number) {
     setSalesDraftState((current) => ({
@@ -1913,7 +2207,7 @@ function OutputAllocationWorkspace({
     }));
   }
 
-  function placeOnDestination(ingredientId: string) {
+  function placeOnDestination(ingredientId: string, targetRect?: DOMRect) {
     if (outputCarry == null) {
       pushOutputEvent("Pick up output first", "warning");
       return;
@@ -1925,9 +2219,11 @@ function OutputAllocationWorkspace({
     if (!destination) return;
     const current = readQuantity(draft[ingredientId]);
     if (outputCarry.originIngredientId === ingredientId) {
+      if (targetRect) {
+        animateFromHud({ quantity: outputCarry.quantity, targetRect, visual: outputVisual });
+      }
       setOutputCarry(null);
       setSelectedIngredientId(ingredientId);
-      pushOutputEvent(`Returned ${quantityLabel(outputCarry.quantity)} to source`, "warning");
       return;
     }
     const visibleCurrent =
@@ -1940,6 +2236,9 @@ function OutputAllocationWorkspace({
     if (quantity <= 0) {
       pushOutputEvent(remaining <= 0 ? "Order already full" : "Cannot place stock here", "warning");
       return;
+    }
+    if (targetRect) {
+      animateFromHud({ quantity, targetRect, visual: outputVisual });
     }
     setDraftState((currentDraftState) => {
       const values =
@@ -1963,10 +2262,9 @@ function OutputAllocationWorkspace({
           }
     );
     setSelectedIngredientId(ingredientId);
-    pushOutputEvent(`Allocated ${quantityLabel(quantity)} to ${destination.orderNumber}`);
   }
 
-  function placeOnSalesDestination(demandId: string) {
+  function placeOnSalesDestination(demandId: string, targetRect?: DOMRect) {
     if (outputCarry == null) {
       pushOutputEvent("Pick up output first", "warning");
       return;
@@ -1983,6 +2281,9 @@ function OutputAllocationWorkspace({
     if (quantity <= 0) {
       pushOutputEvent(remaining <= 0 ? "Order already full" : "Cannot place stock here", "warning");
       return;
+    }
+    if (targetRect) {
+      animateFromHud({ quantity, targetRect, visual: outputVisual });
     }
     if (outputCarry.originIngredientId) {
       const originIngredientId = outputCarry.originIngredientId;
@@ -2011,12 +2312,11 @@ function OutputAllocationWorkspace({
           }
     );
     setSelectedIngredientId(demandId);
-    pushOutputEvent(`Allocated ${quantityLabel(quantity)} to ${destination.orderNumber}`);
   }
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4"
       onClick={(event) => {
         if (carriedQty == null) return;
         const target = event.target instanceof Element ? event.target : null;
@@ -2029,15 +2329,6 @@ function OutputAllocationWorkspace({
           <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
           Back
         </Button>
-        {hasOutputChanges ? (
-          <div
-            data-testid="allocation-pending-changes"
-            className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-1.5 text-sm"
-          >
-            <span className="font-medium text-primary">Unsaved allocation changes</span>
-            <Badge variant="secondary">1 change pending</Badge>
-          </div>
-        ) : null}
         <Button type="button" onClick={() => mutation.mutate()} disabled={!canSave}>
           {mutation.isPending ? "Saving..." : "Save allocation"}
         </Button>
@@ -2053,7 +2344,7 @@ function OutputAllocationWorkspace({
         <>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
-              <ItemToken
+              <AllocationSpriteTile
                 kind={outputVisual.kind}
                 color={outputVisual.color}
                 state="inbound"
@@ -2078,9 +2369,9 @@ function OutputAllocationWorkspace({
               tone="primary"
             />
           </div>
-          <div className="grid min-h-0 gap-4 xl:grid-cols-2">
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,0.9fr)_minmax(20rem,1.1fr)] gap-4 overflow-x-auto overflow-y-hidden">
             <WorkspacePanel
-              title="Supply · Output"
+              title="Supply"
               count="1 source"
               accent="supply"
             >
@@ -2092,17 +2383,20 @@ function OutputAllocationWorkspace({
                       <button
                         type="button"
                         className={cn(
-                          "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md border bg-primary/5 text-left shadow-xs transition motion-reduce:transition-none",
-                          "hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          outputSelected && "border-primary/60 ring-2 ring-primary/25 shadow-md",
+                          "group relative flex h-24 w-20 flex-col items-center justify-center rounded-md text-left transition motion-reduce:transition-none",
+                          "focus-visible:outline-none focus-visible:[&>[data-slot=allocation-sprite-tile]]:border-ring",
                           outputFree <= 0 && "opacity-70"
                         )}
-                        onClick={() => {
+                        onClick={(event) => {
                           if (outputCarry != null) {
                             if (!outputCarry.originIngredientId) {
                               setOutputSelected(false);
+                              animateOutputCarryFromHud(
+                                outputCarry.quantity,
+                                outputCarryOriginRectRef.current
+                              );
+                              outputCarryOriginRectRef.current = null;
                               setOutputCarry(null);
-                              pushOutputEvent("Cancelled pickup", "warning");
                               return;
                             }
                             pushOutputEvent("Place held stock or press Esc to cancel", "warning");
@@ -2110,10 +2404,16 @@ function OutputAllocationWorkspace({
                           }
                           setOutputSelected(true);
                           if (outputFree > 0) {
-                            setOutputCarry({ quantity: outputFree });
-                            pushOutputEvent(
-                              `Picked up ${quantityLabel(outputFree)} from ${data.sourceMo.orderNumber}`
+                            outputCarryOriginRectRef.current = getSpriteTransferTargetRect(
+                              event.currentTarget
                             );
+                            animatePickupToHud({
+                              quantity: outputFree,
+                              sourceRect: outputCarryOriginRectRef.current,
+                              visual: outputVisual,
+                            });
+                            setOutputCarry({ quantity: outputFree });
+                            pushOutputEvent("Click to allocate", "warning");
                           } else {
                             setOutputCarry(null);
                             pushOutputEvent("No available quantity", "warning");
@@ -2130,19 +2430,13 @@ function OutputAllocationWorkspace({
                               : "origin"
                         }
                       >
-                        {carriedQty != null && !outputCarry?.originIngredientId ? (
-                          <AffordanceChip tone="source" className="absolute left-1 top-1">
-                            Holding
-                          </AffordanceChip>
-                        ) : null}
-                        <ItemToken
+                        <AllocationSpriteTile
                           kind={outputVisual.kind}
                           color={outputVisual.color}
                           state="inbound"
                           selected={outputSelected}
                           size="md"
                           quantity={quantityLabel(visibleOutputFree)}
-                          className="border-0 bg-transparent p-0 shadow-none ring-0"
                         />
                       </button>
                       <div className="max-w-full truncate text-center text-xs font-medium text-primary">
@@ -2167,7 +2461,7 @@ function OutputAllocationWorkspace({
             </WorkspacePanel>
 
             <WorkspacePanel
-              title="Demand · Orders"
+              title="Demand"
               count={`${data.salesDestinations.length + data.productionDestinations.length} destinations`}
               accent="production"
             >
@@ -2188,7 +2482,12 @@ function OutputAllocationWorkspace({
                     tabIndex={0}
                     key={destination.demandId}
                     aria-label={`Allocate output to ${destination.orderNumber}`}
-                    onClick={() => placeOnSalesDestination(destination.demandId)}
+                    onClick={(event) =>
+                      placeOnSalesDestination(
+                        destination.demandId,
+                        getSpriteTransferTargetRect(event.currentTarget)
+                      )
+                    }
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
@@ -2199,7 +2498,7 @@ function OutputAllocationWorkspace({
                       "cursor-pointer",
                       "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       "border-success/30 bg-success/5",
-                      selected && "ring-2 ring-success/25"
+                      selected && "alloc-glow-supply"
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -2285,7 +2584,16 @@ function OutputAllocationWorkspace({
                           ? "valid-target"
                           : "invalid-target"
                     }
-                    onClick={() => placeOnDestination(destination.ingredientId)}
+                    onClick={(event) =>
+                      placeOnDestination(
+                        destination.ingredientId,
+                        productionSlotRefs.current[destination.ingredientId]
+                          ? getSpriteTransferTargetRect(
+                              productionSlotRefs.current[destination.ingredientId]!
+                            )
+                          : getSpriteTransferTargetRect(event.currentTarget)
+                      )
+                    }
                     onMouseEnter={() => setHoveredIngredientId(destination.ingredientId)}
                     onMouseLeave={() => setHoveredIngredientId(null)}
                     onFocus={() => setHoveredIngredientId(destination.ingredientId)}
@@ -2300,10 +2608,9 @@ function OutputAllocationWorkspace({
                       "cursor-pointer",
                       "w-full rounded-md border bg-background p-3 text-left shadow-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
                       "border-primary/30 bg-primary/5",
-                      isOrigin && "border-warning/65 bg-warning/10 ring-2 ring-warning/20",
-                      canPlace && "border-success/45 bg-success/5 hover:border-success/70 hover:bg-success/10",
+                      isOrigin && "alloc-glow-demand bg-warning/10",
                       carriedQty != null && !isOrigin && shortQty <= 0 && "opacity-65",
-                      selected && "ring-2 ring-primary/25"
+                      selected && "alloc-glow-demand"
                     )}
                   >
                       <div className="flex items-start justify-between gap-3">
@@ -2311,9 +2618,6 @@ function OutputAllocationWorkspace({
                           <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                             <Badge className="rounded-sm bg-primary/10 text-primary">MO</Badge>
                             <span className="font-semibold">{destination.orderNumber}</span>
-                            {canPlace ? (
-                              <AffordanceChip tone="success">Place here</AffordanceChip>
-                            ) : null}
                             {isOrigin ? (
                               <AffordanceChip tone="source">Return here</AffordanceChip>
                             ) : null}
@@ -2353,42 +2657,59 @@ function OutputAllocationWorkspace({
                       </div>
                     </div>
                     <div className="mt-3 space-y-2">
-                      <DemandQuantityStacks
-                        total={remaining}
-                        allocated={visibleAllocated}
-                        visual={outputVisual}
-                        allocations={[
-                          {
-                            sourceKey: "output",
-                            sourceType: "manufacturing_order",
-                            sourceId: manufacturingOrderId,
-                            sourceLabel: data.sourceMo.orderNumber,
-                            sourceIndex: 0,
-                            quantity: allocated,
-                          },
-                        ]}
-                        held={
-                          heldFromDestination > 0
-                            ? { sourceKey: "output", quantity: heldFromDestination }
-                            : null
-                        }
-                        demandLabel={destination.orderNumber}
-                        onPick={
-                          outputCarry == null
-                            ? (token) => {
-                                setOutputCarry({
-                                  quantity: token.quantity,
-                                  originIngredientId: destination.ingredientId,
-                                  originLabel: destination.orderNumber,
-                                });
-                                setSelectedIngredientId(destination.ingredientId);
-                                pushOutputEvent(
-                                  `Picked up ${quantityLabel(token.quantity)} from ${destination.orderNumber}`
-                                );
-                              }
-                            : undefined
-                        }
-                      />
+                      <div
+                        ref={(node) => {
+                          productionSlotRefs.current[destination.ingredientId] = node;
+                        }}
+                      >
+                        <DemandQuantityStacks
+                          total={remaining}
+                          allocated={visibleAllocated}
+                          visual={outputVisual}
+                          allocations={[
+                            {
+                              sourceKey: "output",
+                              sourceType: "manufacturing_order",
+                              sourceId: manufacturingOrderId,
+                              sourceLabel: data.sourceMo.orderNumber,
+                              sourceIndex: 0,
+                              quantity: allocated,
+                            },
+                          ]}
+                          held={
+                            heldFromDestination > 0
+                              ? { sourceKey: "output", quantity: heldFromDestination }
+                              : null
+                          }
+                          demandLabel={destination.orderNumber}
+                          emptySlotClassName={
+                            canPlace
+                              ? "alloc-glow-demand border-2 border-solid border-[var(--alloc-demand)]"
+                              : undefined
+                          }
+                          onPick={
+                            outputCarry == null
+                              ? (token, sourceRect) => {
+                                  if (sourceRect) {
+                                    outputCarryOriginRectRef.current = sourceRect;
+                                    animatePickupToHud({
+                                      quantity: token.quantity,
+                                      sourceRect,
+                                      visual: outputVisual,
+                                    });
+                                  }
+                                  setOutputCarry({
+                                    quantity: token.quantity,
+                                    originIngredientId: destination.ingredientId,
+                                    originLabel: destination.orderNumber,
+                                  });
+                                  setSelectedIngredientId(destination.ingredientId);
+                                  pushOutputEvent("Click to allocate", "warning");
+                                }
+                              : undefined
+                          }
+                        />
+                      </div>
                         <ProgressBar value={visibleAllocated} max={remaining} tone="primary" />
                       <div className="flex flex-wrap justify-end gap-3 text-sm">
                         {showPreview ? (
@@ -2443,6 +2764,11 @@ function OutputAllocationWorkspace({
                   }
             }
             className="bottom-6"
+            displayQuantity={hudQuantityOverride}
+          />
+          <SpriteTransferOverlay
+            animations={spriteTransfers}
+            onDone={removeSpriteTransfer}
           />
           <AllocationEventLog events={events} />
         </>
@@ -2477,6 +2803,14 @@ export function AllocationManagerSheet({
   const [selectedSourceKey, setSelectedSourceKey] = useState<string | null>(null);
   const [carried, setCarried] = useState<CarryState>(null);
   const [events, setEvents] = useState<AllocationEvent[]>([]);
+  const carryOriginRectRef = useRef<DOMRect | null>(null);
+  const {
+    animations: spriteTransfers,
+    animateFromHud,
+    animatePickupToHud,
+    hudQuantityOverride,
+    removeSpriteTransfer,
+  } = useSpriteTransferAnimations();
   const [lastPlacedDemandId, setLastPlacedDemandId] = useState<string | null>(null);
   const [outputHasChanges, setOutputHasChanges] = useState(false);
   const [outputIsHolding, setOutputIsHolding] = useState(false);
@@ -2563,7 +2897,7 @@ export function AllocationManagerSheet({
     if (events.length === 0) return;
     const timeout = window.setTimeout(() => {
       setEvents((current) => current.slice(1));
-    }, 2500);
+    }, 1800);
     return () => window.clearTimeout(timeout);
   }, [events]);
 
@@ -2660,18 +2994,80 @@ export function AllocationManagerSheet({
     return Math.max(1, readQuantity(draftsByDemand[token.originDemandId]?.[token.sourceKey]));
   }
 
-  function pickToken(token: AllocationTokenData) {
+  function getSourceSpriteRect(sourceKeyValue: string) {
+    if (typeof document === "undefined") return null;
+    const sources = document.querySelectorAll<HTMLElement>("[data-allocation-source-key]");
+    for (const source of sources) {
+      if (source.dataset.allocationSourceKey === sourceKeyValue) {
+        return getSpriteTransferTargetRect(source);
+      }
+    }
+    return null;
+  }
+
+  function pickToken(token: AllocationTokenData, sourceRect?: DOMRect) {
     if (token.quantity <= 0) {
       pushEvent("No available quantity", "warning");
       return;
     }
+    if (token.originDemandId) {
+      if (carried && carried.sourceKey !== token.sourceKey) {
+        pushEvent("Place held stock or press Esc to cancel", "warning");
+        return;
+      }
+      const originDraft = draftsByDemand[token.originDemandId] ?? {};
+      const originQty = readQuantity(originDraft[token.sourceKey]);
+      const quantity = Math.min(token.quantity, originQty);
+      if (quantity <= 0) {
+        pushEvent("No available quantity", "warning");
+        return;
+      }
+      if (sourceRect) {
+        animatePickupToHud({
+          quantity,
+          sourceRect,
+          visual: itemVisual(token.itemName ?? token.sourceLabel, token.unitName),
+          countIntoHud: false,
+        });
+      }
+      carryOriginRectRef.current ??= getSourceSpriteRect(token.sourceKey);
+      updateDrafts({
+        ...draftsByDemand,
+        [token.originDemandId]: {
+          ...originDraft,
+          [token.sourceKey]: toQuantityString(originQty - quantity),
+        },
+      });
+      const nextQuantity = readQuantity(toQuantityString((carried?.quantity ?? 0) + quantity));
+      setCarried({
+        sourceKey: token.sourceKey,
+        sourceType: token.sourceType,
+        sourceId: token.sourceId,
+        sourceLabel: token.sourceLabel,
+        sourceIndex: token.sourceIndex,
+        quantity: nextQuantity,
+        itemName: token.itemName,
+        unitName: token.unitName,
+      });
+      setSelectedSourceKey(token.sourceKey);
+      pushEvent("Click to allocate", "warning");
+      return;
+    }
+    if (carried) {
+      pushEvent("Place held stock or press Esc to cancel", "warning");
+      return;
+    }
+    if (sourceRect) {
+      carryOriginRectRef.current = sourceRect;
+      animatePickupToHud({
+        quantity: token.quantity,
+        sourceRect,
+        visual: itemVisual(token.itemName ?? token.sourceLabel, token.unitName),
+      });
+    }
     setCarried(token);
     setSelectedSourceKey(token.sourceKey);
-    pushEvent(
-      token.originDemandId
-        ? `Picked up ${quantityLabel(token.quantity)} from ${token.originLabel ?? "demand"}`
-        : `Picked up ${quantityLabel(token.quantity)} from ${token.sourceLabel}`
-    );
+    pushEvent("Click to allocate", "warning");
   }
 
   function selectSource(sourceKeyValue: string) {
@@ -2689,9 +3085,7 @@ export function AllocationManagerSheet({
       carried?.sourceKey === sourceKeyValue &&
       !carried.originDemandId
     ) {
-      setSelectedSourceKey(null);
-      setCarried(null);
-      pushEvent("Cancelled pickup", "warning");
+      cancelCarry();
       return false;
     }
 
@@ -2699,13 +3093,40 @@ export function AllocationManagerSheet({
     return true;
   }
 
-  function cancelCarry(message = "Cancelled pickup") {
+  function cancelCarry() {
     if (!carried) return;
+    animateCarriedFromHud(carried.quantity, carryOriginRectRef.current ?? undefined);
+    carryOriginRectRef.current = null;
     setCarried(null);
-    pushEvent(message, "warning");
   }
 
-  function allocateTokenToDemand(token: AllocationTokenData, demandId: string) {
+  function animateCarriedFromHud(quantity: number, targetRect?: DOMRect) {
+    if (!carried || !targetRect) return;
+    animateFromHud({
+      quantity,
+      targetRect,
+      visual: itemVisual(carried.itemName ?? carried.sourceLabel, carried.unitName),
+    });
+  }
+
+  function animateCarryQuantityChange(currentQty: number, nextQty: number) {
+    if (!carried) return;
+    const delta = readQuantity(toQuantityString(nextQty - currentQty));
+    if (delta > 0 && carryOriginRectRef.current) {
+      animatePickupToHud({
+        quantity: delta,
+        sourceRect: carryOriginRectRef.current,
+        visual: itemVisual(carried.itemName ?? carried.sourceLabel, carried.unitName),
+        countIntoHud: false,
+      });
+      return;
+    }
+    if (delta < 0) {
+      animateCarriedFromHud(Math.abs(delta), carryOriginRectRef.current ?? undefined);
+    }
+  }
+
+  function allocateTokenToDemand(token: AllocationTokenData, demandId: string, targetRect?: DOMRect) {
     const row = data?.demandRows.find(
       (demandRow) => demandRow.demandId === demandId
     );
@@ -2723,6 +3144,7 @@ export function AllocationManagerSheet({
       pushEvent(demandShortQty <= 0 ? "Order already full" : "Cannot place stock here", "warning");
       return;
     }
+    animateCarriedFromHud(quantity, targetRect);
 
     updateDrafts({
       ...draftsByDemand,
@@ -2737,15 +3159,18 @@ export function AllocationManagerSheet({
         : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
     );
     setLastPlacedDemandId(demandId);
-    pushEvent(`Allocated ${quantityLabel(quantity)} to ${row.label}`);
   }
 
-  function moveAllocatedTokenToDemand(token: AllocationTokenData, targetDemandId: string) {
+  function moveAllocatedTokenToDemand(
+    token: AllocationTokenData,
+    targetDemandId: string,
+    targetRect?: DOMRect
+  ) {
     const originDemandId = token.originDemandId;
     if (!originDemandId) return;
     if (originDemandId === targetDemandId) {
+      animateCarriedFromHud(token.quantity, targetRect);
       setCarried(null);
-      pushEvent(`Returned ${quantityLabel(token.quantity)} to source`, "warning");
       return;
     }
 
@@ -2767,6 +3192,7 @@ export function AllocationManagerSheet({
       pushEvent(targetShortQty <= 0 ? "Order already full" : "Cannot place stock here", "warning");
       return;
     }
+    animateCarriedFromHud(quantity, targetRect);
 
     updateDrafts({
       ...draftsByDemand,
@@ -2785,71 +3211,34 @@ export function AllocationManagerSheet({
         : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
     );
     setLastPlacedDemandId(targetDemandId);
-    pushEvent(`Allocated ${quantityLabel(quantity)} to ${targetRow.label}`);
   }
 
-  function returnAllocatedTokenToSource(token: AllocationTokenData) {
-    const originDemandId = token.originDemandId;
-    if (!originDemandId) return;
-
-    const originDraft = draftsByDemand[originDemandId] ?? {};
-    const originQty = readQuantity(originDraft[token.sourceKey]);
-    const quantity = Math.min(token.quantity, originQty);
-    if (quantity <= 0) {
-      setCarried(null);
-      pushEvent("Cancelled pickup", "warning");
-      return;
-    }
-
-    updateDrafts({
-      ...draftsByDemand,
-      [originDemandId]: {
-        ...originDraft,
-        [token.sourceKey]: toQuantityString(originQty - quantity),
-      },
-    });
-    setSelectedSourceKey(token.sourceKey);
-    setCarried(
-      token.quantity <= quantity
-        ? null
-        : { ...token, quantity: readQuantity(toQuantityString(token.quantity - quantity)) }
-    );
-    pushEvent(`Returned ${quantityLabel(quantity)} to ${token.sourceLabel}`, "warning");
-  }
-
-  function placeOnDemand(demandId: string) {
+  function placeOnDemand(demandId: string, targetRect?: DOMRect) {
     if (!carried) return;
     if (carried.originDemandId) {
-      moveAllocatedTokenToDemand(carried, demandId);
+      moveAllocatedTokenToDemand(carried, demandId, targetRect);
       return;
     }
-    allocateTokenToDemand(carried, demandId);
+    allocateTokenToDemand(carried, demandId, targetRect);
   }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (!carried) return;
       if (event.key === "Escape") {
-        cancelCarry("Cancelled pickup");
-      } else if (event.key.toLowerCase() === "a") {
-        const nextQty = getCarryMax(carried);
-        setCarried((current) =>
-          current
-            ? { ...current, quantity: nextQty }
-            : null
-        );
-        pushEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
+        cancelCarry();
       } else if (event.key.toLowerCase() === "x") {
         const nextQty = Math.max(1, Math.floor(carried.quantity / 2));
+        animateCarryQuantityChange(carried.quantity, nextQty);
         setCarried((current) =>
           current ? { ...current, quantity: nextQty } : null
         );
-        pushEvent(`Split stack: holding ${quantityLabel(nextQty)}`, "warning");
       } else if (event.key === "+" || event.key === "=") {
         const nextQty = clampQuantity(
           carried.quantity + (event.shiftKey ? 5 : 1),
           getCarryMax(carried)
         );
+        animateCarryQuantityChange(carried.quantity, nextQty);
         setCarried((current) =>
           current
             ? {
@@ -2858,15 +3247,14 @@ export function AllocationManagerSheet({
               }
             : null
         );
-        pushEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
       } else if (event.key === "-") {
         const nextQty = Math.max(1, carried.quantity - (event.shiftKey ? 5 : 1));
+        animateCarryQuantityChange(carried.quantity, nextQty);
         setCarried((current) =>
           current
             ? { ...current, quantity: nextQty }
             : null
         );
-        pushEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
       } else if (event.key === "Enter" && targetDemandId) {
         placeOnDemand(targetDemandId);
       } else {
@@ -2892,6 +3280,7 @@ export function AllocationManagerSheet({
           getCarryMax(carried)
         )
       );
+      animateCarryQuantityChange(carried.quantity, nextQty);
       setCarried((current) =>
         current
           ? {
@@ -2900,7 +3289,6 @@ export function AllocationManagerSheet({
             }
           : null
       );
-      pushEvent(`Holding ${quantityLabel(nextQty)}`, "warning");
     }
 
     window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
@@ -3058,24 +3446,6 @@ export function AllocationManagerSheet({
     (sum, source) => sum + getVisibleSourcePreviewFree(source),
     0
   );
-  const demandTypeCounts = (data?.demandRows ?? []).reduce(
-    (counts, row) => {
-      if (demandTypeOf(row) === "manufacturing_order_ingredient") counts.mo += 1;
-      else counts.so += 1;
-      return counts;
-    },
-    { so: 0, mo: 0 }
-  );
-  const demandPanelCount =
-    demandTypeCounts.mo > 0 && demandTypeCounts.so > 0
-      ? `${demandTypeCounts.so} SO · ${demandTypeCounts.mo} MO`
-      : demandTypeCounts.mo > 0
-        ? `${demandTypeCounts.mo} MO · need date`
-        : `${demandTypeCounts.so} SO · shipping date`;
-  const supplyPanelCount =
-    manufacturingSources.length > 0
-      ? `${onHandSources.length} on hand · ${manufacturingSources.length} inbound`
-      : `${onHandSources.length} on hand`;
   const selectedSource =
     selectedSourceKey ? sourceMetaByKey.get(selectedSourceKey)?.source ?? null : null;
   const selectedSourceKeyValue = selectedSource
@@ -3097,7 +3467,6 @@ export function AllocationManagerSheet({
           ) - selectedSourceHeldQty
         ),
         free: getVisibleSourcePreviewFree(selectedSource),
-        held: selectedSourceHeldQty,
       }
     : null;
 
@@ -3127,10 +3496,6 @@ export function AllocationManagerSheet({
     : [];
 
   function requestSheetClose() {
-    if (carried || outputIsHolding) {
-      pushEvent("Place held stock or press Esc to cancel", "warning");
-      return;
-    }
     if (hasChanges || outputHasChanges) {
       const shouldClose = window.confirm("Discard unsaved allocation changes?");
       if (!shouldClose) return;
@@ -3144,6 +3509,14 @@ export function AllocationManagerSheet({
     onOpenChange(false);
   }
 
+  const pendingChangeLabel = outputMoId
+    ? outputHasChanges
+      ? "Unsaved · 1 change"
+      : null
+    : hasChanges
+      ? compactChangeLabel(changedDemandCount)
+      : null;
+
   return (
     <Sheet
       open={open}
@@ -3155,7 +3528,15 @@ export function AllocationManagerSheet({
         onOpenChange(nextOpen);
       }}
     >
-      <SheetContent className="overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
+      <SheetContent className="flex h-svh flex-col overflow-hidden bg-background text-foreground data-[side=right]:w-full data-[side=right]:sm:w-[min(96vw,92rem)] data-[side=right]:sm:max-w-none">
+        {pendingChangeLabel ? (
+          <div
+            data-testid="allocation-pending-changes"
+            className="absolute right-12 top-4 z-50 rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+          >
+            {pendingChangeLabel}
+          </div>
+        ) : null}
         <SheetHeader className="border-b">
           <SheetTitle>Allocation Manager</SheetTitle>
           <SheetDescription className="sr-only">
@@ -3164,7 +3545,7 @@ export function AllocationManagerSheet({
           {targetItem ? (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2">
               <div className="flex min-w-0 items-center gap-3">
-                <ItemToken
+                <AllocationSpriteTile
                   kind={targetVisual.kind}
                   color={targetVisual.color}
                   state="available"
@@ -3260,7 +3641,7 @@ export function AllocationManagerSheet({
           </>
         ) : (
           <div
-            className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4"
             onClick={(event) => {
               if (!carried) return;
               const target = event.target instanceof Element ? event.target : null;
@@ -3287,25 +3668,15 @@ export function AllocationManagerSheet({
                 </Button>
               </div>
             ) : data && targetItem ? (
-              <div className="grid min-h-0 gap-4 xl:grid-cols-2">
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,0.9fr)_minmax(20rem,1.1fr)] gap-4 overflow-x-auto overflow-y-hidden">
                 <WorkspacePanel
-                  title="Supply · Storage"
-                  count={supplyPanelCount}
+                  title="Supply"
                   accent="supply"
                   testId="allocation-supply-panel"
-                  onClickCapture={(event) => {
-                    if (!carried?.originDemandId) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    returnAllocatedTokenToSource(carried);
-                  }}
                 >
                   <div className="flex min-h-0 flex-col gap-4">
                     <div className="space-y-3">
-                      <SectionTitle
-                        title="On hand"
-                        count={`${onHandSources.length} sources`}
-                      />
+                      <SectionTitle title="On hand" />
                       <div className="flex flex-wrap gap-2">
                         {onHandSources.map((source, sourceIndex) => {
                           const key = allocationKey(source.sourceType, source.sourceId);
@@ -3334,7 +3705,6 @@ export function AllocationManagerSheet({
                       <div className="border-t pt-3">
                         <SectionTitle
                           title="Inbound from MFG"
-                          count={`${manufacturingSources.length} MOs`}
                           className="text-primary"
                           icon={
                             <HugeiconsIcon
@@ -3376,54 +3746,58 @@ export function AllocationManagerSheet({
                   targetDraftShortQty > 0 &&
                   carried == null &&
                   renderCreateManufacturingOrderAction
-                    ? renderCreateManufacturingOrderAction({
-                      parentDemandId: targetDemand.parentDemandId,
-                      parentDemandLabel: `${targetDemand.label} - ${targetDemand.contextLabel}`,
-                      initialPlannedDate: todayDateString(),
-                      openManufacturingOrders: data.supplySources
-                        .filter(
-                          (source) =>
-                            source.sourceType === "manufacturing_order" &&
-                            source.sourceId != null &&
-                            (source.status === "draft" || source.status === "released")
-                        )
-                        .map((source) => ({
-                          id: source.sourceId ?? source.label,
-                          orderNumber: source.label,
-                          itemName: targetDemand.itemName,
-                          quantity: `${formatQuantity(source.totalQty)} ${targetUnitLabel}`,
-                          plannedDate: source.date,
-                          priorityRank: source.priorityRank,
-                          status: statusLabel(source.status),
-                        })),
-                      initialDemandQuantities: [
-                        {
-                          demandId: targetDemand.demandId,
-                          quantity: toQuantityString(targetDraftShortQty),
-                        },
-                      ],
-                    })
+                    ? (
+                        <div className="flex justify-end">
+                          {renderCreateManufacturingOrderAction({
+                            parentDemandId: targetDemand.parentDemandId,
+                            parentDemandLabel: `${targetDemand.label} - ${targetDemand.contextLabel}`,
+                            initialPlannedDate: todayDateString(),
+                            openManufacturingOrders: data.supplySources
+                              .filter(
+                                (source) =>
+                                  source.sourceType === "manufacturing_order" &&
+                                  source.sourceId != null &&
+                                  (source.status === "draft" || source.status === "released")
+                              )
+                              .map((source) => ({
+                                id: source.sourceId ?? source.label,
+                                orderNumber: source.label,
+                                itemName: targetDemand.itemName,
+                                quantity: `${formatQuantity(source.totalQty)} ${targetUnitLabel}`,
+                                plannedDate: source.date,
+                                priorityRank: source.priorityRank,
+                                status: statusLabel(source.status),
+                              })),
+                            initialDemandQuantities: [
+                              {
+                                demandId: targetDemand.demandId,
+                                quantity: toQuantityString(targetDraftShortQty),
+                              },
+                            ],
+                          })}
+                        </div>
+                      )
                     : null}
 
                   {selectedSource ? (
-                    <SourceDetailPanel
-                      source={selectedSource}
-                      itemName={targetItem.itemName}
-                      unitName={targetItem.unitName}
-                      destinations={sourceDestinations}
-                      previewAllocated={selectedSourcePreview?.allocated}
-                      previewFree={selectedSourcePreview?.free}
-                      heldQuantity={selectedSourcePreview?.held}
-                    />
+                    <div className="mt-auto pt-2">
+                      <SourceDetailPanel
+                        source={selectedSource}
+                        itemName={targetItem.itemName}
+                        unitName={targetItem.unitName}
+                        destinations={sourceDestinations}
+                        previewAllocated={selectedSourcePreview?.allocated}
+                        previewFree={selectedSourcePreview?.free}
+                      />
+                    </div>
                   ) : null}
                 </WorkspacePanel>
 
                 <WorkspacePanel
-                  title="Demand · Orders"
-                  count={demandPanelCount}
+                  title="Demand"
                   accent="default"
                 >
-                  <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+                  <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
                     {data.demandRows
                       .toSorted((a, b) => Number(b.isTarget) - Number(a.isTarget))
                       .map((row) => {
@@ -3451,24 +3825,20 @@ export function AllocationManagerSheet({
                             pendingPreview={pendingPreview}
                             lastPlacedDemandId={lastPlacedDemandId}
                             carried={carried}
-                            onPlace={() => placeOnDemand(row.demandId)}
-                            onPickToken={(token) =>
-                              pickToken({
-                                ...token,
-                                itemName: row.itemName,
-                                unitName: row.unitName,
-                                originDemandId: row.demandId,
-                                originLabel: row.label,
-                                originContext: row.contextLabel,
-                              })
+                            onPlace={(targetRect) => placeOnDemand(row.demandId, targetRect)}
+                            onPickToken={(token, sourceRect) =>
+                              pickToken(
+                                {
+                                  ...token,
+                                  itemName: row.itemName,
+                                  unitName: row.unitName,
+                                  originDemandId: row.demandId,
+                                  originLabel: row.label,
+                                  originContext: row.contextLabel,
+                                },
+                                sourceRect
+                              )
                             }
-                            onReturnOrigin={() => {
-                              setCarried(null);
-                              pushEvent(
-                                `Returned ${quantityLabel(carried?.quantity ?? 0)} to source`,
-                                "warning"
-                              );
-                            }}
                             onInvalid={(message) => pushEvent(message, "warning")}
                           />
                         );
@@ -3487,41 +3857,41 @@ export function AllocationManagerSheet({
             <CarryPanel
               carried={carried}
               className="bottom-20"
+              displayQuantity={hudQuantityOverride}
+            />
+            <SpriteTransferOverlay
+              animations={spriteTransfers}
+              onDone={removeSpriteTransfer}
             />
             <AllocationEventLog events={events} />
           </div>
         )}
 
         {!outputMoId ? (
-          <SheetFooter className="border-t">
+          <div className="pointer-events-none absolute inset-x-4 bottom-3 z-40 flex items-end justify-between gap-3">
             {mutation.error ? (
-              <p className="text-sm text-destructive">{mutation.error.message}</p>
+              <p className="pointer-events-auto max-w-md rounded-full border bg-background/95 px-3 py-2 text-sm text-destructive shadow-lg backdrop-blur">
+                {mutation.error.message}
+              </p>
             ) : totalOverRemaining && targetDemand ? (
-              <p className="text-sm text-destructive">
+              <p className="pointer-events-auto max-w-md rounded-full border bg-background/95 px-3 py-2 text-sm text-destructive shadow-lg backdrop-blur">
                 Allocated quantity cannot exceed {formatQuantity(targetDemand.remainingQty)}{" "}
                 {targetUnitLabel}.
               </p>
             ) : overAllocatedSource ? (
-              <p className="text-sm text-destructive">
+              <p className="pointer-events-auto max-w-md rounded-full border bg-background/95 px-3 py-2 text-sm text-destructive shadow-lg backdrop-blur">
                 {overAllocatedSource.label} only has{" "}
                 {formatQuantity(overAllocatedSource.totalQty)} total.
               </p>
-            ) : null}
-            {hasChanges ? (
-              <div
-                data-testid="allocation-pending-changes"
-                className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-sm"
-              >
-                <span className="font-medium text-primary">Unsaved allocation changes</span>
-                <Badge variant="secondary">
-                  {changedDemandCount} {changedDemandCount === 1 ? "change" : "changes"} pending
-                </Badge>
-              </div>
-            ) : null}
-            <div className="flex flex-wrap justify-between gap-2">
+            ) : (
+              <div />
+            )}
+            <div className="pointer-events-auto flex shrink-0 gap-2 rounded-full border bg-background/95 p-1 shadow-xl backdrop-blur">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
                 onClick={() => {
                   if (carried) {
                     pushEvent("Place held stock or press Esc to cancel", "warning");
@@ -3539,26 +3909,17 @@ export function AllocationManagerSheet({
                 <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
                 Reset
               </Button>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={requestSheetClose}
-                  disabled={mutation.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => mutation.mutate()}
-                  disabled={!canSave}
-                  className={cn(canSave && "shadow-sm")}
-                >
-                  {mutation.isPending ? "Saving..." : "Save allocation"}
-                </Button>
-              </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => mutation.mutate()}
+                disabled={!canSave}
+                className={cn("rounded-full", canSave && "shadow-sm")}
+              >
+                {mutation.isPending ? "Saving..." : "Save allocation"}
+              </Button>
             </div>
-          </SheetFooter>
+          </div>
         ) : null}
       </SheetContent>
     </Sheet>

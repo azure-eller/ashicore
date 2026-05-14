@@ -198,7 +198,7 @@ export function SalesOrderCard({
         {!expanded ? (
           <>
             <div
-              className="mx-2 h-0.5 overflow-hidden rounded-full bg-muted"
+              className="alloc-progress-track mx-2 h-0.5 rounded-full"
               aria-label={`${allocationPercent}% allocated`}
             >
               <div
@@ -402,12 +402,12 @@ function getCardLaneIcon(lane: SalesOrderLaneId) {
 }
 
 function getCardProgressClassName(lane: SalesOrderLaneId) {
-  if (lane === "ready_to_ship") return "bg-success";
-  if (lane === "shipped") return "bg-info";
-  if (lane === "supply_needed") return "bg-warning";
-  if (lane === "in_production") return "bg-primary";
-  if (lane === "cancelled") return "bg-destructive";
-  return "bg-muted-foreground/45";
+  if (lane === "ready_to_ship") return "alloc-progress-fill-supply";
+  if (lane === "shipped") return "alloc-progress-fill-drop";
+  if (lane === "supply_needed") return "alloc-progress-fill-allocated";
+  if (lane === "in_production") return "alloc-progress-fill-held";
+  if (lane === "cancelled") return "alloc-progress-fill-short";
+  return "alloc-progress-fill-disabled";
 }
 
 function getCardLaneCopy(

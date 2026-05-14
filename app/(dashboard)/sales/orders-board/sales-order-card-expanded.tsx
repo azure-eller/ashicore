@@ -468,9 +468,14 @@ function FulfillmentProgress({
         </span>
         <span className="text-muted-foreground">{percent}%</span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background">
+      <div className="alloc-progress-track mt-2 h-1.5 rounded-full">
         <div
-          className={cn("h-full rounded-full", shortQty > 0 ? "bg-warning" : "bg-success")}
+          className={cn(
+            "h-full rounded-full transition-[width]",
+            shortQty > 0
+              ? "alloc-progress-fill-allocated"
+              : "alloc-progress-fill-supply"
+          )}
           style={{ width: `${percent}%` }}
         />
       </div>

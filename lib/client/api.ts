@@ -149,6 +149,15 @@ export async function apiJson<T>(
   }
 
   const response = await fetch(url, init);
+  if (response.redirected) {
+    const redirectPath = new URL(response.url).pathname;
+    if (redirectPath === "/sign-in") {
+      throw new ApiJsonError("Authentication required.", 401, {
+        error: "Authentication required.",
+      });
+    }
+  }
+
   const responseBody = await parseJsonResponse(response, fallbackError);
 
   if (!response.ok) {

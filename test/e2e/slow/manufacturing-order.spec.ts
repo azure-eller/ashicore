@@ -1971,8 +1971,8 @@ test.describe("Manufacturing order flow", () => {
     const allocationDialog = page.locator('[data-slot="sheet-content"]').filter({
       hasText: "Allocation Manager",
     });
-    await expect(allocationDialog.getByText("Supply · Output")).toBeVisible();
-    await expect(allocationDialog.getByText("Demand · Orders")).toBeVisible();
+    await expect(allocationDialog.getByRole("heading", { name: "Supply" })).toBeVisible();
+    await expect(allocationDialog.getByRole("heading", { name: "Demand" })).toBeVisible();
     await expect(allocationDialog.getByText(new RegExp(`produces.*${bagName}`))).toBeVisible();
     await expect(allocationDialog.getByText(salesOrderNumber)).toBeVisible();
     const outputSource = allocationDialog.getByTestId("output-allocation-source");
@@ -1983,10 +1983,10 @@ test.describe("Manufacturing order flow", () => {
     await expect(allocationDialog.getByTestId("allocation-holding-hud")).toContainText(
       "Holding"
     );
-    await expect(outputDestination).toContainText("Place here");
+    await expect(outputDestination).toHaveAttribute("data-allocation-state", "valid-target");
     await outputDestination.click();
     await expect(allocationDialog.getByTestId("allocation-pending-changes")).toContainText(
-      "Unsaved allocation changes"
+      "Unsaved · 1 change"
     );
     await expect(outputDestination).toContainText(/Allocated\s*5/);
     await allocationDialog.getByRole("button", { name: "Save allocation" }).click();
@@ -1994,11 +1994,9 @@ test.describe("Manufacturing order flow", () => {
       timeout: 15_000,
     });
     await outputDestination.getByRole("button", { name: /Move 5/ }).click();
-    await expect(allocationDialog.getByTestId("allocation-holding-hud")).toContainText(
-      "Reallocating from"
-    );
+    await expect(allocationDialog.getByTestId("allocation-holding-hud")).toBeVisible();
     await expect(outputDestination.getByTestId("allocation-ghost-slot").first()).toBeVisible();
-    await expect(allocationDialog.getByText(/Assigned\s*0/)).toBeVisible();
+    await expect(outputDestination).toContainText(/Allocated\s*0/);
     await page.keyboard.press("Escape");
 
     const allocationResponse = await testFetch(

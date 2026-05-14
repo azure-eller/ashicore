@@ -44,8 +44,8 @@ export function AllocationSheet({
           }))}
           buttonLabel="Add MO"
           buttonVariant="outline"
-          buttonSize="lg"
-          buttonClassName="h-20 w-full flex-col border-dashed bg-card text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground [&_svg]:size-5"
+          buttonSize="sm"
+          buttonClassName="h-8 w-fit gap-1.5 rounded-full border-dashed px-3 text-xs text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground [&_svg]:size-3.5"
         />
       )}
     />

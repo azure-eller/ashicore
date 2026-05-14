@@ -12,6 +12,7 @@ dotenv.config({ path: ".env.local" });
 const env = readTestEnv();
 const testOrgId: string = env.TEST_ORG_ID;
 const sessionCookie: string = env.TEST_SESSION_COOKIE;
+const testBaseUrl = new URL(env.TEST_BASE_URL);
 
 export type TestDb = typeof appDb;
 
@@ -120,7 +121,12 @@ export const test = base.extend<{ db: TestDb }>({
   context: async ({ context }, runFixture) => {
     const { name, value } = parseCookie(sessionCookie);
     await context.addCookies([
-      { name, value, domain: "localhost", path: "/" },
+      {
+        name,
+        value,
+        domain: testBaseUrl.hostname,
+        path: "/",
+      },
     ]);
     await runFixture(context);
   },
