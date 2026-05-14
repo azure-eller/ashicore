@@ -131,7 +131,7 @@ type PurchaseOrderFormAttachment = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(8.5rem, 0.8fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr) minmax(6.5rem, 0.55fr) minmax(6.5rem, 0.55fr)";
+  "minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(9rem, 0.8fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr)";
 const PURCHASE_ORDER_COST_GRID_COLUMNS =
   "minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr)";
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
@@ -423,11 +423,6 @@ function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
   return [...options.values()];
 }
 
-function moneyLabel(value: number | null | undefined) {
-  if (value == null) return "\u2014";
-  return formatPrice(value.toFixed(4)) ?? "\u2014";
-}
-
 function landedStockUnitCostLabel(
   value: number | null | undefined,
   stockingUnitName: string | null | undefined
@@ -605,7 +600,6 @@ export function PurchaseOrderForm({
     [materialMap, watchedAdditionalCosts, watchedLines, watchedShippingCost]
   );
   const materialsTotal = landedCostPreview.materialSubtotal;
-  const additionalCostTotal = landedCostPreview.additionalCostTotal;
   const distributedAdditionalCostTotal =
     landedCostPreview.distributedAdditionalCostTotal;
   const nonDistributedAdditionalCostTotal =
@@ -1029,44 +1023,30 @@ export function PurchaseOrderForm({
               <SummaryRows
                 rows={[
                   {
-                    label: `Subtotal (${lineCount} item${
+                    label: `Materials subtotal (${lineCount} item${
                       lineCount === 1 ? "" : "s"
                     })`,
                     value: formatPrice(materialsTotal.toFixed(4)) ?? "$0.00",
                   },
                   {
-                    label: "Additional costs",
-                    value: formatPrice(additionalCostTotal.toFixed(4)) ?? "$0.00",
+                    label: "Landed cost adjustments",
+                    value:
+                      formatPrice(distributedAdditionalCostTotal.toFixed(4)) ??
+                      "$0.00",
+                  },
+                  {
+                    label: "PO-only costs",
+                    value:
+                      formatPrice(nonDistributedAdditionalCostTotal.toFixed(4)) ??
+                      "$0.00",
                   },
                 ]}
               />
-              <div className="mt-4 border-t pt-4">
-                <div className="mb-3 text-xs font-medium uppercase text-muted-foreground">
-                  Additional cost allocation
-                </div>
-                <SummaryRows
-                  rows={[
-                    {
-                      label: "Distributed to item costs",
-                      value:
-                        formatPrice(distributedAdditionalCostTotal.toFixed(4)) ??
-                        "$0.00",
-                    },
-                    {
-                      label: "Not distributed",
-                      value:
-                        formatPrice(nonDistributedAdditionalCostTotal.toFixed(4)) ??
-                        "$0.00",
-                    },
-                  ]}
-                  className="text-xs"
-                />
-              </div>
               {landedUnitCostRows.length > 0 ? (
                 <div className="mt-4 border-t pt-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="text-xs font-medium uppercase text-muted-foreground">
-                      Landed unit costs
+                      Inventory cost preview
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
                       {formatQuantity(normalizeLandedDisplayNumber(totalStockUnits))} stock units
@@ -1080,7 +1060,7 @@ export function PurchaseOrderForm({
                         </div>
                         <div className="flex items-center justify-between gap-3 text-xs">
                           <span className="text-muted-foreground">
-                            Added cost / {row.stockingUnitName}
+                            Added / {row.stockingUnitName}
                           </span>
                           <span className="font-mono tabular-nums">
                             {unitCostLabel(row.addedStockUnitCost)}
@@ -1300,7 +1280,7 @@ export function PurchaseOrderForm({
                     label="Unit Cost"
                     tooltip={PURCHASE_UNIT_COST_TOOLTIP}
                   />,
-                  "Landed / Stock Unit",
+                  "Landed / stock unit",
                   "Delivery Address",
                   "Accounting Account",
                   <TooltipHeader
@@ -1308,8 +1288,6 @@ export function PurchaseOrderForm({
                     label="Line Total"
                     tooltip={LINE_TOTAL_TOOLTIP}
                   />,
-                  "Allocated",
-                  "Landed Total",
                 ]}
                 renderRow={({ field, index }) => (
                   <PurchaseOrderLineRow
@@ -1354,44 +1332,6 @@ export function PurchaseOrderForm({
                     }}
                   />
                 )}
-                footer={
-                  <>
-                    {landedUnitCostRows.length > 0 ? (
-                      <div className="w-full rounded-md border px-4 py-3 text-sm sm:max-w-xl">
-                        <div className="mb-2 font-medium">Landed unit costs</div>
-                        <div className="space-y-2">
-                          {landedUnitCostRows.map((row) => (
-                            <div
-                              key={row.key}
-                              className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-t pt-2 first:border-t-0 first:pt-0"
-                            >
-                              <div className="truncate">{row.materialName}</div>
-                              <div className="font-mono font-semibold tabular-nums">
-                                {unitCostLabel(row.landedStockUnitCost)} /{" "}
-                                {row.stockingUnitName}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Added shipping/costs
-                              </div>
-                              <div className="text-right font-mono text-xs tabular-nums text-muted-foreground">
-                                {unitCostLabel(row.addedStockUnitCost)} /{" "}
-                                {row.stockingUnitName}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="rounded-md border px-4 py-2 text-sm">
-                      <span className="text-muted-foreground">
-                        Material Subtotal
-                      </span>
-                      <div className="font-medium">
-                        {formatPrice(materialsTotal.toFixed(4)) ?? "$0.00"}
-                      </div>
-                    </div>
-                  </>
-                }
               />
             </FieldGroup>
           </CreateSection>
@@ -1432,16 +1372,6 @@ export function PurchaseOrderForm({
                     xeroAccounts={xeroAccounts}
                   />
                 )}
-                footer={
-                  <div className="rounded-md border px-4 py-2 text-sm">
-                    <span className="text-muted-foreground">
-                      Additional Costs
-                    </span>
-                    <div className="font-medium">
-                      {formatPrice(additionalCostTotal.toFixed(4)) ?? "$0.00"}
-                    </div>
-                  </div>
-                }
               />
             </FieldGroup>
           </CreateSection>
@@ -1874,14 +1804,6 @@ function PurchaseOrderLineRow({
 
       <EditableLineGridCell align="right" className="text-sm font-medium">
         {lineTotalLabel(line?.quantityOrdered, line?.unitCost)}
-      </EditableLineGridCell>
-
-      <EditableLineGridCell align="right" className="text-sm font-medium">
-        {moneyLabel(landedCost?.allocatedAdditionalCost)}
-      </EditableLineGridCell>
-
-      <EditableLineGridCell align="right" className="text-sm font-medium">
-        {moneyLabel(landedCost?.landedLineTotal)}
       </EditableLineGridCell>
 
     </>
