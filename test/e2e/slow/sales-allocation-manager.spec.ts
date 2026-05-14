@@ -236,19 +236,17 @@ async function openAllocationManager(params: {
   itemName: string;
 }) {
   const { page, orderNumber, itemName } = params;
+  const escapedItemName = itemName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   await page.goto("/sales/orders");
   await filterList(page, "Search orders", orderNumber);
   await expandSalesOrderCard(page, orderNumber);
 
-  const expandedLine = page
-    .locator('[data-testid="sales-order-line-row"]')
-    .filter({ hasText: itemName })
-    .last();
+  const expandedLine = page.getByRole("row", { name: new RegExp(escapedItemName) }).last();
   await expect(expandedLine).toBeVisible();
   await expandedLine
     .getByRole("button", {
-      name: new RegExp(`^(Manage allocation for|Allocate) ${itemName}$`),
+      name: new RegExp(`^(Allocate|Manage allocation for) ${escapedItemName}$`),
     })
     .click();
 
@@ -371,9 +369,10 @@ test.describe("Sales allocation manager slow flow", () => {
         competing: [`inventory_lot:${lotId}:5.0000`],
       });
 
-    const draftBalance = await getItemBalance(db, item.id);
-    expect(draftBalance.committedQty).toBe("6.0000");
-    expect(draftBalance.demandQty).toBe("11.0000");
+    const openBalance = await getItemBalance(db, item.id);
+    expect(openBalance.committedQty).toBe("6.0000");
+    expect(openBalance.demandQty).toBe("11.0000");
+    expect(openBalance.shortageQty).toBe("5.0000");
     expect(await getReservationTotal(db, item.id)).toBe("6.0000");
     expect(await getDemandTotal(db, item.id)).toBe("11.0000");
 

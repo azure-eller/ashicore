@@ -551,9 +551,13 @@ export function OrdersTable({
           const selected =
             (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
           const columnFilters = table.getState().columnFilters;
+          const sorting = table.getState().sorting;
 
           return (
             !table.getState().globalFilter &&
+            sorting.length === 1 &&
+            sorting[0]?.id === "priorityRank" &&
+            sorting[0]?.desc === false &&
             columnFilters.every((filter) => filter.id === "status") &&
             selected.length === OPEN_MANUFACTURING_STATUSES.length &&
             OPEN_MANUFACTURING_STATUSES.every((status) => selected.includes(status))

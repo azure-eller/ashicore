@@ -7,7 +7,6 @@ import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   Controller,
-  useFieldArray,
   useForm,
   useWatch,
   type Control,
@@ -18,21 +17,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Add01Icon,
   ArrowLeft01Icon,
   InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
-  SortableDragHandle,
-  SortableReorder,
-  useSortableReorderItem,
-} from "@/components/sortable-reorder";
-import {
   insertSalesOrderSchema,
   salesOrderDefaultValues,
 } from "@/lib/schemas/sales-orders";
+import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import {
+  formatAddressLines,
   formatPrice,
   getFieldArrayError,
   getFirstFormErrorMessage,
@@ -69,16 +64,30 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import {
-  EditableLineGrid,
   EditableLineGridCell,
-  EditableLineGridRemoveButton,
-  EditableLineGridRow,
 } from "@/components/editable-line-grid";
+import { EditableLineItems } from "@/components/editable-line-items";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxSeparator,
+} from "@/components/ui/combobox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -239,10 +248,59 @@ function SalesOrderSection({
 }
 
 const SALES_ORDER_LINE_GRID_COLUMNS =
-  "2rem minmax(13rem, 1.7fr) minmax(4.75rem, 0.45fr) minmax(7rem, 0.75fr) minmax(6rem, 0.6fr) minmax(5.75rem, 0.5fr) minmax(5.25rem, 0.45fr) 2rem";
+  "minmax(13rem, 1.7fr) minmax(4.75rem, 0.45fr) minmax(7rem, 0.75fr) minmax(6rem, 0.6fr) minmax(5.75rem, 0.5fr) minmax(5.25rem, 0.45fr)";
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
+type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
 const NO_PROJECT_VALUE = "__no_project__";
+const ADD_SHIPPING_ADDRESS_VALUE = "__add_shipping_address__";
+const EDIT_SHIPPING_ADDRESS_VALUE = "__edit_shipping_address__";
+const ADDRESS_DIALOG_FIELD_NAMES = {
+  line1: "line1",
+  line2: "line2",
+  city: "city",
+  region: "region",
+  postcode: "postcode",
+  country: "country",
+} as const;
+const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
+  label: "",
+  contactName: null,
+  contactPhone: null,
+  line1: null,
+  line2: null,
+  city: null,
+  region: null,
+  postcode: null,
+  country: null,
+  deliveryInstructions: null,
+  notes: null,
+};
+
+type AddressEntry = {
+  id: string;
+  label: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postcode: string | null;
+  country: string | null;
+  deliveryInstructions: string | null;
+  notes: string | null;
+};
+
+type ShippingAddressOption = ShipAddress & {
+  id: string;
+  label: string;
+  addressEntryId: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  deliveryInstructions: string | null;
+  notes: string | null;
+};
 
 function isBlankSalesOrderLine(line: OrderFormValues["lines"][number] | undefined) {
   const itemId = line?.itemId?.trim() ?? "";
@@ -305,6 +363,96 @@ function getShipAddressFromCustomer(customer: CustomerOption | undefined): ShipA
     region: customer.billingRegion,
     postcode: customer.billingPostcode,
     country: customer.billingCountry,
+  });
+}
+
+function shippingAddressKey(address: ShipAddress | null | undefined) {
+  const normalized = normalizeAddressFields({
+    line1: address?.line1,
+    line2: address?.line2,
+    city: address?.city,
+    region: address?.region,
+    postcode: address?.postcode,
+    country: address?.country,
+  });
+
+  return [
+    normalized.line1,
+    normalized.line2,
+    normalized.city,
+    normalized.region,
+    normalized.postcode,
+    normalized.country,
+  ]
+    .map((part) => part ?? "")
+    .join("\u001f")
+    .replace(/^\u001f+|\u001f+$/g, "");
+}
+
+function shippingAddressLabel(address: ShipAddress) {
+  return formatAddressLines({
+    line1: address.line1,
+    line2: address.line2,
+    city: address.city,
+    region: address.region,
+    postcode: address.postcode,
+    country: address.country,
+  }).join(", ");
+}
+
+function makeShippingAddressOption({
+  address,
+  label,
+  addressEntryId = null,
+  contactName = null,
+  contactPhone = null,
+  deliveryInstructions = null,
+  notes = null,
+}: {
+  address: ShipAddress | null | undefined;
+  label?: string | null;
+  addressEntryId?: string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  deliveryInstructions?: string | null;
+  notes?: string | null;
+}): ShippingAddressOption | null {
+  if (!address || isShipAddressBlank(address) || isShipAddressDefaultOnly(address)) {
+    return null;
+  }
+
+  const normalized = normalizeAddressFields(address);
+  const id = shippingAddressKey(normalized);
+  if (!id) return null;
+
+  return {
+    ...normalized,
+    id,
+    label: label?.trim() || shippingAddressLabel(normalized),
+    addressEntryId,
+    contactName,
+    contactPhone,
+    deliveryInstructions,
+    notes,
+  };
+}
+
+function addressEntryToShippingOption(entry: AddressEntry) {
+  return makeShippingAddressOption({
+    address: normalizeAddressFields({
+      line1: entry.line1,
+      line2: entry.line2,
+      city: entry.city,
+      region: entry.region,
+      postcode: entry.postcode,
+      country: entry.country,
+    }),
+    label: entry.label,
+    addressEntryId: entry.id,
+    contactName: entry.contactName,
+    contactPhone: entry.contactPhone,
+    deliveryInstructions: entry.deliveryInstructions,
+    notes: entry.notes,
   });
 }
 
@@ -377,12 +525,14 @@ function setShipAddress(
 export function OrderForm({
   customers,
   items,
+  addresses,
   initialData,
   initialCustomerId,
   initialCustomerProjectId,
 }: {
   customers: CustomerOption[];
   items: SalesOrderItemOption[];
+  addresses: AddressEntry[];
   initialData?: SalesOrderEditData;
   initialCustomerId?: string | null;
   initialCustomerProjectId?: string | null;
@@ -395,6 +545,16 @@ export function OrderForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [oversellWarning, setOversellWarning] = useState<OversellWarningPayload | null>(null);
   const [pendingValues, setPendingValues] = useState<OrderFormValues | null>(null);
+  const [addressBookOptions, setAddressBookOptions] = useState(() =>
+    addresses
+      .map(addressEntryToShippingOption)
+      .filter((option): option is ShippingAddressOption => option != null)
+      .sort((a, b) => a.label.localeCompare(b.label))
+  );
+  const [addressDialogState, setAddressDialogState] = useState<{
+    option: ShippingAddressOption | null;
+  } | null>(null);
+  const [lineFieldIds, setLineFieldIds] = useState<string[]>([]);
   const isHydrated = useSyncExternalStore(
     () => () => undefined,
     () => true,
@@ -465,10 +625,25 @@ export function OrderForm({
           orderDate: todayInTimeZone(timeZone),
         },
   });
+  const addressForm = useForm<AddressDialogValues>({
+    resolver: zodResolver(createAddressEntrySchema),
+    defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
+  });
 
   const watchedLines = useWatch({
     control: form.control,
     name: "lines",
+  });
+  const watchedShipAddress = useWatch({
+    control: form.control,
+    name: [
+      "shipLine1",
+      "shipLine2",
+      "shipCity",
+      "shipRegion",
+      "shipPostcode",
+      "shipCountry",
+    ],
   });
   const customerId = useWatch({
     control: form.control,
@@ -483,58 +658,43 @@ export function OrderForm({
     () => selectedCustomer?.projects ?? [],
     [selectedCustomer]
   );
-  const { fields, append, move, remove } = useFieldArray({
-    control: form.control,
-    name: "lines",
-  });
-  const lineItemsRef = useRef<HTMLDivElement>(null);
-  const [lineFocusRequest, setLineFocusRequest] = useState(0);
-
-  const focusLastLinePrimaryControl = useCallback(() => {
-    const controls = lineItemsRef.current?.querySelectorAll<HTMLElement>(
-      "[data-editable-line-primary]"
-    );
-    const control = controls?.[controls.length - 1];
-
-    if (control) {
-      control.focus();
-    }
-  }, []);
-
-  const addLine = useCallback(() => {
-    append(
-      {
-        itemId: "",
-        quantity: null,
-        unitPrice: null,
-      },
-      { shouldFocus: false }
-    );
-    setLineFocusRequest((current) => current + 1);
-  }, [append]);
-
-  useEffect(() => {
-    if (lineFocusRequest === 0) {
-      return;
-    }
-
-    const frameId = requestAnimationFrame(focusLastLinePrimaryControl);
-    return () => cancelAnimationFrame(frameId);
-  }, [fields.length, focusLastLinePrimaryControl, lineFocusRequest]);
-
-  const [initialLineByFieldId] = useState(() => {
-    const lineByFieldId = new Map<string, SalesOrderEditData["lines"][number]>();
-    fields.forEach((field, index) => {
-      const initialLine = initialData?.lines[index];
-      if (initialLine) {
-        lineByFieldId.set(field.id, initialLine);
-      }
-    });
-    return lineByFieldId;
-  });
   const [linePricingState, setLinePricingState] = useState<
     Record<string, LinePricingState>
   >({});
+  const currentShipAddress = useMemo(
+    () =>
+      normalizeAddressFields({
+        line1: watchedShipAddress?.[0] ?? null,
+        line2: watchedShipAddress?.[1] ?? null,
+        city: watchedShipAddress?.[2] ?? null,
+        region: watchedShipAddress?.[3] ?? null,
+        postcode: watchedShipAddress?.[4] ?? null,
+        country: watchedShipAddress?.[5] ?? null,
+      }),
+    [watchedShipAddress]
+  );
+  const shippingAddressOptions = useMemo(() => {
+    const options = new Map(
+      addressBookOptions.map((option) => [option.id, option])
+    );
+    const customerOption = makeShippingAddressOption({
+      address: getShipAddressFromCustomer(selectedCustomer),
+      label: selectedCustomer ? `${selectedCustomer.name} shipping` : null,
+    });
+    const currentOption = makeShippingAddressOption({
+      address: currentShipAddress,
+      label: "Current address",
+    });
+
+    if (customerOption && !options.has(customerOption.id)) {
+      options.set(customerOption.id, customerOption);
+    }
+    if (currentOption && !options.has(currentOption.id)) {
+      options.set(currentOption.id, currentOption);
+    }
+
+    return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [addressBookOptions, currentShipAddress, selectedCustomer]);
 
   useEffect(() => {
     if (!customerProjectId) return;
@@ -580,9 +740,14 @@ export function OrderForm({
     });
   }
 
-  function getLinePricingState(lineKey: string, index: number) {
+  function getLinePricingState(
+    lineKey: string,
+    index: number,
+    initialIndex: number | null
+  ) {
     const currentState = linePricingState[lineKey];
-    const line = initialData?.lines[index];
+    const line =
+      initialIndex == null ? undefined : initialData?.lines[initialIndex];
     const itemId = form.getValues(`lines.${index}.itemId`);
     const baseUnitPrice = itemId
       ? itemMap.get(itemId)?.defaultSellingPrice ?? null
@@ -643,11 +808,11 @@ export function OrderForm({
         resolvedLineCount += 1;
       }
 
-      const lineKey = fields[index]?.id;
       const item = line?.itemId ? itemMap.get(line.itemId) : undefined;
-      const unitCost = lineKey
-        ? linePricingState[lineKey]?.estimatedUnitCost ?? item?.estimatedUnitCost
-        : item?.estimatedUnitCost;
+      const lineKey = lineFieldIds[index];
+      const unitCost =
+        (lineKey ? linePricingState[lineKey]?.estimatedUnitCost : null) ??
+        item?.estimatedUnitCost;
       const parsedCost = parsePositive(unitCost ?? null);
 
       if (parsedCost != null) {
@@ -668,7 +833,25 @@ export function OrderForm({
       marginMetrics,
       resolvedLineCount,
     };
-  }, [fields, itemMap, linePricingState, orderTotal, watchedLines]);
+  }, [itemMap, lineFieldIds, linePricingState, orderTotal, watchedLines]);
+
+  const handleLineFieldsChange = useCallback(
+    (fields: Array<{ id: string }>) => {
+      setLineFieldIds((currentIds) => {
+        const nextIds = fields.map((field) => field.id);
+        if (
+          currentIds.length === nextIds.length &&
+          currentIds.every((id, index) => id === nextIds[index])
+        ) {
+          return currentIds;
+        }
+
+        return nextIds;
+      });
+
+    },
+    []
+  );
 
   const mutation = useMutation({
     mutationFn: async (values: OrderFormValues) => {
@@ -728,6 +911,110 @@ export function OrderForm({
       setFormError(error.error ?? "Failed to save sales order.");
     },
   });
+  const addressMutation = useMutation({
+    mutationFn: async ({
+      id,
+      values,
+    }: {
+      id: string | null;
+      values: AddressDialogValues;
+    }) => {
+      const response = await fetch(id ? `/api/addresses/${id}` : "/api/addresses", {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw {
+          error: body?.error ?? "Failed to save address.",
+          errors: body?.errors,
+        } satisfies ApiError;
+      }
+
+      return body as AddressEntry;
+    },
+    onSuccess: (entry) => {
+      const option = addressEntryToShippingOption(entry);
+      if (!option) return;
+
+      setAddressBookOptions((current) => {
+        const existing = current.filter((row) => row.id !== option.id);
+        return [...existing, option].sort((a, b) => a.label.localeCompare(b.label));
+      });
+      setShipAddress(form.setValue, option);
+      setAddressDialogState(null);
+      addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
+    },
+  });
+
+  const applyShippingAddress = (address: ShipAddress | null) => {
+    if (!address) {
+      setShipAddress(form.setValue, {
+        line1: null,
+        line2: null,
+        city: null,
+        region: null,
+        postcode: null,
+        country: null,
+      });
+      return;
+    }
+
+    setShipAddress(form.setValue, address);
+  };
+
+  const openAddressDialog = () => {
+    addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
+    setAddressDialogState({ option: null });
+  };
+
+  const openEditAddressDialog = (option: ShippingAddressOption) => {
+    addressForm.reset({
+      label: option.label,
+      contactName: option.contactName,
+      contactPhone: option.contactPhone,
+      line1: option.line1,
+      line2: option.line2,
+      city: option.city,
+      region: option.region,
+      postcode: option.postcode,
+      country: option.country,
+      deliveryInstructions: option.deliveryInstructions,
+      notes: option.notes,
+    });
+    setAddressDialogState({ option });
+  };
+
+  const handleAddressDialogSubmit = (values: AddressDialogValues) => {
+    if (addressDialogState == null) return;
+    const baseLabel =
+      values.label.trim() ||
+      formatAddressLines({
+        line1: values.line1,
+        line2: values.line2,
+        city: values.city,
+        region: values.region,
+        postcode: values.postcode,
+        country: values.country,
+      }).join(", ") ||
+      "Address";
+    let label = baseLabel;
+    if (!values.label.trim()) {
+      const labels = new Set(shippingAddressOptions.map((option) => option.label));
+      let suffix = 2;
+      while (labels.has(label)) {
+        label = `${baseLabel} (${suffix})`;
+        suffix += 1;
+      }
+    }
+
+    addressMutation.mutate({
+      id: addressDialogState.option?.addressEntryId ?? null,
+      values: { ...values, label },
+    });
+  };
 
   const handleCancel = useSmartBack(fallbackPath);
   const primaryActionLabel = mutation.isPending
@@ -928,6 +1215,15 @@ export function OrderForm({
                   )}
                 />
 
+                <ShippingAddressInput
+                  id="order-shipping-address"
+                  value={currentShipAddress}
+                  options={shippingAddressOptions}
+                  onChange={applyShippingAddress}
+                  onAddNew={openAddressDialog}
+                  onEdit={openEditAddressDialog}
+                />
+
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Controller
                     control={form.control}
@@ -1029,141 +1325,90 @@ export function OrderForm({
                   {lineCount} {lineCount === 1 ? "item" : "items"}
                 </span>
               </div>
-              <FieldGroup ref={lineItemsRef} className="gap-4">
-                {fields.length > 0 ? (
-                  <SortableReorder
-                    ids={fields.map((field) => field.id)}
-                    onMove={(fromIndex, toIndex) => move(fromIndex, toIndex)}
-                  >
-                    <EditableLineGrid
-                      columns={SALES_ORDER_LINE_GRID_COLUMNS}
-                      minWidth="0"
-                      headers={[
-                        <span key="reorder" />,
-                        <TableHeaderLabel key="item" label="Item" required />,
-                        <TableHeaderLabel
-                          key="qty"
-                          label="Qty"
-                          tooltip={SALES_LINE_QTY_TOOLTIP}
-                          required
-                        />,
-                        <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
-                        <TableHeaderLabel
-                          key="unit-price"
-                          label="Unit Price"
-                          tooltip={SALES_UNIT_PRICE_TOOLTIP}
-                          required
-                        />,
-                        <TooltipHeader
-                          key="line-total"
-                          label="Line Total"
-                          tooltip={LINE_TOTAL_TOOLTIP}
-                        />,
-                        <TooltipHeader
-                          key="margin"
-                          label="Margin"
-                          tooltip={ESTIMATED_MARGIN_TOOLTIP}
-                        />,
-                        <span key="actions" />,
-                      ]}
-                    >
-                      {fields.map((field, index) => (
-                        <OrderLineRow
-                          key={field.id}
-                          lineKey={field.id}
-                          index={index}
-                          control={form.control}
-                          customerId={customerId}
-                          initialCustomerId={initialData?.customerId}
-                          initialLine={initialLineByFieldId.get(field.id)}
-                          setValue={form.setValue}
-                          items={items}
-                          itemMap={itemMap}
-                          pricingState={getLinePricingState(field.id, index)}
-                          onPricingStateChange={updateLinePricingState}
-                          onItemChange={(itemId) => {
-                            const item = itemMap.get(itemId);
-                            form.setValue(`lines.${index}.itemId`, itemId, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                            form.setValue(
-                              `lines.${index}.unitPrice`,
-                              item?.defaultSellingPrice ?? null,
-                              {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              }
-                            );
-                            updateLinePricingState(field.id, {
-                              ...DEFAULT_LINE_PRICING_STATE,
-                              baseUnitPrice: item?.defaultSellingPrice ?? null,
-                              suggestedUnitPrice: item?.defaultSellingPrice ?? null,
-                              estimatedUnitCost: item?.estimatedUnitCost ?? null,
-                              isPriceOverridden: false,
-                            });
-                            if (itemId && index === fields.length - 1) {
-                              addLine();
-                            }
-                          }}
-                          onRemove={() => {
-                            setLinePricingState((currentState) => {
-                              if (!(field.id in currentState)) {
-                                return currentState;
-                              }
-
-                              const nextState = { ...currentState };
-                              delete nextState[field.id];
-                              return nextState;
-                            });
-                            remove(index);
-                          }}
-                        />
-                      ))}
-                    </EditableLineGrid>
-                  </SortableReorder>
-                ) : (
-                  <div className="rounded-lg border border-dashed px-4 py-8 text-center">
-                    <p className="text-sm text-muted-foreground">
-                      No items yet.
-                    </p>
-                  </div>
-                )}
-
-                {linesError && (
-                  <p className="text-sm text-destructive">{linesError}</p>
-                )}
-
-                <Button type="button" variant="outline" onClick={addLine}>
-                  <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-                  Add item
-                </Button>
-
-                <div className="flex justify-end">
-                  <div className="rounded-md border px-4 py-2 text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <div className="font-mono font-medium tabular-nums">
-                      {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
-                    </div>
-                  </div>
-                </div>
-              </FieldGroup>
-            </section>
-
-            <SalesOrderSection title="Shipping address">
-              <AddressFields
+              <EditableLineItems
                 control={form.control}
-                idPrefix="order-ship"
-                names={{
-                  line1: "shipLine1",
-                  line2: "shipLine2",
-                  city: "shipCity",
-                  region: "shipRegion",
-                  postcode: "shipPostcode",
-                  country: "shipCountry",
-                }}
+                name="lines"
+                columns={SALES_ORDER_LINE_GRID_COLUMNS}
+                minWidth="0"
+                headers={[
+                  <TableHeaderLabel key="item" label="Item" required />,
+                  <TableHeaderLabel
+                    key="qty"
+                    label="Qty"
+                    tooltip={SALES_LINE_QTY_TOOLTIP}
+                    required
+                  />,
+                  <TooltipHeader key="unit" label="Unit" tooltip={UNIT_TOOLTIP} />,
+                  <TableHeaderLabel
+                    key="unit-price"
+                    label="Unit Price"
+                    tooltip={SALES_UNIT_PRICE_TOOLTIP}
+                    required
+                  />,
+                  <TooltipHeader
+                    key="line-total"
+                    label="Line Total"
+                    tooltip={LINE_TOTAL_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="margin"
+                    label="Margin"
+                    tooltip={ESTIMATED_MARGIN_TOOLTIP}
+                  />,
+                ]}
+                createLine={() => ({
+                  itemId: "",
+                  quantity: null,
+                  unitPrice: null,
+                })}
+                addLabel="Add item"
+                error={linesError}
+                onFieldsChange={handleLineFieldsChange}
+                renderRow={({ field, index, initialIndex, appendLineAfterCommit }) => (
+                  <OrderLineRow
+                    key={field.id}
+                    lineKey={field.id}
+                    index={index}
+                    control={form.control}
+                    customerId={customerId}
+                    initialCustomerId={initialData?.customerId}
+                    initialLine={
+                      initialIndex == null
+                        ? undefined
+                        : initialData?.lines[initialIndex]
+                    }
+                    setValue={form.setValue}
+                    items={items}
+                    itemMap={itemMap}
+                    pricingState={getLinePricingState(field.id, index, initialIndex)}
+                    onPricingStateChange={updateLinePricingState}
+                    onItemChange={(itemId) => {
+                      const item = itemMap.get(itemId);
+                      form.setValue(`lines.${index}.itemId`, itemId, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                      form.setValue(
+                        `lines.${index}.unitPrice`,
+                        item?.defaultSellingPrice ?? null,
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      );
+                      updateLinePricingState(field.id, {
+                        ...DEFAULT_LINE_PRICING_STATE,
+                        baseUnitPrice: item?.defaultSellingPrice ?? null,
+                        suggestedUnitPrice: item?.defaultSellingPrice ?? null,
+                        estimatedUnitCost: item?.estimatedUnitCost ?? null,
+                        isPriceOverridden: false,
+                      });
+                      if (itemId) appendLineAfterCommit();
+                    }}
+                  />
+                )}
               />
-            </SalesOrderSection>
+            </section>
 
             <SalesOrderSection title="Notes">
               <FieldGroup>
@@ -1191,7 +1436,7 @@ export function OrderForm({
             </SalesOrderSection>
           </form>
 
-          <aside className="space-y-4 2xl:sticky 2xl:top-20">
+          <aside className="space-y-4 self-start 2xl:sticky 2xl:top-6">
             <Card className="rounded-lg border shadow-sm ring-0">
               <CardHeader className="border-b bg-muted/20 px-5 pb-4">
                 <CardTitle className="text-[15px] font-semibold tracking-normal">
@@ -1260,6 +1505,140 @@ export function OrderForm({
         </div>
       </div>
 
+      <Dialog
+        open={addressDialogState != null}
+        onOpenChange={(open) => {
+          if (!open) setAddressDialogState(null);
+        }}
+      >
+        <DialogContent size="2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {addressDialogState?.option ? "Edit Address" : "Add Address"}
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            id="sales-shipping-address-form"
+            onSubmit={addressForm.handleSubmit(handleAddressDialogSubmit)}
+          >
+            {addressMutation.error ? (
+              <FieldError>
+                {(addressMutation.error as ApiError).error ?? "Failed to save address."}
+              </FieldError>
+            ) : null}
+            <FieldGroup className="gap-4">
+              <Controller
+                control={addressForm.control}
+                name="label"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="shipping-address-label">Label</FieldLabel>
+                    <Input
+                      {...field}
+                      id="shipping-address-label"
+                      value={field.value ?? ""}
+                      onChange={(event) => field.onChange(event.target.value)}
+                      aria-invalid={fieldState.invalid}
+                      autoComplete="organization"
+                    />
+                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                  </Field>
+                )}
+              />
+              <FieldGroup className="grid gap-4 sm:grid-cols-2">
+                <Controller
+                  control={addressForm.control}
+                  name="contactName"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="shipping-address-contact-name">
+                        Contact Name
+                      </FieldLabel>
+                      <Input
+                        {...field}
+                        id="shipping-address-contact-name"
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value || null)}
+                        aria-invalid={fieldState.invalid}
+                        autoComplete="name"
+                      />
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+                <Controller
+                  control={addressForm.control}
+                  name="contactPhone"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="shipping-address-contact-phone">
+                        Contact Phone
+                      </FieldLabel>
+                      <Input
+                        {...field}
+                        id="shipping-address-contact-phone"
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value || null)}
+                        aria-invalid={fieldState.invalid}
+                        autoComplete="tel"
+                      />
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              </FieldGroup>
+            </FieldGroup>
+            <AddressFields
+              control={addressForm.control}
+              names={ADDRESS_DIALOG_FIELD_NAMES}
+              idPrefix="sales-ship-address"
+            />
+            <FieldGroup className="mt-4 gap-4">
+              <Controller
+                control={addressForm.control}
+                name="deliveryInstructions"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="shipping-address-delivery-instructions">
+                      Delivery Instructions
+                    </FieldLabel>
+                    <Textarea
+                      {...field}
+                      id="shipping-address-delivery-instructions"
+                      value={field.value ?? ""}
+                      onChange={(event) => field.onChange(event.target.value || null)}
+                      aria-invalid={fieldState.invalid}
+                      rows={3}
+                    />
+                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                  </Field>
+                )}
+              />
+            </FieldGroup>
+          </form>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddressDialogState(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="sales-shipping-address-form"
+              disabled={addressMutation.isPending}
+            >
+              {addressMutation.isPending
+                ? "Saving..."
+                : addressDialogState?.option
+                  ? "Save Address"
+                  : "Add Address"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog
         open={oversellWarning != null}
         onOpenChange={(open) => {
@@ -1305,6 +1684,106 @@ export function OrderForm({
   );
 }
 
+function ShippingAddressInput({
+  id,
+  value,
+  options,
+  onChange,
+  onAddNew,
+  onEdit,
+}: {
+  id: string;
+  value: ShipAddress;
+  options: ShippingAddressOption[];
+  onChange: (address: ShipAddress | null) => void;
+  onAddNew: () => void;
+  onEdit: (option: ShippingAddressOption) => void;
+}) {
+  const currentAddressId = shippingAddressKey(value);
+  const canEditCurrent = currentAddressId !== "";
+  const optionIds = options.map((option) => option.id);
+  const optionMap = new Map(options.map((option) => [option.id, option]));
+  const items = canEditCurrent
+    ? [...optionIds, EDIT_SHIPPING_ADDRESS_VALUE, ADD_SHIPPING_ADDRESS_VALUE]
+    : [...optionIds, ADD_SHIPPING_ADDRESS_VALUE];
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>Shipping Address</FieldLabel>
+      <Combobox
+        items={items}
+        value={currentAddressId}
+        onValueChange={(nextValue) => {
+          if (!nextValue) {
+            onChange(null);
+            return;
+          }
+          if (nextValue === ADD_SHIPPING_ADDRESS_VALUE) {
+            onAddNew();
+            return;
+          }
+          if (nextValue === EDIT_SHIPPING_ADDRESS_VALUE) {
+            const option = optionMap.get(currentAddressId);
+            if (option) onEdit(option);
+            return;
+          }
+
+          onChange(optionMap.get(nextValue) ?? null);
+        }}
+        itemToStringLabel={(itemId) => {
+          if (itemId === ADD_SHIPPING_ADDRESS_VALUE) return "Add new address";
+          if (itemId === EDIT_SHIPPING_ADDRESS_VALUE) return "Edit selected address";
+          return optionMap.get(itemId)?.label ?? "";
+        }}
+      >
+        <ComboboxInput
+          id={id}
+          placeholder="Address"
+          showClear={currentAddressId !== ""}
+          className="w-full min-w-0"
+        />
+        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+          <ComboboxEmpty>No addresses found</ComboboxEmpty>
+          <ComboboxList>
+            {(itemId: string) => {
+              if (itemId === ADD_SHIPPING_ADDRESS_VALUE) {
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    Add new address
+                  </ComboboxItem>
+                );
+              }
+              if (itemId === EDIT_SHIPPING_ADDRESS_VALUE) {
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    Edit selected address
+                  </ComboboxItem>
+                );
+              }
+
+              const option = optionMap.get(itemId);
+
+              return (
+                <ComboboxItem key={itemId} value={itemId}>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{option?.label}</span>
+                    {option?.contactName ? (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {option.contactName}
+                      </span>
+                    ) : null}
+                  </span>
+                </ComboboxItem>
+              );
+            }}
+          </ComboboxList>
+          {optionIds.length > 0 ? <ComboboxSeparator /> : null}
+        </ComboboxContent>
+      </Combobox>
+    </Field>
+  );
+}
+
 function OrderLineRow({
   lineKey,
   index,
@@ -1318,7 +1797,6 @@ function OrderLineRow({
   pricingState,
   onPricingStateChange,
   onItemChange,
-  onRemove,
 }: {
   lineKey: string;
   index: number;
@@ -1335,7 +1813,6 @@ function OrderLineRow({
     nextState: Partial<LinePricingState>
   ) => void;
   onItemChange: (itemId: string) => void;
-  onRemove: () => void;
 }) {
   const rowDomId = useId();
   const line = useWatch({
@@ -1344,8 +1821,6 @@ function OrderLineRow({
   });
 
   const item = line?.itemId ? itemMap.get(line.itemId) : undefined;
-  const { attributes, listeners, setNodeRef, style } =
-    useSortableReorderItem(lineKey);
   const estimatedUnitCost = pricingState?.estimatedUnitCost ?? item?.estimatedUnitCost ?? null;
   const estimatedMargin = item
     ? calculateUnitMarginMetrics({
@@ -1479,14 +1954,7 @@ function OrderLineRow({
   ]);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style}>
-      <EditableLineGridCell align="center">
-        <SortableDragHandle
-          attributes={attributes}
-          listeners={listeners}
-          label={`Reorder line ${index + 1}`}
-        />
-      </EditableLineGridCell>
+    <>
       <EditableLineGridCell>
         <Controller
           control={control}
@@ -1674,13 +2142,6 @@ function OrderLineRow({
           </div>
         ) : null}
       </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <EditableLineGridRemoveButton
-          onClick={onRemove}
-          label={`Remove line ${index + 1}`}
-        />
-      </EditableLineGridCell>
-    </EditableLineGridRow>
+    </>
   );
 }
