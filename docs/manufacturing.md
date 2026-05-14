@@ -126,7 +126,7 @@ Only released, non-deleted manufacturing orders contribute to expected supply pr
 On release, manufacturing now does two inventory-side things through the kernel:
 
 - emits `expected_increase` for the finished-product output side
-- emits `reservation_increase` for the ingredient side
+- emits `demand_increase` for the ingredient side, without reserving stock
 
 For batch-mode orders, expected supply is remaining unfinished output only:
 
