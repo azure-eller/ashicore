@@ -21,7 +21,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDate, formatPrice } from "@/lib/format";
 import type { SalesOrderListRow } from "../types";
-import { ProductLensOrderCard } from "./product-lens-order-card";
 import { SalesOrderCard, type DeleteTarget } from "./sales-order-card";
 import type { SalesOrderLaneDefinition } from "./sales-order-lane-model";
 
@@ -42,7 +41,7 @@ export function SalesOrderColumn({
   lane,
   orders,
   shipmentMarkers,
-  selectedItemId,
+  selectedItemIds,
   expandedOrderId,
   density,
   onToggleExpanded,
@@ -51,7 +50,7 @@ export function SalesOrderColumn({
   lane: SalesOrderLaneDefinition;
   orders: SalesOrderListRow[];
   shipmentMarkers: SalesOrderShipmentMarker[];
-  selectedItemId: string | null;
+  selectedItemIds: string[];
   expandedOrderId: string | null;
   density: "compact" | "comfortable";
   onToggleExpanded: (orderId: string) => void;
@@ -93,14 +92,7 @@ export function SalesOrderColumn({
       >
         {orders.length || shipmentMarkers.length ? (
           <>
-            {orders.map((order) =>
-              selectedItemId ? (
-                <ProductLensOrderCard
-                  key={order.id}
-                  order={order}
-                  selectedItemId={selectedItemId}
-                />
-              ) : (
+            {orders.map((order) => (
                 <KanbanItem key={order.id} value={order.id} className="min-w-0">
                   <SalesOrderCard
                     order={order}
@@ -112,8 +104,7 @@ export function SalesOrderColumn({
                     }
                   />
                 </KanbanItem>
-              )
-            )}
+            ))}
             {shipmentMarkers.map((marker) => (
               <ShipmentMarkerRow
                 key={`${marker.order.id}:${marker.shipment.id}`}
@@ -126,7 +117,7 @@ export function SalesOrderColumn({
             No orders
           </div>
         )}
-        {!selectedItemId && lane.id !== "shipped" && lane.id !== "cancelled" ? (
+        {selectedItemIds.length === 0 && lane.id !== "shipped" && lane.id !== "cancelled" ? (
           <Link
             href="/sales/orders/new"
             prefetch={false}

@@ -5,7 +5,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CancelCircleIcon,
   PackageRemoveIcon,
-  PackageSearchIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -13,12 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -30,8 +29,8 @@ export function SalesOrdersBoardToolbar({
   search,
   onSearchChange,
   productLensOptions,
-  selectedItemId,
-  onSelectedItemIdChange,
+  selectedItemIds,
+  onSelectedItemIdsChange,
   showCancelled,
   onShowCancelledChange,
   cancelledCount,
@@ -44,8 +43,8 @@ export function SalesOrdersBoardToolbar({
   search: string;
   onSearchChange: (value: string) => void;
   productLensOptions: ProductLensOption[];
-  selectedItemId: string | null;
-  onSelectedItemIdChange: (value: string | null) => void;
+  selectedItemIds: string[];
+  onSelectedItemIdsChange: (value: string[]) => void;
   showCancelled: boolean;
   onShowCancelledChange: (value: boolean) => void;
   cancelledCount: number;
@@ -72,29 +71,11 @@ export function SalesOrdersBoardToolbar({
             className="pl-8"
           />
         </div>
-        <Select
-          value={selectedItemId ?? "all"}
-          onValueChange={(value) =>
-            onSelectedItemIdChange(value === "all" ? null : value)
-          }
-        >
-          <SelectTrigger aria-label="Product Lens item" className="w-full sm:w-64">
-            <HugeiconsIcon
-              icon={PackageSearchIcon}
-              strokeWidth={2}
-              className="size-4 text-muted-foreground"
-            />
-            <SelectValue placeholder="Product Lens" />
-          </SelectTrigger>
-          <SelectContent align="start">
-            <SelectItem value="all">Product Lens: Off</SelectItem>
-            {productLensOptions.map((option) => (
-              <SelectItem key={option.itemId} value={option.itemId}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ProductFilterDropdown
+          options={productLensOptions}
+          selectedItemIds={selectedItemIds}
+          onSelectedItemIdsChange={onSelectedItemIdsChange}
+        />
       </div>
       <div className="ml-auto flex items-center justify-end gap-2">
         <span className="hidden text-sm text-muted-foreground lg:inline">
@@ -152,5 +133,72 @@ export function SalesOrdersBoardToolbar({
         </Button>
       </div>
     </div>
+  );
+}
+
+function ProductFilterDropdown({
+  options,
+  selectedItemIds,
+  onSelectedItemIdsChange,
+}: {
+  options: ProductLensOption[];
+  selectedItemIds: string[];
+  onSelectedItemIdsChange: (value: string[]) => void;
+}) {
+  const selectedSet = new Set(selectedItemIds);
+  const selectedLabels = options
+    .filter((option) => selectedSet.has(option.itemId))
+    .map((option) => option.label);
+  const label =
+    selectedLabels.length === 0
+      ? "Product"
+      : selectedLabels.length === 1
+        ? selectedLabels[0]
+        : `${selectedLabels.length} products`;
+
+  const toggleItem = (itemId: string) => {
+    onSelectedItemIdsChange(
+      selectedSet.has(itemId)
+        ? selectedItemIds.filter((selected) => selected !== itemId)
+        : [...selectedItemIds, itemId]
+    );
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant={selectedItemIds.length ? "secondary" : "outline"}
+          className="w-full justify-between sm:w-64"
+          aria-label="Product"
+        >
+          <span className="truncate">{label}</span>
+          {selectedItemIds.length ? (
+            <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">
+              {selectedItemIds.length}
+            </Badge>
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 w-72 overflow-y-auto">
+        <DropdownMenuItem
+          disabled={selectedItemIds.length === 0}
+          onSelect={() => onSelectedItemIdsChange([])}
+        >
+          All products
+        </DropdownMenuItem>
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.itemId}
+            checked={selectedSet.has(option.itemId)}
+            onCheckedChange={() => toggleItem(option.itemId)}
+            onSelect={(event) => event.preventDefault()}
+          >
+            <span className="truncate">{option.label}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -39,7 +39,7 @@ export function SalesOrdersBoard({
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [showUnallocateAllDialog, setShowUnallocateAllDialog] = useState(false);
@@ -67,8 +67,8 @@ export function SalesOrdersBoard({
         customerFilter: "all",
         showCancelled,
         sortMode: "shipDate",
-      }).filter((order) => orderContainsProductLensItem(order, selectedItemId)),
-    [orders, search, showCancelled, selectedItemId]
+      }).filter((order) => orderContainsProductLensItem(order, selectedItemIds)),
+    [orders, search, showCancelled, selectedItemIds]
   );
   const productLensOptions = useMemo(
     () => getProductLensOptions(orders.filter((order) => order.status !== "cancelled")),
@@ -152,9 +152,9 @@ export function SalesOrdersBoard({
           search={search}
           onSearchChange={setSearch}
           productLensOptions={productLensOptions}
-          selectedItemId={selectedItemId}
-          onSelectedItemIdChange={(itemId) => {
-            setSelectedItemId(itemId);
+          selectedItemIds={selectedItemIds}
+          onSelectedItemIdsChange={(itemIds) => {
+            setSelectedItemIds(itemIds);
             setExpandedOrderId(null);
           }}
           showCancelled={showCancelled}
@@ -177,7 +177,7 @@ export function SalesOrdersBoard({
         <SalesOrderKanban
           visibleLanes={visibleLanes}
           ordersByLane={ordersByLane}
-          selectedItemId={selectedItemId}
+          selectedItemIds={selectedItemIds}
           expandedOrderId={expandedOrderId}
           density="compact"
           onToggleExpanded={(orderId) =>

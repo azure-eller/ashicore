@@ -410,8 +410,9 @@ test.describe("Sales order board pure helpers", () => {
     });
 
     expect(deriveSalesOrderLane(mixed)).toBe("supply_needed");
-    expect(orderContainsProductLensItem(mixed, selectedItemId)).toBe(true);
-    expect(orderContainsProductLensItem(other, selectedItemId)).toBe(false);
+    expect(orderContainsProductLensItem(mixed, [selectedItemId])).toBe(true);
+    expect(orderContainsProductLensItem(other, [selectedItemId])).toBe(false);
+    expect(orderContainsProductLensItem(other, [selectedItemId, otherItemId])).toBe(true);
     expect(getProductLensOptions([mixed, other]).map((option) => option.label)).toEqual([
       "Lens Mix · 1yd tote",
       "Other Mix",
@@ -921,19 +922,19 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesOrders.id, otherOrderResult.body.id as string));
 
     await page.goto("/sales/orders");
-    await page.getByRole("combobox", { name: "Product Lens item" }).click();
-    await page.getByRole("option", { name: productName }).click();
+    await page.getByRole("button", { name: "Product" }).click();
+    await page.getByRole("menuitemcheckbox", { name: productName }).click();
 
     await expect(
-      page.locator('[data-testid="product-lens-order-card"]').filter({
+      page.locator('[data-testid="sales-order-card"]').filter({
         hasText: primaryOrder.orderNumber,
       })
     ).toBeVisible();
     await expect(page.getByText(otherOrder.orderNumber)).toHaveCount(0);
     await expect(page.locator('[data-testid="sales-order-drag-handle"]')).toHaveCount(0);
 
-    await page.getByRole("combobox", { name: "Product Lens item" }).click();
-    await page.getByRole("option", { name: "Product Lens: Off" }).click();
+    await page.getByRole("button", { name: productName }).click();
+    await page.getByRole("menuitem", { name: "All products" }).click();
     await filterList(page, "Search orders", primaryOrder.orderNumber);
     await expect(salesOrderCard(page, primaryOrder.orderNumber)).toBeVisible();
   });
@@ -1513,7 +1514,7 @@ test.describe("Sales write-path smoke", () => {
     const tokenCard = salesOrderCard(page, tokenOrder.orderNumber);
     await expect(tokenCard).toBeVisible();
     await tokenCard
-      .getByRole("button", { name: `Manage allocation for ${tokenOrder.orderNumber}` })
+      .getByRole("button", { name: new RegExp(`Manage allocation for ${tokenMaterialName}`) })
       .click();
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });

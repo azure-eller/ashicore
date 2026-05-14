@@ -12,7 +12,6 @@ import {
   Copy01Icon,
   MoreVerticalIcon,
   NoteIcon,
-  PackageIcon,
   PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +29,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { inferItemVisual, ItemSprite } from "@/components/inventory-visuals";
 import { apiJson } from "@/lib/client/api";
 import { cn } from "@/lib/utils";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
@@ -80,10 +78,14 @@ function OrderNotesPreview({
   );
 }
 
-function LineItemSprites({
+function LineAllocationPreview({
   lines,
+  canManageAllocations,
+  onManageLine,
 }: {
   lines: SalesOrderListRow["lines"];
+  canManageAllocations: boolean;
+  onManageLine: (lineId: string) => void;
 }) {
   const visibleLines = lines.slice(0, 3);
 
@@ -91,50 +93,90 @@ function LineItemSprites({
 
   return (
     <div
-      className="flex w-11 shrink-0 flex-col gap-1.5"
+      className="mt-1.5 grid min-w-0 grid-cols-2 gap-1"
       aria-label="Order line allocation preview"
     >
       {visibleLines.map((line, index) => (
-        <LineItemSprite key={line.id ?? `${line.itemId}:${index}`} line={line} />
+        <LineAllocationPreviewRow
+          key={line.id ?? `${line.itemId}:${index}`}
+          line={line}
+          canManageAllocation={canManageAllocations && line.id != null}
+          onManageLine={onManageLine}
+        />
       ))}
+      {lines.length > visibleLines.length ? (
+        <div className="rounded-full bg-muted/30 px-2 py-1 text-[10px] leading-none text-muted-foreground">
+          +{lines.length - visibleLines.length} more line
+          {lines.length - visibleLines.length === 1 ? "" : "s"}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function LineItemSprite({
+function LineAllocationPreviewRow({
   line,
+  canManageAllocation,
+  onManageLine,
 }: {
   line: SalesOrderListRow["lines"][number];
+  canManageAllocation: boolean;
+  onManageLine: (lineId: string) => void;
 }) {
-  const visual = inferItemVisual({
-    itemType: "product",
-    name: line.masterName,
-    sku: line.itemSku,
-    unitName: line.unitName,
-  });
-  const allocation = getLineSpriteAllocation(line);
-
-  return (
-    <div
-      className="relative flex size-10 items-center justify-center overflow-visible"
-      data-testid="sales-order-line-sprite"
-      title={`${line.masterName}: ${allocation}`}
-      aria-label={`${line.masterName}: ${allocation} allocated`}
-    >
-      <ItemSprite
-        kind={visual.kind}
-        color={visual.color}
-        size="xs"
-        className="size-10"
-      />
-      <span className="absolute -right-1.5 -top-1 inline-flex min-w-5 items-center justify-center whitespace-nowrap rounded-full border bg-background px-1 py-0.5 text-[9px] font-semibold leading-none text-foreground shadow-xs">
+  const lineId = line.id;
+  const allocation = getLineAllocationLabel(line);
+  const content = (
+    <>
+      <span className="min-w-0 max-w-24">
+        <span className="block truncate font-medium text-foreground">
+          {line.masterName}
+        </span>
+        <span className="mt-0.5 block truncate text-[10px] leading-none text-muted-foreground">
+          {line.unitName}
+        </span>
+      </span>
+      <span className="shrink-0 self-center font-semibold tabular-nums text-foreground">
         {allocation}
       </span>
-    </div>
+    </>
+  );
+
+  const className = cn(
+    "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-full bg-muted/30 px-2 py-1 text-[11px] leading-tight",
+    canManageAllocation && "transition hover:bg-muted/55"
+  );
+
+  if (!canManageAllocation || !lineId) {
+    return (
+      <div
+        className={className}
+        data-testid="sales-order-line-allocation-preview"
+        title={`${line.masterName}: ${allocation}`}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      data-testid="sales-order-line-allocation-preview"
+      title={`${line.masterName}: ${allocation}`}
+      aria-label={`Manage allocation for ${line.masterName}: ${allocation}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onManageLine(lineId);
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {content}
+    </button>
   );
 }
 
-function getLineSpriteAllocation(line: SalesOrderListRow["lines"][number]) {
+function getLineAllocationLabel(line: SalesOrderListRow["lines"][number]) {
   const allocated = formatQuantity(line.allocatedQty ?? "0") ?? "0";
   const demand = formatQuantity(line.quantity) ?? line.quantity;
 
@@ -160,7 +202,6 @@ export function SalesOrderCard({
   const canManageAllocations =
     order.deletedAt == null &&
     ["draft", "confirmed", "partially_shipped"].includes(order.status);
-  const allocationShortcutLineId = getAllocationShortcutLineId(order);
   const isCompact = density === "compact";
   const visibleLineCount = order.lines.length;
   const laneCopy = getCardLaneCopy(order, lane, visibleLineCount);
@@ -212,7 +253,6 @@ export function SalesOrderCard({
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0 flex-1 text-left">
             <div className="flex min-w-0 items-center gap-2">
-              <LineItemSprites lines={order.lines} />
               <div className="min-w-0 flex-1">
                 <Link
                   href={`/sales/orders/${order.id}`}
@@ -260,36 +300,23 @@ export function SalesOrderCard({
                   ) : null}
                 </div>
                 {!expanded ? (
-                  <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                    <HugeiconsIcon icon={Calendar03Icon} strokeWidth={2} className="size-3 shrink-0" />
-                    <span className="truncate">{laneCopy.dateLabel}</span>
-                    <OrderNotesPreview notes={order.notes} orderNumber={order.orderNumber} />
-                  </div>
+                  <>
+                    <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                      <HugeiconsIcon icon={Calendar03Icon} strokeWidth={2} className="size-3 shrink-0" />
+                      <span className="truncate">{laneCopy.dateLabel}</span>
+                      <OrderNotesPreview notes={order.notes} orderNumber={order.orderNumber} />
+                    </div>
+                    <LineAllocationPreview
+                      lines={order.lines}
+                      canManageAllocations={canManageAllocations}
+                      onManageLine={setAllocationLineId}
+                    />
+                  </>
                 ) : null}
               </div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {canManageAllocations && allocationShortcutLineId ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Manage allocation for ${order.orderNumber}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setAllocationLineId(allocationShortcutLineId);
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                  >
-                    <HugeiconsIcon icon={PackageIcon} strokeWidth={2} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Manage allocation.</TooltipContent>
-              </Tooltip>
-            ) : null}
             <OrderActionsMenu order={order} canEdit={canEdit} onDelete={onDelete} />
           </div>
         </div>
@@ -327,16 +354,6 @@ export function SalesOrderCard({
         ) : null}
       </CardContent>
     </Card>
-  );
-}
-
-function getAllocationShortcutLineId(order: SalesOrderListRow) {
-  return (
-    order.lines.find(
-      (line) => line.id && readSalesOrderNumber(line.remainingQty) > 0
-    )?.id ??
-    order.lines.find((line) => line.id)?.id ??
-    null
   );
 }
 

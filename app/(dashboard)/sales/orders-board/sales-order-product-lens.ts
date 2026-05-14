@@ -40,10 +40,10 @@ export function getProductLensOptions(orders: SalesOrderListRow[]) {
 
 export function orderContainsProductLensItem(
   order: SalesOrderListRow,
-  itemId: string | null
+  itemIds: string[]
 ) {
-  if (!itemId) return true;
-  return order.lines.some((line) => line.itemId === itemId);
+  if (itemIds.length === 0) return true;
+  return order.lines.some((line) => itemIds.includes(line.itemId));
 }
 
 export function getProductLensAggregate(
