@@ -31,6 +31,7 @@ import {
   ALLOCATION_SOURCE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { cn } from "@/lib/utils";
+import styles from "./sales-order-allocator.module.css";
 import type {
   AllocationSourceRow,
   AllocationSourceType,
@@ -82,6 +83,42 @@ function formatSourceDate(source: AllocationSourceRow) {
   const date = source.date.includes("T") ? source.date.slice(0, 10) : source.date;
   const label = source.sourceType === "inventory_lot" ? "Received" : "Planned";
   return `${label} ${formatDate(date)}`;
+}
+
+function sourceRelativeLabel(source: AllocationSourceRow) {
+  if (source.date == null) return null;
+  const date = source.date.includes("T") ? source.date.slice(0, 10) : source.date;
+  const days = daysFromToday(date);
+  if (days == null) return formatSourceDate(source);
+
+  if (source.sourceType === "inventory_lot") {
+    if (days === 0) return `Received today · ${date}`;
+    if (days === -1) return `Received yesterday · ${date}`;
+    if (days < 0) return `Received ${Math.abs(days)}d ago · ${date}`;
+    return `Received ${formatDate(date)} · ${date}`;
+  }
+
+  if (days === 0) return `ETA today · ${date}`;
+  if (days > 0) return `ETA in ${days}d · ${date}`;
+  return `ETA ${Math.abs(days)}d late · ${date}`;
+}
+
+function businessDateToUtcDays(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+}
+
+function todayBusinessDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function daysFromToday(value: string) {
+  const target = businessDateToUtcDays(value);
+  const today = businessDateToUtcDays(todayBusinessDate());
+  if (target == null || today == null) return null;
+  return target - today;
 }
 
 export function productLabel(line: SalesOrderListLine) {
@@ -327,25 +364,25 @@ function AllocationSourceEditor({
 }) {
   const queryClient = useQueryClient();
   const targetQty = parseQuantity(target.targetQty);
-  const [draft, setDraft] = useState(() => buildInitialDraft(targetQty, workspace));
+  const [initialDraft] = useState(() => buildInitialDraft(targetQty, workspace));
+  const [draft, setDraft] = useState(initialDraft);
   const [formError, setFormError] = useState<string | null>(null);
   const sourceGroups = groupSources(workspace.sources);
   const selectedTotal = Object.values(draft).reduce(
     (sum, value) => sum + parseQuantity(value),
     0
   );
+  const initialTotal = Object.values(initialDraft).reduce(
+    (sum, value) => sum + parseQuantity(value),
+    0
+  );
   const remainingToAssign = targetQty - selectedTotal;
+  const allocatedTone = selectedTotal >= targetQty && targetQty > 0 ? "met" : "neutral";
+  const remainingTone = remainingToAssign > 0.0001 ? "short" : "met";
+  const hasChanges = Math.abs(selectedTotal - initialTotal) > 0.0001;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const total = Object.values(draft).reduce(
-        (sum, value) => sum + parseQuantity(value),
-        0
-      );
-      if (Math.abs(total - targetQty) > 0.0001) {
-        throw new Error("Source quantities must match the target allocation.");
-      }
-
       await apiJson<AllocationWorkspace>("/api/allocation/save", {
         method: "POST",
         body: {
@@ -397,44 +434,100 @@ function AllocationSourceEditor({
       if (value.trim() === "" || !Number.isFinite(parsed) || parsed <= 0) {
         delete next[key];
       } else {
-        next[key] = value;
+        next[key] = quantityString(
+          Math.min(parsed, parseQuantity(source.maxQtyForPrimaryDemand))
+        );
       }
       return next;
     });
   }
 
+  function autofillFifo() {
+    let remaining = targetQty;
+    const next: SourceDraft = {};
+
+    for (const group of sourceGroups) {
+      for (const source of group.sources) {
+        if (remaining <= 0) break;
+        const qty = Math.min(remaining, parseQuantity(source.maxQtyForPrimaryDemand));
+        if (qty <= 0) continue;
+        next[sourceInputKey(source)] = quantityString(qty);
+        remaining -= qty;
+      }
+    }
+
+    setDraft(next);
+  }
+
   return (
     <>
       <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
-        <div className="grid gap-3 rounded-md border bg-muted/30 p-3 text-sm sm:grid-cols-3">
+        <div className={styles.summary}>
           <div>
-            <div className="text-muted-foreground">Demand</div>
-            <div className="font-medium">
+            <div className={styles.summaryLabel}>Demand</div>
+            <div className={styles.summaryValue}>
               {formatQuantity(target.line.remainingQty ?? "0")} {target.line.unitName}
             </div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">Target</div>
-            <div className="font-medium">
-              {formatQuantity(target.targetQty)} {target.line.unitName}
+            <div className={styles.summaryTrack}>
+              <span className={styles.summaryFill} style={{ width: "100%" }} />
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">Remaining</div>
+            <div className={styles.summaryLabel}>Allocated</div>
+            <div className={styles.summaryValue}>
+              {formatQuantity(quantityString(selectedTotal))} {target.line.unitName}
+            </div>
+            <div className={styles.summaryTrack}>
+              <span
+                className={styles.summaryFill}
+                data-tone={allocatedTone}
+                style={{
+                  width: `${targetQty > 0 ? Math.min(100, (selectedTotal / targetQty) * 100) : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+          <div>
+            <div className={styles.summaryLabel}>Remaining</div>
             <div
-              className={cn(
-                "font-medium",
-                Math.abs(remainingToAssign) > 0.0001 && "text-destructive"
-              )}
+              className={cn(styles.summaryValue, remainingToAssign > 0.0001 ? "text-destructive" : "text-success")}
             >
-              {formatQuantity(quantityString(remainingToAssign))} {target.line.unitName}
+              {remainingToAssign > 0.0001
+                ? `${formatQuantity(quantityString(remainingToAssign))} ${target.line.unitName}`
+                : "✓ fulfilled"}
+            </div>
+            <div className={styles.summaryTrack}>
+              <span
+                className={styles.summaryFill}
+                data-tone={remainingTone}
+                style={{
+                  width: `${targetQty > 0 ? Math.min(100, (Math.max(0, remainingToAssign) / targetQty) * 100) : 0}%`,
+                }}
+              />
             </div>
           </div>
         </div>
 
         {sourceGroups.map((group) => (
           <div key={group.sourceType} className="space-y-2">
-            <h3 className="text-sm font-medium">{group.label}</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-medium">
+                {group.sourceType === "inventory_lot"
+                  ? "Lots — on-hand inventory"
+                  : group.label}
+              </h3>
+              {group.sourceType === "inventory_lot" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={workspace.sources.length === 0}
+                  onClick={autofillFifo}
+                >
+                  Auto-fill (FIFO)
+                </Button>
+              ) : null}
+            </div>
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
@@ -484,22 +577,35 @@ function AllocationSourceEditor({
                   ) : (
                     group.sources.map((source) => {
                       const key = sourceInputKey(source);
-                      const sourceDate = formatSourceDate(source);
+                      const sourceDate = sourceRelativeLabel(source);
+                      const selected = parseQuantity(draft[key]) > 0;
                       return (
-                        <TableRow key={key}>
+                        <TableRow
+                          key={key}
+                          className={styles.sourceRow}
+                          data-selected={selected}
+                        >
                           <TableCell>
-                            <div className="flex flex-col">
-                              <span>{source.label}</span>
-                              {sourceDate ? (
-                                <span className="text-xs text-muted-foreground">
-                                  {sourceDate}
-                                </span>
-                              ) : null}
-                              {source.contextLabel ? (
-                                <span className="text-xs text-muted-foreground">
-                                  {source.contextLabel}
-                                </span>
-                              ) : null}
+                            <div className="flex items-start gap-2">
+                              <span
+                                className={styles.sourceBadge}
+                                data-type={source.sourceType}
+                              >
+                                {source.sourceType === "inventory_lot" ? "LOT" : "MO"}
+                              </span>
+                              <div className="flex min-w-0 flex-col">
+                                <span className="font-mono text-xs">{source.label}</span>
+                                {sourceDate ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    {sourceDate}
+                                  </span>
+                                ) : null}
+                                {source.contextLabel ? (
+                                  <span className="truncate text-xs text-muted-foreground">
+                                    {source.contextLabel}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell className="text-right">
@@ -518,7 +624,7 @@ function AllocationSourceEditor({
                               onMouseUp={(event) => event.preventDefault()}
                               inputMode="decimal"
                               aria-label={`Allocate from ${source.label}`}
-                              className="text-right"
+                              className={styles.sourceInput}
                             />
                           </TableCell>
                         </TableRow>
@@ -538,11 +644,10 @@ function AllocationSourceEditor({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          type="button"
-          disabled={saveMutation.isPending || Math.abs(remainingToAssign) > 0.0001}
-          onClick={() => saveMutation.mutate()}
-        >
+        <div className="mr-auto text-xs text-muted-foreground">
+          Esc to close · ⏎ to save
+        </div>
+        <Button type="button" disabled={saveMutation.isPending || !hasChanges} onClick={() => saveMutation.mutate()}>
           {saveMutation.isPending ? "Saving..." : "Save allocation"}
         </Button>
       </DialogFooter>
