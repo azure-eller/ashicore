@@ -308,6 +308,27 @@ export const SALES_ORDER_SHIP_DATE_TOOLTIP =
 export const SALES_ORDER_DATE_TOOLTIP =
   "Date the customer placed the order.";
 
+export const SALES_ORDER_RANK_TOOLTIP =
+  "Open-order priority; drag to reorder.";
+
+export const SALES_ORDER_NUMBER_TOOLTIP =
+  "Internal sales order number.";
+
+export const SALES_ORDER_CUSTOMER_TOOLTIP =
+  "Customer attached to the order.";
+
+export const SALES_ORDER_NOTES_TOOLTIP =
+  "Internal order notes.";
+
+export const SALES_ORDER_ITEMS_STATUS_TOOLTIP =
+  "Stock coverage for sales lines.";
+
+export const SALES_ORDER_PRODUCTION_STATUS_TOOLTIP =
+  "Manufacturing coverage for order lines.";
+
+export const SALES_ORDER_DELIVERY_STATUS_TOOLTIP =
+  "Shipment state for the sales order.";
+
 export const SALES_LINE_QTY_TOOLTIP =
   "Quantity requested by the sales line.";
 

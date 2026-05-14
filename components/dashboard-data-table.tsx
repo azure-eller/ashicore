@@ -390,6 +390,86 @@ export function DashboardDataTable<TData extends { id: string }>({
     void rowReorder.onReorder(reorderedRows.map((row) => row.original));
   }
 
+  const tableBody = reorderEnabled ? (
+    <SortableContext
+      items={sortableRowIds}
+      strategy={verticalListSortingStrategy}
+    >
+      <DashboardTableBody
+        table={table}
+        rows={rowModel.rows}
+        deletingIds={deletingIds}
+        emptyMessage={emptyMessage}
+        globalFilter={globalFilter}
+        getSubRowsProp={getSubRowsProp}
+        onRowClick={onRowClick}
+        renderExpandedRow={renderExpandedRow}
+        subRowClassName={subRowClassName}
+        verticalColumnBorders={verticalColumnBorders}
+        sortable
+      />
+    </SortableContext>
+  ) : (
+    <DashboardTableBody
+      table={table}
+      rows={rowModel.rows}
+      deletingIds={deletingIds}
+      emptyMessage={emptyMessage}
+      globalFilter={globalFilter}
+      getSubRowsProp={getSubRowsProp}
+      onRowClick={onRowClick}
+      renderExpandedRow={renderExpandedRow}
+      subRowClassName={subRowClassName}
+      verticalColumnBorders={verticalColumnBorders}
+    />
+  );
+
+  const tableElement = (
+    <Table
+      className={tableClassName}
+      containerClassName="overflow-visible"
+    >
+      <TableHeader>
+        {table.getHeaderGroups().map((headerGroup, headerGroupIndex) => (
+          <TableRow key={headerGroup.id}>
+            {headerGroup.headers.map((header) => {
+              const meta = header.column.columnDef.meta as
+                | DashboardColumnMeta
+                | undefined;
+
+              return (
+                <TableHead
+                  key={header.id}
+                  colSpan={header.colSpan}
+                  style={
+                    stickyHeader
+                      ? {
+                          top: `calc(var(--table-head-height) * ${headerGroupIndex})`,
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    meta?.className,
+                    stickyHeader && "sticky z-30",
+                    verticalColumnBorders && "border-r last:border-r-0"
+                  )}
+                >
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                </TableHead>
+              );
+            })}
+          </TableRow>
+        ))}
+      </TableHeader>
+      {tableBody}
+    </Table>
+  );
+
   return (
     <>
       <div className="w-full">
@@ -541,87 +621,17 @@ export function DashboardDataTable<TData extends { id: string }>({
             tableWrapperClassName
           )}
         >
-          <Table
-            className={tableClassName}
-            containerClassName="overflow-visible"
-          >
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup, headerGroupIndex) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
-                    const meta = header.column.columnDef.meta as
-                      | DashboardColumnMeta
-                      | undefined;
-
-                    return (
-                      <TableHead
-                        key={header.id}
-                        colSpan={header.colSpan}
-                        style={
-                          stickyHeader
-                            ? {
-                                top: `calc(var(--table-head-height) * ${headerGroupIndex})`,
-                              }
-                            : undefined
-                        }
-                        className={cn(
-                          meta?.className,
-                          stickyHeader && "sticky z-30",
-                          verticalColumnBorders && "border-r last:border-r-0"
-                        )}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                      </TableHead>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableHeader>
-            {reorderEnabled ? (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={sortableRowIds}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <DashboardTableBody
-                    table={table}
-                    rows={rowModel.rows}
-                    deletingIds={deletingIds}
-                    emptyMessage={emptyMessage}
-                    globalFilter={globalFilter}
-                    getSubRowsProp={getSubRowsProp}
-                    onRowClick={onRowClick}
-                    renderExpandedRow={renderExpandedRow}
-                    subRowClassName={subRowClassName}
-                    verticalColumnBorders={verticalColumnBorders}
-                    sortable
-                  />
-                </SortableContext>
-              </DndContext>
-            ) : (
-              <DashboardTableBody
-                table={table}
-                rows={rowModel.rows}
-                deletingIds={deletingIds}
-                emptyMessage={emptyMessage}
-                globalFilter={globalFilter}
-                getSubRowsProp={getSubRowsProp}
-                onRowClick={onRowClick}
-                renderExpandedRow={renderExpandedRow}
-                subRowClassName={subRowClassName}
-                verticalColumnBorders={verticalColumnBorders}
-              />
-            )}
-          </Table>
+          {reorderEnabled ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              {tableElement}
+            </DndContext>
+          ) : (
+            tableElement
+          )}
         </div>
 
         <div className="flex items-center justify-between py-4">

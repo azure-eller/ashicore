@@ -20,6 +20,7 @@ import {
   type OperationalState,
 } from "@/components/operational-state-cell";
 import { SortableHeader } from "@/components/sortable-header";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -28,13 +29,22 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  REQUESTED_DATE_TOOLTIP,
+  ORDER_TOTAL_TOOLTIP,
+  SALES_ORDER_CUSTOMER_TOOLTIP,
+  SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
+  SALES_ORDER_ITEMS_STATUS_TOOLTIP,
+  SALES_ORDER_NOTES_TOOLTIP,
+  SALES_ORDER_NUMBER_TOOLTIP,
+  SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
+  SALES_ORDER_RANK_TOOLTIP,
   SALES_ORDER_SHIP_DATE_TOOLTIP,
-  SALES_ORDER_DATE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
-import { SoStageAction } from "./so-stage-action";
 import { OrderExpandedDetail } from "./order-expanded-detail";
+import {
+  DeliveryActionCell,
+  ProductionActionCell,
+} from "./sales-order-table-action-cells";
 import type { SalesOrderListRow } from "./types";
 
 const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
@@ -156,6 +166,23 @@ function doneSalesOrderRank(order: SalesOrderListRow) {
   return -1;
 }
 
+function compareSalesOrderRank(
+  left: SalesOrderListRow,
+  right: SalesOrderListRow
+) {
+  const leftRank = left.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rightRank = right.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rankCompare = leftRank - rightRank;
+
+  if (rankCompare !== 0) {
+    return rankCompare;
+  }
+
+  return left.orderNumber.localeCompare(right.orderNumber, undefined, {
+    numeric: true,
+  });
+}
+
 function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderListRow }) {
   if (!isOpenSalesOrder(order)) {
     return <span className="text-muted-foreground">-</span>;
@@ -173,21 +200,22 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
 
 const rankColumn: ColumnDef<SalesOrderListRow> = {
   accessorKey: "priorityRank",
-  header: "Rank",
-  sortingFn: (a, b) => {
-    const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-    const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-    const rankCompare = left - right;
+  header: () => (
+    <TooltipHeader label="Rank" tooltip={SALES_ORDER_RANK_TOOLTIP} />
+  ),
+  enableSorting: false,
+  cell: ({ row, table }) => {
+    const orderedIndex = table
+      .getPrePaginationRowModel()
+      .rows.findIndex((orderedRow) => orderedRow.id === row.id);
 
-    if (rankCompare !== 0) {
-      return rankCompare;
-    }
-
-    return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-      numeric: true,
-    });
+    return (
+      <RankCell
+        rowIndex={orderedIndex >= 0 ? orderedIndex : row.index}
+        order={row.original}
+      />
+    );
   },
-  cell: ({ row }) => <RankCell rowIndex={row.index} order={row.original} />,
   meta: { className: "w-20" },
 };
 
@@ -217,7 +245,13 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   rankColumn,
   {
     accessorKey: "orderNumber",
-    header: ({ column }) => <SortableHeader column={column} label="Order" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Order"
+        tooltip={SALES_ORDER_NUMBER_TOOLTIP}
+      />
+    ),
     cell: ({ row }) => (
       <div className="flex items-center gap-1.5">
         <button
@@ -241,16 +275,30 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   },
   {
     accessorKey: "customerName",
-    header: ({ column }) => <SortableHeader column={column} label="Customer" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Customer"
+        tooltip={SALES_ORDER_CUSTOMER_TOOLTIP}
+      />
+    ),
   },
   {
     accessorKey: "notes",
-    header: ({ column }) => <SortableHeader column={column} label="Notes" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Notes"
+        tooltip={SALES_ORDER_NOTES_TOOLTIP}
+      />
+    ),
     cell: ({ row }) => <NotesCell notes={row.original.notes} />,
   },
   {
     accessorKey: "totalAmount",
-    header: ({ column }) => <SortableHeader column={column} label="Total" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Total" tooltip={ORDER_TOTAL_TOOLTIP} />
+    ),
     sortingFn: (a, b) =>
       parseFloat(a.original.totalAmount) - parseFloat(b.original.totalAmount),
     cell: ({ row }) => formatPrice(row.original.totalAmount) ?? "\u2014",
@@ -264,7 +312,13 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   },
   {
     id: "salesItems",
-    header: ({ column }) => <SortableHeader column={column} label="Sales Items" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Sales Items"
+        tooltip={SALES_ORDER_ITEMS_STATUS_TOOLTIP}
+      />
+    ),
     sortingFn: (a, b) =>
       parseFloat(a.original.fulfillmentSummary.shortQty) -
       parseFloat(b.original.fulfillmentSummary.shortQty),
@@ -273,38 +327,51 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
   },
   {
     id: "productionState",
-    header: ({ column }) => <SortableHeader column={column} label="Production" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Production"
+        tooltip={SALES_ORDER_PRODUCTION_STATUS_TOOLTIP}
+      />
+    ),
     sortingFn: (a, b) =>
       a.original.openManufacturingOrderCount - b.original.openManufacturingOrderCount,
-    cell: ({ row }) => <OperationalStateCell state={getProductionState(row.original)} />,
+    cell: ({ row }) => (
+      <ProductionActionCell
+        order={row.original}
+        state={getProductionState(row.original)}
+      />
+    ),
     meta: { className: "w-40" },
   },
   {
     id: "deliveryState",
-    header: ({ column }) => <SortableHeader column={column} label="Delivery" />,
+    header: ({ column }) => (
+      <SortableHeader
+        column={column}
+        label="Delivery"
+        tooltip={SALES_ORDER_DELIVERY_STATUS_TOOLTIP}
+      />
+    ),
     sortingFn: (a, b) => {
       const doneRank = doneSalesOrderRank(a.original) - doneSalesOrderRank(b.original);
       if (doneRank !== 0) return doneRank;
-      return (a.original.requestedDate ?? "").localeCompare(
-        b.original.requestedDate ?? ""
-      );
+      return (a.original.shipDate ?? "").localeCompare(b.original.shipDate ?? "");
     },
-    cell: ({ row }) => <OperationalStateCell state={getDeliveryState(row.original)} />,
-    meta: { className: "w-40" },
-  },
-  {
-    accessorKey: "orderDate",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Order" tooltip={SALES_ORDER_DATE_TOOLTIP} />
+    cell: ({ row }) => (
+      <DeliveryActionCell
+        order={row.original}
+        state={getDeliveryState(row.original)}
+      />
     ),
-    cell: ({ row }) => formatDate(row.original.orderDate),
+    meta: { className: "w-40" },
   },
   {
     accessorKey: "shipDate",
     header: ({ column }) => (
       <SortableHeader
         column={column}
-        label="Ship"
+        label="Ship by"
         tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
       />
     ),
@@ -322,36 +389,6 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       });
     },
     cell: ({ row }) => formatDate(row.original.shipDate),
-  },
-  {
-    accessorKey: "requestedDate",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Delivery"
-        tooltip={REQUESTED_DATE_TOOLTIP}
-      />
-    ),
-    sortingFn: (a, b) => {
-      const dateCompare = (a.original.requestedDate ?? "").localeCompare(
-        b.original.requestedDate ?? ""
-      );
-
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-
-      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-        numeric: true,
-      });
-    },
-    cell: ({ row }) => formatDate(row.original.requestedDate),
-  },
-  {
-    id: "actions",
-    header: "",
-    cell: ({ row }) => <SoStageAction order={row.original} />,
-    enableSorting: false,
   },
 ];
 
@@ -371,6 +408,13 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       }),
     initialData,
   });
+  const displayedOrders = useMemo(() => {
+    if (statusFilter !== "open") {
+      return orders;
+    }
+
+    return [...orders].sort(compareSalesOrderRank);
+  }, [orders, statusFilter]);
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: SalesOrderListRow[]) => {
       await apiJson<{ updated: number }>("/api/sales-orders/priority-ranks", {
@@ -410,7 +454,7 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
     <DashboardDataTable
       columns={columns}
       columnVisibility={columnVisibility}
-      data={orders}
+      data={displayedOrders}
       initialData={initialData}
       queryKey={["sales-orders"]}
       searchAriaLabel="Search orders"
@@ -423,7 +467,6 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
           onStatusChange={setStatusFilter}
         />
       )}
-      initialSorting={[{ id: "priorityRank", desc: false }]}
       initialColumnFilters={[{ id: "status", value: [...OPEN_SALES_STATUSES] }]}
       getRowCanExpand={() => true}
       renderExpandedRow={(row) => <OrderExpandedDetail orderId={row.original.id} />}
@@ -433,9 +476,11 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
           const selected =
             (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
           const columnFilters = table.getState().columnFilters;
+          const sorting = table.getState().sorting;
 
           return (
             !table.getState().globalFilter &&
+            sorting.length === 0 &&
             columnFilters.every((filter) => filter.id === "status") &&
             selected.length === OPEN_SALES_STATUSES.length &&
             OPEN_SALES_STATUSES.every((status) => selected.includes(status))
@@ -485,7 +530,9 @@ function SalesOrderWorkflowTabs({
       nextValue === "done" ? [...DONE_SALES_STATUSES] : [...OPEN_SALES_STATUSES]
     );
     table.setSorting([
-      { id: nextValue === "open" ? "priorityRank" : "orderNumber", desc: false },
+      ...(nextValue === "done"
+        ? [{ id: "orderNumber", desc: false }]
+        : []),
     ]);
   };
 
