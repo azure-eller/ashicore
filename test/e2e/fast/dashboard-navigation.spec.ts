@@ -17,7 +17,7 @@ test("page search navigation shows optimistic destination shell while route is p
 
   const shell = page.getByTestId("optimistic-dashboard-shell");
   await expect(shell).toBeVisible();
-  await expect(shell.getByRole("heading", { name: "Products" })).toBeVisible();
+  await expect(shell.getByRole("heading")).toHaveCount(0);
   await expect(page.getByTestId("optimistic-data-region")).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Products", exact: true })

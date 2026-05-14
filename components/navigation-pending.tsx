@@ -266,15 +266,11 @@ export function DashboardNavigationContent({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col gap-4 p-4"
+      className="flex min-h-0 flex-1 flex-col p-4"
       data-testid="optimistic-dashboard-shell"
       aria-busy="true"
+      aria-label={`Loading ${optimisticShell.title}`}
     >
-      <div className="flex shrink-0 items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold tracking-tight">
-          {optimisticShell.title}
-        </h1>
-      </div>
       <div data-testid="optimistic-data-region">
         <DataTableLoading />
       </div>
