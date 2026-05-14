@@ -485,8 +485,10 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText(secondaryProductName, { exact: true })).toBeVisible();
     await expect(page.getByText(expectedRequestedDateLabel)).toBeVisible();
     await expect(page.getByText("$158.97", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$104.97");
-    await expect(page.locator("table").first()).toContainText("$54.00");
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const lineItemsTable = page.locator("#sales-order-panel-lines table").first();
+    await expect(lineItemsTable).toContainText("$104.97");
+    await expect(lineItemsTable).toContainText("$54.00");
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
@@ -495,8 +497,12 @@ test.describe("Sales order flow", () => {
       page.locator("main").getByText("Confirmed", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
-    await expect(page.locator("table").first()).toContainText(primaryProductName);
-    await expect(page.locator("table").first()).toContainText(secondaryProductName);
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const reloadedLineItemsTable = page
+      .locator("#sales-order-panel-lines table")
+      .first();
+    await expect(reloadedLineItemsTable).toContainText(primaryProductName);
+    await expect(reloadedLineItemsTable).toContainText(secondaryProductName);
 
     // DB
     const orderRows = await db

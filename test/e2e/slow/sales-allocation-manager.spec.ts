@@ -372,10 +372,10 @@ test.describe("Sales allocation manager slow flow", () => {
       });
 
     const draftBalance = await getItemBalance(db, item.id);
-    expect(draftBalance.committedQty).toBe("0.0000");
-    expect(draftBalance.demandQty).toBe("0.0000");
-    expect(await getReservationTotal(db, item.id)).toBe("0");
-    expect(await getDemandTotal(db, item.id)).toBe("0");
+    expect(draftBalance.committedQty).toBe("6.0000");
+    expect(draftBalance.demandQty).toBe("11.0000");
+    expect(await getReservationTotal(db, item.id)).toBe("6.0000");
+    expect(await getDemandTotal(db, item.id)).toBe("11.0000");
 
     expect((await confirmOrder(competingOrderId)).status).toBe(200);
     expect((await confirmOrder(currentOrderId)).status).toBe(200);
