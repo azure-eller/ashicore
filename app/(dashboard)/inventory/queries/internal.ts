@@ -95,7 +95,6 @@ import {
 import {
   applyMarginTiers,
   calculateMarginPercent,
-  parseNumeric,
 } from "./metrics";
 import { hasBomChanged, type BomInputRow } from "./bom-write";
 
@@ -936,17 +935,20 @@ export async function getItems(filters?: {
             });
           })
           .sort((a, b) => {
-            const revenueDiff = parseNumeric(b.revenue30d) - parseNumeric(a.revenue30d);
-            if (revenueDiff !== 0) {
-              return revenueDiff;
-            }
+            const displayNameDiff = a.displayName.localeCompare(
+              b.displayName,
+              undefined,
+              { numeric: true, sensitivity: "base" },
+            );
+            if (displayNameDiff !== 0) return displayNameDiff;
 
-            const createdAtDiff = b.createdAt.getTime() - a.createdAt.getTime();
-            if (createdAtDiff !== 0) {
-              return createdAtDiff;
-            }
+            const skuDiff = (a.sku ?? "").localeCompare(b.sku ?? "", undefined, {
+              numeric: true,
+              sensitivity: "base",
+            });
+            if (skuDiff !== 0) return skuDiff;
 
-            return a.name.localeCompare(b.name);
+            return a.id.localeCompare(b.id);
           });
 
         return applyMarginTiers(results);

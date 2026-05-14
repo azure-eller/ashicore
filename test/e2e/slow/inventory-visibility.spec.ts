@@ -240,7 +240,7 @@ test.describe("Inventory visibility ranking", () => {
     expect(unsoldVariant.body.id).not.toBe("");
   });
 
-  test("orders Products by recent fulfilled revenue with createdAt fallback", async ({ page }) => {
+  test("orders Products alphabetically with variants grouped by family", async ({ page }) => {
     await page.goto("/inventory/products");
     await filterList(page, "Search items", `Revenue Rank ${ts}`);
 
@@ -252,10 +252,10 @@ test.describe("Inventory visibility ranking", () => {
     );
 
     expect(orderedNames.slice(0, 5)).toEqual([
-      soldVariantDisplayName,
       productAName,
       productBName,
       unsoldVariantDisplayName,
+      soldVariantDisplayName,
       zeroNewerName,
     ]);
   });
