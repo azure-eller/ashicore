@@ -266,7 +266,7 @@ export function DashboardNavigationContent({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col p-4"
+      className="flex min-h-0 flex-1 flex-col"
       data-testid="optimistic-dashboard-shell"
       aria-busy="true"
       aria-label={`Loading ${optimisticShell.title}`}

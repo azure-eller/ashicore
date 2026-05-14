@@ -1,9 +1,5 @@
-import { Spinner } from "@/components/ui/spinner";
+import DataTableLoading from "@/components/data-table-loading";
 
 export default function DashboardRouteLoading() {
-  return (
-    <div className="flex min-h-64 flex-1 items-center justify-center p-6">
-      <Spinner className="text-foreground" />
-    </div>
-  );
+  return <DataTableLoading />;
 }
