@@ -35,6 +35,14 @@ function salesOrderCard(page: Page, orderNumber: string) {
   return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
+async function expandSalesOrderCard(page: Page, orderNumber: string) {
+  const row = salesOrderCard(page, orderNumber);
+  await row
+    .getByRole("button", { name: new RegExp(`Expand.*${orderNumber}|Expand order`) })
+    .click();
+  return row;
+}
+
 async function createCustomerFixture(namePrefix: string) {
   const result = await createCustomer({ name: unique(namePrefix) });
   expect(result.status).toBe(201);
@@ -232,8 +240,7 @@ async function openAllocationManager(params: {
 
   await page.goto("/sales/orders");
   await filterList(page, "Search orders", orderNumber);
-  const orderCard = salesOrderCard(page, orderNumber);
-  await orderCard.getByRole("button", { name: "Expand order" }).click();
+  await expandSalesOrderCard(page, orderNumber);
 
   const expandedLine = page.getByRole("row", { name: new RegExp(escapedItemName) }).last();
   await expect(expandedLine).toBeVisible();
@@ -527,7 +534,7 @@ test.describe("Sales allocation manager slow flow", () => {
       });
   });
 
-  test("unmanaged confirmation warns before taking draft stock allocations", async ({
+  test("confirming open orders leaves existing allocations in place", async ({
     db,
   }) => {
     const customerId = await createCustomerFixture("Slow allocation takeover customer");
@@ -564,24 +571,18 @@ test.describe("Sales allocation manager slow flow", () => {
     );
     expect(allocationResponse.status).toBe(200);
 
-    const blockedConfirm = await confirmOrder(unmanagedOrderId);
-    expect(blockedConfirm.status).toBe(409);
-    expect(blockedConfirm.body?.error).toMatch(/take stock allocated to draft orders/i);
-    expect(blockedConfirm.body?.draftAllocationTakeover?.allocations).toMatchObject([
-      {
-        salesOrderLineId: draftHeldLine.id,
-        itemId: item.id,
-        quantity: 8,
-      },
-    ]);
-
-    const confirmedWithTakeover = await confirmOrder(unmanagedOrderId, {
-      confirmDraftAllocationTakeover: true,
-    });
-    expect(confirmedWithTakeover.status).toBe(200);
+    const confirmedOpenOrder = await confirmOrder(unmanagedOrderId);
+    expect(confirmedOpenOrder.status).toBe(200);
 
     const draftHeldAllocations = await getActiveAllocations(db, draftHeldLine.id);
-    expect(draftHeldAllocations.every((row) => row.status !== "active")).toBe(true);
+    expect(draftHeldAllocations).toMatchObject([
+      {
+        sourceType: "inventory_lot",
+        sourceId: lotId,
+        quantity: "8.0000",
+        status: "active",
+      },
+    ]);
 
     await expect
       .poll(async () => {
@@ -595,11 +596,11 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "0.0000",
-        demand: "10.0000",
-        shortage: "10.0000",
-        reservation: "0",
-        demandSummary: "10.0000",
+        committed: "10.0000",
+        demand: "18.0000",
+        shortage: "8.0000",
+        reservation: "10.0000",
+        demandSummary: "18.0000",
       });
 
     const draftHeldConfirm = await confirmOrder(draftHeldOrderId);
@@ -617,10 +618,10 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "0.0000",
+        committed: "10.0000",
         demand: "18.0000",
-        shortage: "18.0000",
-        reservation: "0",
+        shortage: "8.0000",
+        reservation: "10.0000",
         demandSummary: "18.0000",
       });
 
@@ -694,11 +695,11 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "10.0000",
-        demand: "10.0000",
+        committed: "18.0000",
+        demand: "18.0000",
         shortage: "0.0000",
-        reservation: "10.0000",
-        demandSummary: "10.0000",
+        reservation: "18.0000",
+        demandSummary: "18.0000",
       });
   });
 
@@ -763,11 +764,11 @@ test.describe("Sales allocation manager slow flow", () => {
     expect(await getActiveAllocations(db, secondLine.id)).toHaveLength(0);
 
     const balance = await getItemBalance(db, item.id);
-    expect(balance.committedQty).toBe("0.0000");
-    expect(balance.demandQty).toBe("0.0000");
+    expect(balance.committedQty).toBe("5.0000");
+    expect(balance.demandQty).toBe("10.0000");
   });
 
-  test("editing a draft order with allocations cancels old allocation rows", async ({
+  test("editing an open order with allocations replaces old allocation rows", async ({
     db,
   }) => {
     const customerId = await createCustomerFixture("Slow allocation edit customer");
@@ -816,7 +817,7 @@ test.describe("Sales allocation manager slow flow", () => {
     expect(await getActiveAllocations(db, replacementLine.id)).toHaveLength(0);
 
     const balance = await getItemBalance(db, item.id);
-    expect(balance.committedQty).toBe("0.0000");
-    expect(balance.demandQty).toBe("0.0000");
+    expect(balance.committedQty).toBe("7.0000");
+    expect(balance.demandQty).toBe("7.0000");
   });
 });

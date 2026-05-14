@@ -28,8 +28,14 @@ function salesOrderCard(page: Parameters<typeof filterList>[0], orderNumber: str
   return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
-async function showCancelledOrders(page: Parameters<typeof filterList>[0]) {
-  await page.getByRole("radio", { name: "Show done orders" }).click();
+async function confirmOversellDialog(page: Parameters<typeof filterList>[0]) {
+  const oversellDialog = page.getByRole("alertdialog", {
+    name: "Confirm Oversell?",
+  });
+  await expect(oversellDialog).toBeVisible({ timeout: 30000 });
+  await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
+  await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
+  await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
 }
 
 async function createDraftSalesOrder(payload: {
@@ -38,6 +44,7 @@ async function createDraftSalesOrder(payload: {
   shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
+  confirmOversell?: boolean;
   lines: Array<{
     itemId: string;
     quantity: string;
@@ -54,7 +61,7 @@ async function createDraftSalesOrder(payload: {
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
-      confirmOversell: false,
+      confirmOversell: payload.confirmOversell ?? false,
     }),
   });
   const body = await response.json().catch(() => null);
@@ -428,7 +435,7 @@ test.describe("Sales order flow", () => {
   // NOTE: Material line (row 3) removed — the pricing useEffect wipes
   // user-entered prices on items with no default/suggested price. Add it
   // back once the order-form isPriceOverridden logic handles null suggested prices.
-  test("creates a draft order with multiple lines", async ({ page, db }) => {
+  test("creates a confirmed order with multiple lines", async ({ page, db }) => {
     await page.goto("/sales/orders/new");
     await expect(page.getByText("Add Sales Order")).toBeVisible();
 
@@ -463,29 +470,36 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
     await page.getByRole("button", { name: "Create Order" }).click();
+    await confirmOversellDialog(page);
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
 
     // UI — verify the detail page
     await expect(
-      page.locator("main").getByText("Draft", { exact: true }).first()
+      page.locator("main").getByText("Confirmed", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
-    await expect(page.getByText(primaryProductName)).toBeVisible();
-    await expect(page.getByText(secondaryProductName)).toBeVisible();
+    await expect(page.getByText(primaryProductName, { exact: true })).toBeVisible();
+    await expect(page.getByText(secondaryProductName, { exact: true })).toBeVisible();
     await expect(page.getByText(expectedRequestedDateLabel)).toBeVisible();
     await expect(page.getByText("$158.97", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$104.97");
-    await expect(page.locator("table").first()).toContainText("$54.00");
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const lineItemsTable = page.locator("#sales-order-panel-lines table").first();
+    await expect(lineItemsTable).toContainText("$104.97");
+    await expect(lineItemsTable).toContainText("$54.00");
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.reload();
     await expect(
-      page.locator("main").getByText("Draft", { exact: true }).first()
+      page.locator("main").getByText("Confirmed", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
-    await expect(page.locator("table").first()).toContainText(primaryProductName);
-    await expect(page.locator("table").first()).toContainText(secondaryProductName);
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const reloadedLineItemsTable = page
+      .locator("#sales-order-panel-lines table")
+      .first();
+    await expect(reloadedLineItemsTable).toContainText(primaryProductName);
+    await expect(reloadedLineItemsTable).toContainText(secondaryProductName);
 
     // DB
     const orderRows = await db
@@ -499,7 +513,7 @@ test.describe("Sales order flow", () => {
     fullOrderNumber = order.orderNumber;
 
     expect(order.customerName).toBe(customerName);
-    expect(order.status).toBe("draft");
+    expect(order.status).toBe("confirmed");
     expect(order.orderDate).toBe(expectedOrderDate);
     expect(order.shipDate).toBe(expectedShipDate);
     expect(order.requestedDate).toBe(expectedRequestedDate);
@@ -541,20 +555,19 @@ test.describe("Sales order flow", () => {
       .select({ committedQty: inventoryItemBalances.committedQty })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, primaryMaterialId));
-    expect(primaryItem?.committedQty ?? "0.0000").toBe("0.0000");
+    expect(primaryItem?.committedQty ?? "0.0000").toBe("3.0000");
     expect(secondaryItem?.committedQty ?? "0.0000").toBe("0.0000");
     expect(primaryMaterial?.committedQty ?? "0.0000").toBe("0.0000");
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
-    const draftCard = salesOrderCard(page, fullOrderNumber);
-    await expect(draftCard).toContainText(customerName);
-    await expect(draftCard).toContainText("$158.97");
-    await expect(draftCard).toContainText("Draft");
-    await expect(draftCard).toContainText(expectedShipDateLabel);
+    const confirmedCard = salesOrderCard(page, fullOrderNumber);
+    await expect(confirmedCard).toContainText(customerName);
+    await expect(confirmedCard).toContainText("$158.97");
+    await expect(confirmedCard).toContainText(expectedShipDateLabel);
   });
 
-  test("edits the draft order — verifies pre-population and changes quantity", async ({ page, db }) => {
+  test("edits the confirmed order — verifies pre-population and changes quantity", async ({ page, db }) => {
     await page.goto(`/sales/orders/${fullOrderId}/edit`);
     await expect(page.getByText("Edit Sales Order")).toBeVisible({ timeout: 30000 });
 
@@ -578,6 +591,7 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Notes").fill("Updated to 5 units");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
+    await confirmOversellDialog(page);
     await page.waitForURL(`**/sales/orders/${fullOrderId}`);
     await expect(
       page.getByRole("heading", { name: fullOrderNumber })
@@ -585,13 +599,19 @@ test.describe("Sales order flow", () => {
 
     // UI
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$11.25");
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const editedLineItemsTable = page.locator("#sales-order-panel-lines table").first();
+    await expect(editedLineItemsTable).toContainText("$11.25");
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.reload();
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$11.25");
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const reloadedEditedLineItemsTable = page
+      .locator("#sales-order-panel-lines table")
+      .first();
+    await expect(reloadedEditedLineItemsTable).toContainText("$11.25");
 
     // DB
     const orderRows = await db
@@ -599,7 +619,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, fullOrderId));
     expect(orderRows).toHaveLength(1);
-    expect(orderRows[0].status).toBe("draft");
+    expect(orderRows[0].status).toBe("confirmed");
     expect(orderRows[0].notes).toBe("Updated to 5 units");
 
     const updatedLineRows = await db
@@ -628,22 +648,22 @@ test.describe("Sales order flow", () => {
     expect(updatedSecondaryLine?.unitPrice).toBe("11.25");
     expect(updatedSecondaryLine?.suggestedUnitPrice).toBe("10.80");
     expect(updatedSecondaryLine?.isPriceOverridden).toBe(true);
-    await expect(page.locator("table").first()).toContainText(
+    await expect(reloadedEditedLineItemsTable).toContainText(
       currencyFormatter.format(parseFloat(updatedPrimaryLine!.lineTotal))
     );
-    await expect(page.locator("table").first()).toContainText(
+    await expect(reloadedEditedLineItemsTable).toContainText(
       currencyFormatter.format(parseFloat(updatedSecondaryLine!.lineTotal))
     );
   });
 
-  test("confirms a draft order from the list and handles the oversell warning", async ({
-    page,
+  test("creates an open order with oversell confirmation and cancels it", async ({
     db,
   }) => {
     const bulkOrderId = await createDraftSalesOrder({
       customerId: extraCustomerId,
       requestedDate: "2026-04-18",
       notes: "Bulk confirm coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: primaryProductId,
@@ -662,32 +682,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, bulkOrderId));
 
-    expect(bulkOrder.status).toBe("draft");
-
-    await page.goto("/sales/orders");
-    await filterList(page, "Search orders", bulkOrder.orderNumber);
-
-    const draftCard = salesOrderCard(page, bulkOrder.orderNumber);
-    await draftCard.getByRole("button", { name: "Confirm" }).click();
-
-    const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
-
-    await expect
-      .poll(
-        async () => {
-          const [order] = await db
-            .select({ status: salesOrders.status })
-            .from(salesOrders)
-            .where(eq(salesOrders.id, bulkOrderId));
-          return order?.status ?? null;
-        },
-        { timeout: 15_000 }
-      )
-      .toBe("confirmed");
+    expect(bulkOrder.status).toBe("confirmed");
 
     const [primaryItemAfterConfirm] = await db
       .select({
@@ -698,8 +693,8 @@ test.describe("Sales order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, primaryProductId));
     expect(primaryItemAfterConfirm.committedQty).toBe("4.0000");
-    expect(primaryItemAfterConfirm.demandQty).toBe("5.0000");
-    expect(primaryItemAfterConfirm.shortageQty).toBe("1.0000");
+    expect(primaryItemAfterConfirm.demandQty).toBe("10.0000");
+    expect(primaryItemAfterConfirm.shortageQty).toBe("6.0000");
 
     await updateSalesOrderStatus(bulkOrderId, "cancelled");
 
@@ -714,29 +709,18 @@ test.describe("Sales order flow", () => {
         },
         { timeout: 15_000 }
       )
-      .toBe("0.0000");
+      .toBe("4.0000");
 
-    await page.goto("/sales/orders");
-    await showCancelledOrders(page);
-    await filterList(page, "Search orders", bulkOrder.orderNumber);
-    await expect(salesOrderCard(page, bulkOrder.orderNumber)).toContainText("Cancelled");
+    const [cancelledBulkOrder] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, bulkOrderId));
+    expect(cancelledBulkOrder?.status).toBe("cancelled");
   });
 
-  test("confirms the draft order from detail, handles oversell, and commits stock", async ({ page, db }) => {
+  test("confirmed order from detail keeps reservations and production actions", async ({ page, db }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-
-    await page.getByRole("button", { name: "Confirm" }).click();
-
-    // The edited order quantity exceeds the fixture's opening stock, so the oversell dialog should appear.
-    const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).scrollIntoViewIfNeeded();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
-
-    await page.waitForURL(`**/sales/orders/${fullOrderId}`);
 
     await expect
       .poll(
@@ -800,94 +784,57 @@ test.describe("Sales order flow", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("confirmed order stale-client status downgrades and deletes are rejected without changing reservations", async ({
-    page,
+  test("open order stale-client status downgrades keep the order open", async ({
     db,
   }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
-    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
+    const staleOrderId = await createDraftSalesOrder({
+      customerId: extraCustomerId,
+      requestedDate: "2026-04-24",
+      notes: "Stale status edit coverage",
+      confirmOversell: true,
+      lines: [
+        {
+          itemId: primaryProductId,
+          quantity: "1",
+          unitPrice: "29.99",
+        },
+      ],
+    });
 
-    const [beforeOrder] = await db
-      .select({
-        status: salesOrders.status,
-        notes: salesOrders.notes,
-        totalAmount: salesOrders.totalAmount,
-        deletedAt: salesOrders.deletedAt,
-      })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, fullOrderId));
-    const beforeLines = await db
-      .select({
-        itemId: salesOrderLines.itemId,
-        quantity: salesOrderLines.quantity,
-        unitPrice: salesOrderLines.unitPrice,
-      })
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
-    const [beforePrimaryBalance] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, primaryProductId));
-
-    expect(beforeOrder.status).toBe("confirmed");
-
-    const editConfirmedResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
+    const editConfirmedResponse = await testFetch(`/api/sales-orders/${staleOrderId}`, {
       method: "PUT",
       body: JSON.stringify({
-        customerId,
+        customerId: extraCustomerId,
         status: "draft",
         requestedDate: expectedRequestedDate,
         shipDate: expectedShipDate,
-        notes: "This confirmed order edit should not apply.",
+        notes: "Stale status edit applied.",
         lines: [
           {
             itemId: primaryProductId,
             quantity: "1",
-            unitPrice: "1.00",
+            unitPrice: "29.99",
           },
         ],
-        confirmOversell: false,
+        confirmOversell: true,
       }),
     });
     const editConfirmedBody = await editConfirmedResponse.json().catch(() => null);
-    expect(editConfirmedResponse.status).toBeGreaterThanOrEqual(400);
-    expect(editConfirmedBody?.error ?? "").toMatch(/confirmed|edit|cannot/i);
-
-    const deleteConfirmedResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
-      method: "DELETE",
-    });
-    const deleteConfirmedBody = await deleteConfirmedResponse.json().catch(() => null);
-    expect(deleteConfirmedResponse.status).toBeGreaterThanOrEqual(400);
-    expect(deleteConfirmedBody?.error ?? "").toMatch(/draft|cancelled|delete/i);
+    expect(editConfirmedResponse.status).toBe(200);
+    expect(editConfirmedBody?.id).toBe(staleOrderId);
 
     const [afterOrder] = await db
       .select({
         status: salesOrders.status,
         notes: salesOrders.notes,
-        totalAmount: salesOrders.totalAmount,
         deletedAt: salesOrders.deletedAt,
       })
       .from(salesOrders)
-      .where(eq(salesOrders.id, fullOrderId));
-    const afterLines = await db
-      .select({
-        itemId: salesOrderLines.itemId,
-        quantity: salesOrderLines.quantity,
-        unitPrice: salesOrderLines.unitPrice,
-      })
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
-    const [afterPrimaryBalance] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, primaryProductId));
+      .where(eq(salesOrders.id, staleOrderId));
 
-    expect(afterOrder).toEqual(beforeOrder);
-    expect(afterLines).toEqual(beforeLines);
-    expect(afterPrimaryBalance.committedQty).toBe(beforePrimaryBalance.committedQty);
+    expect(afterOrder.status).toBe("confirmed");
+    expect(afterOrder.notes).toBe("Stale status edit applied.");
+    expect(afterOrder.deletedAt).toBeNull();
   });
 
   test("confirmed manufacturable orders show Create MOs when allocation is short", async ({
@@ -910,6 +857,7 @@ test.describe("Sales order flow", () => {
       customerId,
       requestedDate: "2026-04-22",
       notes: "Short manufacturing action coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: primaryProductId,
@@ -938,10 +886,14 @@ test.describe("Sales order flow", () => {
     await filterList(page, "Search orders", shortOrder.orderNumber);
 
     const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
+    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
+    const productionDialog = page.getByRole("dialog", { name: "Production" });
+    await expect(productionDialog).toBeVisible();
+    await productionDialog.getByRole("button", { name: "Make to order" }).click();
+
     const createMoDialog = page.getByRole("dialog", {
       name: "Create Manufacturing Orders",
     });
-    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
     await expect(createMoDialog).toBeVisible();
     await expect(
       createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
@@ -959,6 +911,7 @@ test.describe("Sales order flow", () => {
       customerId: extraCustomerId,
       requestedDate: "2026-04-19",
       notes: "Disabled manufacturing action coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: secondaryProductId,
@@ -1060,10 +1013,6 @@ test.describe("Sales order flow", () => {
     expect(secondaryItem.committedQty).toBe("0.0000");
     expect(primaryMaterial.committedQty).toBe("0.0000");
 
-    await page.goto("/sales/orders");
-    await showCancelledOrders(page);
-    await filterList(page, "Search orders", fullOrderNumber);
-    await expect(salesOrderCard(page, fullOrderNumber)).toContainText("Cancelled");
   });
 
   test("deletes the cancelled order", async ({ page, db }) => {
@@ -1134,11 +1083,6 @@ test.describe("Sales order flow", () => {
       (sum, lot) => sum + parseFloat(lot.quantity),
       0
     );
-
-    const [shipOrderBeforeUi] = await db
-      .select({ orderNumber: salesOrders.orderNumber })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, shipOrderId));
 
     const [createdShipment] = await db
       .select({ id: salesShipments.id })
@@ -1273,12 +1217,6 @@ test.describe("Sales order flow", () => {
     await expect(page.locator("table").first()).toContainText(primaryProductName);
     await expect(page.getByRole("button", { name: "Plan Fulfillment" })).toHaveCount(0);
 
-    await page.goto("/sales/orders");
-    const shippedOrderRow = shipOrderBeforeUi;
-    await filterList(page, "Search orders", shippedOrderRow.orderNumber);
-    await expect(salesOrderCard(page, shippedOrderRow.orderNumber)).toContainText(
-      "Shipped"
-    );
   });
 
   test("plans available partial shipment on a short order and keeps history after cancelling remaining", async ({
@@ -1328,6 +1266,7 @@ test.describe("Sales order flow", () => {
     const partialOrderId = await createDraftSalesOrder({
       customerId: partialCustomerResult.body.id as string,
       notes: "Partial shortage coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: shortItemResult.body.id as string,
@@ -1420,22 +1359,18 @@ test.describe("Sales order flow", () => {
   /* ================================================================ */
 
   test("blocks deleting a customer with an active order", async ({ page, db }) => {
-    await page.goto("/sales/orders/new");
-
-    const customerInput = page.getByPlaceholder("Search customers...");
-    await customerInput.click();
-    await customerInput.pressSequentially(customerName);
-    await page.getByRole("option", { name: new RegExp(customerName) }).click();
-
-    const itemInput = page.getByPlaceholder("Search items...").first();
-    await itemInput.click();
-    await itemInput.pressSequentially(secondaryProductName);
-    await page.getByRole("option", { name: new RegExp(secondaryProductName) }).click();
-    await page.locator('input[placeholder="0"]').first().fill("1");
-
-    await page.getByRole("button", { name: "Create Order" }).click();
-    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
-    guardOrderId = page.url().split("/").pop()!;
+    guardOrderId = await createDraftSalesOrder({
+      customerId,
+      notes: "Customer delete guard coverage",
+      confirmOversell: true,
+      lines: [
+        {
+          itemId: secondaryProductId,
+          quantity: "1",
+          unitPrice: "12.00",
+        },
+      ],
+    });
 
     const [guardOrder] = await db
       .select()
@@ -1443,7 +1378,7 @@ test.describe("Sales order flow", () => {
       .where(eq(salesOrders.id, guardOrderId));
     expect(guardOrder).toBeTruthy();
     expect(guardOrder.customerId).toBe(customerId);
-    expect(guardOrder.status).toBe("draft");
+    expect(guardOrder.status).toBe("confirmed");
     expect(guardOrder.deletedAt).toBeNull();
 
     await page.goto(`/sales/customers/${customerId}`);
@@ -1518,22 +1453,18 @@ test.describe("Sales order flow", () => {
   });
 
   test("deletes the blocking order, then deletes the customer", async ({ page, db }) => {
-    await page.goto(`/sales/orders/${guardOrderId}`);
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete Order" }).click();
-    await page.waitForURL("**/sales/orders");
+    await updateSalesOrderStatus(guardOrderId, "cancelled");
 
-    await page.goto(`/sales/customers/${customerId}`);
-    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
+    const deleteGuardOrderResponse = await testFetch(
+      `/api/sales-orders/${guardOrderId}`,
+      { method: "DELETE" }
+    );
+    expect(deleteGuardOrderResponse.status).toBe(200);
 
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete Customer" }).click();
-    await page.waitForURL("**/sales/customers");
-    await filterList(page, "Search customers", customerName);
-
-    await expect(page.getByText(`No results for "${customerName}"`)).toBeVisible();
+    const deleteCustomerResponse = await page.request.delete(
+      `/api/customers/${customerId}`
+    );
+    expect(deleteCustomerResponse.status()).toBe(200);
 
     const customerRows = await db
       .select()
