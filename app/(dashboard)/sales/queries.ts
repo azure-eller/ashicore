@@ -23,7 +23,6 @@ import {
   customerProjects,
   customers,
   inventoryEvents,
-  inventoryLocations,
   inventoryLotBalances,
   inventoryReservationsSummary,
   items,
@@ -4488,41 +4487,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               .map((line) => line.itemId)
           ),
         ];
-        const [defaultLocation] = itemIds.length
-          ? await tx
-              .select({ id: inventoryLocations.id })
-              .from(inventoryLocations)
-              .where(
-                and(
-                  eq(inventoryLocations.isDefault, true),
-                  isNull(inventoryLocations.deletedAt)
-                )
-              )
-              .limit(1)
-          : [];
-        const reservableRows =
-          itemIds.length && defaultLocation
-            ? await tx
-                .select({
-                  itemId: inventoryLotBalances.itemId,
-                  reservableOnHandQty: trimScale(
-                    sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`
-                  ).as("reservableOnHandQty"),
-                })
-                .from(inventoryLotBalances)
-                .where(
-                  and(
-                    eq(inventoryLotBalances.locationId, defaultLocation.id),
-                    inArray(inventoryLotBalances.itemId, itemIds),
-                    eq(inventoryLotBalances.disposition, "available"),
-                    sql`${inventoryLotBalances.quantity} > 0`
-                  )
-                )
-                .groupBy(inventoryLotBalances.itemId)
-            : [];
-        const reservableByItemId = new Map(
-          reservableRows.map((row) => [row.itemId, row.reservableOnHandQty])
-        );
         const allocationModels = new Map<
           string,
           Awaited<ReturnType<typeof getSalesAllocationReadModelForItemInTx>>
@@ -4555,19 +4519,22 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             linkedManufacturingOrders
           ).map(serializeLinkedManufacturingOrder);
           const stockBlockers = summaryLines.flatMap((line) => {
-            const reservableOnHandQty = Number(
-              reservableByItemId.get(line.itemId) ?? "0"
-            );
-            const quantity = Number(line.quantity);
+            const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
+            const shortQty = Number(allocation?.shortQty ?? line.quantity);
 
-            if (!Number.isFinite(quantity) || reservableOnHandQty >= quantity) {
+            if (!Number.isFinite(shortQty) || shortQty <= 0) {
               return [];
             }
 
+            const remainingQty =
+              allocationDemandByLineId.get(line.salesOrderLineId)?.remainingQty ??
+              line.quantity;
+            const allocatedQty = allocation?.allocatedQty ?? "0";
+
             return [
-              `${line.itemName} needs ${formatQuantity(line.quantity)} ${line.unitName}; ${formatQuantity(
-                reservableByItemId.get(line.itemId) ?? "0"
-              )} ${line.unitName} available`,
+              `${line.itemName} needs ${formatQuantity(remainingQty)} ${line.unitName}; ${formatQuantity(
+                allocatedQty
+              )} ${line.unitName} allocated`,
             ];
           });
 
@@ -5323,21 +5290,17 @@ export async function getSalesOrder(
     const linkedManufacturingOrderRows = linkedManufacturingOrders.map(
       serializeLinkedManufacturingOrder
     );
-    const stockBlockers = linesWithFulfillment.flatMap((line) => {
-      const availableQty = Number(line.availableQty ?? "0");
-      const allocatedQty = Number(line.reservationAllocatedQty ?? "0");
-      const fulfillmentAvailableQty =
-        availableQty + (Number.isFinite(allocatedQty) ? allocatedQty : 0);
-      const quantity = Number(line.remainingQuantity);
+    const stockBlockers = linesWithAllocation.flatMap((line) => {
+      const shortQty = Number(line.shortQty);
 
-      if (!Number.isFinite(quantity) || fulfillmentAvailableQty >= quantity) {
+      if (!Number.isFinite(shortQty) || shortQty <= 0) {
         return [];
       }
 
       return [
         `${line.itemName} needs ${formatQuantity(line.remainingQuantity)} ${line.unitName}; ${formatQuantity(
-          fulfillmentAvailableQty.toString()
-        )} ${line.unitName} available`,
+          line.allocatedQty
+        )} ${line.unitName} allocated`,
       ];
     });
 

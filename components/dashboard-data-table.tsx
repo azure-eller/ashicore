@@ -39,6 +39,7 @@ import {
   type BuiltInFilterFn,
   type ColumnDef,
   type ColumnFiltersState,
+  type ColumnSizingState,
   type ExpandedState,
   type FilterFn,
   type Row,
@@ -235,6 +236,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
     queryColumnFilters
   );
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
@@ -308,10 +310,18 @@ export function DashboardDataTable<TData extends { id: string }>({
     columns,
     getRowId: (row) => row.id,
     enableRowSelection: rowSelectionConfig,
+    enableColumnResizing: true,
+    columnResizeMode: "onChange",
+    defaultColumn: {
+      minSize: 80,
+      size: 160,
+      maxSize: 520,
+    },
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
+    onColumnSizingChange: setColumnSizing,
     globalFilterFn: globalFilterFn ?? "includesString",
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -336,6 +346,7 @@ export function DashboardDataTable<TData extends { id: string }>({
       rowSelection,
       globalFilter,
       columnFilters,
+      columnSizing,
       ...(columnVisibility ? { columnVisibility } : {}),
       ...(hasExpansion ? { expanded } : {}),
     },
@@ -436,30 +447,50 @@ export function DashboardDataTable<TData extends { id: string }>({
               const meta = header.column.columnDef.meta as
                 | DashboardColumnMeta
                 | undefined;
+              const headerSize = header.getSize();
 
               return (
                 <TableHead
                   key={header.id}
                   colSpan={header.colSpan}
-                  style={
-                    stickyHeader
+                  style={{
+                    width: headerSize,
+                    minWidth: header.column.columnDef.minSize,
+                    maxWidth: header.column.columnDef.maxSize,
+                    ...(stickyHeader
                       ? {
                           top: `calc(var(--table-head-height) * ${headerGroupIndex})`,
                         }
-                      : undefined
-                  }
+                      : {}),
+                  }}
                   className={cn(
                     meta?.className,
                     stickyHeader && "sticky z-30",
+                    !stickyHeader && "relative",
                     verticalColumnBorders && "border-r last:border-r-0"
                   )}
                 >
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
+                  <div className="pr-2">
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </div>
+                  {header.column.getCanResize() ? (
+                    <button
+                      type="button"
+                      aria-label={`Resize ${header.column.id} column`}
+                      onMouseDown={header.getResizeHandler()}
+                      onTouchStart={header.getResizeHandler()}
+                      onClick={(event) => event.stopPropagation()}
+                      className={cn(
+                        "absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none rounded-full outline-none transition-colors hover:bg-border focus-visible:bg-ring",
+                        header.column.getIsResizing() && "bg-ring"
                       )}
+                    />
+                  ) : null}
                 </TableHead>
               );
             })}
@@ -617,7 +648,7 @@ export function DashboardDataTable<TData extends { id: string }>({
 
         <div
           className={cn(
-            "rounded-md border max-md:overflow-x-auto",
+            "max-w-full rounded-md border max-md:overflow-x-auto",
             tableWrapperClassName
           )}
         >
@@ -916,10 +947,14 @@ function DashboardTableRowContent<TData extends { id: string }>({
       >
         {row.getVisibleCells().map((cell) => {
           const meta = cell.column.columnDef.meta as DashboardColumnMeta | undefined;
+          const cellSize = cell.column.getSize();
 
           return (
             <TableCell
               key={cell.id}
+              style={{
+                width: cellSize,
+              }}
               className={cn(
                 meta?.className,
                 "align-middle",

@@ -81,6 +81,33 @@ function latestPackedShipment(order: SalesOrderListRow | SalesOrderDetail) {
     .sort((left, right) => right.sequence - left.sequence)[0];
 }
 
+function readyShipmentCount(order: SalesOrderListRow | SalesOrderDetail) {
+  return order.shipments.filter((shipment) => shipment.status === "draft").length;
+}
+
+function activeShipmentCount(order: SalesOrderListRow | SalesOrderDetail) {
+  return order.shipments.filter((shipment) => shipment.status !== "cancelled").length;
+}
+
+function readyShipmentLabel(order: SalesOrderListRow | SalesOrderDetail) {
+  const readyCount = readyShipmentCount(order);
+  const activeCount = activeShipmentCount(order);
+
+  if (readyCount > 0 && activeCount > 1) {
+    return `Ready to ship (${readyCount}/${activeCount})`;
+  }
+
+  return "Ready to ship";
+}
+
+function hasFullyGroundAllocatedStock(order: SalesOrderListRow | SalesOrderDetail) {
+  return (
+    parseQuantity(order.fulfillmentSummary.remainingQty) > 0 &&
+    parseQuantity(order.fulfillmentSummary.shortQty) <= 0 &&
+    parseQuantity(order.fulfillmentSummary.productionAllocatedQty) <= 0
+  );
+}
+
 function StateMenuItem({
   label,
   tone,
@@ -286,14 +313,19 @@ export function DeliveryActionCell({
     order.status === "shipped";
   const canPrepareShipment =
     detail?.status === "confirmed" || detail?.status === "partially_shipped";
+  const hasGroundAllocation = detail
+    ? hasFullyGroundAllocatedStock(detail)
+    : hasFullyGroundAllocatedStock(order);
   const canMarkReady =
     canPrepareShipment &&
-    order.shippingReadiness.state === "ready" &&
+    detail?.shippingReadiness.state === "ready" &&
+    hasGroundAllocation &&
     activePackedShipment == null;
   const canMarkShipped =
     detail != null &&
     detail.status !== "shipped" &&
-    (activePackedShipment != null || order.shippingReadiness.state === "ready");
+    (activePackedShipment != null ||
+      (detail.shippingReadiness.state === "ready" && hasGroundAllocation));
 
   if (!canOpen) {
     return <OperationalStateCell state={state} />;
@@ -339,7 +371,7 @@ export function DeliveryActionCell({
                 />
               ) : null}
               <StateMenuItem
-                label="Ready to ship"
+                label={readyShipmentLabel(detail)}
                 tone="success"
                 disabled={!canMarkReady || isMutating}
                 onSelect={() =>

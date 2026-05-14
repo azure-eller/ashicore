@@ -106,6 +106,33 @@ function getSalesItemsState(order: SalesOrderListRow): OperationalState {
   return { label: "Not allocated", tone: "destructive" };
 }
 
+function readyShipmentCount(order: SalesOrderListRow) {
+  return order.shipments.filter((shipment) => shipment.status === "draft").length;
+}
+
+function activeShipmentCount(order: SalesOrderListRow) {
+  return order.shipments.filter((shipment) => shipment.status !== "cancelled").length;
+}
+
+function readyShipmentLabel(order: SalesOrderListRow) {
+  const readyCount = readyShipmentCount(order);
+  const activeCount = activeShipmentCount(order);
+
+  if (readyCount > 0 && activeCount > 1) {
+    return `Ready to ship (${readyCount}/${activeCount})`;
+  }
+
+  return "Ready to ship";
+}
+
+function hasFullyGroundAllocatedStock(order: SalesOrderListRow) {
+  return (
+    parseQuantity(order.fulfillmentSummary.remainingQty) > 0 &&
+    parseQuantity(order.fulfillmentSummary.shortQty) <= 0 &&
+    parseQuantity(order.fulfillmentSummary.productionAllocatedQty) <= 0
+  );
+}
+
 function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
   const state = getSalesItemsState(order);
   const isAllocationLink =
@@ -166,11 +193,18 @@ function getDeliveryState(order: SalesOrderListRow): OperationalState {
     return { label: "Shipped", tone: "success" };
   }
 
+  if (readyShipmentCount(order) > 0) {
+    return { label: readyShipmentLabel(order), tone: "success" };
+  }
+
   if (order.status === "partially_shipped") {
     return { label: "Partially shipped", tone: "warning" };
   }
 
-  if (order.shippingReadiness.state === "ready") {
+  if (
+    order.shippingReadiness.state === "ready" &&
+    hasFullyGroundAllocatedStock(order)
+  ) {
     return { label: "Ready to ship", tone: "success" };
   }
 
@@ -233,6 +267,10 @@ const rankColumn: ColumnDef<SalesOrderListRow> = {
       />
     );
   },
+  size: 64,
+  minSize: 56,
+  maxSize: 110,
+  enableResizing: false,
   meta: { className: "w-20" },
 };
 
@@ -258,6 +296,10 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     ),
     enableSorting: false,
     enableHiding: false,
+    size: 36,
+    minSize: 36,
+    maxSize: 44,
+    enableResizing: false,
   },
   rankColumn,
   {
@@ -270,10 +312,15 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       />
     ),
     cell: ({ row }) => (
-      <Link href={`/sales/orders/${row.original.id}`} className="hover:underline">
+      <Link
+        href={`/sales/orders/${row.original.id}`}
+        className="block truncate hover:underline"
+      >
         {row.original.orderNumber}
       </Link>
     ),
+    size: 115,
+    minSize: 100,
   },
   {
     accessorKey: "customerName",
@@ -284,6 +331,11 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
         tooltip={SALES_ORDER_CUSTOMER_TOOLTIP}
       />
     ),
+    cell: ({ row }) => (
+      <span className="block truncate">{row.original.customerName}</span>
+    ),
+    size: 190,
+    minSize: 150,
   },
   {
     accessorKey: "notes",
@@ -295,6 +347,8 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       />
     ),
     cell: ({ row }) => <NotesCell notes={row.original.notes} />,
+    size: 160,
+    minSize: 130,
   },
   {
     accessorKey: "totalAmount",
@@ -304,12 +358,18 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
     sortingFn: (a, b) =>
       parseFloat(a.original.totalAmount) - parseFloat(b.original.totalAmount),
     cell: ({ row }) => formatPrice(row.original.totalAmount) ?? "\u2014",
+    size: 105,
+    minSize: 95,
   },
   {
     accessorKey: "status",
     header: "",
     filterFn: multiValueFilter,
     cell: () => null,
+    size: 1,
+    minSize: 1,
+    maxSize: 1,
+    enableResizing: false,
     meta: { className: "hidden" },
   },
   {
@@ -325,6 +385,8 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       parseFloat(a.original.fulfillmentSummary.shortQty) -
       parseFloat(b.original.fulfillmentSummary.shortQty),
     cell: ({ row }) => <SalesItemsActionCell order={row.original} />,
+    size: 135,
+    minSize: 125,
     meta: { className: "w-36" },
   },
   {
@@ -344,6 +406,8 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
         state={getProductionState(row.original)}
       />
     ),
+    size: 140,
+    minSize: 130,
     meta: { className: "w-40" },
   },
   {
@@ -366,6 +430,8 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
         state={getDeliveryState(row.original)}
       />
     ),
+    size: 150,
+    minSize: 140,
     meta: { className: "w-40" },
   },
   {
@@ -391,6 +457,8 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       });
     },
     cell: ({ row }) => formatDate(row.original.shipDate),
+    size: 95,
+    minSize: 90,
   },
 ];
 
