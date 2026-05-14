@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import {
   closestCenter,
   DndContext,
@@ -31,6 +31,7 @@ export function SortableReorder({
   onMove: (fromIndex: number, toIndex: number) => void;
   children: ReactNode;
 }) {
+  const dndContextId = useId();
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -60,6 +61,7 @@ export function SortableReorder({
 
   return (
     <DndContext
+      id={dndContextId}
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}

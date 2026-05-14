@@ -203,6 +203,33 @@ export const PURCHASE_UNIT_TOOLTIP =
 export const PURCHASE_UNIT_COST_TOOLTIP =
   "Cost per purchase unit.";
 
+export const PURCHASE_MATERIAL_TOOLTIP =
+  "Material being ordered from the supplier.";
+
+export const PO_LINE_TOTAL_TOOLTIP =
+  "Ordered quantity times purchase unit cost.";
+
+export const PURCHASE_LANDED_UNIT_TOOLTIP =
+  "Estimated stock-unit cost after distributed costs.";
+
+export const PURCHASE_DELIVERY_ADDRESS_TOOLTIP =
+  "Destination for this line.";
+
+export const PURCHASE_ACCOUNT_TOOLTIP =
+  "Expense account used when syncing the purchase.";
+
+export const PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP =
+  "Freight, customs, or other cost on this order.";
+
+export const PURCHASE_COST_REFERENCE_TOOLTIP =
+  "Supplier invoice, tracking, or internal reference.";
+
+export const PURCHASE_COST_DISTRIBUTION_TOOLTIP =
+  "How this cost affects material landed costs.";
+
+export const PURCHASE_COST_AMOUNT_TOOLTIP =
+  "Cost amount added to this purchase order.";
+
 export const PURCHASE_CONVERSION_TOOLTIP =
   "Purchase units converted to stocking units.";
 

@@ -57,7 +57,7 @@ export function CreatePageShell({
   className?: string;
 }) {
   return (
-    <div className={cn("mx-auto w-full max-w-[1180px] px-0 pb-16", className)}>
+    <div className={cn("mx-auto w-full max-w-[1480px] px-0 pb-16", className)}>
       {children}
     </div>
   );
@@ -75,13 +75,13 @@ export function CreatePageGrid({
   return (
     <div
       className={cn(
-        "grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]",
+        "grid grid-cols-1 items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]",
         className
       )}
     >
       <div className="flex min-w-0 flex-col gap-6">{children}</div>
       {sidebar ? (
-        <aside className="hidden self-start lg:sticky lg:top-6 lg:block">
+        <aside className="self-start 2xl:sticky 2xl:top-6">
           <div className="flex flex-col gap-4">{sidebar}</div>
         </aside>
       ) : null}

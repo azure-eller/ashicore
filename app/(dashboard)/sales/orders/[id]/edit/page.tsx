@@ -25,7 +25,7 @@ export default async function EditOrderPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl py-8">
+    <div className="mx-auto w-full max-w-[1480px] py-8">
       <OrderForm
         initialData={order}
         customers={customerRows}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -93,7 +93,15 @@ import { AddressFields } from "@/components/address-fields";
 import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
-  LINE_TOTAL_TOOLTIP,
+  PO_LINE_TOTAL_TOOLTIP,
+  PURCHASE_ACCOUNT_TOOLTIP,
+  PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
+  PURCHASE_COST_AMOUNT_TOOLTIP,
+  PURCHASE_COST_DISTRIBUTION_TOOLTIP,
+  PURCHASE_COST_REFERENCE_TOOLTIP,
+  PURCHASE_DELIVERY_ADDRESS_TOOLTIP,
+  PURCHASE_LANDED_UNIT_TOOLTIP,
+  PURCHASE_MATERIAL_TOOLTIP,
   PO_ORDERED_QTY_TOOLTIP,
   PURCHASE_UNIT_COST_TOOLTIP,
   PURCHASE_UNIT_TOOLTIP,
@@ -131,7 +139,7 @@ type PurchaseOrderFormAttachment = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(9rem, 0.8fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr)";
+  "minmax(11.5rem, 1.45fr) minmax(5rem, 0.5fr) minmax(5.5rem, 0.55fr) minmax(6rem, 0.55fr) minmax(7rem, 0.7fr) minmax(7.75rem, 0.85fr) minmax(6rem, 0.55fr) minmax(5.75rem, 0.55fr)";
 const PURCHASE_ORDER_COST_GRID_COLUMNS =
   "minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr)";
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
@@ -958,6 +966,54 @@ export function PurchaseOrderForm({
   const selectedSupplier = supplierOptionsSorted.find(
     (supplier) => supplier.id === watchedSupplierId
   );
+  const deliveryAddressSummaries = useMemo(() => {
+    const summaries = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        materials: string[];
+        contactName: string | null;
+        contactPhone: string | null;
+        addressLines: string[];
+        deliveryInstructions: string | null;
+      }
+    >();
+
+    (watchedLines ?? []).forEach((line, index) => {
+      const option = makeDeliveryAddressOption(line);
+      if (!option) return;
+
+      const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
+      const materialName = material?.name ?? `Line ${index + 1}`;
+      const existing = summaries.get(option.id);
+      if (existing) {
+        if (materialName && !existing.materials.includes(materialName)) {
+          existing.materials.push(materialName);
+        }
+        return;
+      }
+
+      summaries.set(option.id, {
+        key: option.id,
+        label: option.label,
+        materials: materialName ? [materialName] : [`Line ${index + 1}`],
+        contactName: option.shipContactName,
+        contactPhone: option.shipContactPhone,
+        addressLines: formatAddressLines({
+          line1: option.shipLine1,
+          line2: option.shipLine2,
+          city: option.shipCity,
+          region: option.shipRegion,
+          postcode: option.shipPostcode,
+          country: option.shipCountry,
+        }),
+        deliveryInstructions: option.shipDeliveryInstructions,
+      });
+    });
+
+    return [...summaries.values()];
+  }, [materialMap, watchedLines]);
   const autosaveState = canAutosaveDraft ? autosave.state : "blocked";
   const autosaveMessage = canAutosaveDraft
     ? autosave.state === "saved" || autosave.state === "idle"
@@ -1090,7 +1146,292 @@ export function PurchaseOrderForm({
                 </div>
               </CreateSidebarCard>
             ) : null}
-            <CreateSidebarCard
+            <CreateSidebarCard title="Delivery addresses">
+              {deliveryAddressSummaries.length > 0 ? (
+                <div className="space-y-3">
+                  {deliveryAddressSummaries.map((address) => (
+                    <div key={address.key} className="space-y-2 rounded-md border p-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">
+                          {address.label}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {address.materials.join(", ")}
+                        </div>
+                      </div>
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        {address.contactName ? (
+                          <div className="truncate">{address.contactName}</div>
+                        ) : null}
+                        {address.contactPhone ? (
+                          <div className="truncate">{address.contactPhone}</div>
+                        ) : null}
+                        {address.addressLines.map((line) => (
+                          <div key={line} className="truncate">
+                            {line}
+                          </div>
+                        ))}
+                        {address.deliveryInstructions ? (
+                          <div className="border-t pt-2 text-foreground">
+                            {address.deliveryInstructions}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No delivery addresses selected.
+                </div>
+              )}
+            </CreateSidebarCard>
+          </>
+        }
+      >
+      <form
+        id="purchase-order-form"
+        onSubmit={form.handleSubmit(
+          (values) => mutation.mutate(values),
+          handleInvalidSubmit
+        )}
+      >
+        <FieldGroup className="gap-6">
+          <CreateSection
+            title="Order"
+          >
+            <FieldGroup>
+              <Controller
+                control={form.control}
+                name="supplierId"
+                render={({ field, fieldState }) => (
+                  <SupplierSelect
+                    suppliers={supplierOptionsSorted}
+                    value={field.value}
+                    onValueChange={(nextValue) => field.onChange(nextValue ?? "")}
+                    onSupplierCreated={(supplier) => {
+                      setSupplierOptions((current) => {
+                        const existing = current.filter((row) => row.id !== supplier.id);
+                        return [...existing, supplier];
+                      });
+                    }}
+                    errorMessage={fieldState.error?.message}
+                  />
+                )}
+              />
+
+              <Controller
+                control={form.control}
+                name="expectedDate"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor={field.name}>
+                      <TooltipHeader label="Expected Date" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
+                    </FieldLabel>
+                    <DatePicker
+                      id={field.name}
+                      value={field.value ?? ""}
+                      onChange={(value) => field.onChange(value || null)}
+                      onBlur={field.onBlur}
+                      aria-invalid={fieldState.invalid}
+                    />
+                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                  </Field>
+                )}
+              />
+
+              <input type="hidden" {...form.register("shippingCost")} />
+            </FieldGroup>
+          </CreateSection>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4 px-1">
+              <h2 className="text-base font-semibold">Materials</h2>
+              <span className="text-xs text-muted-foreground">
+                {lineCount} item{lineCount === 1 ? "" : "s"}
+              </span>
+            </div>
+              <EditableLineItems<PurchaseOrderFormValues, "lines">
+                control={form.control}
+                name="lines"
+                columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
+                minWidth="0"
+                createLine={() => ({ ...blankPurchaseOrderLine })}
+                isLineBlank={isBlankPurchaseOrderLine}
+                addLabel="Add material"
+                emptyMessage="No materials yet."
+                error={linesError}
+                headers={[
+                  <TooltipHeader
+                    key="material"
+                    label="Material"
+                    tooltip={PURCHASE_MATERIAL_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="ordered-qty"
+                    label="Ordered Qty"
+                    tooltip={PO_ORDERED_QTY_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="purchase-unit"
+                    label="Purch. Unit"
+                    tooltip={PURCHASE_UNIT_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="unit-cost"
+                    label="Unit Cost"
+                    tooltip={PURCHASE_UNIT_COST_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="landed-unit"
+                    label="Landed/Unit"
+                    tooltip={PURCHASE_LANDED_UNIT_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="deliver-to"
+                    label="Deliver To"
+                    tooltip={PURCHASE_DELIVERY_ADDRESS_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="account"
+                    label="Account"
+                    tooltip={PURCHASE_ACCOUNT_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="line-total"
+                    label="Line Total"
+                    tooltip={PO_LINE_TOTAL_TOOLTIP}
+                  />,
+                ]}
+                renderRow={({ field, index }) => (
+                  <PurchaseOrderLineRow
+                    key={field.id}
+                    index={index}
+                    control={form.control}
+                    materials={materialOptions}
+                    materialMap={materialMap}
+                    xeroAccounts={xeroAccounts}
+                    deliveryAddressOptions={deliveryAddressOptions}
+                    onDeliveryAddressChange={(address) =>
+                      applyDeliveryAddress(index, address)
+                    }
+                    onAddDeliveryAddress={() => openAddressDialog(index)}
+                    onEditDeliveryAddress={(address) =>
+                      openEditAddressDialog(index, address)
+                    }
+                    landedCost={landedCostPreview.lines[index]}
+                    onMaterialChange={(materialId) => {
+                      const material = materialMap.get(materialId);
+                      form.setValue(`lines.${index}.itemId`, materialId, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                      form.setValue(
+                        `lines.${index}.unitCost`,
+                        material?.defaultPurchasePrice ?? "0",
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      );
+                      form.setValue(
+                        `lines.${index}.xeroPurchaseAccountCode`,
+                        material?.xeroPurchaseAccountCode ?? null,
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      );
+                    }}
+                  />
+                )}
+              />
+          </section>
+
+          <CreateSection
+            title="Additional Costs"
+            action={
+              <span className="text-xs text-muted-foreground">
+                {additionalCostCount} cost
+                {additionalCostCount === 1 ? "" : "s"}
+              </span>
+            }
+          >
+            <FieldGroup className="gap-4">
+              <EditableLineItems<PurchaseOrderFormValues, "additionalCosts">
+                control={form.control}
+                name="additionalCosts"
+                columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
+                minWidth="50rem"
+                createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
+                isLineBlank={isBlankPurchaseOrderAdditionalCost}
+                addLabel="Add cost"
+                emptyMessage="No additional costs yet."
+                error={additionalCostsError}
+                headers={[
+                  <TooltipHeader
+                    key="cost"
+                    label="Cost"
+                    tooltip={PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="reference"
+                    label="Reference"
+                    tooltip={PURCHASE_COST_REFERENCE_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="distribution"
+                    label="Distribution"
+                    tooltip={PURCHASE_COST_DISTRIBUTION_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="account"
+                    label="Accounting Account"
+                    tooltip={PURCHASE_ACCOUNT_TOOLTIP}
+                  />,
+                  <TooltipHeader
+                    key="amount"
+                    label="Amount"
+                    tooltip={PURCHASE_COST_AMOUNT_TOOLTIP}
+                  />,
+                ]}
+                renderRow={({ field, index }) => (
+                  <PurchaseOrderAdditionalCostRow
+                    key={field.id}
+                    index={index}
+                    control={form.control}
+                    xeroAccounts={xeroAccounts}
+                  />
+                )}
+              />
+            </FieldGroup>
+          </CreateSection>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.85fr)]">
+            <CreateSection title="Notes">
+              <FieldGroup>
+                <Controller
+                  control={form.control}
+                  name="notes"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>Notes</FieldLabel>
+                      <Textarea
+                        {...field}
+                        id={field.name}
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value || null)}
+                        aria-invalid={fieldState.invalid}
+                        rows={6}
+                      />
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              </FieldGroup>
+            </CreateSection>
+
+            <CreateSection
               title={
                 <div className="flex items-center justify-between gap-3">
                   <span>Attachments</span>
@@ -1185,221 +1526,8 @@ export function PurchaseOrderForm({
                   )}
                 </div>
               </div>
-            </CreateSidebarCard>
-          </>
-        }
-      >
-      <form
-        id="purchase-order-form"
-        onSubmit={form.handleSubmit(
-          (values) => mutation.mutate(values),
-          handleInvalidSubmit
-        )}
-      >
-        <FieldGroup className="gap-6">
-          <CreateSection
-            title="Order"
-          >
-            <FieldGroup>
-              <Controller
-                control={form.control}
-                name="supplierId"
-                render={({ field, fieldState }) => (
-                  <SupplierSelect
-                    suppliers={supplierOptionsSorted}
-                    value={field.value}
-                    onValueChange={(nextValue) => field.onChange(nextValue ?? "")}
-                    onSupplierCreated={(supplier) => {
-                      setSupplierOptions((current) => {
-                        const existing = current.filter((row) => row.id !== supplier.id);
-                        return [...existing, supplier];
-                      });
-                    }}
-                    errorMessage={fieldState.error?.message}
-                  />
-                )}
-              />
-
-              <Controller
-                control={form.control}
-                name="expectedDate"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>
-                      <TooltipHeader label="Expected Date" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
-                    </FieldLabel>
-                    <DatePicker
-                      id={field.name}
-                      value={field.value ?? ""}
-                      onChange={(value) => field.onChange(value || null)}
-                      onBlur={field.onBlur}
-                      aria-invalid={fieldState.invalid}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
-
-              <input type="hidden" {...form.register("shippingCost")} />
-            </FieldGroup>
-          </CreateSection>
-
-          <CreateSection
-            title="Materials"
-            action={
-              <span className="text-xs text-muted-foreground">
-                {lineCount} item{lineCount === 1 ? "" : "s"}
-              </span>
-            }
-          >
-            <FieldGroup className="gap-4">
-              <EditableLineItems<PurchaseOrderFormValues, "lines">
-                control={form.control}
-                name="lines"
-                columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
-                minWidth="66rem"
-                createLine={() => ({ ...blankPurchaseOrderLine })}
-                isLineBlank={isBlankPurchaseOrderLine}
-                addLabel="Add material"
-                emptyMessage="No materials yet."
-                error={linesError}
-                headers={[
-                  "Material",
-                  <TooltipHeader
-                    key="ordered-qty"
-                    label="Ordered Qty"
-                    tooltip={PO_ORDERED_QTY_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="purchase-unit"
-                    label="Purchase Unit"
-                    tooltip={PURCHASE_UNIT_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="unit-cost"
-                    label="Unit Cost"
-                    tooltip={PURCHASE_UNIT_COST_TOOLTIP}
-                  />,
-                  "Landed / stock unit",
-                  "Delivery Address",
-                  "Accounting Account",
-                  <TooltipHeader
-                    key="line-total"
-                    label="Line Total"
-                    tooltip={LINE_TOTAL_TOOLTIP}
-                  />,
-                ]}
-                renderRow={({ field, index }) => (
-                  <PurchaseOrderLineRow
-                    key={field.id}
-                    lineKey={field.id}
-                    index={index}
-                    control={form.control}
-                    materials={materialOptions}
-                    materialMap={materialMap}
-                    xeroAccounts={xeroAccounts}
-                    deliveryAddressOptions={deliveryAddressOptions}
-                    onDeliveryAddressChange={(address) =>
-                      applyDeliveryAddress(index, address)
-                    }
-                    onAddDeliveryAddress={() => openAddressDialog(index)}
-                    onEditDeliveryAddress={(address) =>
-                      openEditAddressDialog(index, address)
-                    }
-                    landedCost={landedCostPreview.lines[index]}
-                    onMaterialChange={(materialId) => {
-                      const material = materialMap.get(materialId);
-                      form.setValue(`lines.${index}.itemId`, materialId, {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      });
-                      form.setValue(
-                        `lines.${index}.unitCost`,
-                        material?.defaultPurchasePrice ?? "0",
-                        {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        }
-                      );
-                      form.setValue(
-                        `lines.${index}.xeroPurchaseAccountCode`,
-                        material?.xeroPurchaseAccountCode ?? null,
-                        {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        }
-                      );
-                    }}
-                  />
-                )}
-              />
-            </FieldGroup>
-          </CreateSection>
-
-          <CreateSection
-            title="Additional Costs"
-            action={
-              <span className="text-xs text-muted-foreground">
-                {additionalCostCount} cost
-                {additionalCostCount === 1 ? "" : "s"}
-              </span>
-            }
-          >
-            <FieldGroup className="gap-4">
-              <EditableLineItems<PurchaseOrderFormValues, "additionalCosts">
-                control={form.control}
-                name="additionalCosts"
-                columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
-                minWidth="50rem"
-                createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
-                isLineBlank={isBlankPurchaseOrderAdditionalCost}
-                addLabel="Add cost"
-                emptyMessage="No additional costs yet."
-                error={additionalCostsError}
-                headers={[
-                  "Cost",
-                  "Reference",
-                  "Distribution",
-                  "Accounting Account",
-                  "Amount",
-                ]}
-                renderRow={({ field, index }) => (
-                  <PurchaseOrderAdditionalCostRow
-                    key={field.id}
-                    lineKey={field.id}
-                    index={index}
-                    control={form.control}
-                    xeroAccounts={xeroAccounts}
-                  />
-                )}
-              />
-            </FieldGroup>
-          </CreateSection>
-
-          <CreateSection
-            title="Notes"
-          >
-            <FieldGroup>
-              <Controller
-                control={form.control}
-                name="notes"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>Notes</FieldLabel>
-                    <Textarea
-                      {...field}
-                      id={field.name}
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
-                      aria-invalid={fieldState.invalid}
-                      rows={6}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
-            </FieldGroup>
-          </CreateSection>
+            </CreateSection>
+          </div>
         </FieldGroup>
       </form>
       </CreatePageGrid>
@@ -1512,24 +1640,6 @@ export function PurchaseOrderForm({
                   </Field>
                 )}
               />
-              <Controller
-                control={addressForm.control}
-                name="notes"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="address-notes">Notes</FieldLabel>
-                    <Textarea
-                      {...field}
-                      id="address-notes"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
-                      aria-invalid={fieldState.invalid}
-                      rows={3}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
             </FieldGroup>
           </form>
           <DialogFooter>
@@ -1577,24 +1687,27 @@ function XeroAccountInput({
 }) {
   if (accounts.length > 0) {
     return (
-      <Select
-        value={value || "__default__"}
-        onValueChange={(nextValue) =>
-          onChange(nextValue === "__default__" ? "" : nextValue)
-        }
-      >
-        <SelectTrigger id={id} className="w-full" aria-invalid={ariaInvalid}>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__default__">{placeholder}</SelectItem>
+      <>
+        <Input
+          id={id}
+          name={name}
+          value={value}
+          list={`${id}-accounts`}
+          onChange={(event) => onChange(event.target.value)}
+          aria-invalid={ariaInvalid}
+          placeholder={placeholder}
+          autoComplete="off"
+        />
+        <datalist id={`${id}-accounts`}>
           {accounts.map((account) => (
-            <SelectItem key={account.code} value={account.code}>
-              {account.code} · {account.name}
-            </SelectItem>
+            <option
+              key={account.code}
+              value={account.code}
+              label={`${account.code} · ${account.name}`}
+            />
           ))}
-        </SelectContent>
-      </Select>
+        </datalist>
+      </>
     );
   }
 
@@ -1612,7 +1725,6 @@ function XeroAccountInput({
 }
 
 function PurchaseOrderLineRow({
-  lineKey,
   index,
   control,
   materials,
@@ -1625,7 +1737,6 @@ function PurchaseOrderLineRow({
   landedCost,
   onMaterialChange,
 }: {
-  lineKey: string;
   index: number;
   control: Control<PurchaseOrderFormValues>;
   materials: Array<
@@ -1644,6 +1755,7 @@ function PurchaseOrderLineRow({
   landedCost: LandedCostLineResult | undefined;
   onMaterialChange: (materialId: string) => void;
 }) {
+  const rowDomId = useId();
   const line = useWatch({
     control,
     name: `lines.${index}`,
@@ -1659,14 +1771,14 @@ function PurchaseOrderLineRow({
           name={`lines.${index}.itemId`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-material`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-material`}>
                 Material
               </FieldLabel>
               <InventoryItemCombobox
                 options={materials}
                 value={field.value ?? ""}
                 onValueChange={(value) => onMaterialChange(value ?? "")}
-                inputId={`${lineKey}-material`}
+                inputId={`${rowDomId}-material`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus
                 inputClassName="w-full min-w-0"
@@ -1697,12 +1809,12 @@ function PurchaseOrderLineRow({
           name={`lines.${index}.quantityOrdered`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-quantity`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-quantity`}>
                 Ordered Qty
               </FieldLabel>
               <Input
                 {...field}
-                id={`${lineKey}-quantity`}
+                id={`${rowDomId}-quantity`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 aria-invalid={fieldState.invalid}
@@ -1735,12 +1847,12 @@ function PurchaseOrderLineRow({
           name={`lines.${index}.unitCost`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-unit-cost`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-unit-cost`}>
                 Unit Cost
               </FieldLabel>
               <Input
                 {...field}
-                id={`${lineKey}-unit-cost`}
+                id={`${rowDomId}-unit-cost`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 aria-invalid={fieldState.invalid}
@@ -1769,7 +1881,7 @@ function PurchaseOrderLineRow({
 
       <EditableLineGridCell>
         <DeliveryAddressInput
-          id={`${lineKey}-delivery-address`}
+          id={`${rowDomId}-delivery-address`}
           value={line}
           options={deliveryAddressOptions}
           onChange={onDeliveryAddressChange}
@@ -1784,11 +1896,11 @@ function PurchaseOrderLineRow({
           name={`lines.${index}.xeroPurchaseAccountCode`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-xero-account`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-xero-account`}>
                 Accounting Account
               </FieldLabel>
               <XeroAccountInput
-                id={`${lineKey}-xero-account`}
+                id={`${rowDomId}-xero-account`}
                 name={field.name}
                 value={field.value ?? ""}
                 accounts={xeroAccounts}
@@ -1911,16 +2023,16 @@ function DeliveryAddressInput({
 }
 
 function PurchaseOrderAdditionalCostRow({
-  lineKey,
   index,
   control,
   xeroAccounts,
 }: {
-  lineKey: string;
   index: number;
   control: Control<PurchaseOrderFormValues>;
   xeroAccounts: XeroAccountOption[];
 }) {
+  const rowDomId = useId();
+
   return (
     <>
       <EditableLineGridCell>
@@ -1965,12 +2077,12 @@ function PurchaseOrderAdditionalCostRow({
           name={`additionalCosts.${index}.reference`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-reference`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-reference`}>
                 Reference
               </FieldLabel>
               <Input
                 {...field}
-                id={`${lineKey}-reference`}
+                id={`${rowDomId}-reference`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value || null)}
                 aria-invalid={fieldState.invalid}
@@ -2023,11 +2135,11 @@ function PurchaseOrderAdditionalCostRow({
           name={`additionalCosts.${index}.xeroPurchaseAccountCode`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-xero-account`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-xero-account`}>
                 Accounting Account
               </FieldLabel>
               <XeroAccountInput
-                id={`${lineKey}-xero-account`}
+                id={`${rowDomId}-xero-account`}
                 name={field.name}
                 value={field.value ?? ""}
                 accounts={xeroAccounts}
@@ -2047,12 +2159,12 @@ function PurchaseOrderAdditionalCostRow({
           name={`additionalCosts.${index}.amount`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-amount`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-amount`}>
                 Amount
               </FieldLabel>
               <Input
                 {...field}
-                id={`${lineKey}-amount`}
+                id={`${rowDomId}-amount`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 onBlur={(event) => {

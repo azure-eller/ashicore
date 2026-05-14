@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -248,7 +248,7 @@ function SalesOrderSection({
 }
 
 const SALES_ORDER_LINE_GRID_COLUMNS =
-  "2.25rem minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(8.5rem, 0.85fr) minmax(6.5rem, 0.65fr) minmax(6rem, 0.5fr) minmax(5.5rem, 0.45fr) 2.25rem";
+  "2rem minmax(13rem, 1.7fr) minmax(4.75rem, 0.45fr) minmax(7rem, 0.75fr) minmax(6rem, 0.6fr) minmax(5.75rem, 0.5fr) minmax(5.25rem, 0.45fr) 2rem";
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
 const NO_PROJECT_VALUE = "__no_project__";
@@ -790,7 +790,7 @@ export function OrderForm({
 
   return (
     <>
-      <div className="w-full space-y-6">
+      <div className="mx-auto w-full max-w-[1480px] space-y-6">
         <div className="sticky top-0 z-10 border-b bg-background/90 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -839,7 +839,7 @@ export function OrderForm({
 
         {formError && <FieldError>{formError}</FieldError>}
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem]">
           <form
             id="sales-order-form"
             className="space-y-5"
@@ -1088,24 +1088,13 @@ export function OrderForm({
               </FieldGroup>
             </SalesOrderSection>
 
-            <SalesOrderSection
-              title="Items"
-              action={
+            <section className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-4 px-1">
+                <h2 className="text-base font-semibold">Items</h2>
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {lineCount} {lineCount === 1 ? "item" : "items"}
                 </span>
-              }
-              footer={
-                <div className="flex w-full justify-end">
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>{" "}
-                    <span className="font-mono font-medium tabular-nums">
-                      {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
-                    </span>
-                  </div>
-                </div>
-              }
-            >
+              </div>
               <FieldGroup ref={lineItemsRef} className="gap-4">
                 {fields.length > 0 ? (
                   <SortableReorder
@@ -1114,7 +1103,7 @@ export function OrderForm({
                   >
                     <EditableLineGrid
                       columns={SALES_ORDER_LINE_GRID_COLUMNS}
-                      minWidth="50rem"
+                      minWidth="0"
                       headers={[
                         <span key="reorder" />,
                         <TableHeaderLabel key="item" label="Item" required />,
@@ -1215,8 +1204,17 @@ export function OrderForm({
                   <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
                   Add item
                 </Button>
+
+                <div className="flex justify-end">
+                  <div className="rounded-md border px-4 py-2 text-sm">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <div className="font-mono font-medium tabular-nums">
+                      {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
+                    </div>
+                  </div>
+                </div>
               </FieldGroup>
-            </SalesOrderSection>
+            </section>
 
             <SalesOrderSection title="Shipping address">
               <AddressFields
@@ -1259,7 +1257,7 @@ export function OrderForm({
             </SalesOrderSection>
           </form>
 
-          <aside className="space-y-4 lg:sticky lg:top-20">
+          <aside className="space-y-4 2xl:sticky 2xl:top-20">
             <Card className="rounded-lg border shadow-sm ring-0">
               <CardHeader className="border-b bg-muted/20 px-5 pb-4">
                 <CardTitle className="text-[15px] font-semibold tracking-normal">
@@ -1411,6 +1409,7 @@ function OrderLineRow({
   onItemChange: (itemId: string) => void;
   onRemove: () => void;
 }) {
+  const rowDomId = useId();
   const line = useWatch({
     control,
     name: `lines.${index}`,
@@ -1566,14 +1565,14 @@ function OrderLineRow({
           name={`lines.${index}.itemId`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-item`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-item`}>
                 Item
               </FieldLabel>
               <InventoryItemCombobox
                 options={items}
                 value={field.value ?? ""}
                 onValueChange={(value) => onItemChange(value ?? "")}
-                inputId={`${lineKey}-item`}
+                inputId={`${rowDomId}-item`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus
                 inputClassName="w-full min-w-0"
@@ -1623,12 +1622,12 @@ function OrderLineRow({
           name={`lines.${index}.quantity`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-quantity`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-quantity`}>
                 Quantity
               </FieldLabel>
               <Input
                 {...field}
-                id={`${lineKey}-quantity`}
+                id={`${rowDomId}-quantity`}
                 value={field.value ?? ""}
                 onChange={(event) => field.onChange(event.target.value)}
                 aria-invalid={fieldState.invalid}
@@ -1655,12 +1654,12 @@ function OrderLineRow({
           name={`lines.${index}.unitPrice`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-unit-price`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-unit-price`}>
                 Unit Price
               </FieldLabel>
               <Input
                 {...field}
-                id={`${lineKey}-unit-price`}
+                id={`${rowDomId}-unit-price`}
                 value={field.value ?? ""}
                 onChange={(event) => {
                   const nextValue = event.target.value;

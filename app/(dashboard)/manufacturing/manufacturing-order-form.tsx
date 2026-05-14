@@ -1132,7 +1132,7 @@ export function ManufacturingOrderForm({
                                 <Field data-invalid={fieldState.invalid}>
                                   <FieldLabel
                                     className="sr-only"
-                                    htmlFor={`${field.id}-ingredient`}
+                                    htmlFor={`ingredient-${index}-item`}
                                   >
                                     Ingredient
                                   </FieldLabel>
@@ -1142,7 +1142,7 @@ export function ManufacturingOrderForm({
                                     onValueChange={(value) =>
                                       ingredientField.onChange(value ?? "")
                                     }
-                                    inputId={`${field.id}-ingredient`}
+                                    inputId={`ingredient-${index}-item`}
                                     inputAriaInvalid={fieldState.invalid}
                                     inputClassName="w-full min-w-0"
                                     placeholder="Search ingredients..."
@@ -1176,13 +1176,13 @@ export function ManufacturingOrderForm({
                                 <Field data-invalid={fieldState.invalid}>
                                   <FieldLabel
                                     className="sr-only"
-                                    htmlFor={`${field.id}-quantity-per-unit`}
+                                    htmlFor={`ingredient-${index}-quantity-per-unit`}
                                   >
                                     {isBatchMode ? "Qty / Batch" : "Qty / Unit"}
                                   </FieldLabel>
                                   <Input
                                     {...quantityField}
-                                    id={`${field.id}-quantity-per-unit`}
+                                    id={`ingredient-${index}-quantity-per-unit`}
                                     aria-invalid={fieldState.invalid}
                                     inputMode="decimal"
                                     autoComplete="off"

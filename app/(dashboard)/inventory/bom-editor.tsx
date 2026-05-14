@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { useWatch, Controller, type Control } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
@@ -83,7 +83,6 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         renderRow={({ field, index }) => (
           <BomRow
             key={field.id}
-            lineKey={field.id}
             index={index}
             control={control}
             componentOptions={componentOptions}
@@ -97,18 +96,17 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
 
 /** Extracted sub-component so useWatch can be called at the top level (Rules of Hooks). */
 function BomRow({
-  lineKey,
   index,
   control,
   componentOptions,
   componentMap,
 }: {
-  lineKey: string;
   index: number;
   control: Control<ItemFormValues>;
   componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
 }) {
+  const rowDomId = useId();
   const componentId = useWatch({ control, name: `bom.${index}.componentId` });
   const selectedComponent = componentMap.get(componentId ?? "");
 
@@ -120,14 +118,14 @@ function BomRow({
           control={control}
           render={({ field: f, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-component`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-component`}>
                 Component
               </FieldLabel>
               <InventoryItemCombobox
                 options={componentOptions}
                 value={f.value ?? ""}
                 onValueChange={(id) => f.onChange(id ?? "")}
-                inputId={`${lineKey}-component`}
+                inputId={`${rowDomId}-component`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus
                 inputClassName="w-full min-w-0"
@@ -160,12 +158,12 @@ function BomRow({
           control={control}
           render={({ field: f, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-quantity`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-quantity`}>
                 Quantity
               </FieldLabel>
               <Input
                 {...f}
-                id={`${lineKey}-quantity`}
+                id={`${rowDomId}-quantity`}
                 value={f.value ?? ""}
                 aria-invalid={fieldState.invalid}
                 placeholder="0"
@@ -186,12 +184,12 @@ function BomRow({
           control={control}
           render={({ field: f, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-min-age`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-min-age`}>
                 Min Age
               </FieldLabel>
               <Input
                 {...f}
-                id={`${lineKey}-min-age`}
+                id={`${rowDomId}-min-age`}
                 value={f.value ?? ""}
                 aria-invalid={fieldState.invalid}
                 placeholder="0"

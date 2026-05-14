@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm, useWatch, type Control, type Resolver } from "react-hook-form";
@@ -416,7 +416,6 @@ export function StocktakeForm({
               renderRow={({ field, index }) => (
                 <StocktakePreviewRow
                   key={field.id}
-                  lineKey={field.id}
                   index={index}
                   control={form.control}
                   items={previewItems}
@@ -442,20 +441,19 @@ export function StocktakeForm({
 }
 
 function StocktakePreviewRow({
-  lineKey,
   index,
   control,
   items,
   itemMap,
   selectedItemIds,
 }: {
-  lineKey: string;
   index: number;
   control: Control<StocktakeFormValues>;
   items: StocktakePreviewItem[];
   itemMap: Map<string, StocktakePreviewItem>;
   selectedItemIds: string[];
 }) {
+  const rowDomId = useId();
   const itemId = useWatch({
     control,
     name: `previewLines.${index}.itemId`,
@@ -473,14 +471,14 @@ function StocktakePreviewRow({
           control={control}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${lineKey}-item`}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-item`}>
                 Item
               </FieldLabel>
               <InventoryItemCombobox
                 options={options}
                 value={field.value ?? ""}
                 onValueChange={(value) => field.onChange(value ?? "")}
-                inputId={`${lineKey}-item`}
+                inputId={`${rowDomId}-item`}
                 inputAriaInvalid={fieldState.invalid}
                 inputPrimaryFocus
                 inputClassName="w-full min-w-0"

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { Button } from "@/components/ui/button";
@@ -132,7 +132,7 @@ function EditableLineGridFullWidth({
 }
 
 function EditableLineGridRemoveButton({
-  label = "Remove row",
+  label = "Delete row",
   className,
   ...props
 }: Omit<ComponentProps<typeof Button>, "children" | "size" | "variant"> & {
@@ -146,16 +146,16 @@ function EditableLineGridRemoveButton({
           variant="ghost"
           size="icon-xs"
           className={cn(
-            "text-muted-foreground opacity-0 transition-opacity hover:bg-transparent hover:text-destructive focus-visible:opacity-100 group-hover/line-grid-row:opacity-100 group-focus-within/line-grid-row:opacity-100",
+            "text-destructive opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover/line-grid-row:opacity-100 group-focus-within/line-grid-row:opacity-100",
             className
           )}
           aria-label={label}
           {...props}
         >
-          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+          <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="top">Remove row.</TooltipContent>
+      <TooltipContent side="top">Delete row.</TooltipContent>
     </Tooltip>
   );
 }
