@@ -14,10 +14,17 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -102,7 +109,7 @@ function shipmentPayloadFromState(state: ShipmentFormState) {
   };
 }
 
-function latestDraftShipment(order: SalesOrderListRow | SalesOrderDetail) {
+function latestPackedShipment(order: SalesOrderListRow | SalesOrderDetail) {
   return [...order.shipments]
     .filter((shipment) => shipment.status === "draft")
     .sort((left, right) => right.sequence - left.sequence)[0];
@@ -197,19 +204,19 @@ export function DeliveryActionCell({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const detailQuery = useQuery<SalesOrderDetail>({
     queryKey: ["sales-order", order.id],
     queryFn: () =>
       apiJson<SalesOrderDetail>(`/api/sales-orders/${order.id}`, {
         fallbackError: "Failed to load sales order.",
       }),
-    enabled: open,
+    enabled: menuOpen,
   });
   const detail = detailQuery.data ?? null;
   const [formState, setFormState] = useState<ShipmentFormState | null>(null);
-  const activeDraftShipment =
-    (detail ? latestDraftShipment(detail) : latestDraftShipment(order)) ?? null;
+  const activePackedShipment =
+    (detail ? latestPackedShipment(detail) : latestPackedShipment(order)) ?? null;
 
   const resetAfterMutation = async () => {
     await Promise.all([
@@ -221,6 +228,14 @@ export function DeliveryActionCell({
     router.refresh();
   };
 
+  const requireDetail = () => {
+    if (!detail) {
+      throw new Error("Delivery details are still loading.");
+    }
+
+    return detail;
+  };
+
   const createShipmentMutation = useMutation({
     mutationFn: async (state: ShipmentFormState) =>
       apiJson<{ id: string }>(`/api/sales-orders/${order.id}/shipments`, {
@@ -229,7 +244,7 @@ export function DeliveryActionCell({
           "Content-Type": "application/json",
         }),
         body: shipmentPayloadFromState(state),
-        fallbackError: "Failed to create draft shipment.",
+        fallbackError: "Failed to pack shipment.",
       }),
     onSuccess: resetAfterMutation,
   });
@@ -255,7 +270,7 @@ export function DeliveryActionCell({
             "Content-Type": "application/json",
           }),
           body: shipmentPayloadFromState(state),
-          fallbackError: "Failed to create draft shipment.",
+          fallbackError: "Failed to pack shipment.",
         }
       );
 
@@ -288,25 +303,88 @@ export function DeliveryActionCell({
 
   return (
     <>
-      <button
-        type="button"
-        className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen(true);
-        }}
-        aria-label={`Delivery actions for ${order.orderNumber}`}
-      >
-        <OperationalStateCell
-          state={state}
-          className="transition-colors hover:border-primary/40 hover:bg-primary/10"
-        />
-      </button>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={(event) => event.stopPropagation()}
+            aria-label={`Delivery actions for ${order.orderNumber}`}
+          >
+            <OperationalStateCell
+              state={state}
+              className="transition-colors hover:border-primary/40 hover:bg-primary/10"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel>Delivery status</DropdownMenuLabel>
+          {detailQuery.isLoading ? (
+            <DropdownMenuItem disabled>Loading...</DropdownMenuItem>
+          ) : detailQuery.isError ? (
+            <DropdownMenuItem disabled>{detailQuery.error.message}</DropdownMenuItem>
+          ) : detail ? (
+            <>
+              {activePackedShipment ? (
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  Packed {activePackedShipment.shipmentNumber}
+                  {activePackedShipment.scheduledDate
+                    ? ` for ${formatDate(activePackedShipment.scheduledDate)}`
+                    : ""}
+                </DropdownMenuLabel>
+              ) : (
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  Nothing packed yet.
+                </DropdownMenuLabel>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={detail.status === "shipped" || isMutating}
+                onSelect={() =>
+                  createShipmentMutation.mutate(buildShipmentFormState(requireDetail()))
+                }
+              >
+                Pack all
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={detail.status === "shipped" || isMutating}
+                onSelect={() => setFormState(buildShipmentFormState(requireDetail()))}
+              >
+                Pack custom...
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={detail.status === "shipped" || isMutating}
+                onSelect={() => {
+                  if (activePackedShipment) {
+                    shipShipmentMutation.mutate(activePackedShipment.id);
+                    return;
+                  }
+
+                  createAndShipMutation.mutate(buildShipmentFormState(requireDetail()));
+                }}
+              >
+                {activePackedShipment ? "Deliver packed shipment" : "Deliver all"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href={`/sales/orders/${order.id}`}>Open order</Link>
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {activeError ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs font-normal text-destructive">
+                {activeError.message}
+              </DropdownMenuLabel>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Dialog
-        open={open}
+        open={formState != null}
         onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
           if (!nextOpen) setFormState(null);
         }}
       >
@@ -315,185 +393,122 @@ export function DeliveryActionCell({
           className="max-h-[calc(100vh-2rem)] overflow-y-auto"
         >
           <DialogHeader>
-            <DialogTitle>Delivery</DialogTitle>
+            <DialogTitle>Pack Shipment</DialogTitle>
             <DialogDescription>
               {order.orderNumber} - {order.customerName}
             </DialogDescription>
           </DialogHeader>
 
-          {detailQuery.isLoading ? (
-            <div className="rounded-md border border-dashed px-4 py-6 text-sm text-muted-foreground">
-              Loading delivery details...
-            </div>
-          ) : detailQuery.isError ? (
-            <p className="text-sm text-destructive">{detailQuery.error.message}</p>
-          ) : detail ? (
+          {detail && formState ? (
             <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-md border p-3">
-                  <div className="text-sm font-medium">Current state</div>
-                  <div className="mt-2 flex items-center gap-2 text-sm">
-                    <OperationalStateCell state={state} className="min-w-0" />
-                  </div>
-                  {activeDraftShipment ? (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Draft shipment {activeDraftShipment.shipmentNumber} is planned
-                      {activeDraftShipment.scheduledDate
-                        ? ` for ${formatDate(activeDraftShipment.scheduledDate)}`
-                        : ""}.
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      No draft shipment is planned.
-                    </p>
-                  )}
-                </div>
-                <div className="grid gap-2 rounded-md border p-3">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setFormState(buildShipmentFormState(detail))}
-                    disabled={detail.status === "shipped" || isMutating}
-                  >
-                    {activeDraftShipment ? "Plan another shipment" : "Pack all"}
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      if (activeDraftShipment) {
-                        shipShipmentMutation.mutate(activeDraftShipment.id);
-                        return;
+              <div className="space-y-4 rounded-md border p-3">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Type</label>
+                    <Select
+                      value={formState.fulfillmentType}
+                      onValueChange={(value) =>
+                        setFormState({
+                          ...formState,
+                          fulfillmentType: value as "delivery" | "pickup",
+                        })
                       }
-                      createAndShipMutation.mutate(buildShipmentFormState(detail));
-                    }}
-                    disabled={detail.status === "shipped" || isMutating}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="delivery">Delivery</SelectItem>
+                        <SelectItem value="pickup">Pickup</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Scheduled Date</label>
+                    <DatePicker
+                      value={formState.scheduledDate}
+                      onChange={(value) =>
+                        setFormState({ ...formState, scheduledDate: value })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Notes</label>
+                  <Textarea
+                    value={formState.notes}
+                    onChange={(event) =>
+                      setFormState({ ...formState, notes: event.target.value })
+                    }
+                    rows={2}
+                  />
+                </div>
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-right">Remaining</TableHead>
+                        <TableHead className="w-36 text-right">Pack</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.lines.map((line) => (
+                        <TableRow key={line.id}>
+                          <TableCell>
+                            <div className="font-medium">{line.itemName}</div>
+                            {line.itemSku ? (
+                              <div className="text-xs text-muted-foreground">
+                                {line.itemSku}
+                              </div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {line.unplannedRemainingQuantity} {line.unitName}
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-label={`Shipment quantity for ${line.itemName}`}
+                              inputMode="decimal"
+                              value={formState.quantities[line.id] ?? ""}
+                              onChange={(event) =>
+                                setFormState({
+                                  ...formState,
+                                  quantities: {
+                                    ...formState.quantities,
+                                    [line.id]: event.target.value,
+                                  },
+                                })
+                              }
+                              className="text-right"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setFormState(null)}
                   >
-                    {activeDraftShipment ? "Deliver draft" : "Deliver all"}
+                    Cancel
                   </Button>
-                  <Button type="button" variant="outline" asChild>
-                    <Link href={`/sales/orders/${order.id}`}>Open order</Link>
+                  <Button
+                    type="button"
+                    onClick={() => createShipmentMutation.mutate(formState)}
+                    disabled={isMutating || !hasPositiveQuantity(formState)}
+                  >
+                    {createShipmentMutation.isPending
+                      ? "Saving..."
+                      : "Save packed shipment"}
                   </Button>
                 </div>
               </div>
-
-              {formState ? (
-                <div className="space-y-4 rounded-md border p-3">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Type</label>
-                      <Select
-                        value={formState.fulfillmentType}
-                        onValueChange={(value) =>
-                          setFormState({
-                            ...formState,
-                            fulfillmentType: value as "delivery" | "pickup",
-                          })
-                        }
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="delivery">Delivery</SelectItem>
-                          <SelectItem value="pickup">Pickup</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Scheduled Date</label>
-                      <DatePicker
-                        value={formState.scheduledDate}
-                        onChange={(value) =>
-                          setFormState({ ...formState, scheduledDate: value })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Notes</label>
-                    <Textarea
-                      value={formState.notes}
-                      onChange={(event) =>
-                        setFormState({ ...formState, notes: event.target.value })
-                      }
-                      rows={2}
-                    />
-                  </div>
-                  <div className="overflow-x-auto rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Item</TableHead>
-                          <TableHead className="text-right">Remaining</TableHead>
-                          <TableHead className="w-36 text-right">Pack</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detail.lines.map((line) => (
-                          <TableRow key={line.id}>
-                            <TableCell>
-                              <div className="font-medium">{line.itemName}</div>
-                              {line.itemSku ? (
-                                <div className="text-xs text-muted-foreground">
-                                  {line.itemSku}
-                                </div>
-                              ) : null}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {line.unplannedRemainingQuantity} {line.unitName}
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                aria-label={`Shipment quantity for ${line.itemName}`}
-                                inputMode="decimal"
-                                value={formState.quantities[line.id] ?? ""}
-                                onChange={(event) =>
-                                  setFormState({
-                                    ...formState,
-                                    quantities: {
-                                      ...formState.quantities,
-                                      [line.id]: event.target.value,
-                                    },
-                                  })
-                                }
-                                className="text-right"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setFormState(null)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => createShipmentMutation.mutate(formState)}
-                      disabled={isMutating || !hasPositiveQuantity(formState)}
-                    >
-                      {createShipmentMutation.isPending ? "Saving..." : "Save draft"}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {activeError ? (
-                <p className="text-sm text-destructive">{activeError.message}</p>
-              ) : null}
             </div>
           ) : null}
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

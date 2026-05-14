@@ -5,11 +5,6 @@ import { useMemo, useState } from "react";
 import { type ColumnDef, type Table as TanStackTable } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-} from "@hugeicons/core-free-icons";
 import {
   DashboardDataTable,
   DashboardDataTableDragHandle,
@@ -40,7 +35,6 @@ import {
   SALES_ORDER_SHIP_DATE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
-import { OrderExpandedDetail } from "./order-expanded-detail";
 import {
   DeliveryActionCell,
   ProductionActionCell,
@@ -253,24 +247,9 @@ const columns: ColumnDef<SalesOrderListRow>[] = [
       />
     ),
     cell: ({ row }) => (
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            row.toggleExpanded();
-          }}
-          aria-label={row.getIsExpanded() ? "Collapse order" : "Expand order"}
-          className="p-0.5 text-muted-foreground hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={row.getIsExpanded() ? ArrowDown01Icon : ArrowRight01Icon}
-            className="h-4 w-4"
-          />
-        </button>
-        <Link href={`/sales/orders/${row.original.id}`} className="hover:underline">
-          {row.original.orderNumber}
-        </Link>
-      </div>
+      <Link href={`/sales/orders/${row.original.id}`} className="hover:underline">
+        {row.original.orderNumber}
+      </Link>
     ),
   },
   {
@@ -468,8 +447,6 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         />
       )}
       initialColumnFilters={[{ id: "status", value: [...OPEN_SALES_STATUSES] }]}
-      getRowCanExpand={() => true}
-      renderExpandedRow={(row) => <OrderExpandedDetail orderId={row.original.id} />}
       rowReorder={{
         disabled: reorderMutation.isPending,
         enabled: (table) => {

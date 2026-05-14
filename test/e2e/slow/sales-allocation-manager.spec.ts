@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Page } from "@playwright/test";
-import { test, expect, filterList } from "../fixtures";
+import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
@@ -29,18 +29,6 @@ function unique(prefix: string) {
 
 function sku(prefix: string) {
   return unique(prefix).toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 48);
-}
-
-function salesOrderCard(page: Page, orderNumber: string) {
-  return page.getByRole("row").filter({ hasText: orderNumber }).first();
-}
-
-async function expandSalesOrderCard(page: Page, orderNumber: string) {
-  const row = salesOrderCard(page, orderNumber);
-  await row
-    .getByRole("button", { name: new RegExp(`Expand.*${orderNumber}|Expand order`) })
-    .click();
-  return row;
 }
 
 async function createCustomerFixture(namePrefix: string) {
@@ -238,19 +226,18 @@ async function openAllocationManager(params: {
   const { page, orderNumber, itemName } = params;
   const escapedItemName = itemName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  await page.goto("/sales/orders");
-  await filterList(page, "Search orders", orderNumber);
-  await expandSalesOrderCard(page, orderNumber);
+  await page.goto("/sales/allocation");
+  await page.getByLabel("Search sales allocations").fill(orderNumber);
 
-  const expandedLine = page.getByRole("row", { name: new RegExp(escapedItemName) }).last();
-  await expect(expandedLine).toBeVisible();
-  await expandedLine
-    .getByRole("button", {
-      name: new RegExp(`^(Allocate|Manage allocation for) ${escapedItemName}$`),
-    })
-    .click();
+  const allocateButton = page
+    .getByRole("button", { name: new RegExp(`^Allocate ${escapedItemName}$`) })
+    .first();
+  await expect(allocateButton).toBeVisible();
+  await allocateButton.click();
 
-  const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
+  const sheet = page.getByRole("dialog", {
+    name: new RegExp(`Allocate ${escapedItemName}`),
+  });
   await expect(sheet).toBeVisible();
   return sheet;
 }
