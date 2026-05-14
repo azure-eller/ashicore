@@ -28,6 +28,16 @@ function salesOrderCard(page: Parameters<typeof filterList>[0], orderNumber: str
   return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
+async function confirmOversellDialog(page: Parameters<typeof filterList>[0]) {
+  const oversellDialog = page.getByRole("alertdialog", {
+    name: "Confirm Oversell?",
+  });
+  await expect(oversellDialog).toBeVisible({ timeout: 30000 });
+  await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
+  await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
+  await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
+}
+
 async function showCancelledOrders(page: Parameters<typeof filterList>[0]) {
   await page.getByRole("radio", { name: "Show done orders" }).click();
 }
@@ -428,7 +438,7 @@ test.describe("Sales order flow", () => {
   // NOTE: Material line (row 3) removed — the pricing useEffect wipes
   // user-entered prices on items with no default/suggested price. Add it
   // back once the order-form isPriceOverridden logic handles null suggested prices.
-  test("creates a draft order with multiple lines", async ({ page, db }) => {
+  test("creates a confirmed order with multiple lines", async ({ page, db }) => {
     await page.goto("/sales/orders/new");
     await expect(page.getByText("Add Sales Order")).toBeVisible();
 
@@ -463,11 +473,12 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
     await page.getByRole("button", { name: "Create Order" }).click();
+    await confirmOversellDialog(page);
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
 
     // UI — verify the detail page
     await expect(
-      page.locator("main").getByText("Draft", { exact: true }).first()
+      page.locator("main").getByText("Confirmed", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
     await expect(page.getByText(primaryProductName)).toBeVisible();
@@ -481,7 +492,7 @@ test.describe("Sales order flow", () => {
 
     await page.reload();
     await expect(
-      page.locator("main").getByText("Draft", { exact: true }).first()
+      page.locator("main").getByText("Confirmed", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
     await expect(page.locator("table").first()).toContainText(primaryProductName);
@@ -499,7 +510,7 @@ test.describe("Sales order flow", () => {
     fullOrderNumber = order.orderNumber;
 
     expect(order.customerName).toBe(customerName);
-    expect(order.status).toBe("draft");
+    expect(order.status).toBe("confirmed");
     expect(order.orderDate).toBe(expectedOrderDate);
     expect(order.shipDate).toBe(expectedShipDate);
     expect(order.requestedDate).toBe(expectedRequestedDate);
@@ -541,20 +552,20 @@ test.describe("Sales order flow", () => {
       .select({ committedQty: inventoryItemBalances.committedQty })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, primaryMaterialId));
-    expect(primaryItem?.committedQty ?? "0.0000").toBe("0.0000");
+    expect(primaryItem?.committedQty ?? "0.0000").toBe("3.0000");
     expect(secondaryItem?.committedQty ?? "0.0000").toBe("0.0000");
     expect(primaryMaterial?.committedQty ?? "0.0000").toBe("0.0000");
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
-    const draftCard = salesOrderCard(page, fullOrderNumber);
-    await expect(draftCard).toContainText(customerName);
-    await expect(draftCard).toContainText("$158.97");
-    await expect(draftCard).toContainText("Draft");
-    await expect(draftCard).toContainText(expectedShipDateLabel);
+    const confirmedCard = salesOrderCard(page, fullOrderNumber);
+    await expect(confirmedCard).toContainText(customerName);
+    await expect(confirmedCard).toContainText("$158.97");
+    await expect(confirmedCard).toContainText("Confirmed");
+    await expect(confirmedCard).toContainText(expectedShipDateLabel);
   });
 
-  test("edits the draft order — verifies pre-population and changes quantity", async ({ page, db }) => {
+  test("edits the confirmed order — verifies pre-population and changes quantity", async ({ page, db }) => {
     await page.goto(`/sales/orders/${fullOrderId}/edit`);
     await expect(page.getByText("Edit Sales Order")).toBeVisible({ timeout: 30000 });
 
@@ -578,6 +589,7 @@ test.describe("Sales order flow", () => {
     await page.getByLabel("Notes").fill("Updated to 5 units");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
+    await confirmOversellDialog(page);
     await page.waitForURL(`**/sales/orders/${fullOrderId}`);
     await expect(
       page.getByRole("heading", { name: fullOrderNumber })
@@ -599,7 +611,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, fullOrderId));
     expect(orderRows).toHaveLength(1);
-    expect(orderRows[0].status).toBe("draft");
+    expect(orderRows[0].status).toBe("confirmed");
     expect(orderRows[0].notes).toBe("Updated to 5 units");
 
     const updatedLineRows = await db
@@ -670,11 +682,7 @@ test.describe("Sales order flow", () => {
     const draftCard = salesOrderCard(page, bulkOrder.orderNumber);
     await draftCard.getByRole("button", { name: "Confirm" }).click();
 
-    const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
+    await confirmOversellDialog(page);
 
     await expect
       .poll(
@@ -722,21 +730,9 @@ test.describe("Sales order flow", () => {
     await expect(salesOrderCard(page, bulkOrder.orderNumber)).toContainText("Cancelled");
   });
 
-  test("confirms the draft order from detail, handles oversell, and commits stock", async ({ page, db }) => {
+  test("confirmed order from detail keeps reservations and production actions", async ({ page, db }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-
-    await page.getByRole("button", { name: "Confirm" }).click();
-
-    // The edited order quantity exceeds the fixture's opening stock, so the oversell dialog should appear.
-    const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
-    await expect(oversellDialog).toBeVisible({ timeout: 30000 });
-    await expect(oversellDialog.getByText("Order Amount", { exact: true })).toBeVisible();
-    await expect(oversellDialog.getByText("Short", { exact: true })).toBeVisible();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).scrollIntoViewIfNeeded();
-    await oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click();
-
-    await page.waitForURL(`**/sales/orders/${fullOrderId}`);
 
     await expect
       .poll(

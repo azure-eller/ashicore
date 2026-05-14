@@ -35,6 +35,14 @@ function salesOrderCard(page: Page, orderNumber: string) {
   return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
+async function expandSalesOrderCard(page: Page, orderNumber: string) {
+  const row = salesOrderCard(page, orderNumber);
+  await row
+    .getByRole("button", { name: new RegExp(`Expand.*${orderNumber}|Expand order`) })
+    .click();
+  return row;
+}
+
 async function createCustomerFixture(namePrefix: string) {
   const result = await createCustomer({ name: unique(namePrefix) });
   expect(result.status).toBe(201);
@@ -231,8 +239,7 @@ async function openAllocationManager(params: {
 
   await page.goto("/sales/orders");
   await filterList(page, "Search orders", orderNumber);
-  const orderCard = salesOrderCard(page, orderNumber);
-  await orderCard.click();
+  await expandSalesOrderCard(page, orderNumber);
 
   const expandedLine = page
     .locator('[data-testid="sales-order-line-row"]')

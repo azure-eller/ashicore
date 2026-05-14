@@ -269,7 +269,11 @@ export function OrderExpandedDetail({ orderId }: { orderId: string }) {
             </TableRow>
           ) : data?.lines.length ? (
             data.lines.map((line) => (
-                <TableRow key={line.id} className="group/line">
+                <TableRow
+                  key={line.id}
+                  className="group/line"
+                  data-testid="sales-order-line-row"
+                >
                   <TableCell className="text-sm">
                     <span className="flex items-center gap-1.5 flex-wrap">
                       <Link
