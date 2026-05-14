@@ -135,7 +135,7 @@ function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[])
         variantLabel: isStandalone ? line.masterName : line.attrs.join(" "),
         sku: line.itemSku ?? null,
         unitName: line.unitName,
-        stockQty: parseQuantity(inventoryItem?.stock),
+        stockQty: parseQuantity(inventoryItem?.availableQty),
         incomingQty: parseQuantity(inventoryItem?.expectedQty),
         isStandalone,
       });
