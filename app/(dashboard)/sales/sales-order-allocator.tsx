@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import styles from "./sales-order-allocator.module.css";
 import type {
+  AllocationAssignment,
   AllocationSourceRow,
   AllocationSourceType,
   AllocationWorkspace,
@@ -134,6 +135,18 @@ function sourceInputKey(source: Pick<AllocationSourceRow, "sourceType" | "source
 function sourceTypeLabel(sourceType: AllocationSourceType) {
   if (sourceType === "inventory_lot") return "Lots";
   return "Manufacturing orders";
+}
+
+function assignmentSummary(assignments: AllocationAssignment[]) {
+  if (assignments.length === 0) return null;
+  return assignments
+    .slice(0, 2)
+    .map(
+      (assignment) =>
+        `${formatQuantity(assignment.quantity)} ${assignment.demandLabel}`
+    )
+    .join(", ")
+    .concat(assignments.length > 2 ? `, +${assignments.length - 2} more` : "");
 }
 
 export function getLineRemainingQty(line: SalesOrderListLine) {
@@ -414,6 +427,7 @@ function AllocationSourceEditor({
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
         queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] }),
+        queryClient.invalidateQueries({ queryKey: ["allocation-pools"] }),
       ]);
       onSaved();
     },
@@ -458,6 +472,13 @@ function AllocationSourceEditor({
 
     setDraft(next);
   }
+
+  const assignmentsBySource = workspace.assignments.reduce((groups, assignment) => {
+    const bucket = groups.get(sourceInputKey(assignment)) ?? [];
+    bucket.push(assignment);
+    groups.set(sourceInputKey(assignment), bucket);
+    return groups;
+  }, new Map<string, AllocationAssignment[]>());
 
   return (
     <>
@@ -579,6 +600,9 @@ function AllocationSourceEditor({
                       const key = sourceInputKey(source);
                       const sourceDate = sourceRelativeLabel(source);
                       const selected = parseQuantity(draft[key]) > 0;
+                      const assignedSummary = assignmentSummary(
+                        assignmentsBySource.get(key) ?? []
+                      );
                       return (
                         <TableRow
                           key={key}
@@ -603,6 +627,11 @@ function AllocationSourceEditor({
                                 {source.contextLabel ? (
                                   <span className="truncate text-xs text-muted-foreground">
                                     {source.contextLabel}
+                                  </span>
+                                ) : null}
+                                {assignedSummary ? (
+                                  <span className="truncate text-xs text-muted-foreground">
+                                    Assigned {assignedSummary}
                                   </span>
                                 ) : null}
                               </div>

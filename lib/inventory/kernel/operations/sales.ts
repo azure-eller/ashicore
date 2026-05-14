@@ -68,20 +68,12 @@ export async function reserveForSalesInTx(
     eventSubtype: "sales_confirm",
     deltas,
   });
-  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: location.id,
-    actorUserId: params.actorUserId ?? null,
-    eventSubtype: "sales_confirm",
-    deltas,
-  });
-
   const result = { referenceIds: params.lines.map((line) => line.salesOrderLineId) };
 
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
     idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
+    firstEventId: demandEvents[0]?.id ?? null,
     result,
   });
 
