@@ -5,11 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  Search01Icon,
-} from "@hugeicons/core-free-icons";
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -103,6 +99,21 @@ type HoverState = {
   rowId: string | null;
   colId: string | null;
 };
+
+type DragState =
+  | {
+      type: "product";
+      id: string;
+      targetId: string;
+      position: "before" | "after";
+    }
+  | {
+      type: "family";
+      id: string;
+      targetId: string;
+      position: "before" | "after";
+    }
+  | null;
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
   return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
@@ -395,6 +406,23 @@ function applyFamilyOrder(
   });
 }
 
+function getDropPosition(
+  event: React.DragEvent<HTMLElement>
+): "before" | "after" {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+}
+
+function reorderItem<T>(items: T[], from: T, to: T, position: "before" | "after") {
+  const withoutFrom = items.filter((item) => item !== from);
+  const targetIndex = withoutFrom.indexOf(to);
+  if (targetIndex < 0) return items;
+  const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+  const next = [...withoutFrom];
+  next.splice(insertIndex, 0, from);
+  return next;
+}
+
 function todayLabel() {
   return formatShipDate(todayBusinessDate());
 }
@@ -422,6 +450,11 @@ export function SalesAllocationTable({
   );
   const [productOrder, setProductOrder] = useState<string[]>([]);
   const [familyOrder, setFamilyOrder] = useState<string[]>([]);
+  const [dragging, setDragging] = useState<{
+    type: "product" | "family";
+    id: string;
+  } | null>(null);
+  const [dragState, setDragState] = useState<DragState>(null);
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -631,31 +664,44 @@ export function SalesAllocationTable({
     preferenceMutation.mutate([]);
   }
 
-  function moveColumn(productId: string, direction: -1 | 1) {
+  function reorderColumn(
+    productId: string,
+    targetProductId: string,
+    position: "before" | "after"
+  ) {
     setProductOrder((current) => {
       const ordered = applyProductOrder(productsWithPools, current);
       const product = ordered.find((entry) => entry.itemId === productId);
-      if (!product) return current;
+      const targetProduct = ordered.find((entry) => entry.itemId === targetProductId);
+      if (!product || !targetProduct) return current;
+      if (product.familyLabel !== targetProduct.familyLabel) return current;
       const familyProducts = ordered.filter(
         (entry) =>
           entry.familyLabel === product.familyLabel &&
           !hiddenProductIdSet.has(entry.itemId)
       );
-      const familyIndex = familyProducts.findIndex(
-        (entry) => entry.itemId === productId
-      );
-      const swapWith = familyProducts[familyIndex + direction];
-      if (!swapWith) return current;
-
-      const next = [...ordered];
-      const currentIndex = next.findIndex((entry) => entry.itemId === productId);
-      const swapIndex = next.findIndex((entry) => entry.itemId === swapWith.itemId);
-      [next[currentIndex], next[swapIndex]] = [next[swapIndex], next[currentIndex]];
-      return next.map((entry) => entry.itemId);
+      const visibleIds = familyProducts.map((entry) => entry.itemId);
+      const nextVisibleIds = reorderItem(visibleIds, productId, targetProductId, position);
+      let visibleIndex = 0;
+      return ordered.map((entry) => {
+        if (
+          entry.familyLabel !== product.familyLabel ||
+          hiddenProductIdSet.has(entry.itemId)
+        ) {
+          return entry.itemId;
+        }
+        const nextId = nextVisibleIds[visibleIndex] ?? entry.itemId;
+        visibleIndex += 1;
+        return nextId;
+      });
     });
   }
 
-  function moveFamily(familyLabel: string, direction: -1 | 1) {
+  function reorderFamily(
+    familyLabel: string,
+    targetFamilyLabel: string,
+    position: "before" | "after"
+  ) {
     setFamilyOrder((current) => {
       const ordered = applyFamilyOrder(productsWithPools, current);
       const visibleFamilyLabels = ordered.reduce<string[]>((labels, product) => {
@@ -663,17 +709,18 @@ export function SalesAllocationTable({
         if (labels.includes(product.familyLabel)) return labels;
         return [...labels, product.familyLabel];
       }, []);
-      const currentIndex = visibleFamilyLabels.indexOf(familyLabel);
-      const swapWith = visibleFamilyLabels[currentIndex + direction];
-      if (!swapWith) return current;
-
-      const next = [...visibleFamilyLabels];
-      [next[currentIndex], next[currentIndex + direction]] = [
-        next[currentIndex + direction],
-        next[currentIndex],
-      ];
-      return next;
+      return reorderItem(
+        visibleFamilyLabels,
+        familyLabel,
+        targetFamilyLabel,
+        position
+      );
     });
+  }
+
+  function clearDragState() {
+    setDragging(null);
+    setDragState(null);
   }
 
   function openAllocation(row: AllocationRow, cell: AllocationCell) {
@@ -757,30 +804,47 @@ export function SalesAllocationTable({
             {families.map(([familyLabel, products], familyIndex) => (
               <div
                 key={familyLabel}
-                className={`${styles.headerCell} ${styles.headerBand} ${styles.familyEnd}`}
+                className={`${styles.headerCell} ${styles.headerBand} ${styles.familyEnd} ${dragging?.type === "family" && dragging.id === familyLabel ? styles.draggingHeader : ""}`}
                 data-family-tone={familyIndex % 2 === 1 ? "tint" : "plain"}
+                data-drop-before={
+                  dragState?.type === "family" &&
+                  dragState.targetId === familyLabel &&
+                  dragState.position === "before"
+                }
+                data-drop-after={
+                  dragState?.type === "family" &&
+                  dragState.targetId === familyLabel &&
+                  dragState.position === "after"
+                }
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", familyLabel);
+                  setDragging({ type: "family", id: familyLabel });
+                }}
+                onDragOver={(event) => {
+                  if (dragging?.type !== "family" || dragging.id === familyLabel) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragState({
+                    type: "family",
+                    id: dragging.id,
+                    targetId: familyLabel,
+                    position: getDropPosition(event),
+                  });
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (dragState?.type === "family") {
+                    reorderFamily(dragState.id, dragState.targetId, dragState.position);
+                  }
+                  clearDragState();
+                }}
+                onDragEnd={clearDragState}
                 style={{ gridColumn: `span ${products.length}` }}
               >
                 {familyLabel}
                 <div className={styles.columnActions}>
-                  <button
-                    type="button"
-                    className={styles.columnAction}
-                    aria-label={`Move ${familyLabel} left`}
-                    onClick={() => moveFamily(familyLabel, -1)}
-                    disabled={familyIndex === 0}
-                  >
-                    <HugeiconsIcon icon={ArrowLeft01Icon} size={12} strokeWidth={2} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.columnAction}
-                    aria-label={`Move ${familyLabel} right`}
-                    onClick={() => moveFamily(familyLabel, 1)}
-                    disabled={familyIndex === families.length - 1}
-                  >
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
-                  </button>
                   <button
                     type="button"
                     className={`${styles.columnAction} ${styles.hideColumnAction}`}
@@ -795,40 +859,58 @@ export function SalesAllocationTable({
 
             <div className={`${styles.headerCell} ${styles.headerVariant} ${styles.stickyCustomer}`} style={{ gridColumn: "1" }} />
             <div className={`${styles.headerCell} ${styles.headerVariant} ${styles.stickyShip}`} style={{ gridColumn: "2" }} />
-            {visibleProducts.map((product) => {
-              const familyProducts = visibleProducts.filter(
-                (entry) => entry.familyLabel === product.familyLabel
-              );
-              const familyIndex = familyProducts.findIndex(
-                (entry) => entry.itemId === product.itemId
-              );
-
-              return (
+            {visibleProducts.map((product) => (
               <div
                 key={product.itemId}
-                className={`${styles.headerCell} ${styles.headerVariant} ${familyFirstVisibleIds.has(product.itemId) ? styles.familyStart : ""} ${familyLastVisibleIds.has(product.itemId) ? styles.familyEnd : ""}`}
+                className={`${styles.headerCell} ${styles.headerVariant} ${familyFirstVisibleIds.has(product.itemId) ? styles.familyStart : ""} ${familyLastVisibleIds.has(product.itemId) ? styles.familyEnd : ""} ${dragging?.type === "product" && dragging.id === product.itemId ? styles.draggingHeader : ""}`}
+                data-drop-before={
+                  dragState?.type === "product" &&
+                  dragState.targetId === product.itemId &&
+                  dragState.position === "before"
+                }
+                data-drop-after={
+                  dragState?.type === "product" &&
+                  dragState.targetId === product.itemId &&
+                  dragState.position === "after"
+                }
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", product.itemId);
+                  setDragging({ type: "product", id: product.itemId });
+                }}
+                onDragOver={(event) => {
+                  if (
+                    dragging?.type !== "product" ||
+                    dragging.id === product.itemId
+                  ) {
+                    return;
+                  }
+                  const draggedProduct = visibleProducts.find(
+                    (entry) => entry.itemId === dragging.id
+                  );
+                  if (draggedProduct?.familyLabel !== product.familyLabel) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragState({
+                    type: "product",
+                    id: dragging.id,
+                    targetId: product.itemId,
+                    position: getDropPosition(event),
+                  });
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (dragState?.type === "product") {
+                    reorderColumn(dragState.id, dragState.targetId, dragState.position);
+                  }
+                  clearDragState();
+                }}
+                onDragEnd={clearDragState}
               >
                 <span className={styles.variantName}>{product.variantLabel}</span>
                 <span className={styles.sku}>{product.sku ?? product.unitName}</span>
                 <div className={styles.columnActions}>
-                  <button
-                    type="button"
-                    className={styles.columnAction}
-                    aria-label={`Move ${product.label} left`}
-                    onClick={() => moveColumn(product.itemId, -1)}
-                    disabled={familyIndex === 0}
-                  >
-                    <HugeiconsIcon icon={ArrowLeft01Icon} size={12} strokeWidth={2} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.columnAction}
-                    aria-label={`Move ${product.label} right`}
-                    onClick={() => moveColumn(product.itemId, 1)}
-                    disabled={familyIndex === familyProducts.length - 1}
-                  >
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
-                  </button>
                   <button
                     type="button"
                     className={`${styles.columnAction} ${styles.hideColumnAction}`}
@@ -839,8 +921,7 @@ export function SalesAllocationTable({
                   </button>
                 </div>
               </div>
-              );
-            })}
+            ))}
 
             <div className={`${styles.headerCell} ${styles.headerCoverage} ${styles.stickyCustomer}`} style={{ gridColumn: "1" }}>
               <span>Coverage</span>
