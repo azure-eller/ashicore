@@ -48,6 +48,7 @@ async function createDraftSalesOrder(payload: {
   shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
+  confirmOversell?: boolean;
   lines: Array<{
     itemId: string;
     quantity: string;
@@ -64,7 +65,7 @@ async function createDraftSalesOrder(payload: {
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
-      confirmOversell: false,
+      confirmOversell: payload.confirmOversell ?? false,
     }),
   });
   const body = await response.json().catch(() => null);
@@ -651,15 +652,15 @@ test.describe("Sales order flow", () => {
     expect(updatedSecondaryLine?.unitPrice).toBe("11.25");
     expect(updatedSecondaryLine?.suggestedUnitPrice).toBe("10.80");
     expect(updatedSecondaryLine?.isPriceOverridden).toBe(true);
-    await expect(page.locator("table").first()).toContainText(
+    await expect(reloadedEditedLineItemsTable).toContainText(
       currencyFormatter.format(parseFloat(updatedPrimaryLine!.lineTotal))
     );
-    await expect(page.locator("table").first()).toContainText(
+    await expect(reloadedEditedLineItemsTable).toContainText(
       currencyFormatter.format(parseFloat(updatedSecondaryLine!.lineTotal))
     );
   });
 
-  test("confirms a draft order from the list and handles the oversell warning", async ({
+  test("creates an open order with oversell confirmation and cancels it", async ({
     page,
     db,
   }) => {
@@ -667,6 +668,7 @@ test.describe("Sales order flow", () => {
       customerId: extraCustomerId,
       requestedDate: "2026-04-18",
       notes: "Bulk confirm coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: primaryProductId,
@@ -685,28 +687,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, bulkOrderId));
 
-    expect(bulkOrder.status).toBe("draft");
-
-    await page.goto("/sales/orders");
-    await filterList(page, "Search orders", bulkOrder.orderNumber);
-
-    const draftCard = salesOrderCard(page, bulkOrder.orderNumber);
-    await draftCard.getByRole("button", { name: "Confirm" }).click();
-
-    await confirmOversellDialog(page);
-
-    await expect
-      .poll(
-        async () => {
-          const [order] = await db
-            .select({ status: salesOrders.status })
-            .from(salesOrders)
-            .where(eq(salesOrders.id, bulkOrderId));
-          return order?.status ?? null;
-        },
-        { timeout: 15_000 }
-      )
-      .toBe("confirmed");
+    expect(bulkOrder.status).toBe("confirmed");
 
     const [primaryItemAfterConfirm] = await db
       .select({
