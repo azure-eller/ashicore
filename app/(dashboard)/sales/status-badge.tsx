@@ -19,7 +19,7 @@ export function SalesOrderStatusBadge({ status }: { status: SalesOrderStatus }) 
   } else if (status === "cancelled") {
     badge = <Badge variant="destructive">Cancelled</Badge>;
   } else {
-    badge = <Badge variant="secondary">Draft</Badge>;
+    badge = <Badge variant="secondary">Open</Badge>;
   }
 
   return (

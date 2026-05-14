@@ -1007,7 +1007,7 @@ function ShippingPanel({
                         ? "Shipped"
                         : shipment.status === "cancelled"
                           ? "Cancelled"
-                          : "Draft"}
+                          : "Ready to ship"}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -2187,10 +2187,10 @@ export function OrderDetail({
         <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {shipmentForm?.shipmentId ? "Edit Shipment" : "Plan Shipment"}
+              {shipmentForm?.shipmentId ? "Edit Shipment" : "Ready to Ship"}
             </DialogTitle>
             <DialogDescription>
-              The BOL is generated automatically from the draft shipment.
+              The BOL is generated automatically from the ready shipment.
             </DialogDescription>
           </DialogHeader>
           {shipmentForm ? (
@@ -2615,9 +2615,9 @@ export function OrderDetail({
       }}>
         <AlertDialogContent size="2xl" className="bg-background text-foreground">
           <AlertDialogHeader>
-            <AlertDialogTitle>Take Draft Allocations?</AlertDialogTitle>
+            <AlertDialogTitle>Take Open Allocations?</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirming this order will reduce stock allocated to draft orders.
+              Confirming this order will reduce stock allocated to other open orders.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -2689,7 +2689,7 @@ export function OrderDetail({
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel remaining quantities?</AlertDialogTitle>
             <AlertDialogDescription>
-              Draft shipments will be cancelled and unshipped reservations released.
+              Ready shipments will be cancelled and unshipped reservations released.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

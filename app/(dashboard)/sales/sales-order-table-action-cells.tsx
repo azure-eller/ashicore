@@ -116,7 +116,6 @@ function latestPackedShipment(order: SalesOrderListRow | SalesOrderDetail) {
 }
 
 export function ProductionActionCell({ order, state }: ProductionActionCellProps) {
-  const [choiceOpen, setChoiceOpen] = useState(false);
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const isActionable =
     order.status !== "cancelled" &&
@@ -129,50 +128,34 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
 
   return (
     <>
-      <button
-        type="button"
-        className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={(event) => {
-          event.stopPropagation();
-          setChoiceOpen(true);
-        }}
-        aria-label={
-          state.label === "Make"
-            ? "Create MOs"
-            : `Production actions for ${order.orderNumber}`
-        }
-      >
-        <OperationalStateCell
-          state={state}
-          className="transition-colors hover:border-primary/40 hover:bg-primary/10"
-        />
-      </button>
-
-      <Dialog open={choiceOpen} onOpenChange={setChoiceOpen}>
-        <DialogContent size="md">
-          <DialogHeader>
-            <DialogTitle>Production</DialogTitle>
-            <DialogDescription>
-              {order.orderNumber} - {order.customerName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            <Button
-              type="button"
-              className="justify-start"
-              onClick={() => {
-                setChoiceOpen(false);
-                setMakeToOrderOpen(true);
-              }}
-            >
-              Make to order
-            </Button>
-            <Button type="button" variant="outline" className="justify-start" asChild>
-              <Link href="/manufacturing/orders/new">Make to stock</Link>
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={(event) => event.stopPropagation()}
+            aria-label={
+              state.label === "Make"
+                ? "Create MOs"
+                : `Production actions for ${order.orderNumber}`
+            }
+          >
+            <OperationalStateCell
+              state={state}
+              className="transition-colors hover:border-primary/40 hover:bg-primary/10"
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel>Production</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => setMakeToOrderOpen(true)}>
+            Make to order
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/manufacturing/orders/new">Make to stock</Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <CreateManufacturingOrdersDialog
         salesOrderId={order.id}
@@ -244,7 +227,7 @@ export function DeliveryActionCell({
           "Content-Type": "application/json",
         }),
         body: shipmentPayloadFromState(state),
-        fallbackError: "Failed to pack shipment.",
+        fallbackError: "Failed to mark ready to ship.",
       }),
     onSuccess: resetAfterMutation,
   });
@@ -270,7 +253,7 @@ export function DeliveryActionCell({
             "Content-Type": "application/json",
           }),
           body: shipmentPayloadFromState(state),
-          fallbackError: "Failed to pack shipment.",
+          fallbackError: "Failed to mark ready to ship.",
         }
       );
 
@@ -293,9 +276,12 @@ export function DeliveryActionCell({
     shipShipmentMutation.isPending ||
     createAndShipMutation.isPending;
   const canOpen =
+    order.status === "draft" ||
     order.status === "confirmed" ||
     order.status === "partially_shipped" ||
     order.status === "shipped";
+  const canPrepareShipment =
+    detail?.status === "confirmed" || detail?.status === "partially_shipped";
 
   if (!canOpen) {
     return <OperationalStateCell state={state} />;
@@ -327,30 +313,30 @@ export function DeliveryActionCell({
             <>
               {activePackedShipment ? (
                 <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  Packed {activePackedShipment.shipmentNumber}
+                  Ready to ship: {activePackedShipment.shipmentNumber}
                   {activePackedShipment.scheduledDate
                     ? ` for ${formatDate(activePackedShipment.scheduledDate)}`
                     : ""}
                 </DropdownMenuLabel>
               ) : (
                 <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  Nothing packed yet.
+                  Not shipped.
                 </DropdownMenuLabel>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                disabled={detail.status === "shipped" || isMutating}
+                disabled={!canPrepareShipment || isMutating}
                 onSelect={() =>
                   createShipmentMutation.mutate(buildShipmentFormState(requireDetail()))
                 }
               >
-                Pack all
+                Ready to ship all
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={detail.status === "shipped" || isMutating}
+                disabled={!canPrepareShipment || isMutating}
                 onSelect={() => setFormState(buildShipmentFormState(requireDetail()))}
               >
-                Pack custom...
+                Ready custom...
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={detail.status === "shipped" || isMutating}
@@ -363,7 +349,7 @@ export function DeliveryActionCell({
                   createAndShipMutation.mutate(buildShipmentFormState(requireDetail()));
                 }}
               >
-                {activePackedShipment ? "Deliver packed shipment" : "Deliver all"}
+                {activePackedShipment ? "Mark shipped" : "Ship all"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
@@ -393,7 +379,7 @@ export function DeliveryActionCell({
           className="max-h-[calc(100vh-2rem)] overflow-y-auto"
         >
           <DialogHeader>
-            <DialogTitle>Pack Shipment</DialogTitle>
+            <DialogTitle>Ready to Ship</DialogTitle>
             <DialogDescription>
               {order.orderNumber} - {order.customerName}
             </DialogDescription>
@@ -449,7 +435,7 @@ export function DeliveryActionCell({
                       <TableRow>
                         <TableHead>Item</TableHead>
                         <TableHead className="text-right">Remaining</TableHead>
-                        <TableHead className="w-36 text-right">Pack</TableHead>
+                        <TableHead className="w-36 text-right">Ready</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -503,7 +489,7 @@ export function DeliveryActionCell({
                   >
                     {createShipmentMutation.isPending
                       ? "Saving..."
-                      : "Save packed shipment"}
+                      : "Save ready shipment"}
                   </Button>
                 </div>
               </div>

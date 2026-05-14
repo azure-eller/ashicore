@@ -1764,7 +1764,7 @@ async function prepareDraftOrdersForConfirmationInTx(
   }
 
   if (orders.some((order) => order.status !== "draft")) {
-    throw new SalesError("Only draft orders can be confirmed.", 400);
+    throw new SalesError("Only open orders can be confirmed.", 400);
   }
 
   const lines = await tx
@@ -6263,7 +6263,7 @@ export async function updateSalesShipment(
     }
 
     if (shipment.status !== "draft") {
-      throw new SalesError("Only draft shipments can be edited.", 400);
+      throw new SalesError("Only ready shipments can be edited.", 400);
     }
 
     const states = await getShipmentLineStatesInTx(tx, orderId, {
@@ -7122,7 +7122,7 @@ export async function confirmSalesOrder(
     let reservationLines = plan.reservationLines;
     if (takeover && !confirmDraftAllocationTakeover) {
       throw new SalesError(
-        "This confirmation would take stock allocated to draft orders.",
+        "This confirmation would take stock allocated to other open orders.",
         409,
         { draftAllocationTakeover: takeover }
       );
@@ -7235,7 +7235,7 @@ export async function bulkConfirmSalesOrders(
     let reservationLines = plan.reservationLines;
     if (takeover && payload.confirmDraftAllocationTakeover !== true) {
       throw new SalesError(
-        "These confirmations would take stock allocated to draft orders.",
+        "These confirmations would take stock allocated to other open orders.",
         409,
         { draftAllocationTakeover: takeover }
       );

@@ -150,9 +150,9 @@ export function useConfirmSalesOrderFlow(
             className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
           >
             <AlertDialogHeader>
-              <AlertDialogTitle>Take Draft Allocations?</AlertDialogTitle>
+              <AlertDialogTitle>Take Open Allocations?</AlertDialogTitle>
               <AlertDialogDescription>
-                Confirming this order will reduce stock allocated to draft orders.
+                Confirming this order will reduce stock allocated to other open orders.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-2 text-sm">
