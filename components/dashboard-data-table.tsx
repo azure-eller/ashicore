@@ -226,9 +226,29 @@ export function DashboardDataTable<TData extends { id: string }>({
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const tableColumns = useMemo(
+    () =>
+      columns.map((column) =>
+        "id" in column && column.id === "select"
+          ? {
+              size: 40,
+              minSize: 36,
+              maxSize: 48,
+              enableResizing: false,
+              ...column,
+            }
+          : column
+      ),
+    [columns]
+  );
   const queryColumnFilters = useMemo(
-    () => getColumnFiltersFromSearchParams(searchParams, columns, initialColumnFilters),
-    [columns, initialColumnFilters, searchParams]
+    () =>
+      getColumnFiltersFromSearchParams(
+        searchParams,
+        tableColumns,
+        initialColumnFilters
+      ),
+    [tableColumns, initialColumnFilters, searchParams]
   );
   const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -307,14 +327,14 @@ export function DashboardDataTable<TData extends { id: string }>({
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
-    columns,
+    columns: tableColumns,
     getRowId: (row) => row.id,
     enableRowSelection: rowSelectionConfig,
     enableColumnResizing: true,
     columnResizeMode: "onChange",
     defaultColumn: {
-      minSize: 80,
-      size: 160,
+      minSize: 48,
+      size: 140,
       maxSize: 520,
     },
     onSortingChange: setSorting,
@@ -437,9 +457,15 @@ export function DashboardDataTable<TData extends { id: string }>({
 
   const tableElement = (
     <Table
-      className={tableClassName}
+      className={cn("table-fixed", tableClassName)}
       containerClassName="overflow-visible"
+      style={{ minWidth: "100%", width: table.getTotalSize() }}
     >
+      <colgroup>
+        {table.getVisibleLeafColumns().map((column) => (
+          <col key={column.id} style={{ width: column.getSize() }} />
+        ))}
+      </colgroup>
       <TableHeader>
         {table.getHeaderGroups().map((headerGroup, headerGroupIndex) => (
           <TableRow key={headerGroup.id}>
@@ -464,13 +490,14 @@ export function DashboardDataTable<TData extends { id: string }>({
                       : {}),
                   }}
                   className={cn(
+                    "overflow-visible",
                     meta?.className,
                     stickyHeader && "sticky z-30",
                     !stickyHeader && "relative",
                     verticalColumnBorders && "border-r last:border-r-0"
                   )}
                 >
-                  <div className="pr-2">
+                  <div className="overflow-hidden text-ellipsis pr-3">
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -486,8 +513,9 @@ export function DashboardDataTable<TData extends { id: string }>({
                       onTouchStart={header.getResizeHandler()}
                       onClick={(event) => event.stopPropagation()}
                       className={cn(
-                        "absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none rounded-full outline-none transition-colors hover:bg-border focus-visible:bg-ring",
-                        header.column.getIsResizing() && "bg-ring"
+                        "absolute right-0 top-0 z-10 h-full w-3 translate-x-1/2 cursor-col-resize touch-none select-none bg-transparent outline-none",
+                        "after:absolute after:right-1/2 after:top-2 after:h-[calc(100%-1rem)] after:w-px after:bg-border after:content-['']",
+                        "hover:after:bg-foreground/40 focus-visible:after:bg-ring"
                       )}
                     />
                   ) : null}
@@ -954,10 +982,11 @@ function DashboardTableRowContent<TData extends { id: string }>({
               key={cell.id}
               style={{
                 width: cellSize,
+                maxWidth: cellSize,
               }}
               className={cn(
                 meta?.className,
-                "align-middle",
+                "overflow-hidden text-ellipsis align-middle",
                 verticalColumnBorders && "border-r last:border-r-0"
               )}
             >
