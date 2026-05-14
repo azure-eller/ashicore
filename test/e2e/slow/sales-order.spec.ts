@@ -820,7 +820,7 @@ test.describe("Sales order flow", () => {
             unitPrice: "29.99",
           },
         ],
-        confirmOversell: false,
+        confirmOversell: true,
       }),
     });
     const editConfirmedBody = await editConfirmedResponse.json().catch(() => null);
