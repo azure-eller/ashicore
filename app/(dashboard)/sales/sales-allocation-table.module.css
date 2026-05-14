@@ -509,8 +509,18 @@
   background: var(--today-bg);
 }
 
+.dataCell[data-highlight="true"],
+.matrixCell[data-highlight="true"] {
+  background: var(--today-bg);
+}
+
 .matrixCell[data-today="true"][data-status="short"],
 .matrixCell[data-today="true"][data-status="partial"] {
+  background: var(--cell-short);
+}
+
+.matrixCell[data-highlight="true"][data-status="short"],
+.matrixCell[data-highlight="true"][data-status="partial"] {
   background: var(--cell-short);
 }
 

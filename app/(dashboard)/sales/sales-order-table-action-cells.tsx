@@ -6,42 +6,14 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import {
   OperationalStateCell,
   type OperationalState,
@@ -67,13 +39,6 @@ type ShipmentFormState = {
 function parseQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function hasPositiveQuantity(state: ShipmentFormState) {
-  return Object.values(state.quantities).some((quantity) => {
-    const parsed = Number.parseFloat(quantity);
-    return Number.isFinite(parsed) && parsed > 0;
-  });
 }
 
 function buildShipmentFormState(order: SalesOrderDetail): ShipmentFormState {
@@ -113,6 +78,40 @@ function latestPackedShipment(order: SalesOrderListRow | SalesOrderDetail) {
   return [...order.shipments]
     .filter((shipment) => shipment.status === "draft")
     .sort((left, right) => right.sequence - left.sequence)[0];
+}
+
+function StateMenuItem({
+  label,
+  tone,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  tone: OperationalState["tone"];
+  disabled?: boolean;
+  onSelect?: () => void;
+}) {
+  const swatchClassName: Record<OperationalState["tone"], string> = {
+    success: "bg-success",
+    warning: "bg-warning",
+    destructive: "bg-destructive",
+    secondary: "bg-primary",
+    muted: "bg-muted-foreground/30",
+  };
+
+  return (
+    <DropdownMenuItem
+      disabled={disabled}
+      onSelect={onSelect}
+      className="gap-3"
+    >
+      <span
+        aria-hidden
+        className={cn("size-3 rounded-[2px]", swatchClassName[tone])}
+      />
+      {label}
+    </DropdownMenuItem>
+  );
 }
 
 export function ProductionActionCell({ order, state }: ProductionActionCellProps) {
@@ -197,7 +196,6 @@ export function DeliveryActionCell({
     enabled: menuOpen,
   });
   const detail = detailQuery.data ?? null;
-  const [formState, setFormState] = useState<ShipmentFormState | null>(null);
   const activePackedShipment =
     (detail ? latestPackedShipment(detail) : latestPackedShipment(order)) ?? null;
 
@@ -207,7 +205,6 @@ export function DeliveryActionCell({
       queryClient.invalidateQueries({ queryKey: ["sales-order", order.id] }),
       queryClient.invalidateQueries({ queryKey: ["items"] }),
     ]);
-    setFormState(null);
     router.refresh();
   };
 
@@ -282,6 +279,14 @@ export function DeliveryActionCell({
     order.status === "shipped";
   const canPrepareShipment =
     detail?.status === "confirmed" || detail?.status === "partially_shipped";
+  const canMarkReady =
+    canPrepareShipment &&
+    order.shippingReadiness.state === "ready" &&
+    activePackedShipment == null;
+  const canMarkShipped =
+    detail != null &&
+    detail.status !== "shipped" &&
+    (activePackedShipment != null || order.shippingReadiness.state === "ready");
 
   if (!canOpen) {
     return <OperationalStateCell state={state} />;
@@ -303,7 +308,7 @@ export function DeliveryActionCell({
             />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>Delivery status</DropdownMenuLabel>
           {detailQuery.isLoading ? (
             <DropdownMenuItem disabled>Loading...</DropdownMenuItem>
@@ -311,35 +316,30 @@ export function DeliveryActionCell({
             <DropdownMenuItem disabled>{detailQuery.error.message}</DropdownMenuItem>
           ) : detail ? (
             <>
-              {activePackedShipment ? (
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  Ready to ship: {activePackedShipment.shipmentNumber}
-                  {activePackedShipment.scheduledDate
-                    ? ` for ${formatDate(activePackedShipment.scheduledDate)}`
-                    : ""}
-                </DropdownMenuLabel>
-              ) : (
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  Not shipped.
-                </DropdownMenuLabel>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={!canPrepareShipment || isMutating}
+              <StateMenuItem
+                label="Not shipped"
+                tone="muted"
+                disabled
+              />
+              {detail.status === "partially_shipped" ? (
+                <StateMenuItem
+                  label="Partially shipped"
+                  tone="warning"
+                  disabled
+                />
+              ) : null}
+              <StateMenuItem
+                label="Ready to ship"
+                tone="success"
+                disabled={!canMarkReady || isMutating}
                 onSelect={() =>
                   createShipmentMutation.mutate(buildShipmentFormState(requireDetail()))
                 }
-              >
-                Ready to ship all
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!canPrepareShipment || isMutating}
-                onSelect={() => setFormState(buildShipmentFormState(requireDetail()))}
-              >
-                Ready custom...
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={detail.status === "shipped" || isMutating}
+              />
+              <StateMenuItem
+                label="Shipped"
+                tone="success"
+                disabled={!canMarkShipped || isMutating}
                 onSelect={() => {
                   if (activePackedShipment) {
                     shipShipmentMutation.mutate(activePackedShipment.id);
@@ -348,155 +348,16 @@ export function DeliveryActionCell({
 
                   createAndShipMutation.mutate(buildShipmentFormState(requireDetail()));
                 }}
-              >
-                {activePackedShipment ? "Mark shipped" : "Ship all"}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href={`/sales/orders/${order.id}`}>Open order</Link>
-              </DropdownMenuItem>
-            </>
-          ) : null}
-          {activeError ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs font-normal text-destructive">
-                {activeError.message}
-              </DropdownMenuLabel>
+              />
+              {activeError ? (
+                <DropdownMenuLabel className="text-xs font-normal text-destructive">
+                  {activeError.message}
+                </DropdownMenuLabel>
+              ) : null}
             </>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <Dialog
-        open={formState != null}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) setFormState(null);
-        }}
-      >
-        <DialogContent
-          size="3xl"
-          className="max-h-[calc(100vh-2rem)] overflow-y-auto"
-        >
-          <DialogHeader>
-            <DialogTitle>Ready to Ship</DialogTitle>
-            <DialogDescription>
-              {order.orderNumber} - {order.customerName}
-            </DialogDescription>
-          </DialogHeader>
-
-          {detail && formState ? (
-            <div className="space-y-4">
-              <div className="space-y-4 rounded-md border p-3">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Type</label>
-                    <Select
-                      value={formState.fulfillmentType}
-                      onValueChange={(value) =>
-                        setFormState({
-                          ...formState,
-                          fulfillmentType: value as "delivery" | "pickup",
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="delivery">Delivery</SelectItem>
-                        <SelectItem value="pickup">Pickup</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Scheduled Date</label>
-                    <DatePicker
-                      value={formState.scheduledDate}
-                      onChange={(value) =>
-                        setFormState({ ...formState, scheduledDate: value })
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Notes</label>
-                  <Textarea
-                    value={formState.notes}
-                    onChange={(event) =>
-                      setFormState({ ...formState, notes: event.target.value })
-                    }
-                    rows={2}
-                  />
-                </div>
-                <div className="overflow-x-auto rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead className="text-right">Remaining</TableHead>
-                        <TableHead className="w-36 text-right">Ready</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {detail.lines.map((line) => (
-                        <TableRow key={line.id}>
-                          <TableCell>
-                            <div className="font-medium">{line.itemName}</div>
-                            {line.itemSku ? (
-                              <div className="text-xs text-muted-foreground">
-                                {line.itemSku}
-                              </div>
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {line.unplannedRemainingQuantity} {line.unitName}
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              aria-label={`Shipment quantity for ${line.itemName}`}
-                              inputMode="decimal"
-                              value={formState.quantities[line.id] ?? ""}
-                              onChange={(event) =>
-                                setFormState({
-                                  ...formState,
-                                  quantities: {
-                                    ...formState.quantities,
-                                    [line.id]: event.target.value,
-                                  },
-                                })
-                              }
-                              className="text-right"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setFormState(null)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => createShipmentMutation.mutate(formState)}
-                    disabled={isMutating || !hasPositiveQuantity(formState)}
-                  >
-                    {createShipmentMutation.isPending
-                      ? "Saving..."
-                      : "Save ready shipment"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

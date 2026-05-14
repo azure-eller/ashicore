@@ -39,7 +39,6 @@ import {
   DeliveryActionCell,
   ProductionActionCell,
 } from "./sales-order-table-action-cells";
-import { AllocationSheet } from "./allocation-sheet";
 import type { SalesOrderListRow } from "./types";
 
 const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
@@ -107,50 +106,26 @@ function getSalesItemsState(order: SalesOrderListRow): OperationalState {
   return { label: "Not allocated", tone: "destructive" };
 }
 
-function getAllocationTargetLineId(order: SalesOrderListRow) {
-  const shortLine = order.lines.find(
-    (line) => line.id && parseQuantity(line.shortQty) > 0
-  );
-  if (shortLine?.id) return shortLine.id;
-
-  const partialLine = order.lines.find(
-    (line) => line.id && parseQuantity(line.allocatedQty) > 0
-  );
-  return partialLine?.id ?? null;
-}
-
-function SalesItemsActionCell({
-  order,
-  onOpenAllocation,
-}: {
-  order: SalesOrderListRow;
-  onOpenAllocation: (lineId: string) => void;
-}) {
+function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
   const state = getSalesItemsState(order);
-  const targetLineId =
-    state.label === "Not allocated" || state.label === "Partial"
-      ? getAllocationTargetLineId(order)
-      : null;
+  const isAllocationLink =
+    state.label === "Not allocated" || state.label === "Partial";
 
-  if (!targetLineId) {
+  if (!isAllocationLink) {
     return <OperationalStateCell state={state} />;
   }
 
   return (
-    <button
-      type="button"
+    <Link
+      href={`/sales/allocation?highlightOrderId=${order.id}`}
       className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpenAllocation(targetLineId);
-      }}
-      aria-label={`Open allocation for ${order.orderNumber}`}
+      aria-label="Open allocation status"
     >
       <OperationalStateCell
         state={state}
         className="transition-colors hover:border-primary/40 hover:bg-primary/10"
       />
-    </button>
+    </Link>
   );
 }
 
@@ -195,7 +170,7 @@ function getDeliveryState(order: SalesOrderListRow): OperationalState {
     return { label: "Partially shipped", tone: "warning" };
   }
 
-  if (order.shipments.some((shipment) => shipment.status === "draft")) {
+  if (order.shippingReadiness.state === "ready") {
     return { label: "Ready to ship", tone: "success" };
   }
 
@@ -261,10 +236,7 @@ const rankColumn: ColumnDef<SalesOrderListRow> = {
   meta: { className: "w-20" },
 };
 
-function getColumns(
-  onOpenAllocation: (lineId: string) => void
-): ColumnDef<SalesOrderListRow>[] {
-  return [
+const columns: ColumnDef<SalesOrderListRow>[] = [
   {
     id: "select",
     header: ({ table }) => (
@@ -352,12 +324,7 @@ function getColumns(
     sortingFn: (a, b) =>
       parseFloat(a.original.fulfillmentSummary.shortQty) -
       parseFloat(b.original.fulfillmentSummary.shortQty),
-    cell: ({ row }) => (
-      <SalesItemsActionCell
-        order={row.original}
-        onOpenAllocation={onOpenAllocation}
-      />
-    ),
+    cell: ({ row }) => <SalesItemsActionCell order={row.original} />,
     meta: { className: "w-36" },
   },
   {
@@ -425,18 +392,12 @@ function getColumns(
     },
     cell: ({ row }) => formatDate(row.original.shipDate),
   },
-  ];
-}
+];
 
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");
-  const [allocationLineId, setAllocationLineId] = useState<string | null>(null);
-  const columns = useMemo(
-    () => getColumns((lineId) => setAllocationLineId(lineId)),
-    []
-  );
   const columnVisibility = useMemo(
     () => ({ priorityRank: statusFilter === "open" }),
     [statusFilter]
@@ -492,61 +453,51 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
   });
 
   return (
-    <>
-      <DashboardDataTable
-        columns={columns}
-        columnVisibility={columnVisibility}
-        data={displayedOrders}
-        initialData={initialData}
-        queryKey={["sales-orders"]}
-        searchAriaLabel="Search orders"
-        addHref="/sales/orders/new"
-        addAriaLabel="New Order"
-        emptyMessage="No sales orders yet."
-        toolbarContent={({ table }) => (
-          <SalesOrderWorkflowTabs
-            table={table}
-            onStatusChange={setStatusFilter}
-          />
-        )}
-        initialColumnFilters={[{ id: "status", value: [...OPEN_SALES_STATUSES] }]}
-        rowReorder={{
-          disabled: reorderMutation.isPending,
-          enabled: (table) => {
-            const selected =
-              (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
-            const columnFilters = table.getState().columnFilters;
-            const sorting = table.getState().sorting;
+    <DashboardDataTable
+      columns={columns}
+      columnVisibility={columnVisibility}
+      data={displayedOrders}
+      initialData={initialData}
+      queryKey={["sales-orders"]}
+      searchAriaLabel="Search orders"
+      addHref="/sales/orders/new"
+      addAriaLabel="New Order"
+      emptyMessage="No sales orders yet."
+      toolbarContent={({ table }) => (
+        <SalesOrderWorkflowTabs
+          table={table}
+          onStatusChange={setStatusFilter}
+        />
+      )}
+      initialColumnFilters={[{ id: "status", value: [...OPEN_SALES_STATUSES] }]}
+      rowReorder={{
+        disabled: reorderMutation.isPending,
+        enabled: (table) => {
+          const selected =
+            (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
+          const columnFilters = table.getState().columnFilters;
+          const sorting = table.getState().sorting;
 
-            return (
-              !table.getState().globalFilter &&
-              sorting.length === 0 &&
-              columnFilters.every((filter) => filter.id === "status") &&
-              selected.length === OPEN_SALES_STATUSES.length &&
-              OPEN_SALES_STATUSES.every((status) => selected.includes(status))
-            );
-          },
-          onReorder: (rows) => reorderMutation.mutate(rows),
-        }}
-        deleteAction={{
-          endpoint: "/api/sales-orders",
-          invalidateQueryKeys: [["sales-orders"], ["items"]],
-          defaultErrorMessage: "Failed to delete orders.",
-          idempotencyKey: "sales-orders-delete",
-          confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
-          confirmDescription: (count) =>
-            `The selected order${count !== 1 ? "s" : ""} will be soft-deleted.`,
-        }}
-      />
-      <AllocationSheet
-        lineId={allocationLineId}
-        open={allocationLineId != null}
-        onOpenChange={(open) => {
-          if (!open) setAllocationLineId(null);
-        }}
-        onTargetLineChange={setAllocationLineId}
-      />
-    </>
+          return (
+            !table.getState().globalFilter &&
+            sorting.length === 0 &&
+            columnFilters.every((filter) => filter.id === "status") &&
+            selected.length === OPEN_SALES_STATUSES.length &&
+            OPEN_SALES_STATUSES.every((status) => selected.includes(status))
+          );
+        },
+        onReorder: (rows) => reorderMutation.mutate(rows),
+      }}
+      deleteAction={{
+        endpoint: "/api/sales-orders",
+        invalidateQueryKeys: [["sales-orders"], ["items"]],
+        defaultErrorMessage: "Failed to delete orders.",
+        idempotencyKey: "sales-orders-delete",
+        confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
+        confirmDescription: (count) =>
+          `The selected order${count !== 1 ? "s" : ""} will be soft-deleted.`,
+      }}
+    />
   );
 }
 

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -409,6 +410,7 @@ export function SalesAllocationTable({
   initialData: SalesOrderListRow[];
   initialPools?: AllocationPoolRow[];
 }) {
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [hover, setHover] = useState<HoverState>({ rowId: null, colId: null });
@@ -555,6 +557,7 @@ export function SalesAllocationTable({
     () => getFilteredRows(allRows, search),
     [allRows, search]
   );
+  const highlightedOrderId = searchParams.get("highlightOrderId");
   const coverageById = useMemo(
     () => getCoverage(visibleProducts, rows),
     [visibleProducts, rows]
@@ -682,6 +685,12 @@ export function SalesAllocationTable({
       targetQty: quantityString(cell.demand),
     });
   }
+
+  useEffect(() => {
+    if (!highlightedOrderId) return;
+    const target = document.getElementById(`sales-allocation-order-${highlightedOrderId}`);
+    target?.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [highlightedOrderId, rows.length]);
 
   return (
     <>
@@ -866,6 +875,7 @@ export function SalesAllocationTable({
                   familyLastVisibleIds={familyLastVisibleIds}
                   hover={hover}
                   selected={selected}
+                  isHighlighted={row.order.id === highlightedOrderId}
                   onHover={setHover}
                   onOpenAllocation={openAllocation}
                   isComplete={isComplete}
@@ -910,6 +920,7 @@ function AllocationGridRow({
   familyLastVisibleIds,
   hover,
   selected,
+  isHighlighted,
   onHover,
   onOpenAllocation,
   isComplete,
@@ -922,6 +933,7 @@ function AllocationGridRow({
   familyLastVisibleIds: Set<string>;
   hover: HoverState;
   selected: { rowId: string; colId: string } | null;
+  isHighlighted: boolean;
   onHover: (hover: HoverState) => void;
   onOpenAllocation: (row: AllocationRow, cell: AllocationCell) => void;
   isComplete: boolean;
@@ -933,9 +945,11 @@ function AllocationGridRow({
   return (
     <>
       <div
+        id={isHighlighted ? `sales-allocation-order-${row.order.id}` : undefined}
         className={`${styles.dataCell} ${styles.customerCell} ${styles.stickyCustomer} ${hover.rowId === row.order.id ? styles.hovered : ""}`}
         data-row-tone={rowTone}
         data-today={today ? "true" : undefined}
+        data-highlight={isHighlighted ? "true" : undefined}
         onMouseEnter={() => onHover({ rowId: row.order.id, colId: hover.colId })}
       >
         <span className={styles.rail} />
@@ -948,6 +962,7 @@ function AllocationGridRow({
       <div
         className={`${styles.dataCell} ${styles.shipCell} ${styles.stickyShip} ${hover.rowId === row.order.id ? styles.hovered : ""}`}
         data-today={today ? "true" : undefined}
+        data-highlight={isHighlighted ? "true" : undefined}
         onMouseEnter={() => onHover({ rowId: row.order.id, colId: hover.colId })}
       >
         <span className={styles.shipDate}>{today ? "Today" : formatShipDate(row.order.shipDate)}</span>
@@ -978,6 +993,7 @@ function AllocationGridRow({
             isIntersection={isIntersection}
             isSelected={isSelected}
             isToday={today}
+            isHighlighted={isHighlighted}
             onHover={() => onHover({ rowId: row.order.id, colId: product.itemId })}
             onOpenAllocation={onOpenAllocation}
           />
@@ -997,6 +1013,7 @@ function AllocationMatrixCell({
   isIntersection,
   isSelected,
   isToday,
+  isHighlighted,
   onHover,
   onOpenAllocation,
 }: {
@@ -1009,6 +1026,7 @@ function AllocationMatrixCell({
   isIntersection: boolean;
   isSelected: boolean;
   isToday: boolean;
+  isHighlighted: boolean;
   onHover: () => void;
   onOpenAllocation: (row: AllocationRow, cell: AllocationCell) => void;
 }) {
@@ -1021,6 +1039,7 @@ function AllocationMatrixCell({
       className={`${styles.dataCell} ${styles.matrixCell} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""} ${isHovered ? styles.hovered : ""} ${isIntersection ? styles.intersection : ""} ${isSelected ? styles.selected : ""}`}
       data-status={status}
       data-today={isToday ? "true" : undefined}
+      data-highlight={isHighlighted ? "true" : undefined}
       onMouseEnter={onHover}
       onClick={() => {
         if (cell) onOpenAllocation(row, cell);
