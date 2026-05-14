@@ -30,7 +30,7 @@ export function OperationalStateCell({
   return (
     <span
       className={cn(
-        "inline-flex min-h-8 w-full min-w-28 items-center justify-center rounded-md border px-2 text-center text-sm font-medium",
+        "inline-flex min-h-8 w-full min-w-28 items-center justify-center rounded-md border px-2 text-center text-[1.1375rem] font-medium",
         toneClassName[state.tone],
         className
       )}

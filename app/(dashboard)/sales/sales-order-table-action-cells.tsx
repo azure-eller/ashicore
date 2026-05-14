@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Add01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { cn } from "@/lib/utils";
@@ -11,7 +13,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -103,7 +104,7 @@ function StateMenuItem({
     <DropdownMenuItem
       disabled={disabled}
       onSelect={onSelect}
-      className="gap-3"
+      className="gap-3 py-2.5 text-lg"
     >
       <span
         aria-hidden
@@ -146,12 +147,18 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>Production</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => setMakeToOrderOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setMakeToOrderOpen(true)}
+            className="gap-3 py-2.5 text-lg"
+          >
+            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-5" />
             Make to order
           </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/manufacturing/orders/new">Make to stock</Link>
+          <DropdownMenuItem asChild className="gap-3 py-2.5 text-lg">
+            <Link href="/manufacturing/orders/new">
+              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-5" />
+              Make to stock
+            </Link>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -309,11 +316,14 @@ export function DeliveryActionCell({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>Delivery status</DropdownMenuLabel>
           {detailQuery.isLoading ? (
-            <DropdownMenuItem disabled>Loading...</DropdownMenuItem>
+            <DropdownMenuItem disabled className="py-2.5 text-lg">
+              Loading...
+            </DropdownMenuItem>
           ) : detailQuery.isError ? (
-            <DropdownMenuItem disabled>{detailQuery.error.message}</DropdownMenuItem>
+            <DropdownMenuItem disabled className="py-2.5 text-lg text-destructive">
+              {detailQuery.error.message}
+            </DropdownMenuItem>
           ) : detail ? (
             <>
               <StateMenuItem
@@ -350,9 +360,12 @@ export function DeliveryActionCell({
                 }}
               />
               {activeError ? (
-                <DropdownMenuLabel className="text-xs font-normal text-destructive">
+                <DropdownMenuItem
+                  disabled
+                  className="py-2.5 text-lg text-destructive"
+                >
                   {activeError.message}
-                </DropdownMenuLabel>
+                </DropdownMenuItem>
               ) : null}
             </>
           ) : null}

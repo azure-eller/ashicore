@@ -6,49 +6,8 @@ import { FilterableHeader, multiValueFilter } from "@/components/filterable-head
 import { SortableHeader } from "@/components/sortable-header";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
 import { DashboardDataTable } from "@/components/dashboard-data-table";
-import { DateTimeText } from "@/components/date-time-text";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { formatAddressLines, formatDate, formatPrice } from "@/lib/format";
 import type { CustomerRow } from "./types";
-
-const accountStateLabels = {
-  onboarding: "Onboarding",
-  active: "Active",
-  growth: "Growth",
-  at_risk: "At risk",
-  dormant: "Dormant",
-  former: "Former",
-} as const;
-
-const accountPriorityLabels = {
-  strategic: "Strategic",
-  high: "High",
-  standard: "Standard",
-  low: "Low",
-} as const;
-
-function customerListAddress(customer: CustomerRow) {
-  const billingAddress = formatAddressLines({
-    line1: customer.billingLine1,
-    line2: customer.billingLine2,
-    city: customer.billingCity,
-    region: customer.billingRegion,
-    postcode: customer.billingPostcode,
-    country: customer.billingCountry,
-  }).join(", ");
-
-  if (billingAddress) return billingAddress;
-
-  return formatAddressLines({
-    line1: customer.shipLine1,
-    line2: customer.shipLine2,
-    city: customer.shipCity,
-    region: customer.shipRegion,
-    postcode: customer.shipPostcode,
-    country: customer.shipCountry,
-  }).join(", ");
-}
 
 const columns: ColumnDef<CustomerRow>[] = [
   {
@@ -94,91 +53,38 @@ const columns: ColumnDef<CustomerRow>[] = [
     cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
   },
   {
-    accessorKey: "accountPriority",
-    header: ({ column }) => <SortableHeader column={column} label="Priority" />,
-    cell: ({ row }) => (
-      <Badge
-        variant={
-          row.original.accountPriority === "strategic"
-            ? "default"
-            : row.original.accountPriority === "high"
-              ? "success"
-              : row.original.accountPriority === "low"
-                ? "outline"
-                : "secondary"
-        }
-      >
-        {accountPriorityLabels[row.original.accountPriority]}
-      </Badge>
-    ),
-  },
-  {
-    accessorKey: "accountState",
-    header: ({ column }) => <SortableHeader column={column} label="State" />,
-    cell: ({ row }) => (
-      <Badge
-        variant={
-          row.original.accountState === "at_risk"
-            ? "warning"
-            : row.original.accountState === "former"
-              ? "outline"
-              : row.original.accountState === "growth"
-                ? "success"
-                : "secondary"
-        }
-      >
-        {accountStateLabels[row.original.accountState]}
-      </Badge>
-    ),
-  },
-  {
-    accessorKey: "openOrderValue",
-    header: ({ column }) => <SortableHeader column={column} label="Open Orders" />,
-    sortingFn: (a, b) =>
-      parseFloat(a.original.openOrderValue) - parseFloat(b.original.openOrderValue),
-    cell: ({ row }) => (
-      <span className="text-sm">
-        {row.original.openOrderCount} · {formatPrice(row.original.openOrderValue)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "latestOrderDate",
-    header: ({ column }) => <SortableHeader column={column} label="Latest Order" />,
-    cell: ({ row }) => formatDate(row.original.latestOrderDate),
-  },
-  {
-    id: "address",
-    accessorFn: customerListAddress,
-    header: ({ column }) => <SortableHeader column={column} label="Address" />,
-    cell: ({ row }) => {
-      const address = customerListAddress(row.original);
-      return address ? (
-        <span className="block max-w-80 truncate" title={address}>
-          {address}
-        </span>
-      ) : (
-        "\u2014"
-      );
-    },
-  },
-  {
     accessorKey: "email",
-    header: "Email",
+    header: ({ column }) => <SortableHeader column={column} label="Email" />,
     cell: ({ row }) => row.original.email ?? "\u2014",
   },
   {
     accessorKey: "phone",
-    header: "Phone",
+    header: ({ column }) => <SortableHeader column={column} label="Phone" />,
     cell: ({ row }) => row.original.phone ?? "\u2014",
   },
   {
-    accessorKey: "updatedAt",
-    header: ({ column }) => <SortableHeader column={column} label="Updated" />,
-    sortingFn: (a, b) =>
-      new Date(a.original.updatedAt).getTime() -
-      new Date(b.original.updatedAt).getTime(),
-    cell: ({ row }) => <DateTimeText value={row.original.updatedAt} />,
+    accessorKey: "xeroContactId",
+    header: ({ column }) => <SortableHeader column={column} label="Reference ID" />,
+    cell: ({ row }) =>
+      row.original.xeroContactId ? (
+        <span className="block max-w-56 truncate" title={row.original.xeroContactId}>
+          {row.original.xeroContactId}
+        </span>
+      ) : (
+        "\u2014"
+      ),
+  },
+  {
+    accessorKey: "notes",
+    header: ({ column }) => <SortableHeader column={column} label="Comment" />,
+    cell: ({ row }) =>
+      row.original.notes ? (
+        <span className="block max-w-96 truncate" title={row.original.notes}>
+          {row.original.notes}
+        </span>
+      ) : (
+        "\u2014"
+      ),
   },
 ];
 
