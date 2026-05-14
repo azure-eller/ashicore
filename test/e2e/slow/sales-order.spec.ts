@@ -1084,11 +1084,6 @@ test.describe("Sales order flow", () => {
       0
     );
 
-    const [shipOrderBeforeUi] = await db
-      .select({ orderNumber: salesOrders.orderNumber })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, shipOrderId));
-
     const [createdShipment] = await db
       .select({ id: salesShipments.id })
       .from(salesShipments)
