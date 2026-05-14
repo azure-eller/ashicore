@@ -48,7 +48,24 @@ const VARIANT_COL_WIDTH = 86;
 type AllocationProduct = AllocatorProduct & {
   stockQty: number;
   incomingQty: number;
+  allocatedQty: number;
+  reservationSummaries: string[];
   isStandalone: boolean;
+};
+
+type AllocationPoolRow = {
+  itemId: string;
+  stockQty: string;
+  incomingQty: string;
+  allocatedQty: string;
+  assignments: Array<{
+    demandLabel: string;
+    quantity: string;
+  }>;
+  reservations: Array<{
+    demandLabel: string;
+    quantity: string;
+  }>;
 };
 
 type AllocationCell = {
@@ -137,6 +154,8 @@ function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[])
         unitName: line.unitName,
         stockQty: parseQuantity(inventoryItem?.availableQty),
         incomingQty: parseQuantity(inventoryItem?.expectedQty),
+        allocatedQty: 0,
+        reservationSummaries: [],
         isStandalone,
       });
     });
@@ -447,16 +466,62 @@ export function SalesAllocationTable({
     () => getAllocatorProducts(orders, inventory),
     [orders, inventory]
   );
+  const poolParams = useMemo(() => {
+    const params = new URLSearchParams();
+    allProducts.forEach((product) => params.append("itemId", product.itemId));
+    return params.toString();
+  }, [allProducts]);
+  const { data: allocationPools = [] } = useQuery({
+    queryKey: ["allocation-pools", poolParams],
+    enabled: poolParams.length > 0,
+    queryFn: () =>
+      apiJson<AllocationPoolRow[]>(`/api/allocation/pools?${poolParams}`, {
+        fallbackError: "Failed to fetch allocation pools.",
+      }),
+    initialData: [] as AllocationPoolRow[],
+  });
+  const productsWithPools = useMemo(() => {
+    const poolsByItemId = new Map(
+      allocationPools.map((pool) => [pool.itemId, pool])
+    );
+    return allProducts.map((product) => {
+      const pool = poolsByItemId.get(product.itemId);
+      if (!pool) return product;
+      return {
+        ...product,
+        stockQty: parseQuantity(pool.stockQty),
+        incomingQty: parseQuantity(pool.incomingQty),
+        allocatedQty: parseQuantity(pool.allocatedQty),
+        reservationSummaries: [
+          ...pool.assignments.map(
+            (assignment) =>
+              `${compactQuantity(parseQuantity(assignment.quantity))} ${assignment.demandLabel}`
+          ),
+          ...pool.reservations
+            .filter(
+              (reservation) =>
+                !pool.assignments.some(
+                  (assignment) => assignment.demandLabel === reservation.demandLabel
+                )
+            )
+            .map(
+              (reservation) =>
+                `${compactQuantity(parseQuantity(reservation.quantity))} reserved ${reservation.demandLabel}`
+            ),
+        ],
+      };
+    });
+  }, [allProducts, allocationPools]);
   const orderedProducts = useMemo(
-    () => applyProductOrder(allProducts, productOrder),
-    [allProducts, productOrder]
+    () => applyProductOrder(productsWithPools, productOrder),
+    [productsWithPools, productOrder]
   );
   const visibleProducts = useMemo(
     () =>
       orderedProducts.filter((product) => !hiddenProductIdSet.has(product.itemId)),
     [orderedProducts, hiddenProductIdSet]
   );
-  const allRows = useMemo(() => buildRows(orders, allProducts), [orders, allProducts]);
+  const allRows = useMemo(() => buildRows(orders, productsWithPools), [orders, productsWithPools]);
   const rows = useMemo(
     () => getFilteredRows(allRows, search),
     [allRows, search]
@@ -527,7 +592,7 @@ export function SalesAllocationTable({
 
   function moveColumn(productId: string, direction: -1 | 1) {
     setProductOrder((current) => {
-      const ordered = applyProductOrder(allProducts, current);
+      const ordered = applyProductOrder(productsWithPools, current);
       const product = ordered.find((entry) => entry.itemId === productId);
       if (!product) return current;
       const familyProducts = ordered.filter(
@@ -908,7 +973,12 @@ function CoverageHeader({
   const coverageTooltip = [
     `Pool ${compactQuantity(coverage.pool)} = stock ${compactQuantity(coverage.stock)}`,
     `+ MO ${compactQuantity(coverage.incoming)}.`,
+    `Assigned ${compactQuantity(coverage.product.allocatedQty)}.`,
     `Need ${compactQuantity(coverage.demand)}.`,
+    ...coverage.product.reservationSummaries.slice(0, 3),
+    coverage.product.reservationSummaries.length > 3
+      ? `+${coverage.product.reservationSummaries.length - 3} more.`
+      : null,
   ].join(" ");
 
   return (

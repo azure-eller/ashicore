@@ -2295,18 +2295,11 @@ function allocationSourceKey(sourceType: string, sourceId: string | null) {
 async function buildConfirmationAllocationPlanInTx(
   tx: Tx,
   orgId: string,
-  orders: DraftOrderConfirmationPayload[],
-  itemsById: Map<string, SalesItemValidationRow>
+  orders: DraftOrderConfirmationPayload[]
 ): Promise<ConfirmationAllocationPlan> {
   const demandLines: ConfirmationAllocationPlan["demandLines"] = [];
   const reservationLines: ConfirmationAllocationPlan["reservationLines"] = [];
   const unmanagedLines: PreparedOrderLineBase[] = [];
-  const unmanagedAvailableByItem = new Map(
-    [...itemsById.entries()].map(([itemId, item]) => [
-      itemId,
-      Math.max(0, parseFloat(item.availableQty)),
-    ])
-  );
   const modelByItemId = new Map<
     string,
     Awaited<ReturnType<typeof getSalesAllocationReadModelForItemInTx>>
@@ -2328,19 +2321,6 @@ async function buildConfirmationAllocationPlanInTx(
 
       if (!line.allocationManagedAt) {
         unmanagedLines.push(line);
-        const availableQty = unmanagedAvailableByItem.get(line.itemId) ?? 0;
-        const reservationQty = Math.min(quantity, availableQty);
-        if (reservationQty > 0) {
-          reservationLines.push({
-            salesOrderLineId: line.salesOrderLineId,
-            itemId: line.itemId,
-            quantity: roundQuantity(reservationQty),
-          });
-        }
-        unmanagedAvailableByItem.set(
-          line.itemId,
-          Math.max(0, roundQuantity(availableQty - quantity))
-        );
         continue;
       }
 
@@ -7118,7 +7098,7 @@ export async function confirmSalesOrder(
       { lockItems: true }
     );
     const [order] = orders;
-    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders, itemsById);
+    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders);
 
     if (!confirmOversell) {
       const oversell = await buildOversellWarning(plan.unmanagedLines, itemsById);
@@ -7221,7 +7201,7 @@ export async function bulkConfirmSalesOrders(
       return result;
     }
 
-    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders, itemsById);
+    const plan = await buildConfirmationAllocationPlanInTx(tx, orgId, orders);
 
     if (!payload.confirmOversell) {
       const bulkOversell = await buildBulkOversellWarning(
