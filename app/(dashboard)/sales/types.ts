@@ -243,6 +243,7 @@ export type SalesOrderListLine = {
   itemId: string;
   masterName: string;
   attrs: string[];
+  itemSku?: string | null;
   quantity: string;
   shippedQuantity?: string;
   remainingQty?: string;

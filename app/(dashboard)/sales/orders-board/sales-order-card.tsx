@@ -2,14 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  AlertCircleIcon,
   Calendar03Icon,
-  CheckmarkCircle02Icon,
   Delete02Icon,
-  DeliveryTruck02Icon,
   Factory01Icon,
   Copy01Icon,
   MoreVerticalIcon,
@@ -17,7 +15,6 @@ import {
   PackageIcon,
   PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
-import { KanbanItemHandle } from "@/components/reui/kanban";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -33,14 +30,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { inferItemVisual, ItemSprite } from "@/components/inventory-visuals";
 import { apiJson } from "@/lib/client/api";
 import { cn } from "@/lib/utils";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
-import type { SalesOrderListRow } from "../types";
+import type { SalesLinkedManufacturingOrder, SalesOrderListRow } from "../types";
+import { AllocationSheet } from "../allocation-sheet";
 import { SalesOrderCardExpanded } from "./sales-order-card-expanded";
 import {
   deriveSalesOrderLane,
-  progressPercent,
   readSalesOrderNumber,
   type SalesOrderLaneId,
 } from "./sales-order-lane-model";
@@ -82,6 +80,67 @@ function OrderNotesPreview({
   );
 }
 
+function LineItemSprites({
+  lines,
+}: {
+  lines: SalesOrderListRow["lines"];
+}) {
+  const visibleLines = lines.slice(0, 3);
+
+  if (visibleLines.length === 0) return null;
+
+  return (
+    <div
+      className="flex w-11 shrink-0 flex-col gap-1.5"
+      aria-label="Order line allocation preview"
+    >
+      {visibleLines.map((line, index) => (
+        <LineItemSprite key={line.id ?? `${line.itemId}:${index}`} line={line} />
+      ))}
+    </div>
+  );
+}
+
+function LineItemSprite({
+  line,
+}: {
+  line: SalesOrderListRow["lines"][number];
+}) {
+  const visual = inferItemVisual({
+    itemType: "product",
+    name: line.masterName,
+    sku: line.itemSku,
+    unitName: line.unitName,
+  });
+  const allocation = getLineSpriteAllocation(line);
+
+  return (
+    <div
+      className="relative flex size-10 items-center justify-center overflow-visible"
+      data-testid="sales-order-line-sprite"
+      title={`${line.masterName}: ${allocation}`}
+      aria-label={`${line.masterName}: ${allocation} allocated`}
+    >
+      <ItemSprite
+        kind={visual.kind}
+        color={visual.color}
+        size="xs"
+        className="size-10"
+      />
+      <span className="absolute -right-1.5 -top-1 inline-flex min-w-5 items-center justify-center whitespace-nowrap rounded-full border bg-background px-1 py-0.5 text-[9px] font-semibold leading-none text-foreground shadow-xs">
+        {allocation}
+      </span>
+    </div>
+  );
+}
+
+function getLineSpriteAllocation(line: SalesOrderListRow["lines"][number]) {
+  const allocated = formatQuantity(line.allocatedQty ?? "0") ?? "0";
+  const demand = formatQuantity(line.quantity) ?? line.quantity;
+
+  return `${allocated}/${demand}`;
+}
+
 export function SalesOrderCard({
   order,
   expanded,
@@ -95,16 +154,16 @@ export function SalesOrderCard({
   onToggleExpanded: () => void;
   onDelete: () => void;
 }) {
+  const [allocationLineId, setAllocationLineId] = useState<string | null>(null);
   const lane = deriveSalesOrderLane(order);
   const canEdit = order.deletedAt == null && ["draft", "confirmed"].includes(order.status);
+  const canManageAllocations =
+    order.deletedAt == null &&
+    ["draft", "confirmed", "partially_shipped"].includes(order.status);
+  const allocationShortcutLineId = getAllocationShortcutLineId(order);
   const isCompact = density === "compact";
   const visibleLineCount = order.lines.length;
   const laneCopy = getCardLaneCopy(order, lane, visibleLineCount);
-  const allocatedQty = readSalesOrderNumber(order.fulfillmentSummary.allocatedQty);
-  const remainingQty = readSalesOrderNumber(order.fulfillmentSummary.remainingQty);
-  const allocationPercent = progressPercent(allocatedQty, remainingQty);
-  const showFulfillmentLabel =
-    lane !== "draft" && lane !== "supply_needed" && lane !== "shipped";
 
   return (
     <Card
@@ -122,7 +181,7 @@ export function SalesOrderCard({
         }
       }}
       className={cn(
-        "w-full min-w-0 max-w-full gap-0 overflow-hidden rounded-lg border-l-2 py-0 shadow-xs transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "w-full min-w-0 max-w-full !gap-0 overflow-hidden rounded-lg border-l-2 !py-0 shadow-xs transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         lane === "draft" && "border-l-muted-foreground/35",
         lane === "supply_needed" && "border-l-warning",
         lane === "in_production" && "border-l-primary",
@@ -132,20 +191,34 @@ export function SalesOrderCard({
         expanded && "shadow-md ring-2 ring-primary/45"
       )}
     >
-      <CardHeader className={cn("bg-card", isCompact ? "px-2.5 py-2.5" : "px-3 py-3")}>
+      <AllocationSheet
+        lineId={allocationLineId}
+        open={allocationLineId != null}
+        onOpenChange={(open) => {
+          if (!open) setAllocationLineId(null);
+        }}
+        onTargetLineChange={setAllocationLineId}
+      />
+      <CardHeader
+        className={cn(
+          "bg-card",
+          expanded
+            ? isCompact
+              ? "px-2.5 py-2.5"
+              : "px-3 py-3"
+            : "px-2.5 py-2"
+        )}
+      >
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0 flex-1 text-left">
             <div className="flex min-w-0 items-center gap-2">
-              <DragHandle
-                orderNumber={order.orderNumber}
-                lane={lane}
-                icon={getCardLaneIcon(lane)}
-              />
+              <LineItemSprites lines={order.lines} />
               <div className="min-w-0 flex-1">
                 <Link
-                  href={`/sales/customers/${order.customerId}`}
+                  href={`/sales/orders/${order.id}`}
                   prefetch={false}
-                  aria-label={`Customer ${order.customerName}`}
+                  draggable={false}
+                  aria-label={`Open ${order.orderNumber} for ${order.customerName}`}
                   className="block max-w-full rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
@@ -169,12 +242,12 @@ export function SalesOrderCard({
                   <span className="truncate text-sm font-semibold">
                     {formatPrice(order.totalAmount) ?? "\u2014"}
                   </span>
-                  {lane === "draft" ? (
+                  {order.status === "draft" ? (
                     <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                       Draft
                     </Badge>
                   ) : null}
-                  {order.customerProjectId ? (
+                  {expanded && order.customerProjectId ? (
                     <Link
                       href={`/sales/customers/${order.customerId}?project=${order.customerProjectId}#projects`}
                       prefetch={false}
@@ -186,61 +259,44 @@ export function SalesOrderCard({
                     </Link>
                   ) : null}
                 </div>
+                {!expanded ? (
+                  <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                    <HugeiconsIcon icon={Calendar03Icon} strokeWidth={2} className="size-3 shrink-0" />
+                    <span className="truncate">{laneCopy.dateLabel}</span>
+                    <OrderNotesPreview notes={order.notes} orderNumber={order.orderNumber} />
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {canManageAllocations && allocationShortcutLineId ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Manage allocation for ${order.orderNumber}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setAllocationLineId(allocationShortcutLineId);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <HugeiconsIcon icon={PackageIcon} strokeWidth={2} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Manage allocation.</TooltipContent>
+              </Tooltip>
+            ) : null}
             <OrderActionsMenu order={order} canEdit={canEdit} onDelete={onDelete} />
           </div>
         </div>
       </CardHeader>
       <CardContent className="px-0 pb-0">
         {!expanded ? (
-          <>
-            <div
-              className="alloc-progress-track mx-2 h-0.5 rounded-full"
-              aria-label={`${allocationPercent}% allocated`}
-            >
-              <div
-                className={cn(
-                  "h-full rounded-full transition-[width]",
-                  getCardProgressClassName(lane)
-                )}
-                style={{ width: `${allocationPercent}%` }}
-              />
-            </div>
-            <div className={cn("flex flex-col", isCompact ? "gap-1.5 px-2.5 py-2" : "gap-2 px-3 py-2.5")}>
-              {showFulfillmentLabel ? (
-                <div className="min-w-0 text-xs">
-                  <span
-                    className={cn(
-                      "block truncate font-medium",
-                      laneCopy.toneClassName
-                    )}
-                  >
-                    {laneCopy.fulfillmentLabel}
-                  </span>
-                </div>
-              ) : null}
-              <div className="flex items-end justify-between gap-2 text-xs text-muted-foreground">
-                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="inline-flex min-w-0 items-center gap-1">
-                    <HugeiconsIcon icon={Calendar03Icon} strokeWidth={2} className="size-3" />
-                    <span className="truncate">{laneCopy.dateLabel}</span>
-                  </span>
-                  {laneCopy.secondaryLabel ? (
-                    <span className={cn("font-medium", laneCopy.secondaryToneClassName)}>
-                      {laneCopy.secondaryLabel}
-                    </span>
-                  ) : null}
-                  {order.openManufacturingOrderCount > 0 ? (
-                    <LinkedManufacturingOrdersMenu order={order} />
-                  ) : null}
-                </div>
-                <OrderNotesPreview notes={order.notes} orderNumber={order.orderNumber} />
-              </div>
-            </div>
-          </>
+          <CollapsedManufacturingProgress order={order} />
         ) : null}
         {/*
           Keep the expanded fulfillment console visually separate from the compact
@@ -271,6 +327,16 @@ export function SalesOrderCard({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function getAllocationShortcutLineId(order: SalesOrderListRow) {
+  return (
+    order.lines.find(
+      (line) => line.id && readSalesOrderNumber(line.remainingQty) > 0
+    )?.id ??
+    order.lines.find((line) => line.id)?.id ??
+    null
   );
 }
 
@@ -321,6 +387,80 @@ function LinkedManufacturingOrdersMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function CollapsedManufacturingProgress({
+  order,
+}: {
+  order: SalesOrderListRow;
+}) {
+  if (order.openManufacturingOrderCount === 0) return null;
+
+  const summary = getManufacturingProgressSummary(order.openManufacturingOrders);
+
+  return (
+    <div
+      className="px-2.5 pb-2"
+      data-testid="sales-order-mo-progress"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <LinkedManufacturingOrdersMenu order={order} />
+        <div
+          className="alloc-progress-track h-1.5 min-w-10 flex-1 rounded-full"
+          aria-label={summary.ariaLabel}
+        >
+          <div
+            className={cn("h-full rounded-full transition-[width]", summary.progressClassName)}
+            style={{ width: `${summary.percent}%` }}
+          />
+        </div>
+        <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">
+          {summary.label}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function getManufacturingProgressSummary(
+  orders: SalesLinkedManufacturingOrder[]
+) {
+  const total = orders.length;
+  const released = orders.filter((order) => order.status === "released").length;
+  const draft = orders.filter((order) => order.status === "draft").length;
+  const percent =
+    total === 0
+      ? 0
+      : Math.round(
+          ((released * 0.72 + draft * 0.28) / total) * 100
+        );
+
+  if (released === total) {
+    return {
+      label: "Released",
+      percent,
+      progressClassName: "alloc-progress-fill-held",
+      ariaLabel: `${total} manufacturing order${total === 1 ? "" : "s"} released`,
+    };
+  }
+
+  if (draft === total) {
+    return {
+      label: "Draft",
+      percent,
+      progressClassName: "alloc-progress-fill-disabled",
+      ariaLabel: `${total} manufacturing order${total === 1 ? "" : "s"} in draft`,
+    };
+  }
+
+  return {
+    label: `${released} released`,
+    percent,
+    progressClassName: "alloc-progress-fill-held",
+    ariaLabel: `${released} released and ${draft} draft manufacturing orders`,
+  };
 }
 
 function OrderActionsMenu({
@@ -391,23 +531,6 @@ function OrderActionsMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function getCardLaneIcon(lane: SalesOrderLaneId) {
-  if (lane === "supply_needed") return AlertCircleIcon;
-  if (lane === "in_production") return Factory01Icon;
-  if (lane === "ready_to_ship") return CheckmarkCircle02Icon;
-  if (lane === "shipped") return DeliveryTruck02Icon;
-  return PackageIcon;
-}
-
-function getCardProgressClassName(lane: SalesOrderLaneId) {
-  if (lane === "ready_to_ship") return "alloc-progress-fill-supply";
-  if (lane === "shipped") return "alloc-progress-fill-drop";
-  if (lane === "supply_needed") return "alloc-progress-fill-allocated";
-  if (lane === "in_production") return "alloc-progress-fill-held";
-  if (lane === "cancelled") return "alloc-progress-fill-short";
-  return "alloc-progress-fill-disabled";
 }
 
 function getCardLaneCopy(
@@ -483,38 +606,4 @@ function getCardLaneCopy(
     toneClassName: shortQty > 0 ? "text-warning" : "text-muted-foreground",
     secondaryToneClassName: "text-destructive",
   };
-}
-
-function DragHandle({
-  orderNumber,
-  lane,
-  icon,
-}: {
-  orderNumber: string;
-  lane: SalesOrderLaneId;
-  icon: typeof PackageIcon;
-}) {
-  return (
-    <KanbanItemHandle asChild>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        aria-label={`Move ${orderNumber}`}
-        data-testid="sales-order-drag-handle"
-        onClick={(event) => event.stopPropagation()}
-        className={cn(
-          "size-7 rounded-md",
-          lane === "ready_to_ship" && "bg-success/20 text-success hover:bg-success/25",
-          lane === "supply_needed" && "bg-warning/20 text-warning hover:bg-warning/25",
-          lane === "in_production" && "bg-primary/15 text-primary hover:bg-primary/20",
-          lane === "shipped" && "bg-info/20 text-info hover:bg-info/25",
-          lane === "cancelled" && "bg-destructive/15 text-destructive hover:bg-destructive/20",
-          lane === "draft" && "bg-muted text-muted-foreground hover:bg-muted"
-        )}
-      >
-        <HugeiconsIcon icon={icon} strokeWidth={2} className="size-3.5" />
-      </Button>
-    </KanbanItemHandle>
-  );
 }

@@ -773,11 +773,13 @@ test.describe("Sales write-path smoke", () => {
     await filterList(page, "Search orders", order.orderNumber);
     const listRow = salesOrderCard(page, order.orderNumber);
     await expect(
-      listRow.getByRole("link", { name: new RegExp(`Customer ${customerName}`) })
-    ).toBeVisible();
+      listRow.getByRole("link", {
+        name: `Open ${order.orderNumber} for ${customerName}`,
+      })
+    ).toHaveAttribute("href", `/sales/orders/${orderId}`);
     await expect(
       listRow.getByRole("link", { name: new RegExp(`Example Construction ${ts}`) })
-    ).toBeVisible();
+    ).toHaveCount(0);
     const notesIndicator = listRow.getByTestId("sales-order-notes-indicator");
     await expect(notesIndicator).toBeVisible();
     await expect(listRow.getByText(orderNote)).toHaveCount(0);
@@ -976,10 +978,22 @@ test.describe("Sales write-path smoke", () => {
 
     const shortCard = salesOrderCard(page, shortOrder.orderNumber);
     await expect(shortCard).toBeVisible();
+    const customerOrderLink = shortCard.getByRole("link", {
+      name: `Open ${shortOrder.orderNumber} for ${customerName}`,
+    });
+    await expect(customerOrderLink).toHaveAttribute(
+      "href",
+      `/sales/orders/${shortOrder.id}`
+    );
+    await expect(
+      shortCard
+        .locator(`a[href="/sales/customers/${customerId}"]`)
+        .filter({ hasText: customerName })
+    ).toHaveCount(0);
 
     await dragToLane({
       page,
-      source: shortCard.getByTestId("sales-order-drag-handle"),
+      source: shortCard,
       targetLane: "in_production",
     });
     const createMoDialog = page.getByRole("dialog", {
@@ -994,7 +1008,7 @@ test.describe("Sales write-path smoke", () => {
 
     await dragToLane({
       page,
-      source: shortCard.getByTestId("sales-order-drag-handle"),
+      source: shortCard,
       targetLane: "ready_to_ship",
     });
     const prepareDialog = page.getByRole("dialog", {
@@ -1496,11 +1510,10 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", tokenOrder.orderNumber);
-    await expandSalesOrderCard(page, tokenOrder.orderNumber);
-
-    await expect(salesOrderLineRow(page, tokenMaterialName)).toBeVisible();
-    await salesOrderLineRow(page, tokenMaterialName)
-      .getByRole("button", { name: `Manage allocation for ${tokenMaterialName}` })
+    const tokenCard = salesOrderCard(page, tokenOrder.orderNumber);
+    await expect(tokenCard).toBeVisible();
+    await tokenCard
+      .getByRole("button", { name: `Manage allocation for ${tokenOrder.orderNumber}` })
       .click();
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });

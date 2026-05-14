@@ -4518,6 +4518,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               itemId: line.itemId,
               masterName: line.masterName,
               attrs: line.attrs,
+              itemSku: line.itemSku,
               quantity: line.quantity,
               shippedQuantity:
                 allocationDemandByLineId.get(line.salesOrderLineId)?.shippedQty ?? "0",

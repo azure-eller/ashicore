@@ -711,7 +711,7 @@ test.describe("Sales order flow", () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await dragToCenter(
         page,
-        draftCard.getByTestId("sales-order-drag-handle"),
+        draftCard,
         supplyNeededHeading
       );
       if (await confirmDropDialog.isVisible({ timeout: 1_500 }).catch(() => false)) {
@@ -998,7 +998,7 @@ test.describe("Sales order flow", () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await dragToCenter(
         page,
-        confirmedRow.getByTestId("sales-order-drag-handle"),
+        confirmedRow,
         inProductionHeading
       );
       if (await createMoDialog.isVisible({ timeout: 1_500 }).catch(() => false)) {

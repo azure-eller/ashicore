@@ -92,7 +92,7 @@ export function SalesOrderKanban({
         <KanbanBoard
           className="grid w-full gap-3"
           style={{
-            gridTemplateColumns: `repeat(${visibleLanes.length}, minmax(17rem, 1fr))`,
+            gridTemplateColumns: `repeat(${visibleLanes.length}, minmax(17rem, 22rem))`,
             minWidth: `calc(${visibleLanes.length} * 17rem + ${Math.max(
               0,
               visibleLanes.length - 1
