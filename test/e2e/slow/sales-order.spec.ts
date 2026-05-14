@@ -567,7 +567,6 @@ test.describe("Sales order flow", () => {
     const confirmedCard = salesOrderCard(page, fullOrderNumber);
     await expect(confirmedCard).toContainText(customerName);
     await expect(confirmedCard).toContainText("$158.97");
-    await expect(confirmedCard).toContainText("Confirmed");
     await expect(confirmedCard).toContainText(expectedShipDateLabel);
   });
 

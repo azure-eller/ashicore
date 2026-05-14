@@ -534,7 +534,7 @@ test.describe("Sales allocation manager slow flow", () => {
       });
   });
 
-  test("unmanaged confirmation warns before taking draft stock allocations", async ({
+  test("confirming open orders leaves existing allocations in place", async ({
     db,
   }) => {
     const customerId = await createCustomerFixture("Slow allocation takeover customer");
@@ -571,24 +571,18 @@ test.describe("Sales allocation manager slow flow", () => {
     );
     expect(allocationResponse.status).toBe(200);
 
-    const blockedConfirm = await confirmOrder(unmanagedOrderId);
-    expect(blockedConfirm.status).toBe(409);
-    expect(blockedConfirm.body?.error).toMatch(/take stock allocated to draft orders/i);
-    expect(blockedConfirm.body?.draftAllocationTakeover?.allocations).toMatchObject([
-      {
-        salesOrderLineId: draftHeldLine.id,
-        itemId: item.id,
-        quantity: 8,
-      },
-    ]);
-
-    const confirmedWithTakeover = await confirmOrder(unmanagedOrderId, {
-      confirmDraftAllocationTakeover: true,
-    });
-    expect(confirmedWithTakeover.status).toBe(200);
+    const confirmedOpenOrder = await confirmOrder(unmanagedOrderId);
+    expect(confirmedOpenOrder.status).toBe(200);
 
     const draftHeldAllocations = await getActiveAllocations(db, draftHeldLine.id);
-    expect(draftHeldAllocations.every((row) => row.status !== "active")).toBe(true);
+    expect(draftHeldAllocations).toMatchObject([
+      {
+        sourceType: "inventory_lot",
+        sourceId: lotId,
+        quantity: "8.0000",
+        status: "active",
+      },
+    ]);
 
     await expect
       .poll(async () => {
@@ -602,11 +596,11 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "0.0000",
-        demand: "10.0000",
-        shortage: "10.0000",
-        reservation: "0",
-        demandSummary: "10.0000",
+        committed: "8.0000",
+        demand: "18.0000",
+        shortage: "8.0000",
+        reservation: "8.0000",
+        demandSummary: "18.0000",
       });
 
     const draftHeldConfirm = await confirmOrder(draftHeldOrderId);
@@ -624,10 +618,10 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "0.0000",
+        committed: "8.0000",
         demand: "18.0000",
-        shortage: "18.0000",
-        reservation: "0",
+        shortage: "8.0000",
+        reservation: "8.0000",
         demandSummary: "18.0000",
       });
 
