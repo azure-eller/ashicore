@@ -56,11 +56,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
-import {
-  EditableLineGridCell,
-  EditableLineGridRemoveButton,
-  EditableLineGridRow,
-} from "@/components/editable-line-grid";
+import { EditableLineGridCell } from "@/components/editable-line-grid";
 import {
   EditableLineItems,
 } from "@/components/editable-line-items";
@@ -92,10 +88,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AutosaveStatus } from "@/components/autosave-status";
 import { TooltipHeader } from "@/components/tooltip-header";
-import {
-  SortableDragHandle,
-  useSortableReorderItem,
-} from "@/components/sortable-reorder";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
@@ -139,9 +131,9 @@ type PurchaseOrderFormAttachment = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "2.25rem 2.25rem minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(8.5rem, 0.8fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr) minmax(6.5rem, 0.55fr) minmax(6.5rem, 0.55fr)";
+  "minmax(14rem, 1.4fr) minmax(5.5rem, 0.5fr) minmax(7rem, 0.65fr) minmax(7.5rem, 0.65fr) minmax(8.5rem, 0.8fr) minmax(12rem, 1fr) minmax(7rem, 0.6fr) minmax(6.5rem, 0.5fr) minmax(6.5rem, 0.55fr) minmax(6.5rem, 0.55fr)";
 const PURCHASE_ORDER_COST_GRID_COLUMNS =
-  "2.25rem minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr) 2.25rem";
+  "minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr)";
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
 const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
 const EMPTY_DELIVERY_ADDRESS = {
@@ -1292,8 +1284,6 @@ export function PurchaseOrderForm({
                 emptyMessage="No materials yet."
                 error={linesError}
                 headers={[
-                  <span key="actions" />,
-                  <span key="reorder" />,
                   "Material",
                   <TooltipHeader
                     key="ordered-qty"
@@ -1321,7 +1311,7 @@ export function PurchaseOrderForm({
                   "Allocated",
                   "Landed Total",
                 ]}
-                renderRow={({ field, index, remove }) => (
+                renderRow={({ field, index }) => (
                   <PurchaseOrderLineRow
                     key={field.id}
                     lineKey={field.id}
@@ -1362,7 +1352,6 @@ export function PurchaseOrderForm({
                         }
                       );
                     }}
-                    onRemove={remove}
                   />
                 )}
                 footer={
@@ -1428,22 +1417,19 @@ export function PurchaseOrderForm({
                 emptyMessage="No additional costs yet."
                 error={additionalCostsError}
                 headers={[
-                  <span key="reorder" />,
                   "Cost",
                   "Reference",
                   "Distribution",
                   "Accounting Account",
                   "Amount",
-                  <span key="actions" />,
                 ]}
-                renderRow={({ field, index, remove }) => (
+                renderRow={({ field, index }) => (
                   <PurchaseOrderAdditionalCostRow
                     key={field.id}
                     lineKey={field.id}
                     index={index}
                     control={form.control}
                     xeroAccounts={xeroAccounts}
-                    onRemove={remove}
                   />
                 )}
                 footer={
@@ -1708,7 +1694,6 @@ function PurchaseOrderLineRow({
   onEditDeliveryAddress,
   landedCost,
   onMaterialChange,
-  onRemove,
 }: {
   lineKey: string;
   index: number;
@@ -1728,7 +1713,6 @@ function PurchaseOrderLineRow({
   onEditDeliveryAddress: (address: DeliveryAddressOption) => void;
   landedCost: LandedCostLineResult | undefined;
   onMaterialChange: (materialId: string) => void;
-  onRemove: () => void;
 }) {
   const line = useWatch({
     control,
@@ -1736,26 +1720,9 @@ function PurchaseOrderLineRow({
   });
 
   const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
-  const { attributes, listeners, setNodeRef, style } =
-    useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style}>
-      <EditableLineGridCell>
-        <EditableLineGridRemoveButton
-          onClick={onRemove}
-          label={`Remove line ${index + 1}`}
-          className="opacity-100"
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell align="center">
-        <SortableDragHandle
-          attributes={attributes}
-          listeners={listeners}
-          label={`Reorder line ${index + 1}`}
-        />
-      </EditableLineGridCell>
+    <>
       <EditableLineGridCell>
         <Controller
           control={control}
@@ -1917,7 +1884,7 @@ function PurchaseOrderLineRow({
         {moneyLabel(landedCost?.landedLineTotal)}
       </EditableLineGridCell>
 
-    </EditableLineGridRow>
+    </>
   );
 }
 
@@ -2026,27 +1993,14 @@ function PurchaseOrderAdditionalCostRow({
   index,
   control,
   xeroAccounts,
-  onRemove,
 }: {
   lineKey: string;
   index: number;
   control: Control<PurchaseOrderFormValues>;
   xeroAccounts: XeroAccountOption[];
-  onRemove: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, style } =
-    useSortableReorderItem(lineKey);
-
   return (
-    <EditableLineGridRow ref={setNodeRef} style={style}>
-      <EditableLineGridCell align="center">
-        <SortableDragHandle
-          attributes={attributes}
-          listeners={listeners}
-          label={`Reorder additional cost ${index + 1}`}
-        />
-      </EditableLineGridCell>
-
+    <>
       <EditableLineGridCell>
         <Controller
           control={control}
@@ -2195,12 +2149,6 @@ function PurchaseOrderAdditionalCostRow({
         />
       </EditableLineGridCell>
 
-      <EditableLineGridCell>
-        <EditableLineGridRemoveButton
-          onClick={onRemove}
-          label={`Remove additional cost ${index + 1}`}
-        />
-      </EditableLineGridCell>
-    </EditableLineGridRow>
+    </>
   );
 }

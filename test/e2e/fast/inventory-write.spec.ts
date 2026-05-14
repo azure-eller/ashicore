@@ -140,7 +140,8 @@ test.describe("Inventory write-path smoke", () => {
     await componentInput.fill(materialName);
     await page.getByRole("option", { name: materialName }).click();
     await page
-      .getByRole("row", { name: new RegExp(materialName) })
+      .getByTestId("bom-row")
+      .first()
       .locator("input[inputmode='decimal']")
       .fill("1.25");
 

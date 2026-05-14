@@ -5,18 +5,10 @@ import { useWatch, Controller, type Control } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
-import {
-  EditableLineGridCell,
-  EditableLineGridRemoveButton,
-  EditableLineGridRow,
-} from "@/components/editable-line-grid";
+import { EditableLineGridCell } from "@/components/editable-line-grid";
 import {
   EditableLineItems,
 } from "@/components/editable-line-items";
-import {
-  SortableDragHandle,
-  useSortableReorderItem,
-} from "@/components/sortable-reorder";
 import type {
   InsertItemFormValues,
   UpdateItemFormValues,
@@ -33,7 +25,7 @@ type AvailableComponent = {
 type ItemFormValues = InsertItemFormValues | UpdateItemFormValues;
 
 const BOM_LINE_GRID_COLUMNS =
-  "2.25rem minmax(14rem, 1.4fr) minmax(6rem, 0.65fr) minmax(6.5rem, 0.6fr) minmax(5.5rem, 0.5fr) 2.25rem";
+  "minmax(14rem, 1.4fr) minmax(6rem, 0.65fr) minmax(6.5rem, 0.6fr) minmax(5.5rem, 0.5fr)";
 
 const blankBomLine = {
   componentId: "",
@@ -83,14 +75,12 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
         addLabel="Add ingredient"
         emptyMessage="No ingredients yet."
         headers={[
-          <span key="reorder" />,
           "Component",
           isBatch ? "Qty / Batch" : "Qty",
           "Min Age",
           "Unit",
-          <span key="actions" />,
         ]}
-        renderRow={({ field, index, remove }) => (
+        renderRow={({ field, index }) => (
           <BomRow
             key={field.id}
             lineKey={field.id}
@@ -98,7 +88,6 @@ export function BomEditor({ control, availableComponents, manufacturingMode = "d
             control={control}
             componentOptions={componentOptions}
             componentMap={componentMap}
-            onRemove={remove}
           />
         )}
       />
@@ -113,39 +102,18 @@ function BomRow({
   control,
   componentOptions,
   componentMap,
-  onRemove,
 }: {
   lineKey: string;
   index: number;
   control: Control<ItemFormValues>;
   componentOptions: Array<AvailableComponent & { unitName: string }>;
   componentMap: Map<string, AvailableComponent>;
-  onRemove: () => void;
 }) {
   const componentId = useWatch({ control, name: `bom.${index}.componentId` });
   const selectedComponent = componentMap.get(componentId ?? "");
-  const { attributes, listeners, setNodeRef, style } =
-    useSortableReorderItem(lineKey);
 
   return (
-    <EditableLineGridRow
-      ref={setNodeRef}
-      data-testid="bom-row"
-      style={style}
-      aria-label={[
-        selectedComponent?.name,
-        selectedComponent?.unit,
-      ]
-        .filter((part): part is string => Boolean(part))
-        .join(" ")}
-    >
-      <EditableLineGridCell align="center">
-        <SortableDragHandle
-          attributes={attributes}
-          listeners={listeners}
-          label={`Reorder ingredient ${index + 1}`}
-        />
-      </EditableLineGridCell>
+    <>
       <EditableLineGridCell>
         <Controller
           name={`bom.${index}.componentId`}
@@ -243,9 +211,6 @@ function BomRow({
           {selectedComponent?.unit ?? "\u2014"}
         </div>
       </EditableLineGridCell>
-      <EditableLineGridCell>
-        <EditableLineGridRemoveButton onClick={onRemove} />
-      </EditableLineGridCell>
-    </EditableLineGridRow>
+    </>
   );
 }

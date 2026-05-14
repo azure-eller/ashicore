@@ -15,11 +15,7 @@ import {
   CreateSection,
   CreateSidebarCard,
 } from "@/components/create-page";
-import {
-  EditableLineGridCell,
-  EditableLineGridRemoveButton,
-  EditableLineGridRow,
-} from "@/components/editable-line-grid";
+import { EditableLineGridCell } from "@/components/editable-line-grid";
 import {
   EditableLineItems,
 } from "@/components/editable-line-items";
@@ -76,7 +72,7 @@ type StocktakeFormValues = StocktakeCreatePayload & {
 };
 
 const STOCKTAKE_PREVIEW_GRID_COLUMNS =
-  "minmax(14rem,1.5fr) minmax(6rem,0.55fr) minmax(7rem,0.65fr) minmax(7.5rem,0.75fr) 2.25rem";
+  "minmax(14rem,1.5fr) minmax(6rem,0.55fr) minmax(7rem,0.65fr) minmax(7.5rem,0.75fr)";
 
 const blankPreviewLine: StocktakePreviewLine = {
   itemId: "",
@@ -406,7 +402,6 @@ export function StocktakeForm({
                   label="Available"
                   tooltip={STOCKTAKE_CURRENT_QTY_TOOLTIP}
                 />,
-                <span key="actions" />,
               ]}
               createLine={() => ({ ...blankPreviewLine })}
               isLineBlank={isBlankPreviewLine}
@@ -418,7 +413,7 @@ export function StocktakeForm({
                   ? "Choose at least one item for this stocktake."
                   : null
               }
-              renderRow={({ field, index, remove }) => (
+              renderRow={({ field, index }) => (
                 <StocktakePreviewRow
                   key={field.id}
                   lineKey={field.id}
@@ -427,7 +422,6 @@ export function StocktakeForm({
                   items={previewItems}
                   itemMap={previewItemMap}
                   selectedItemIds={selectedItemIds}
-                  onRemove={remove}
                 />
               )}
               footer={
@@ -454,7 +448,6 @@ function StocktakePreviewRow({
   items,
   itemMap,
   selectedItemIds,
-  onRemove,
 }: {
   lineKey: string;
   index: number;
@@ -462,7 +455,6 @@ function StocktakePreviewRow({
   items: StocktakePreviewItem[];
   itemMap: Map<string, StocktakePreviewItem>;
   selectedItemIds: string[];
-  onRemove: () => void;
 }) {
   const itemId = useWatch({
     control,
@@ -474,7 +466,7 @@ function StocktakePreviewRow({
   );
 
   return (
-    <EditableLineGridRow>
+    <>
       <EditableLineGridCell>
         <Controller
           name={`previewLines.${index}.itemId`}
@@ -520,12 +512,6 @@ function StocktakePreviewRow({
       <EditableLineGridCell className="font-mono text-sm tabular-nums">
         {item ? formatQuantity(item.currentQty) : "—"}
       </EditableLineGridCell>
-      <EditableLineGridCell>
-        <EditableLineGridRemoveButton
-          onClick={onRemove}
-          label={`Remove preview line ${index + 1}`}
-        />
-      </EditableLineGridCell>
-    </EditableLineGridRow>
+    </>
   );
 }

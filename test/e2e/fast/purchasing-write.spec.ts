@@ -155,7 +155,10 @@ test.describe("Purchasing write-path smoke", () => {
     await expect(page.getByPlaceholder("Search materials...")).toHaveCount(3);
     await page.locator('input[name="lines.1.quantityOrdered"]').fill("5");
 
-    await page.getByRole("button", { name: "Add cost" }).click();
+    await expect(page.locator('input[name="additionalCosts.0.reference"]')).toBeVisible();
+    await expect(
+      page.locator('input[name^="additionalCosts."][name$=".amount"]')
+    ).toHaveCount(1);
     await page
       .locator('input[name="additionalCosts.0.reference"]')
       .fill("Freight smoke");
