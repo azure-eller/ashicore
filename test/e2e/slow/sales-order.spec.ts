@@ -481,8 +481,8 @@ test.describe("Sales order flow", () => {
       page.locator("main").getByText("Confirmed", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
-    await expect(page.getByText(primaryProductName)).toBeVisible();
-    await expect(page.getByText(secondaryProductName)).toBeVisible();
+    await expect(page.getByText(primaryProductName, { exact: true })).toBeVisible();
+    await expect(page.getByText(secondaryProductName, { exact: true })).toBeVisible();
     await expect(page.getByText(expectedRequestedDateLabel)).toBeVisible();
     await expect(page.getByText("$158.97", { exact: true }).first()).toBeVisible();
     await expect(page.locator("table").first()).toContainText("$104.97");

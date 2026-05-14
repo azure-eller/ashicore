@@ -247,7 +247,9 @@ async function openAllocationManager(params: {
     .last();
   await expect(expandedLine).toBeVisible();
   await expandedLine
-    .getByRole("button", { name: `Manage allocation for ${itemName}` })
+    .getByRole("button", {
+      name: new RegExp(`^(Manage allocation for|Allocate) ${itemName}$`),
+    })
     .click();
 
   const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
