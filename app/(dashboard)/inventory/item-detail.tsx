@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -32,7 +37,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, CircleLock01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  CircleLock01Icon,
+  MoreVerticalIcon,
+} from "@hugeicons/core-free-icons";
 import { calcStock, ITEM_TYPE_SEGMENTS, itemDetailHref, type ItemType } from "@/app/(dashboard)/inventory/types";
 import {
   formatCost,
@@ -44,7 +53,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   AVAILABLE_QTY_TOOLTIP,
-  ACTUAL_MARGIN_TOOLTIP,
   BATCH_YIELD_TOOLTIP,
   BOM_QTY_PER_BATCH_TOOLTIP,
   BOM_QTY_PER_UNIT_TOOLTIP,
@@ -72,10 +80,6 @@ import {
   VARIANT_AXES_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatMinimumLotAgeRequirement } from "@/lib/bom/constraints";
-
-function formatMarginPercent(value: string | null | undefined) {
-  return value == null ? "\u2014" : `${value}%`;
-}
 
 export type ItemDetailTab = "overview" | "lots" | "recipe" | "movements";
 
@@ -166,7 +170,10 @@ interface ItemDetailProps {
     realizedMarginPercent: string | null;
     receivedAt: Date;
     allocations: Array<{
+      type: "sales_order" | "manufacturing_order";
       label: string;
+      contextLabel: string | null;
+      href: string;
       quantity: string;
     }>;
     dispositionBalances: Array<{
@@ -214,6 +221,15 @@ type DetailItem = ItemDetailProps["item"];
 type DetailLot = ItemDetailProps["lots"][number];
 type DetailMovement = ItemDetailProps["movements"][number];
 type DetailBomLine = NonNullable<ItemDetailProps["bom"]>[number];
+
+function toQuantity(value: string | null | undefined) {
+  const parsed = Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function quantityValue(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
 
 function formatUnit(item: Pick<DetailItem, "unitName" | "unitSize" | "unitUom">) {
   if (!item.unitName) return "\u2014";
@@ -776,16 +792,20 @@ function OverviewPanel({
 }
 
 function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
+  const visibleLots = lots.filter(
+    (lot) => toQuantity(lot.quantity) > 0 || lot.allocations.length > 0
+  );
+
   return (
     <SectionCard
       title="Lots"
       action={
         <Badge variant="secondary">
-          {lots.length} {lots.length === 1 ? "active lot" : "active lots"}
+          {visibleLots.length} {visibleLots.length === 1 ? "active lot" : "active lots"}
         </Badge>
       }
     >
-      {lots.length === 0 ? (
+      {visibleLots.length === 0 ? (
         <div className="p-4 text-sm text-muted-foreground">No lots recorded.</div>
       ) : (
         <Table>
@@ -795,119 +815,176 @@ function LotsPanel({ item, lots }: { item: DetailItem; lots: DetailLot[] }) {
                 <TooltipHeader label="Lot Number" tooltip={LOT_NUMBER_TOOLTIP} />
               </TableHead>
               <TableHead className="text-right">
-                <TooltipHeader label="Physical" tooltip={LOT_PHYSICAL_TOOLTIP} />
+                <TooltipHeader label="On Hand" tooltip={LOT_PHYSICAL_TOOLTIP} />
               </TableHead>
+              <TableHead className="text-right">Free</TableHead>
+              <TableHead>Claimed By</TableHead>
               <TableHead>
                 <TooltipHeader label="Disposition" tooltip={LOT_DISPOSITION_TOOLTIP} />
               </TableHead>
-              <TableHead>Allocation</TableHead>
               <TableHead className="text-right">
                 <TooltipHeader label="Cost / Unit" tooltip={LOT_UNIT_COST_TOOLTIP} />
               </TableHead>
-              <TableHead className="text-right">Sold</TableHead>
-              <TableHead className="text-right">Revenue</TableHead>
-              <TableHead className="text-right">COGS</TableHead>
-              <TableHead className="text-right">Profit</TableHead>
-              <TableHead className="text-right">
-                <TooltipHeader label="Actual Margin" tooltip={ACTUAL_MARGIN_TOOLTIP} />
-              </TableHead>
               <TableHead className="text-right">Received</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="w-10 text-right">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {lots.map((lot) => (
-              <TableRow key={lot.id}>
-                <TableCell className="font-mono">{lot.lotNumber}</TableCell>
-                <TableCell className="text-right font-mono">
-                  <LotQuantityAdjuster
-                    itemId={item.id}
-                    lotId={lot.id}
-                    lotNumber={lot.lotNumber}
-                    quantity={lot.quantity}
-                  />
-                </TableCell>
-                <TableCell>
-                  {lot.dispositionBalances.length > 0 ? (
-                    <div className="flex flex-col gap-1.5">
-                      {lot.dispositionBalances.map((balance) => (
-                        <div
-                          key={`${lot.id}-${balance.disposition}`}
-                          className="flex items-center justify-between gap-3"
-                        >
-                          <Badge
-                            variant={
-                              balance.disposition === "available"
-                                ? "success"
-                                : balance.disposition === "rejected"
-                                  ? "destructive"
-                                  : "secondary"
-                            }
+            {visibleLots.map((lot) => {
+              const availableQuantity = lot.dispositionBalances
+                .filter((balance) => balance.disposition === "available")
+                .reduce((sum, balance) => sum + toQuantity(balance.quantity), 0);
+              const claimedQuantity = lot.allocations.reduce(
+                (sum, allocation) => sum + toQuantity(allocation.quantity),
+                0
+              );
+              const freeQuantity = Math.max(availableQuantity - claimedQuantity, 0);
+              const fullyClaimed = availableQuantity > 0 && freeQuantity === 0;
+
+              return (
+                <TableRow key={lot.id}>
+                  <TableCell className="font-mono">{lot.lotNumber}</TableCell>
+                  <TableCell className="text-right font-mono">
+                    <LotQuantityAdjuster
+                      itemId={item.id}
+                      lotId={lot.id}
+                      lotNumber={lot.lotNumber}
+                      quantity={lot.quantity}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex flex-col items-end">
+                      <span
+                        className={cn(
+                          "font-mono",
+                          fullyClaimed ? "text-destructive" : "text-foreground"
+                        )}
+                      >
+                        {formatQuantity(quantityValue(freeQuantity))}
+                      </span>
+                      {fullyClaimed ? (
+                        <span className="text-xs font-medium text-destructive">
+                          fully claimed
+                        </span>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {lot.allocations.length > 0 ? (
+                      <ul className="flex flex-col gap-1" role="list">
+                        {lot.allocations.map((allocation) => (
+                          <li
+                            key={`${lot.id}-${allocation.type}-${allocation.label}-${allocation.quantity}`}
+                            className="flex flex-wrap items-center gap-1.5 text-xs"
                           >
-                            {formatInventoryDisposition(balance.disposition)}
-                          </Badge>
-                          <span className="font-mono text-muted-foreground">
-                            {formatQuantity(balance.quantity)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    "\u2014"
-                  )}
-                </TableCell>
-                <TableCell>
-                  {lot.allocations.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {lot.allocations.map((allocation) => (
-                        <Badge
-                          key={`${lot.id}-${allocation.label}-${allocation.quantity}`}
-                          variant="secondary"
+                            <span className="rounded bg-destructive/10 px-1.5 py-0.5 font-mono font-medium text-destructive">
+                              {formatQuantity(allocation.quantity)}
+                            </span>
+                            <Link
+                              href={allocation.href}
+                              className="font-mono text-foreground underline-offset-4 hover:underline"
+                            >
+                              {allocation.label}
+                            </Link>
+                            {allocation.contextLabel ? (
+                              <span className="text-muted-foreground">
+                                {allocation.contextLabel}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-muted-foreground">{"\u2014"}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {lot.dispositionBalances.length > 0 ? (
+                      <div className="flex flex-col gap-1.5">
+                        {lot.dispositionBalances.map((balance) => (
+                          <div
+                            key={`${lot.id}-${balance.disposition}`}
+                            className="flex items-center justify-between gap-3"
+                          >
+                            <Badge
+                              variant={
+                                balance.disposition === "available"
+                                  ? "success"
+                                  : balance.disposition === "rejected"
+                                    ? "destructive"
+                                    : "secondary"
+                              }
+                            >
+                              {formatInventoryDisposition(balance.disposition)}
+                            </Badge>
+                            <span className="font-mono text-muted-foreground">
+                              {formatQuantity(balance.quantity)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      "\u2014"
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {formatCost(lot.costPerUnit) ?? "\u2014"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-muted-foreground">
+                    <DateTimeText value={lot.receivedAt} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {lot.dispositionBalances.length > 0 ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Actions for ${lot.lotNumber}`}
+                          >
+                            <HugeiconsIcon
+                              icon={MoreVerticalIcon}
+                              size={16}
+                              strokeWidth={2}
+                              aria-hidden
+                            />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="w-64 bg-popover p-2 text-popover-foreground"
                         >
-                          {allocation.label} · {formatQuantity(allocation.quantity)}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground">{"\u2014"}</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatCost(lot.costPerUnit) ?? "\u2014"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatQuantity(lot.soldQuantity)}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatPrice(lot.realizedRevenue) ?? "\u2014"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatPrice(lot.realizedCogs) ?? "\u2014"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatPrice(lot.realizedGrossProfit) ?? "\u2014"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatMarginPercent(lot.realizedMarginPercent)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-muted-foreground">
-                  <DateTimeText value={lot.receivedAt} />
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col gap-2">
-                    {lot.dispositionBalances.map((balance) => (
-                      <LotDispositionActions
-                        key={`${lot.id}-${balance.disposition}-actions`}
-                        itemId={item.id}
-                        lotId={lot.id}
-                        fromDisposition={balance.disposition}
-                        maxQuantity={balance.quantity}
-                      />
-                    ))}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+                          <div className="space-y-3">
+                            {lot.dispositionBalances.map((balance) => (
+                              <div
+                                key={`${lot.id}-${balance.disposition}-actions`}
+                                className="space-y-2"
+                              >
+                                <div className="flex items-center justify-between gap-3 px-1 text-xs text-muted-foreground">
+                                  <span>{formatInventoryDisposition(balance.disposition)}</span>
+                                  <span className="font-mono">
+                                    {formatQuantity(balance.quantity)}
+                                  </span>
+                                </div>
+                                <LotDispositionActions
+                                  itemId={item.id}
+                                  lotId={lot.id}
+                                  fromDisposition={balance.disposition}
+                                  maxQuantity={balance.quantity}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}

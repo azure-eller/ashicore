@@ -1549,7 +1549,9 @@ export async function getLots(itemId: string) {
     const allocationRows = await tx
       .select({
         lotId: stockAllocations.sourceId,
+        salesOrderId: salesOrders.id,
         orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
         quantity: trimScale(stockAllocations.quantity).as("quantity"),
       })
       .from(stockAllocations)
@@ -1565,14 +1567,65 @@ export async function getLots(itemId: string) {
         )
       )
       .orderBy(asc(salesOrders.orderNumber));
+    const manufacturingAllocationRows = await tx
+      .select({
+        lotId: stockAllocations.sourceId,
+        manufacturingOrderId: manufacturingOrders.id,
+        orderNumber: manufacturingOrders.orderNumber,
+        productName: manufacturingOrders.productName,
+        quantity: trimScale(stockAllocations.quantity).as("quantity"),
+      })
+      .from(stockAllocations)
+      .innerJoin(
+        manufacturingOrderIngredients,
+        eq(stockAllocations.demandId, manufacturingOrderIngredients.id)
+      )
+      .innerJoin(
+        manufacturingOrders,
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+      )
+      .where(
+        and(
+          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          eq(stockAllocations.sourceType, "inventory_lot"),
+          eq(stockAllocations.status, "active"),
+          eq(stockAllocations.itemId, itemId),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .orderBy(asc(manufacturingOrders.orderNumber));
     const allocationsByLotId = new Map<
       string,
-      Array<{ label: string; quantity: string }>
+      Array<{
+        type: "sales_order" | "manufacturing_order";
+        label: string;
+        contextLabel: string | null;
+        href: string;
+        quantity: string;
+      }>
     >();
     for (const row of allocationRows) {
       if (!row.lotId) continue;
       const current = allocationsByLotId.get(row.lotId) ?? [];
-      current.push({ label: row.orderNumber, quantity: row.quantity });
+      current.push({
+        type: "sales_order",
+        label: row.orderNumber,
+        contextLabel: row.customerName,
+        href: `/sales/orders/${row.salesOrderId}`,
+        quantity: row.quantity,
+      });
+      allocationsByLotId.set(row.lotId, current);
+    }
+    for (const row of manufacturingAllocationRows) {
+      if (!row.lotId) continue;
+      const current = allocationsByLotId.get(row.lotId) ?? [];
+      current.push({
+        type: "manufacturing_order",
+        label: row.orderNumber,
+        contextLabel: row.productName,
+        href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+        quantity: row.quantity,
+      });
       allocationsByLotId.set(row.lotId, current);
     }
 
@@ -1668,7 +1721,10 @@ export async function getLots(itemId: string) {
         realizedMarginPercent: string | null;
         receivedAt: Date;
         allocations: Array<{
+          type: "sales_order" | "manufacturing_order";
           label: string;
+          contextLabel: string | null;
+          href: string;
           quantity: string;
         }>;
         dispositionBalances: Array<{
