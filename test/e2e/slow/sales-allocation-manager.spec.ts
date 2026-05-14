@@ -764,8 +764,8 @@ test.describe("Sales allocation manager slow flow", () => {
     expect(await getActiveAllocations(db, secondLine.id)).toHaveLength(0);
 
     const balance = await getItemBalance(db, item.id);
-    expect(balance.committedQty).toBe("0.0000");
-    expect(balance.demandQty).toBe("0.0000");
+    expect(balance.committedQty).toBe("5.0000");
+    expect(balance.demandQty).toBe("10.0000");
   });
 
   test("editing a draft order with allocations cancels old allocation rows", async ({

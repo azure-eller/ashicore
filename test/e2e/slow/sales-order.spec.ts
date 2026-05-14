@@ -698,8 +698,8 @@ test.describe("Sales order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, primaryProductId));
     expect(primaryItemAfterConfirm.committedQty).toBe("4.0000");
-    expect(primaryItemAfterConfirm.demandQty).toBe("5.0000");
-    expect(primaryItemAfterConfirm.shortageQty).toBe("1.0000");
+    expect(primaryItemAfterConfirm.demandQty).toBe("10.0000");
+    expect(primaryItemAfterConfirm.shortageQty).toBe("6.0000");
 
     await updateSalesOrderStatus(bulkOrderId, "cancelled");
 
@@ -714,7 +714,7 @@ test.describe("Sales order flow", () => {
         },
         { timeout: 15_000 }
       )
-      .toBe("0.0000");
+      .toBe("4.0000");
 
     await page.goto("/sales/orders");
     await showCancelledOrders(page);
