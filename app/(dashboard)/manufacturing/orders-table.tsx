@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, type Table as TanStackTable } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { SortableHeader } from "@/components/sortable-header";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
+import {
+  DashboardDataTable,
+  DashboardDataTableDragHandle,
+} from "@/components/dashboard-data-table";
 import { DateTimeText } from "@/components/date-time-text";
-import { DataTableStatusFilter } from "@/components/data-table-status-filter";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDate } from "@/lib/format";
 import {
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
@@ -33,6 +34,8 @@ const MANUFACTURING_STATUS_FILTER_OPTIONS = [
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
+
+const OPEN_MANUFACTURING_STATUSES = ["draft", "released"] as const;
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -139,102 +142,13 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
   );
 }
 
-function comparePriorityRank(
-  left: ManufacturingOrderListRow,
-  right: ManufacturingOrderListRow
-) {
-  if (left.priorityRank == null && right.priorityRank == null) {
-    return 0;
-  }
-
-  if (left.priorityRank == null) {
-    return 1;
-  }
-
-  if (right.priorityRank == null) {
-    return -1;
-  }
-
-  return left.priorityRank - right.priorityRank;
-}
-
-function PriorityRankCell({ order }: { order: ManufacturingOrderListRow }) {
-  const queryClient = useQueryClient();
-  const [value, setValue] = useState(order.priorityRank?.toString() ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const canEdit = order.status === "draft" || order.status === "released";
-
-  const mutation = useMutation({
-    mutationFn: async (priorityRank: number | null) => {
-      const response = await fetch(`/api/manufacturing-orders/${order.id}/priority`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priorityRank }),
-      });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to update priority rank.");
-      }
-    },
-    onSuccess: async () => {
-      setError(null);
-      await queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-    },
-    onError: (updateError) => {
-      setError(updateError.message);
-    },
-  });
-
-  const commit = () => {
-    const trimmed = value.trim();
-    const nextRank = trimmed ? Number(trimmed) : null;
-
-    if (
-      trimmed &&
-      (typeof nextRank !== "number" || !Number.isInteger(nextRank) || nextRank <= 0)
-    ) {
-      setError("Invalid");
-      return;
-    }
-
-    if (
-      nextRank === order.priorityRank ||
-      (nextRank == null && order.priorityRank == null)
-    ) {
-      return;
-    }
-
-    mutation.mutate(nextRank);
-  };
-
-  if (!canEdit) {
-    return order.priorityRank == null ? (
-      <span className="text-muted-foreground">-</span>
-    ) : (
-      <span className="font-mono text-sm">#{order.priorityRank}</span>
-    );
-  }
-
+function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingOrderListRow }) {
   return (
-    <div className="w-16">
-      <Input
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.currentTarget.blur();
-          }
-        }}
-        disabled={mutation.isPending}
-        inputMode="numeric"
-        aria-label={`Priority rank for ${order.orderNumber}`}
-        placeholder="-"
-        className="h-8 px-2 text-center font-mono text-sm"
-        data-row-click-ignore="true"
-      />
-      {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+    <div className="flex items-center gap-1.5">
+      <DashboardDataTableDragHandle label={`Reorder ${order.orderNumber}`} />
+      <span className="w-6 text-sm text-muted-foreground tabular-nums">
+        {order.priorityRank ?? rowIndex + 1}
+      </span>
     </div>
   );
 }
@@ -264,9 +178,11 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
   {
     accessorKey: "priorityRank",
-    header: ({ column }) => <SortableHeader column={column} label="Rank" />,
+    header: "Rank",
     sortingFn: (a, b) => {
-      const rankCompare = comparePriorityRank(a.original, b.original);
+      const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+      const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+      const rankCompare = left - right;
 
       if (rankCompare !== 0) {
         return rankCompare;
@@ -277,10 +193,7 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
       });
     },
     cell: ({ row }) => (
-      <PriorityRankCell
-        key={`${row.original.id}-${row.original.priorityRank ?? "none"}`}
-        order={row.original}
-      />
+      <RankCell rowIndex={row.index} order={row.original} />
     ),
     meta: { className: "w-20" },
   },
@@ -394,6 +307,47 @@ export function OrdersTable({
 }: {
   initialData: ManufacturingOrderListRow[];
 }) {
+  const queryClient = useQueryClient();
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedRows: ManufacturingOrderListRow[]) => {
+      const response = await fetch("/api/manufacturing-orders/priority-ranks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: orderedRows.map((row) => row.id) }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to reorder manufacturing orders.");
+      }
+    },
+    onMutate: async (orderedRows) => {
+      await queryClient.cancelQueries({ queryKey: ["manufacturing-orders"] });
+      const previous =
+        queryClient.getQueryData<ManufacturingOrderListRow[]>(["manufacturing-orders"]);
+      const rankById = new Map(
+        orderedRows.map((row, index) => [row.id, index + 1])
+      );
+
+      queryClient.setQueryData<ManufacturingOrderListRow[]>(
+        ["manufacturing-orders"],
+        (current) =>
+          current?.map((row) => ({
+            ...row,
+            priorityRank: rankById.get(row.id) ?? row.priorityRank,
+          }))
+      );
+
+      return { previous };
+    },
+    onError: (_error, _orderedRows, context) => {
+      queryClient.setQueryData(["manufacturing-orders"], context?.previous);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+    },
+  });
+
   return (
     <DashboardDataTable
       columns={columns}
@@ -412,15 +366,26 @@ export function OrdersTable({
       addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
       toolbarContent={({ table }) => (
-        <DataTableStatusFilter
-          table={table}
-          options={MANUFACTURING_STATUS_FILTER_OPTIONS}
-          ariaLabel="Filter manufacturing orders by status"
-          showAll={false}
-        />
+        <ManufacturingOrderStatusTabs table={table} />
       )}
       initialSorting={[{ id: "priorityRank", desc: false }]}
-      initialColumnFilters={[{ id: "status", value: ["draft"] }]}
+      initialColumnFilters={[{ id: "status", value: [...OPEN_MANUFACTURING_STATUSES] }]}
+      rowReorder={{
+        disabled: reorderMutation.isPending,
+        enabled: (table) => {
+          const selected =
+            (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
+          const columnFilters = table.getState().columnFilters;
+
+          return (
+            !table.getState().globalFilter &&
+            columnFilters.every((filter) => filter.id === "status") &&
+            selected.length === OPEN_MANUFACTURING_STATUSES.length &&
+            OPEN_MANUFACTURING_STATUSES.every((status) => selected.includes(status))
+          );
+        },
+        onReorder: (orderedRows) => reorderMutation.mutate(orderedRows),
+      }}
       deleteAction={{
         endpoint: "/api/manufacturing-orders",
         invalidateQueryKeys: [["manufacturing-orders"], ["items"]],
@@ -431,5 +396,71 @@ export function OrdersTable({
           "Draft, completed, or cancelled orders will be soft-deleted and removed from normal views. Released orders must be cancelled first.",
       }}
     />
+  );
+}
+
+function ManufacturingOrderStatusTabs({
+  table,
+}: {
+  table: TanStackTable<ManufacturingOrderListRow>;
+}) {
+  const statusColumn = table.getColumn("status");
+  const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
+  const value =
+    selected.length === 2 &&
+    selected.includes("draft") &&
+    selected.includes("released")
+      ? "open"
+      : selected.length === 1
+        ? selected[0]
+        : "all";
+
+  const statusCounts = statusColumn?.getFacetedUniqueValues();
+  const openCount =
+    (statusCounts?.get("draft") ?? 0) + (statusCounts?.get("released") ?? 0);
+
+  return (
+    <ToggleGroup
+      type="single"
+      size="sm"
+      value={value}
+      onValueChange={(nextValue) => {
+        if (!statusColumn || !nextValue) return;
+        if (nextValue === "all") {
+          statusColumn.setFilterValue(undefined);
+          return;
+        }
+        if (nextValue === "open") {
+          statusColumn.setFilterValue([...OPEN_MANUFACTURING_STATUSES]);
+          return;
+        }
+        statusColumn.setFilterValue([nextValue]);
+      }}
+      aria-label="Filter manufacturing orders by status"
+      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
+    >
+      <ToggleGroupItem value="open" aria-label="Show open orders" className="gap-1.5">
+        Open
+        <span className="text-muted-foreground">{openCount}</span>
+      </ToggleGroupItem>
+      {MANUFACTURING_STATUS_FILTER_OPTIONS.filter(
+        (option) => option.value !== "draft" && option.value !== "released"
+      ).map((option) => (
+        <ToggleGroupItem
+          key={option.value}
+          value={option.value}
+          aria-label={`Show ${option.label} orders`}
+          className="gap-1.5"
+        >
+          {option.label}
+          <span className="text-muted-foreground">
+            {statusCounts?.get(option.value) ?? 0}
+          </span>
+        </ToggleGroupItem>
+      ))}
+      <ToggleGroupItem value="all" aria-label="Show all orders" className="gap-1.5">
+        All
+      </ToggleGroupItem>
+    </ToggleGroup>
   );
 }

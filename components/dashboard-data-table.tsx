@@ -1,8 +1,34 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   type QueryKey,
   useMutation,
@@ -29,7 +55,12 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Add01Icon, ArrowDown01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  ArrowDown01Icon,
+  DragDropVerticalIcon,
+  MoreVerticalIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertDialog,
@@ -103,6 +134,12 @@ type ToolbarRenderContext<TData extends { id: string }> = {
   table: TanStackTable<TData>;
 };
 
+type RowReorderConfig<TData extends { id: string }> = {
+  onReorder: (rows: TData[]) => void | Promise<void>;
+  disabled?: boolean;
+  enabled?: (table: TanStackTable<TData>) => boolean;
+};
+
 type DashboardDataTableProps<TData extends { id: string }> = {
   columns: ColumnDef<TData>[];
   data?: TData[];
@@ -129,7 +166,17 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   initialColumnFilters?: ColumnFiltersState;
   errorMessage?: string | null;
   stickyHeader?: boolean;
+  rowReorder?: RowReorderConfig<TData>;
 };
+
+type RowReorderHandleContextValue = {
+  attributes: ReturnType<typeof useSortable>["attributes"];
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  disabled: boolean;
+};
+
+const RowReorderHandleContext =
+  createContext<RowReorderHandleContextValue | null>(null);
 
 function isInteractiveRowTarget(target: EventTarget | null) {
   return (
@@ -166,6 +213,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   initialColumnFilters,
   errorMessage,
   stickyHeader = true,
+  rowReorder,
 }: DashboardDataTableProps<TData>) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -303,6 +351,36 @@ export function DashboardDataTable<TData extends { id: string }>({
   const anySelectionActionPending = selectionActions.some(
     (action) => action.isPending === true
   );
+  const rowModel = table.getRowModel();
+  const prePaginationRows = table.getPrePaginationRowModel().rows;
+  const reorderEnabled =
+    rowReorder != null &&
+    rowReorder.disabled !== true &&
+    (rowReorder.enabled?.(table) ?? true);
+  const sortableRowIds = reorderEnabled ? rowModel.rows.map((row) => row.id) : [];
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    if (!rowReorder || rowReorder.disabled === true) return;
+
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const fromIndex = prePaginationRows.findIndex((row) => row.id === active.id);
+    const toIndex = prePaginationRows.findIndex((row) => row.id === over.id);
+
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const reorderedRows = arrayMove(prePaginationRows, fromIndex, toIndex);
+    void rowReorder.onReorder(reorderedRows.map((row) => row.original));
+  }
 
   return (
     <>
@@ -482,67 +560,43 @@ export function DashboardDataTable<TData extends { id: string }>({
                 </TableRow>
               ))}
             </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <Fragment key={row.id}>
-                    <TableRow
-                      data-state={row.getIsSelected() && "selected"}
-                      tabIndex={onRowClick ? 0 : undefined}
-                      onClick={(event) => {
-                        if (!onRowClick || isInteractiveRowTarget(event.target)) return;
-                        onRowClick(row.original);
-                      }}
-                      onKeyDown={(event) => {
-                        if (
-                          !onRowClick ||
-                          isInteractiveRowTarget(event.target) ||
-                          (event.key !== "Enter" && event.key !== " ")
-                        ) {
-                          return;
-                        }
-
-                        event.preventDefault();
-                        onRowClick(row.original);
-                      }}
-                      className={cn(
-                        deletingIds.has(row.original.id) && "opacity-50",
-                        row.depth > 0 && subRowClassName,
-                        onRowClick && "cursor-pointer"
-                      )}
-                    >
-                      {row.getVisibleCells().map((cell) => {
-                        const meta = cell.column.columnDef.meta as
-                          | DashboardColumnMeta
-                          | undefined;
-
-                        return (
-                          <TableCell key={cell.id} className={cn(meta?.className, "align-middle")}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                    {renderExpandedRow && row.getIsExpanded() && !getSubRowsProp && (
-                      <TableRow key={`${row.id}-expanded`} className="hover:bg-transparent">
-                        <TableCell colSpan={row.getVisibleCells().length} className="p-0">
-                          {renderExpandedRow(row)}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </Fragment>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={table.getAllLeafColumns().length}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    {globalFilter ? `No results for "${globalFilter}"` : emptyMessage}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
+            {reorderEnabled ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={sortableRowIds}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <DashboardTableBody
+                    table={table}
+                    rows={rowModel.rows}
+                    deletingIds={deletingIds}
+                    emptyMessage={emptyMessage}
+                    globalFilter={globalFilter}
+                    getSubRowsProp={getSubRowsProp}
+                    onRowClick={onRowClick}
+                    renderExpandedRow={renderExpandedRow}
+                    subRowClassName={subRowClassName}
+                    sortable
+                  />
+                </SortableContext>
+              </DndContext>
+            ) : (
+              <DashboardTableBody
+                table={table}
+                rows={rowModel.rows}
+                deletingIds={deletingIds}
+                emptyMessage={emptyMessage}
+                globalFilter={globalFilter}
+                getSubRowsProp={getSubRowsProp}
+                onRowClick={onRowClick}
+                renderExpandedRow={renderExpandedRow}
+                subRowClassName={subRowClassName}
+              />
+            )}
           </Table>
         </div>
 
@@ -618,6 +672,250 @@ export function DashboardDataTable<TData extends { id: string }>({
         </AlertDialog>
       )}
     </>
+  );
+}
+
+type DashboardTableBodyProps<TData extends { id: string }> = {
+  table: TanStackTable<TData>;
+  rows: Row<TData>[];
+  deletingIds: Set<string>;
+  emptyMessage: string;
+  globalFilter: string;
+  getSubRowsProp?: (row: TData) => TData[] | undefined;
+  onRowClick?: (row: TData) => void;
+  renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
+  subRowClassName?: string;
+  sortable?: boolean;
+};
+
+function DashboardTableBody<TData extends { id: string }>({
+  table,
+  rows,
+  deletingIds,
+  emptyMessage,
+  globalFilter,
+  getSubRowsProp,
+  onRowClick,
+  renderExpandedRow,
+  subRowClassName,
+  sortable = false,
+}: DashboardTableBodyProps<TData>) {
+  return (
+    <TableBody>
+      {rows.length ? (
+        rows.map((row) => (
+          <DashboardTableRow
+            key={row.id}
+            row={row}
+            deletingIds={deletingIds}
+            getSubRowsProp={getSubRowsProp}
+            onRowClick={onRowClick}
+            renderExpandedRow={renderExpandedRow}
+            subRowClassName={subRowClassName}
+            sortable={sortable}
+          />
+        ))
+      ) : (
+        <TableRow>
+          <TableCell
+            colSpan={table.getAllLeafColumns().length}
+            className="h-24 text-center text-muted-foreground"
+          >
+            {globalFilter ? `No results for "${globalFilter}"` : emptyMessage}
+          </TableCell>
+        </TableRow>
+      )}
+    </TableBody>
+  );
+}
+
+type DashboardTableRowProps<TData extends { id: string }> = {
+  row: Row<TData>;
+  deletingIds: Set<string>;
+  getSubRowsProp?: (row: TData) => TData[] | undefined;
+  onRowClick?: (row: TData) => void;
+  renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
+  subRowClassName?: string;
+  sortable: boolean;
+};
+
+function DashboardTableRow<TData extends { id: string }>({
+  row,
+  deletingIds,
+  getSubRowsProp,
+  onRowClick,
+  renderExpandedRow,
+  subRowClassName,
+  sortable,
+}: DashboardTableRowProps<TData>) {
+  if (sortable) {
+    return (
+      <SortableDashboardTableRow
+        row={row}
+        deletingIds={deletingIds}
+        getSubRowsProp={getSubRowsProp}
+        onRowClick={onRowClick}
+        renderExpandedRow={renderExpandedRow}
+        subRowClassName={subRowClassName}
+      />
+    );
+  }
+
+  return (
+    <PlainDashboardTableRow
+      row={row}
+      deletingIds={deletingIds}
+      getSubRowsProp={getSubRowsProp}
+      onRowClick={onRowClick}
+      renderExpandedRow={renderExpandedRow}
+      subRowClassName={subRowClassName}
+    />
+  );
+}
+
+function SortableDashboardTableRow<TData extends { id: string }>({
+  row,
+  deletingIds,
+  getSubRowsProp,
+  onRowClick,
+  renderExpandedRow,
+  subRowClassName,
+}: Omit<DashboardTableRowProps<TData>, "sortable">) {
+  const sortableItem = useSortable({ id: row.id });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(sortableItem.transform),
+    transition: sortableItem.transition,
+    zIndex: sortableItem.isDragging ? 1 : undefined,
+    position: sortableItem.isDragging ? "relative" : undefined,
+  };
+
+  return (
+    <RowReorderHandleContext.Provider
+      value={{
+        attributes: sortableItem.attributes,
+        listeners: sortableItem.listeners,
+        disabled: false,
+      }}
+    >
+      <DashboardTableRowContent
+        row={row}
+        deletingIds={deletingIds}
+        getSubRowsProp={getSubRowsProp}
+        onRowClick={onRowClick}
+        renderExpandedRow={renderExpandedRow}
+        subRowClassName={subRowClassName}
+        sortableRef={sortableItem.setNodeRef}
+        style={style}
+        isDragging={sortableItem.isDragging}
+      />
+    </RowReorderHandleContext.Provider>
+  );
+}
+
+function PlainDashboardTableRow<TData extends { id: string }>(
+  props: Omit<DashboardTableRowProps<TData>, "sortable">
+) {
+  return (
+    <DashboardTableRowContent
+      {...props}
+      sortableRef={undefined}
+      style={undefined}
+      isDragging={false}
+    />
+  );
+}
+
+function DashboardTableRowContent<TData extends { id: string }>({
+  row,
+  deletingIds,
+  getSubRowsProp,
+  onRowClick,
+  renderExpandedRow,
+  subRowClassName,
+  sortableRef,
+  style,
+  isDragging,
+}: Omit<DashboardTableRowProps<TData>, "sortable"> & {
+  sortableRef: ((node: HTMLElement | null) => void) | undefined;
+  style: CSSProperties | undefined;
+  isDragging: boolean;
+}) {
+  return (
+    <Fragment>
+      <TableRow
+        ref={sortableRef}
+        style={style}
+        data-state={row.getIsSelected() && "selected"}
+        tabIndex={onRowClick ? 0 : undefined}
+        onClick={(event) => {
+          if (!onRowClick || isInteractiveRowTarget(event.target)) return;
+          onRowClick(row.original);
+        }}
+        onKeyDown={(event) => {
+          if (
+            !onRowClick ||
+            isInteractiveRowTarget(event.target) ||
+            (event.key !== "Enter" && event.key !== " ")
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          onRowClick(row.original);
+        }}
+        className={cn(
+          deletingIds.has(row.original.id) && "opacity-50",
+          row.depth > 0 && subRowClassName,
+          onRowClick && "cursor-pointer",
+          isDragging && "bg-background shadow-md"
+        )}
+      >
+        {row.getVisibleCells().map((cell) => {
+          const meta = cell.column.columnDef.meta as DashboardColumnMeta | undefined;
+
+          return (
+            <TableCell key={cell.id} className={cn(meta?.className, "align-middle")}>
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          );
+        })}
+      </TableRow>
+      {renderExpandedRow && row.getIsExpanded() && !getSubRowsProp && (
+        <TableRow key={`${row.id}-expanded`} className="hover:bg-transparent">
+          <TableCell colSpan={row.getVisibleCells().length} className="p-0">
+            {renderExpandedRow(row)}
+          </TableCell>
+        </TableRow>
+      )}
+    </Fragment>
+  );
+}
+
+export function DashboardDataTableDragHandle({
+  label = "Reorder row",
+}: {
+  label?: string;
+}) {
+  const context = useContext(RowReorderHandleContext);
+
+  if (!context) {
+    return null;
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={label}
+      className="cursor-grab text-muted-foreground active:cursor-grabbing"
+      disabled={context.disabled}
+      data-row-click-ignore="true"
+      {...context.attributes}
+      {...context.listeners}
+    >
+      <HugeiconsIcon icon={DragDropVerticalIcon} strokeWidth={2} />
+    </Button>
   );
 }
 

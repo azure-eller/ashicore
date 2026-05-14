@@ -6,7 +6,6 @@ import {
   desc,
   eq,
   inArray,
-  isNotNull,
   isNull,
   ne,
   or,
@@ -509,6 +508,24 @@ async function assertPriorityRankAvailableInTx(
       409
     );
   }
+}
+
+async function getNextManufacturingOrderPriorityRankInTx(tx: Tx, orgId: string) {
+  const rows = await tx
+    .select({
+      priorityRank: manufacturingOrders.priorityRank,
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, orgId),
+        inArray(manufacturingOrders.status, ["draft", "released"]),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .for("update");
+
+  return Math.max(0, ...rows.map((row) => row.priorityRank ?? 0)) + 1;
 }
 
 export class ManufacturingError extends DomainError<{
@@ -2920,7 +2937,9 @@ export async function createManufacturingOrderInTx(
     ingredientMultiplier,
     payload.ingredients
   );
-  await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank);
+  const priorityRank =
+    payload.priorityRank ?? (await getNextManufacturingOrderPriorityRankInTx(tx, orgId));
+  await assertPriorityRankAvailableInTx(tx, orgId, priorityRank);
 
   const order = await insertManufacturingOrderInTx(tx, orgId, {
     product,
@@ -2929,7 +2948,7 @@ export async function createManufacturingOrderInTx(
     requestedQuantity: payload.plannedQuantity,
     plannedQuantity,
     numberOfBatches,
-    priorityRank: payload.priorityRank,
+    priorityRank,
     plannedDate: payload.plannedDate ?? null,
     notes: payload.notes ?? null,
     ingredients,
@@ -3071,7 +3090,8 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       ingredientMultiplier
     );
     const priorityRank =
-      payload.priorityRank != null ? payload.priorityRank + created.length : null;
+      (payload.priorityRank ??
+        (await getNextManufacturingOrderPriorityRankInTx(tx, orgId))) + created.length;
     await assertPriorityRankAvailableInTx(tx, orgId, priorityRank);
 
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
@@ -3246,19 +3266,19 @@ export async function reorderManufacturingOrderPriorityRanks(
       .from(manufacturingOrders)
       .where(
         and(
+          eq(manufacturingOrders.organizationId, orgId),
           inArray(manufacturingOrders.id, payload.orderIds),
           isNull(manufacturingOrders.deletedAt)
         )
       )
       .for("update");
 
-    const allRankedOrders = await tx
+    const allActiveOrders = await tx
       .select({ id: manufacturingOrders.id })
       .from(manufacturingOrders)
       .where(
         and(
           eq(manufacturingOrders.organizationId, orgId),
-          isNotNull(manufacturingOrders.priorityRank),
           inArray(manufacturingOrders.status, ["draft", "released"]),
           isNull(manufacturingOrders.deletedAt)
         )
@@ -3266,9 +3286,9 @@ export async function reorderManufacturingOrderPriorityRanks(
       .for("update");
 
     assertSameStringSet(
-      allRankedOrders.map((order) => order.id),
+      allActiveOrders.map((order) => order.id),
       payload.orderIds,
-      "Payload must include all currently ranked manufacturing orders."
+      "Payload must include all active manufacturing orders."
     );
 
     assertSameStringSet(
@@ -3279,18 +3299,31 @@ export async function reorderManufacturingOrderPriorityRanks(
 
     const invalidOrder = orders.find(
       (order) =>
-        (order.status !== "draft" && order.status !== "released") ||
-        order.priorityRank == null
+        order.status !== "draft" && order.status !== "released"
     );
 
     if (invalidOrder) {
       throw new ManufacturingError(
-        "Only ranked draft or released manufacturing orders can be reordered.",
+        "Only draft or released manufacturing orders can be reordered.",
         400
       );
     }
 
     const now = new Date();
+    await tx
+      .update(manufacturingOrders)
+      .set({
+        priorityRank: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(manufacturingOrders.organizationId, orgId),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      );
+
     for (const [index, id] of payload.orderIds.entries()) {
       await tx
         .update(manufacturingOrders)

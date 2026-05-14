@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
   inventoryEvents,
@@ -237,7 +237,11 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(secondOrderResult.status).toBe(201);
 
     const createdOrders = await db
-      .select({ orderNumber: manufacturingOrders.orderNumber })
+      .select({
+        id: manufacturingOrders.id,
+        orderNumber: manufacturingOrders.orderNumber,
+        priorityRank: manufacturingOrders.priorityRank,
+      })
       .from(manufacturingOrders)
       .where(
         inArray(manufacturingOrders.id, [
@@ -249,9 +253,52 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(createdOrders).toHaveLength(2);
     const orderNumbers = createdOrders.map((order) => order.orderNumber);
     const [firstOrderNumber, secondOrderNumber] = orderNumbers;
-    if (!firstOrderNumber || !secondOrderNumber) {
+    const [firstCreatedOrder, secondCreatedOrder] = createdOrders;
+    if (!firstOrderNumber || !secondOrderNumber || !firstCreatedOrder || !secondCreatedOrder) {
       throw new Error("Expected two manufacturing orders.");
     }
+    expect(firstCreatedOrder.priorityRank).toBeGreaterThan(0);
+    expect(secondCreatedOrder.priorityRank).toBeGreaterThan(
+      firstCreatedOrder.priorityRank ?? 0
+    );
+
+    const activeOrders = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          inArray(manufacturingOrders.status, ["draft", "released"]),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .orderBy(asc(manufacturingOrders.priorityRank), asc(manufacturingOrders.orderNumber));
+    const reorderedActiveOrderIds = [
+      secondCreatedOrder.id,
+      firstCreatedOrder.id,
+      ...activeOrders
+        .map((order) => order.id)
+        .filter(
+          (id) => id !== firstCreatedOrder.id && id !== secondCreatedOrder.id
+        ),
+    ];
+    const reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({ orderIds: reorderedActiveOrderIds }),
+    });
+    expect(reorderResult.status).toBe(200);
+
+    const rerankedOrders = await db
+      .select({
+        id: manufacturingOrders.id,
+        priorityRank: manufacturingOrders.priorityRank,
+      })
+      .from(manufacturingOrders)
+      .where(inArray(manufacturingOrders.id, [firstCreatedOrder.id, secondCreatedOrder.id]));
+    const rankById = new Map(
+      rerankedOrders.map((order) => [order.id, order.priorityRank])
+    );
+    expect(rankById.get(secondCreatedOrder.id)).toBe(1);
+    expect(rankById.get(firstCreatedOrder.id)).toBe(2);
 
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", productName);
@@ -268,15 +315,15 @@ test.describe("Manufacturing write-path smoke", () => {
       .click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toBeHidden({ timeout: 15_000 });
+    ).toContainText("Released", { timeout: 15_000 });
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    await page.getByRole("radio", { name: "Show Released status" }).click();
+    await page.getByRole("radio", { name: "Show Completed orders" }).click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toContainText("Released", { timeout: 15_000 });
+    ).toBeHidden();
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeHidden();
