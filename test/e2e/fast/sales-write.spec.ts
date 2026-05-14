@@ -1,19 +1,6 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
-import type { SalesOrderListRow } from "@/app/(dashboard)/sales/types";
-import {
-  deriveSalesOrderLane,
-  groupSalesOrdersByLane,
-  sortSalesOrdersForBoard,
-} from "@/app/(dashboard)/sales/orders-board/sales-order-lane-model";
-import { filterOrdersForBoard } from "@/app/(dashboard)/sales/orders-board/sales-order-board-filters";
-import { getSalesOrderDropCommand } from "@/app/(dashboard)/sales/orders-board/sales-order-drop-rules";
-import {
-  getProductLensAggregate,
-  getProductLensOptions,
-  orderContainsProductLensItem,
-} from "@/app/(dashboard)/sales/orders-board/sales-order-product-lens";
 import {
   inventoryItemBalances,
   inventoryLotBalances,
@@ -57,22 +44,28 @@ function utcDateDaysFromToday(days: number) {
 }
 
 async function showSalesOrderStatus(page: Parameters<typeof filterList>[0], status: string) {
-  if (status === "Cancelled") {
-    await page.getByRole("button", { name: /Show cancelled orders lane/ }).click();
-  }
+  const workflow = ["Shipped", "Cancelled"].includes(status) ? "done" : "open";
+  await page.getByRole("radio", { name: `Show ${workflow} orders` }).click();
+}
+
+function salesOrderRow(page: Page, orderNumber: string) {
+  return page.getByRole("row").filter({ hasText: orderNumber }).first();
 }
 
 function salesOrderCard(page: Page, orderNumber: string) {
-  return page
-    .locator('[data-testid="sales-order-card"]')
-    .filter({ hasText: orderNumber })
-    .first();
+  return salesOrderRow(page, orderNumber);
+}
+
+async function expandSalesOrderRow(page: Page, orderNumber: string) {
+  const row = salesOrderRow(page, orderNumber);
+  await row
+    .getByRole("button", { name: new RegExp(`Expand.*${orderNumber}|Expand order`) })
+    .click();
+  return row;
 }
 
 async function expandSalesOrderCard(page: Page, orderNumber: string) {
-  const card = salesOrderCard(page, orderNumber);
-  await card.click();
-  return card;
+  return expandSalesOrderRow(page, orderNumber);
 }
 
 async function activateButtonDirectly(button: Locator) {
@@ -80,386 +73,8 @@ async function activateButtonDirectly(button: Locator) {
 }
 
 function salesOrderLineRow(page: Page, lineName: string) {
-  return page
-    .locator('[data-testid="sales-order-line-row"]')
-    .filter({ hasText: lineName })
-    .first();
+  return page.getByRole("row").filter({ hasText: lineName }).first();
 }
-
-function boardLogicOrder(
-  overrides: Partial<SalesOrderListRow> & { id: string; orderNumber: string }
-): SalesOrderListRow {
-  return {
-    id: overrides.id,
-    orderNumber: overrides.orderNumber,
-    customerId: overrides.customerId ?? "00000000-0000-0000-0000-000000009998",
-    customerName: overrides.customerName ?? "Board Customer",
-    customerEmail: overrides.customerEmail ?? null,
-    customerProjectId: overrides.customerProjectId ?? null,
-    customerProjectName: overrides.customerProjectName ?? null,
-    notes: overrides.notes ?? null,
-    status: overrides.status ?? "confirmed",
-    orderDate: overrides.orderDate ?? "2026-04-01",
-    shipDate: overrides.shipDate ?? "2026-04-15",
-    requestedDate: overrides.requestedDate ?? "2026-04-15",
-    shippedAt: overrides.shippedAt ?? null,
-    totalAmount: overrides.totalAmount ?? "100",
-    itemSummary: overrides.itemSummary ?? "Board Product",
-    shipments: overrides.shipments ?? [],
-    lines:
-      overrides.lines ??
-      [
-        {
-          itemId: "00000000-0000-0000-0000-000000009999",
-          masterName: "Board Product",
-          attrs: [],
-          quantity: "10",
-          shippedQuantity: "0",
-          remainingQty: "10",
-          allocatedQty: "0",
-          shortQty: "0",
-          sourceSummary: "—",
-          allocationStatus: "short",
-          unitName: "Each",
-        },
-      ],
-    fulfillmentSummary:
-      overrides.fulfillmentSummary ??
-      {
-        remainingQty: "10",
-        allocatedQty: "10",
-        shortQty: "0",
-        productionAllocatedQty: "0",
-        label: "10/10 allocated",
-      },
-    hasManufacturableLines: overrides.hasManufacturableLines ?? false,
-    manufacturableLineCount: overrides.manufacturableLineCount ?? 0,
-    manufacturableDisabledReason: overrides.manufacturableDisabledReason ?? null,
-    openManufacturingOrderCount: overrides.openManufacturingOrderCount ?? 0,
-    openManufacturingOrders: overrides.openManufacturingOrders ?? [],
-    shippingReadiness:
-      overrides.shippingReadiness ??
-      { state: "ready", message: "Ready", blockers: [] },
-    deletedAt: overrides.deletedAt ?? null,
-    createdAt: overrides.createdAt ?? new Date("2026-04-01T00:00:00Z"),
-    updatedAt: overrides.updatedAt ?? new Date("2026-04-01T00:00:00Z"),
-  };
-}
-
-function salesOrderLane(page: Page, lane: string) {
-  return page.locator(`[data-slot="kanban-column"][data-value="${lane}"]`);
-}
-
-async function dragToLane({
-  page,
-  source,
-  targetLane,
-}: {
-  source: Locator;
-  page: Page;
-  targetLane: string;
-}) {
-  await expect(source).toBeVisible();
-  await source.hover();
-  const sourceBox = await source.boundingBox();
-  const targetBox = await salesOrderLane(page, targetLane).boundingBox();
-
-  if (!sourceBox || !targetBox) {
-    throw new Error("Could not resolve drag source or target lane bounds.");
-  }
-
-  const sourceX = sourceBox.x + sourceBox.width / 2;
-  const sourceY = sourceBox.y + sourceBox.height / 2;
-  const targetX = targetBox.x + targetBox.width / 2;
-  const targetY = Math.max(
-    targetBox.y + 48,
-    Math.min(sourceY, targetBox.y + targetBox.height - 48)
-  );
-
-  await page.mouse.move(sourceX, sourceY);
-  await page.waitForTimeout(75);
-  await page.mouse.down();
-  await page.waitForTimeout(75);
-  await page.mouse.move((sourceX + targetX) / 2, (sourceY + targetY) / 2, {
-    steps: 12,
-  });
-  await page.waitForTimeout(75);
-  await page.mouse.move(targetX, targetY, { steps: 24 });
-  await page.waitForTimeout(150);
-  await expect(salesOrderLane(page, targetLane)).toHaveAttribute(
-    "data-drop-target",
-    "true"
-  );
-  await page.mouse.up();
-}
-
-test.describe("Sales order board pure helpers", () => {
-  test("derives, filters, groups, and sorts board orders", () => {
-    const draft = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000001",
-      orderNumber: "SO-2",
-      status: "draft",
-      customerName: "Alpha",
-      totalAmount: "20",
-    });
-    const short = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000002",
-      orderNumber: "SO-1",
-      customerName: "Beta",
-      totalAmount: "500",
-      fulfillmentSummary: {
-        remainingQty: "10",
-        allocatedQty: "2",
-        shortQty: "8",
-        productionAllocatedQty: "0",
-        label: "2/10 allocated · 8 short",
-      },
-      shippingReadiness: { state: "insufficient_stock", message: "Short", blockers: ["Short"] },
-    });
-    const production = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000003",
-      orderNumber: "SO-3",
-      openManufacturingOrderCount: 1,
-      fulfillmentSummary: {
-        remainingQty: "10",
-        allocatedQty: "4",
-        shortQty: "6",
-        productionAllocatedQty: "6",
-        label: "Waiting production",
-      },
-    });
-
-    expect(deriveSalesOrderLane(draft)).toBe("draft");
-    expect(deriveSalesOrderLane(short)).toBe("supply_needed");
-    expect(deriveSalesOrderLane(production)).toBe("in_production");
-
-    const filtered = filterOrdersForBoard([draft, short, production], {
-      search: "beta",
-      laneFilter: "all",
-      customerFilter: "all",
-      showCancelled: false,
-      sortMode: "shipDate",
-    });
-    expect(filtered.map((order) => order.orderNumber)).toEqual(["SO-1"]);
-
-    const grouped = groupSalesOrdersByLane([draft, short, production]);
-    expect(grouped.draft).toHaveLength(1);
-    expect(grouped.supply_needed).toHaveLength(1);
-    expect(grouped.in_production).toHaveLength(1);
-
-    expect(sortSalesOrdersForBoard([draft, short], "value").map((order) => order.orderNumber)).toEqual([
-      "SO-1",
-      "SO-2",
-    ]);
-  });
-
-  test("maps board drops to sales commands without fake lane mutations", () => {
-    const draft = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000011",
-      orderNumber: "SO-11",
-      status: "draft",
-    });
-    const manufacturableShort = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000012",
-      orderNumber: "SO-12",
-      hasManufacturableLines: true,
-      manufacturableLineCount: 1,
-      fulfillmentSummary: {
-        remainingQty: "10",
-        allocatedQty: "0",
-        shortQty: "10",
-        productionAllocatedQty: "0",
-        label: "0/10 allocated · 10 short",
-      },
-      shippingReadiness: { state: "insufficient_stock", message: "Short", blockers: ["Short"] },
-    });
-    const ready = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000013",
-      orderNumber: "SO-13",
-    });
-    const shipped = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000014",
-      orderNumber: "SO-14",
-      status: "shipped",
-      shippingReadiness: { state: "shipped", message: "Shipped", blockers: [] },
-    });
-    const cancelled = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000015",
-      orderNumber: "SO-15",
-      status: "cancelled",
-    });
-
-    expect(
-      getSalesOrderDropCommand({ order: draft, fromLane: "draft", toLane: "ready_to_ship" })
-    ).toMatchObject({ type: "confirm-order", orderId: draft.id });
-    expect(
-      getSalesOrderDropCommand({ order: draft, fromLane: "draft", toLane: "shipped" })
-    ).toMatchObject({ type: "blocked" });
-    expect(
-      getSalesOrderDropCommand({
-        order: manufacturableShort,
-        fromLane: "supply_needed",
-        toLane: "in_production",
-      })
-    ).toEqual({ type: "open-create-mos", orderId: manufacturableShort.id });
-    expect(
-      getSalesOrderDropCommand({
-        order: manufacturableShort,
-        fromLane: "supply_needed",
-        toLane: "ready_to_ship",
-      })
-    ).toEqual({ type: "prepare-for-shipping", orderId: manufacturableShort.id });
-    expect(
-      getSalesOrderDropCommand({ order: ready, fromLane: "ready_to_ship", toLane: "shipped" })
-    ).toEqual({ type: "open-ship-dialog", orderId: ready.id });
-    expect(
-      getSalesOrderDropCommand({ order: shipped, fromLane: "shipped", toLane: "ready_to_ship" })
-    ).toMatchObject({ type: "blocked" });
-    expect(
-      getSalesOrderDropCommand({ order: ready, fromLane: "ready_to_ship", toLane: "ready_to_ship" })
-    ).toEqual({ type: "noop" });
-    expect(
-      getSalesOrderDropCommand({ order: ready, fromLane: "ready_to_ship", toLane: "draft" })
-    ).toMatchObject({ type: "blocked", title: "Cannot move back to draft" });
-    expect(
-      getSalesOrderDropCommand({ order: cancelled, fromLane: "cancelled", toLane: "ready_to_ship" })
-    ).toMatchObject({ type: "blocked", title: "Cancelled orders cannot be moved" });
-  });
-
-  test("aggregates product lens lines without changing lifecycle lanes", () => {
-    const selectedItemId = "00000000-0000-0000-0000-000000000021";
-    const otherItemId = "00000000-0000-0000-0000-000000000022";
-    const mixed = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000023",
-      orderNumber: "SO-23",
-      customerName: "Lens Customer",
-      fulfillmentSummary: {
-        remainingQty: "20",
-        allocatedQty: "5",
-        shortQty: "15",
-        productionAllocatedQty: "0",
-        label: "5/20 allocated · 15 short",
-      },
-      shippingReadiness: {
-        state: "insufficient_stock",
-        message: "Short",
-        blockers: ["Short"],
-      },
-      lines: [
-        {
-          id: "line-1",
-          itemId: selectedItemId,
-          masterName: "Lens Mix",
-          attrs: ["1yd tote"],
-          quantity: "10",
-          shippedQuantity: "1",
-          remainingQty: "8",
-          allocatedQty: "3",
-          shortQty: "5",
-          sourceSummary: "Stock",
-          allocationStatus: "partial",
-          unitName: "totes",
-        },
-        {
-          id: "line-2",
-          itemId: selectedItemId,
-          masterName: "Lens Mix",
-          attrs: ["1yd tote"],
-          quantity: "5",
-          shippedQuantity: "2",
-          remainingQty: "4",
-          allocatedQty: "2",
-          shortQty: "2",
-          sourceSummary: "Stock",
-          allocationStatus: "partial",
-          unitName: "totes",
-        },
-        {
-          id: "line-3",
-          itemId: otherItemId,
-          masterName: "Other Mix",
-          attrs: [],
-          quantity: "2",
-          remainingQty: "2",
-          allocatedQty: "0",
-          shortQty: "2",
-          sourceSummary: "—",
-          allocationStatus: "short",
-          unitName: "bags",
-        },
-      ],
-    });
-    const other = boardLogicOrder({
-      id: "00000000-0000-0000-0000-000000000024",
-      orderNumber: "SO-24",
-      lines: [
-        {
-          id: "line-4",
-          itemId: otherItemId,
-          masterName: "Other Mix",
-          attrs: [],
-          quantity: "2",
-          remainingQty: "2",
-          allocatedQty: "0",
-          shortQty: "2",
-          sourceSummary: "—",
-          allocationStatus: "short",
-          unitName: "bags",
-        },
-      ],
-    });
-
-    expect(deriveSalesOrderLane(mixed)).toBe("supply_needed");
-    expect(orderContainsProductLensItem(mixed, selectedItemId)).toBe(true);
-    expect(orderContainsProductLensItem(other, selectedItemId)).toBe(false);
-    expect(getProductLensOptions([mixed, other]).map((option) => option.label)).toEqual([
-      "Lens Mix · 1yd tote",
-      "Other Mix",
-    ]);
-    expect(getProductLensAggregate(mixed, selectedItemId)).toMatchObject({
-      quantity: "15",
-      shippedQty: "3",
-      allocatedQty: "5",
-      remainingQty: "12",
-      shortQty: "7",
-      statusLabel: "partial · short 7",
-      unitName: "totes",
-    });
-    expect(
-      getProductLensAggregate(
-        boardLogicOrder({
-          id: "00000000-0000-0000-0000-000000000025",
-          orderNumber: "SO-25",
-          status: "shipped",
-          shippingReadiness: { state: "shipped", message: "Shipped", blockers: [] },
-          lines: [
-            {
-              id: "line-5",
-              itemId: selectedItemId,
-              masterName: "Lens Mix",
-              attrs: ["1yd tote"],
-              quantity: "15",
-              shippedQuantity: "15",
-              remainingQty: "0",
-              allocatedQty: "0",
-              shortQty: "0",
-              sourceSummary: "—",
-              allocationStatus: "ready",
-              unitName: "totes",
-            },
-          ],
-        }),
-        selectedItemId
-      )
-    ).toMatchObject({
-      quantity: "15",
-      shippedQty: "15",
-      allocatedQty: "0",
-      remainingQty: "0",
-      statusLabel: "shipped",
-    });
-  });
-});
 
 test.describe("Sales write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -687,7 +302,7 @@ test.describe("Sales write-path smoke", () => {
     expect(deletedFile.deletedAt).not.toBeNull();
   });
 
-  test("creates a draft sales order through the browser form", async ({ page, db }) => {
+  test("creates an open sales order through the browser form", async ({ page, db }) => {
     const componentResult = await createItem({
       name: `Fast Sales Component ${ts}`,
       itemType: "material",
@@ -762,26 +377,22 @@ test.describe("Sales write-path smoke", () => {
     expect(order.customerId).toBe(customerId);
     expect(order.customerProjectId).toBe(crmProjectId);
     expect(order.customerName).toBe(customerName);
-    expect(order.status).toBe("draft");
+    expect(order.status).toBe("confirmed");
     expect(order.orderDate).toBe("2026-04-01");
     expect(order.shipDate).toBe("2026-04-15");
     expect(order.requestedDate).toBe("2026-04-15");
     expect(order.notes).toBe(orderNote);
 
     await page.goto("/sales/orders");
-    await showSalesOrderStatus(page, "Draft");
+    await showSalesOrderStatus(page, "Confirmed");
     await filterList(page, "Search orders", order.orderNumber);
     const listRow = salesOrderCard(page, order.orderNumber);
     await expect(
-      listRow.getByRole("link", { name: new RegExp(`Customer ${customerName}`) })
-    ).toBeVisible();
-    await expect(
-      listRow.getByRole("link", { name: new RegExp(`Example Construction ${ts}`) })
-    ).toBeVisible();
-    const notesIndicator = listRow.getByTestId("sales-order-notes-indicator");
-    await expect(notesIndicator).toBeVisible();
-    await expect(listRow.getByText(orderNote)).toHaveCount(0);
-    await notesIndicator.hover();
+      listRow.getByRole("link", { name: order.orderNumber })
+    ).toHaveAttribute("href", `/sales/orders/${orderId}`);
+    await expect(listRow).toContainText(customerName);
+    await expect(listRow.getByRole("link", { name: customerName })).toHaveCount(0);
+    await listRow.getByRole("button", { name: orderNote }).hover();
     await expect(page.getByRole("tooltip")).toContainText(orderNote);
 
     await page.goto(`/sales/orders/${orderId}`);
@@ -790,7 +401,6 @@ test.describe("Sales write-path smoke", () => {
     ).toBeVisible();
     await expect(page.getByRole("link", { name: customerName })).toBeVisible();
     await expect(page.getByRole("link", { name: `Example Construction ${ts}` })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create invoice" })).toHaveCount(0);
 
     await page.goto(`/sales/customers/${customerId}?project=${crmProjectId}#projects`);
     await expect(page.getByRole("button", { name: /^Projects/ })).toHaveAttribute(
@@ -799,14 +409,6 @@ test.describe("Sales write-path smoke", () => {
     );
     await page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) }).click();
     await expect(page.getByRole("link", { name: order.orderNumber })).toBeVisible();
-
-    const draftInvoiceResponse = await page.request.post(
-      `/api/sales-orders/${orderId}/xero-push`
-    );
-    expect(draftInvoiceResponse.status()).toBe(409);
-    expect(await draftInvoiceResponse.json()).toMatchObject({
-      error: "Only confirmed, partially shipped, or shipped orders can be invoiced.",
-    });
 
     const [line] = await db
       .select()
@@ -821,27 +423,12 @@ test.describe("Sales write-path smoke", () => {
       .select()
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
+    expect(productBalance?.committedQty ?? "0.0000").toBe("3.0000");
 
     await page.goto(`/sales/orders/${orderId}`);
-    const [confirmResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith(`/api/sales-orders/${orderId}/confirm`)
-      ),
-      page.getByRole("button", { name: "Confirm" }).click(),
-    ]);
-    expect(confirmResponse.status()).toBe(200);
     await expect(page.getByText("Confirm the order before shipping.")).toHaveCount(0);
     await expect(page.getByText("Failed to confirm order.")).toHaveCount(0);
-
-    const [confirmedOrder] = await db
-      .select({ status: salesOrders.status })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, orderId));
-    expect(confirmedOrder.status).toBe("confirmed");
-    await expect(page.getByRole("button", { name: "Create invoice" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create invoice" }).first()).toBeVisible();
 
     const shipments = await db
       .select()
@@ -851,7 +438,7 @@ test.describe("Sales write-path smoke", () => {
     expect(shipments[0].scheduledDate).toBe("2026-04-15");
   });
 
-  test("confirming without a delivery date returns a readable error", async () => {
+  test("creating without a delivery date returns a readable error", async () => {
     const createResponse = await testFetch("/api/sales-orders", {
       method: "POST",
       body: JSON.stringify({
@@ -864,154 +451,15 @@ test.describe("Sales write-path smoke", () => {
         lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
       }),
     });
-    expect(createResponse.status).toBe(201);
-    const order = await createResponse.json();
-
-    const confirmResponse = await testFetch(`/api/sales-orders/${order.id}/confirm`, {
-      method: "POST",
-      body: JSON.stringify({ confirmOversell: false }),
-    });
-    expect(confirmResponse.status).toBe(400);
-    const body = await confirmResponse.json();
-    expect(body.error).toBe("Ship date is required to confirm a sales order.");
+    expect(createResponse.status).toBe(400);
+    const body = await createResponse.json();
+    expect(body.error).toBe("Ship date is required to create a sales order");
     expect(body.errors.shipDate[0]).toBe(
-      "Ship date is required to confirm a sales order"
+      "Ship date is required to create a sales order"
     );
   });
 
-  test("filters the board into product lens mode without enabling drag", async ({
-    page,
-    db,
-  }) => {
-    const otherProductResult = await createItem({
-      name: `Fast Lens Other Product ${ts}`,
-      itemType: "product",
-      unitDefinitionId: unitId,
-      sku: `FAST-LENS-OTHER-${ts}`,
-      category: `Fast Sales ${ts}`,
-      description: "Non-matching product for Product Lens board filter",
-      defaultPurchasePrice: null,
-      defaultSellingPrice: "9",
-      stock: "0",
-      safetyStock: "0",
-      bom: [],
-    });
-    expect(otherProductResult.status).toBe(201);
-    const otherOrderResult = await createSalesOrder({
-      customerId,
-      status: "draft",
-      shipDate: "2026-04-18",
-      requestedDate: "2026-04-18",
-      notes: "Non-matching Product Lens order",
-      lines: [
-        { itemId: otherProductResult.body.id as string, quantity: "1", unitPrice: "9" },
-      ],
-    });
-    expect(otherOrderResult.status).toBe(201);
-
-    const [primaryOrder] = await db
-      .select({ orderNumber: salesOrders.orderNumber })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, orderId));
-    const [otherOrder] = await db
-      .select({ orderNumber: salesOrders.orderNumber })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, otherOrderResult.body.id as string));
-
-    await page.goto("/sales/orders");
-    await page.getByRole("combobox", { name: "Product Lens item" }).click();
-    await page.getByRole("option", { name: productName }).click();
-
-    await expect(
-      page.locator('[data-testid="product-lens-order-card"]').filter({
-        hasText: primaryOrder.orderNumber,
-      })
-    ).toBeVisible();
-    await expect(page.getByText(otherOrder.orderNumber)).toHaveCount(0);
-    await expect(page.locator('[data-testid="sales-order-drag-handle"]')).toHaveCount(0);
-
-    await page.getByRole("combobox", { name: "Product Lens item" }).click();
-    await page.getByRole("option", { name: "Product Lens: Off" }).click();
-    await filterList(page, "Search orders", primaryOrder.orderNumber);
-    await expect(salesOrderCard(page, primaryOrder.orderNumber)).toBeVisible();
-  });
-
-  test("board drops open the action for the lane under the pointer", async ({
-    page,
-    db,
-  }) => {
-    await page.setViewportSize({ width: 1600, height: 900 });
-
-    const shortOrderResult = await createSalesOrder({
-      customerId,
-      status: "draft",
-      shipDate: "2026-04-19",
-      requestedDate: "2026-04-19",
-      notes: "Board drag target fidelity coverage",
-      lines: [{ itemId: productId, quantity: "20", unitPrice: "34.99" }],
-    });
-    expect(shortOrderResult.status).toBe(201);
-
-    const confirmResponse = await testFetch(
-      `/api/sales-orders/${shortOrderResult.body.id}/confirm`,
-      {
-        method: "POST",
-        body: JSON.stringify({ confirmOversell: true }),
-      }
-    );
-    expect(confirmResponse.status).toBe(200);
-
-    const [shortOrder] = await db
-      .select({
-        id: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        status: salesOrders.status,
-      })
-      .from(salesOrders)
-      .where(eq(salesOrders.id, shortOrderResult.body.id as string));
-    expect(shortOrder.status).toBe("confirmed");
-
-    await page.goto("/sales/orders");
-    await filterList(page, "Search orders", shortOrder.orderNumber);
-
-    const shortCard = salesOrderCard(page, shortOrder.orderNumber);
-    await expect(shortCard).toBeVisible();
-
-    await dragToLane({
-      page,
-      source: shortCard.getByTestId("sales-order-drag-handle"),
-      targetLane: "in_production",
-    });
-    const createMoDialog = page.getByRole("dialog", {
-      name: "Create Manufacturing Orders",
-    });
-    await expect(createMoDialog).toBeVisible();
-    await expect(
-      createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
-    ).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(createMoDialog).toHaveCount(0);
-
-    await dragToLane({
-      page,
-      source: shortCard.getByTestId("sales-order-drag-handle"),
-      targetLane: "ready_to_ship",
-    });
-    const prepareDialog = page.getByRole("dialog", {
-      name: `Prepare ${shortOrder.orderNumber} for shipping?`,
-    });
-    await expect(prepareDialog).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(prepareDialog).toHaveCount(0);
-
-    const cancelResponse = await testFetch(`/api/sales-orders/${shortOrder.id}/cancel-remaining`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    expect(cancelResponse.status).toBe(200);
-  });
-
-  test("saving a draft without line items is allowed", async ({ db }) => {
+  test("creating without line items returns a readable error", async () => {
     const createResponse = await testFetch("/api/sales-orders", {
       method: "POST",
       body: JSON.stringify({
@@ -1024,39 +472,9 @@ test.describe("Sales write-path smoke", () => {
         lines: [],
       }),
     });
-    expect(createResponse.status).toBe(201);
-    const order = await createResponse.json();
-
-    const lines = await db
-      .select()
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, order.id));
-    expect(lines).toHaveLength(0);
-  });
-
-  test("confirming without line items returns a readable error", async () => {
-    const createResponse = await testFetch("/api/sales-orders", {
-      method: "POST",
-      body: JSON.stringify({
-        customerId,
-        status: "draft",
-        orderDate: "2026-04-01",
-        shipDate: "2026-04-15",
-        requestedDate: "2026-04-15",
-        notes: null,
-        lines: [],
-      }),
-    });
-    expect(createResponse.status).toBe(201);
-    const order = await createResponse.json();
-
-    const confirmResponse = await testFetch(`/api/sales-orders/${order.id}/confirm`, {
-      method: "POST",
-      body: JSON.stringify({ confirmOversell: false }),
-    });
-    expect(confirmResponse.status).toBe(400);
-    const body = await confirmResponse.json();
-    expect(body.error).toBe("Sales order must have at least one line item.");
+    expect(createResponse.status).toBe(400);
+    const body = await createResponse.json();
+    expect(body.error).toBe("Sales order must have at least one line item");
   });
 
   test("saving a ship date before the order date returns a readable error", async () => {
@@ -1102,7 +520,7 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesOrders.id, duplicateId));
     expect(duplicate.customerId).toBe(customerId);
     expect(duplicate.customerName).toBe(customerName);
-    expect(duplicate.status).toBe("draft");
+    expect(duplicate.status).toBe("confirmed");
     expect(duplicate.notes).toBe(orderNote);
 
     const [duplicateLine] = await db
@@ -1165,6 +583,7 @@ test.describe("Sales write-path smoke", () => {
     const detailOrderId = detailOrderResult.body.id as string;
 
     await page.goto(`/sales/orders/${detailOrderId}`);
+    await page.getByRole("button", { name: /^Line Items/ }).click();
     await page
       .getByRole("row", { name: new RegExp(firstProductName) })
       .getByRole("button", { name: `Delete ${firstProductName}` })
@@ -1217,17 +636,6 @@ test.describe("Sales write-path smoke", () => {
     await filterList(page, "Search orders", expandedOrder.orderNumber);
     await expandSalesOrderCard(page, expandedOrder.orderNumber);
     await expect(salesOrderLineRow(page, expandedDeleteName)).toBeVisible();
-    await expect(
-      salesOrderLineRow(page, expandedDeleteName)
-        .getByRole("link", { name: `Edit ${expandedDeleteName}` })
-    ).toHaveCount(0);
-    await salesOrderCard(page, expandedOrder.orderNumber)
-      .getByRole("button", { name: `More actions for ${expandedOrder.orderNumber}` })
-      .click();
-    await expect(
-      page.getByRole("menuitem", { name: "Edit" })
-    ).toHaveAttribute("href", `/sales/orders/${expandedOrderId}/edit`);
-    await page.keyboard.press("Escape");
 
     const expandedDeleteResponsePromise = page.waitForResponse(
       (response) =>
@@ -1410,12 +818,12 @@ test.describe("Sales write-path smoke", () => {
     const expandedLine = salesOrderLineRow(page, materialName);
     await expect(expandedLine).toContainText(materialName);
     await expect(expandedLine).toContainText("150");
-    await expect(page.getByText("0 / 150 units allocated")).toBeVisible();
-    await expect(page.getByText("Remaining short: 150")).toBeVisible();
+    await expect(expandedLine).toContainText("Allocate");
+    await expect(expandedLine).toContainText("150");
     await expect(expandedLine).not.toContainText("-200");
 
     await expandedLine
-      .getByRole("button", { name: `Manage allocation for ${materialName}` })
+      .getByRole("button", { name: `Allocate ${materialName}` })
       .click();
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
     await expect(sheet).toBeVisible();
@@ -1496,11 +904,11 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", tokenOrder.orderNumber);
+    const tokenCard = salesOrderCard(page, tokenOrder.orderNumber);
+    await expect(tokenCard).toBeVisible();
     await expandSalesOrderCard(page, tokenOrder.orderNumber);
-
-    await expect(salesOrderLineRow(page, tokenMaterialName)).toBeVisible();
     await salesOrderLineRow(page, tokenMaterialName)
-      .getByRole("button", { name: `Manage allocation for ${tokenMaterialName}` })
+      .getByRole("button", { name: new RegExp(`Allocate ${tokenMaterialName}`) })
       .click();
 
     const sheet = page.getByRole("dialog", { name: "Allocation Manager" });
@@ -1996,11 +1404,11 @@ test.describe("Sales write-path smoke", () => {
     await expect(salesOrderCard(page, secondOrderNumber)).toBeVisible();
 
     const getSameDatePositions = () =>
-      page.locator('[data-testid="sales-order-card"]').evaluateAll(
-        (cards, orderNumbers) =>
+      page.locator("tbody tr").evaluateAll(
+        (rows, orderNumbers) =>
           (orderNumbers as string[]).map((orderNumber) =>
-            cards.findIndex(
-              (card) => card.getAttribute("data-order-number") === orderNumber
+            rows.findIndex(
+              (row) => row.textContent?.includes(orderNumber) ?? false
             )
           ),
         orderNumbers
@@ -2019,8 +1427,12 @@ test.describe("Sales write-path smoke", () => {
     expect(confirmResponse.status).toBe(200);
 
     await page.goto("/sales/orders");
-    await filterList(page, "Search orders", orderingCustomerName);
+    await showSalesOrderStatus(page, "Confirmed");
+    await filterList(page, "Search orders", firstOrderNumber);
     await expect(salesOrderCard(page, firstOrderNumber)).toBeVisible();
+
+    await showSalesOrderStatus(page, "Draft");
+    await filterList(page, "Search orders", orderingCustomerName);
     await expect(salesOrderCard(page, secondOrderNumber)).toBeVisible();
   });
 

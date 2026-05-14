@@ -173,6 +173,19 @@ const STEPS: CountStep[] = [
       `);
     },
   },
+  {
+    table: "inventory.stock_allocations",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM inventory.stock_allocations WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM inventory.stock_allocations WHERE organization_id = ${orgId}`
+      );
+    },
+  },
 
   // ───────────── Manufacturing (children → parents) ─────────────
   {
@@ -292,6 +305,19 @@ const STEPS: CountStep[] = [
     },
   },
   {
+    table: "purchasing.supplier_items",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM purchasing.supplier_items WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM purchasing.supplier_items WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
     table: "purchasing.suppliers",
     count: (tx, orgId) =>
       readCount(
@@ -306,6 +332,33 @@ const STEPS: CountStep[] = [
   },
 
   // ───────────── Stocktakes ─────────────
+  {
+    table: "inventory.stocktake_lot_items",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`
+          SELECT COUNT(*)::int AS n FROM inventory.stocktake_lot_items
+          WHERE stocktake_item_id IN (
+            SELECT si.id
+            FROM inventory.stocktake_items si
+            INNER JOIN inventory.stocktakes s ON s.id = si.stocktake_id
+            WHERE s.organization_id = ${orgId}
+          )
+        `
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(sql`
+        DELETE FROM inventory.stocktake_lot_items
+        WHERE stocktake_item_id IN (
+          SELECT si.id
+          FROM inventory.stocktake_items si
+          INNER JOIN inventory.stocktakes s ON s.id = si.stocktake_id
+          WHERE s.organization_id = ${orgId}
+        )
+      `);
+    },
+  },
   {
     table: "inventory.stocktake_items",
     count: (tx, orgId) =>
@@ -458,6 +511,71 @@ const STEPS: CountStep[] = [
     },
   },
   {
+    table: "sales.customer_project_files",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.customer_project_files WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.customer_project_files WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
+    table: "sales.customer_correspondence_attendees",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.customer_correspondence_attendees WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.customer_correspondence_attendees WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
+    table: "sales.customer_correspondence",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.customer_correspondence WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.customer_correspondence WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
+    table: "sales.customer_contacts",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.customer_contacts WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.customer_contacts WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
+    table: "sales.customer_projects",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`SELECT COUNT(*)::int AS n FROM sales.customer_projects WHERE organization_id = ${orgId}`
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(
+        sql`DELETE FROM sales.customer_projects WHERE organization_id = ${orgId}`
+      );
+    },
+  },
+  {
     table: "sales.customers",
     count: (tx, orgId) =>
       readCount(
@@ -491,6 +609,39 @@ const STEPS: CountStep[] = [
       readCount(tx, sql`SELECT COUNT(*)::int AS n FROM inventory.lots WHERE organization_id = ${orgId}`),
     delete: async (tx, orgId) => {
       await tx.execute(sql`DELETE FROM inventory.lots WHERE organization_id = ${orgId}`);
+    },
+  },
+  {
+    table: "inventory.bom_revision_component_alternates",
+    count: (tx, orgId) =>
+      readCount(
+        tx,
+        sql`
+          SELECT COUNT(*)::int AS n FROM inventory.bom_revision_component_alternates
+          WHERE bom_revision_component_id IN (
+            SELECT c.id
+            FROM inventory.bom_revision_components c
+            INNER JOIN inventory.bom_revisions r ON r.id = c.bom_revision_id
+            WHERE r.organization_id = ${orgId}
+          )
+            OR alternate_item_id IN (
+              SELECT id FROM inventory.items WHERE organization_id = ${orgId}
+            )
+        `
+      ),
+    delete: async (tx, orgId) => {
+      await tx.execute(sql`
+        DELETE FROM inventory.bom_revision_component_alternates
+        WHERE bom_revision_component_id IN (
+          SELECT c.id
+          FROM inventory.bom_revision_components c
+          INNER JOIN inventory.bom_revisions r ON r.id = c.bom_revision_id
+          WHERE r.organization_id = ${orgId}
+        )
+          OR alternate_item_id IN (
+            SELECT id FROM inventory.items WHERE organization_id = ${orgId}
+          )
+      `);
     },
   },
   {

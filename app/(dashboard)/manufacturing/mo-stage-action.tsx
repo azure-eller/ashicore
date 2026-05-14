@@ -62,7 +62,7 @@ export function MoStageAction({
         method: "POST",
         idempotencyKey: `manufacturing-order-release-${orderId}`,
         body: { confirmShortage },
-        fallbackError: "Failed to release order.",
+        fallbackError: "Failed to activate order.",
         mapError: (status, body) => {
           const payload = body as
             | { error?: unknown; shortage?: ManufacturingReleaseWarningPayload }
@@ -70,7 +70,7 @@ export function MoStageAction({
           const message =
             typeof payload?.error === "string"
               ? payload.error
-              : "Failed to release order.";
+              : "Failed to activate order.";
           return Object.assign(new Error(message), {
             status,
             error: message,
@@ -93,7 +93,7 @@ export function MoStageAction({
         setReleaseWarning(error.shortage);
         return;
       }
-      setActionError(error.error ?? "Failed to release order.");
+      setActionError(error.error ?? "Failed to activate order.");
     },
   });
 
@@ -109,7 +109,7 @@ export function MoStageAction({
               releaseMutation.mutate(false);
             }}
           >
-            {releaseMutation.isPending ? "Releasing..." : "Release"}
+            {releaseMutation.isPending ? "Activating..." : "Activate"}
           </Button>
           {actionError ? (
             <p className="max-w-xs text-xs text-destructive">{actionError}</p>
@@ -129,13 +129,13 @@ export function MoStageAction({
             <AlertDialogHeader>
               <AlertDialogTitle>
                 {hasRequirementWarning
-                  ? "Release with warnings?"
-                  : "Release with shortages?"}
+                  ? "Activate with warnings?"
+                  : "Activate with shortages?"}
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {hasRequirementWarning
-                  ? "Releasing is still allowed, but picking may need more eligible stock or confirmation."
-                  : "Releasing is still allowed, but completion will require enough available ingredients."}
+                  ? "Activation is still allowed, but picking may need more eligible stock or confirmation."
+                  : "Activation is still allowed, but completion will require enough available ingredients."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="rounded-md border">
@@ -212,7 +212,7 @@ export function MoStageAction({
                 disabled={releaseMutation.isPending}
                 onClick={() => releaseMutation.mutate(true)}
               >
-                {releaseMutation.isPending ? "Releasing..." : "Release Anyway"}
+                {releaseMutation.isPending ? "Activating..." : "Activate Anyway"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

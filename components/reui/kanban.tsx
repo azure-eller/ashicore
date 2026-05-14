@@ -639,6 +639,7 @@ function KanbanItem({
         ref={setNodeRef}
         style={style}
         {...attributes}
+        {...listeners}
         className={cn(
           isSortableDragging && "z-50 opacity-50",
           disabled && "opacity-50",

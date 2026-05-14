@@ -387,5 +387,5 @@ export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
   plannedDate: null,
   notes: null,
   ingredients: [],
-  confirmShortage: false,
+  confirmShortage: true,
 };

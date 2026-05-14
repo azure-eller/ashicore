@@ -257,8 +257,8 @@ test.describe("Manufacturing write-path smoke", () => {
     if (!firstOrderNumber || !secondOrderNumber || !firstCreatedOrder || !secondCreatedOrder) {
       throw new Error("Expected two manufacturing orders.");
     }
-    expect(firstCreatedOrder.priorityRank).toBeNull();
-    expect(secondCreatedOrder.priorityRank).toBeNull();
+    expect(firstCreatedOrder.priorityRank).not.toBeNull();
+    expect(secondCreatedOrder.priorityRank).not.toBeNull();
 
     await page.goto("/manufacturing/orders");
     await filterList(page, "Search manufacturing orders", productName);
@@ -269,27 +269,21 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    await page
-      .getByRole("row", { name: new RegExp(firstOrderNumber) })
-      .getByRole("button", { name: "Release" })
-      .click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toBeHidden({ timeout: 15_000 });
+      .getByRole("link", { name: "Execute" })
+    ).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    await page.getByRole("radio", { name: "Show Released status" }).click();
+    await page.getByRole("radio", { name: "Show open orders" }).click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toContainText("Released", { timeout: 15_000 });
+    ).toContainText("Not started", { timeout: 15_000 });
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
-    ).toBeHidden();
-
-    const secondRelease = await releaseManufacturingOrder(secondCreatedOrder.id);
-    expect(secondRelease.status).toBe(200);
+    ).toBeVisible();
 
     const releasedOrders = await db
       .select({ id: manufacturingOrders.id })
@@ -329,7 +323,7 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(rankById.get(secondCreatedOrder.id)).toBe(1);
     expect(rankById.get(firstCreatedOrder.id)).toBe(2);
 
-    await page.getByRole("radio", { name: "Show Completed status" }).click();
+    await page.getByRole("radio", { name: "Show done orders" }).click();
     await expect(
       page.getByRole("row", { name: new RegExp(firstOrderNumber) })
     ).toBeHidden();

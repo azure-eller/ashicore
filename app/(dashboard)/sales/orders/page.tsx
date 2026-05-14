@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { SalesOrdersBoard } from "@/app/(dashboard)/sales/orders-board/sales-orders-board";
+import { OrdersTable } from "@/app/(dashboard)/sales/orders-table";
 import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
 import OrdersTableLoading from "../orders-table-loading";
 
@@ -13,5 +13,5 @@ export default function OrdersPage() {
 
 async function SalesOrdersData() {
   const orders = await getSalesOrders();
-  return <SalesOrdersBoard initialData={orders} />;
+  return <OrdersTable initialData={orders} />;
 }

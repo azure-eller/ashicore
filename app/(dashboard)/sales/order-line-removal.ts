@@ -25,6 +25,6 @@ export function buildSalesOrderLineRemovalPayload(
         quantity: line.quantity,
         unitPrice: line.unitPrice,
       })),
-    confirmOversell: false,
+    confirmOversell: true,
   };
 }

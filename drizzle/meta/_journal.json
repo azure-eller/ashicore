@@ -631,6 +631,13 @@
       "when": 1778771839299,
       "tag": "0089_compact_released_mo_ranks",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1778771839300,
+      "tag": "0090_rapid_quasar",
+      "breakpoints": true
     }
   ]
 }
