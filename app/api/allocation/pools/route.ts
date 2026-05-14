@@ -78,6 +78,8 @@ export const GET = apiHandler(async (request) => {
           itemId,
           stockQty: "0",
           incomingQty: "0",
+          stockAllocatedQty: "0",
+          incomingAllocatedQty: "0",
           allocatedQty: "0",
           assignments: [],
           reservations: reservationsByItemId.get(itemId) ?? [],
@@ -95,11 +97,19 @@ export const GET = apiHandler(async (request) => {
         (sum, assignment) => sum + toQuantity(assignment.quantity),
         0
       );
+      const stockAllocatedQty = workspace.assignments
+        .filter((assignment) => assignment.sourceType === "inventory_lot")
+        .reduce((sum, assignment) => sum + toQuantity(assignment.quantity), 0);
+      const incomingAllocatedQty = workspace.assignments
+        .filter((assignment) => assignment.sourceType === "manufacturing_order")
+        .reduce((sum, assignment) => sum + toQuantity(assignment.quantity), 0);
 
       rows.push({
         itemId,
         stockQty: quantityString(stockQty),
         incomingQty: quantityString(incomingQty),
+        stockAllocatedQty: quantityString(stockAllocatedQty),
+        incomingAllocatedQty: quantityString(incomingAllocatedQty),
         allocatedQty: quantityString(allocatedQty),
         assignments: workspace.assignments.map((assignment) => ({
           demandType: assignment.demandType,
