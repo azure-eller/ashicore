@@ -512,10 +512,10 @@ async function assertPriorityRankAvailableInTx(
   }
 }
 
-async function getNextManufacturingOrderPriorityRankInTx(tx: Tx, orgId: string) {
+async function rerankReleasedManufacturingOrdersInTx(tx: Tx, orgId: string) {
   const rows = await tx
     .select({
-      priorityRank: manufacturingOrders.priorityRank,
+      id: manufacturingOrders.id,
     })
     .from(manufacturingOrders)
     .where(
@@ -525,9 +525,43 @@ async function getNextManufacturingOrderPriorityRankInTx(tx: Tx, orgId: string) 
         isNull(manufacturingOrders.deletedAt)
       )
     )
+    .orderBy(
+      sql`${manufacturingOrders.priorityRank} IS NULL`,
+      asc(manufacturingOrders.priorityRank),
+      asc(manufacturingOrders.releasedAt),
+      asc(manufacturingOrders.orderNumber),
+      asc(manufacturingOrders.id)
+    )
     .for("update");
 
-  return Math.max(0, ...rows.map((row) => row.priorityRank ?? 0)) + 1;
+  if (rows.length === 0) {
+    return;
+  }
+
+  const now = new Date();
+  await tx
+    .update(manufacturingOrders)
+    .set({
+      priorityRank: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, orgId),
+        eq(manufacturingOrders.status, "released"),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    );
+
+  for (const [index, row] of rows.entries()) {
+    await tx
+      .update(manufacturingOrders)
+      .set({
+        priorityRank: index + 1,
+        updatedAt: now,
+      })
+      .where(eq(manufacturingOrders.id, row.id));
+  }
 }
 
 export class ManufacturingError extends DomainError<{
@@ -3511,20 +3545,19 @@ export async function releaseManufacturingOrder(
       );
     }
 
-    const priorityRank =
-      order.priorityRank ?? (await getNextManufacturingOrderPriorityRankInTx(tx, orgId));
-    await assertPriorityRankAvailableInTx(tx, orgId, priorityRank, id);
-
+    const now = new Date();
     const [released] = await tx
       .update(manufacturingOrders)
       .set({
         status: "released",
-        priorityRank,
-        releasedAt: new Date(),
-        updatedAt: new Date(),
+        priorityRank: null,
+        releasedAt: now,
+        updatedAt: now,
       })
       .where(eq(manufacturingOrders.id, id))
       .returning({ id: manufacturingOrders.id });
+
+    await rerankReleasedManufacturingOrdersInTx(tx, orgId);
 
     if (order.manufacturingMode === "batch") {
       await ensureBatchExecutionRowsInTx(tx, {
@@ -4699,11 +4732,14 @@ export async function completeManufacturingOrder(
         .update(manufacturingOrders)
         .set({
           status: "completed",
+          priorityRank: null,
           completedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrders.id, id))
         .returning({ id: manufacturingOrders.id });
+
+      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
 
       await finishInventoryOperationInTx(tx, {
         organizationId: orgId,
@@ -4851,6 +4887,7 @@ export async function completeManufacturingOrder(
       .update(manufacturingOrders)
       .set({
         status: "completed",
+        priorityRank: null,
         actualQuantity: normalizeNumeric(actualQuantity),
         actualMaterialCost: normalizeNumeric(totalMaterialCost),
         actualCostPerUnit: normalizeNumeric(actualCostPerUnit),
@@ -4859,6 +4896,8 @@ export async function completeManufacturingOrder(
       })
       .where(eq(manufacturingOrders.id, id))
       .returning({ id: manufacturingOrders.id });
+
+    await rerankReleasedManufacturingOrdersInTx(tx, orgId);
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -5020,10 +5059,15 @@ export async function completeManufacturingBatch(
         .update(manufacturingOrders)
         .set({
           status: allCompleted ? "completed" : "released",
+          priorityRank: allCompleted ? null : order.priorityRank,
           completedAt: allCompleted ? new Date() : null,
           updatedAt: new Date(),
         })
         .where(eq(manufacturingOrders.id, orderId));
+
+      if (allCompleted) {
+        await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+      }
 
       const result = { id: batchId };
       await finishInventoryOperationInTx(tx, {
@@ -5194,10 +5238,15 @@ export async function completeManufacturingBatch(
             ? normalizeNumeric(totalMaterialCost / totalActualQuantity)
             : normalizeNumeric(0),
         status: allCompleted ? "completed" : "released",
+        priorityRank: allCompleted ? null : order.priorityRank,
         completedAt: allCompleted ? new Date() : null,
         updatedAt: new Date(),
       })
       .where(eq(manufacturingOrders.id, orderId));
+
+    if (allCompleted) {
+      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+    }
 
     const result = { id: batchId };
 
@@ -5588,6 +5637,7 @@ export async function cancelManufacturingOrder(
       .update(manufacturingOrders)
       .set({
         status: "cancelled",
+        priorityRank: null,
         cancelledAt: new Date(),
         updatedAt: new Date(),
       })
@@ -5595,6 +5645,8 @@ export async function cancelManufacturingOrder(
       .returning({ id: manufacturingOrders.id });
 
     if (order.status === "released") {
+      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+
       await cancelReleasedManufacturingOrderInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,

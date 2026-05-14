@@ -45,6 +45,7 @@ import {
   type RowSelectionState,
   type SortingState,
   type Table as TanStackTable,
+  type VisibilityState,
   flexRender,
   getCoreRowModel,
   getExpandedRowModel,
@@ -164,6 +165,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   onRowClick?: (row: TData) => void;
   initialSorting?: SortingState;
   initialColumnFilters?: ColumnFiltersState;
+  columnVisibility?: VisibilityState;
   errorMessage?: string | null;
   stickyHeader?: boolean;
   rowReorder?: RowReorderConfig<TData>;
@@ -211,6 +213,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   onRowClick,
   initialSorting,
   initialColumnFilters,
+  columnVisibility,
   errorMessage,
   stickyHeader = true,
   rowReorder,
@@ -329,6 +332,7 @@ export function DashboardDataTable<TData extends { id: string }>({
       rowSelection,
       globalFilter,
       columnFilters,
+      ...(columnVisibility ? { columnVisibility } : {}),
       ...(hasExpansion ? { expanded } : {}),
     },
   });

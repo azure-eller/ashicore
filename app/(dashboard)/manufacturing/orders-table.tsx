@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
+import {
+  type ColumnDef,
+  type ColumnFiltersState,
+  type SortingState,
+  type Table as TanStackTable,
+} from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
@@ -34,6 +40,14 @@ const MANUFACTURING_STATUS_FILTER_OPTIONS = [
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
+
+type ManufacturingStatusFilterValue =
+  (typeof MANUFACTURING_STATUS_FILTER_OPTIONS)[number]["value"];
+
+const INITIAL_SORTING: SortingState = [{ id: "orderNumber", desc: false }];
+const INITIAL_COLUMN_FILTERS: ColumnFiltersState = [
+  { id: "status", value: ["draft"] },
+];
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -159,50 +173,52 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingO
   );
 }
 
-const columns: ColumnDef<ManufacturingOrderListRow>[] = [
-  {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all manufacturing orders"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.orderNumber}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-  },
-  {
-    accessorKey: "priorityRank",
-    header: "Rank",
-    sortingFn: (a, b) => {
-      const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-      const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-      const rankCompare = left - right;
-
-      if (rankCompare !== 0) {
-        return rankCompare;
+const selectColumn: ColumnDef<ManufacturingOrderListRow> = {
+  id: "select",
+  header: ({ table }) => (
+    <Checkbox
+      checked={
+        table.getIsAllPageRowsSelected() ||
+        (table.getIsSomePageRowsSelected() && "indeterminate")
       }
+      onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+      aria-label="Select all manufacturing orders"
+    />
+  ),
+  cell: ({ row }) => (
+    <Checkbox
+      checked={row.getIsSelected()}
+      onCheckedChange={(value) => row.toggleSelected(!!value)}
+      aria-label={`Select ${row.original.orderNumber}`}
+    />
+  ),
+  enableSorting: false,
+  enableHiding: false,
+};
 
-      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-        numeric: true,
-      });
-    },
-    cell: ({ row }) => (
-      <RankCell rowIndex={row.index} order={row.original} />
-    ),
-    meta: { className: "w-20" },
+const rankColumn: ColumnDef<ManufacturingOrderListRow> = {
+  accessorKey: "priorityRank",
+  header: "Rank",
+  sortingFn: (a, b) => {
+    const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const rankCompare = left - right;
+
+    if (rankCompare !== 0) {
+      return rankCompare;
+    }
+
+    return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
+      numeric: true,
+    });
   },
+  cell: ({ row }) => (
+    <RankCell rowIndex={row.index} order={row.original} />
+  ),
+  meta: { className: "w-20" },
+};
+
+const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
     accessorKey: "orderNumber",
     header: ({ column }) => <SortableHeader column={column} label="Order" />,
@@ -308,12 +324,49 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
 ];
 
+const columns: ColumnDef<ManufacturingOrderListRow>[] = [
+  selectColumn,
+  rankColumn,
+  ...orderColumns,
+];
+
+function ManufacturingStatusFilter({
+  table,
+  onStatusChange,
+}: {
+  table: TanStackTable<ManufacturingOrderListRow>;
+  onStatusChange: (status: ManufacturingStatusFilterValue) => void;
+}) {
+  return (
+    <DataTableStatusFilter
+      table={table}
+      options={MANUFACTURING_STATUS_FILTER_OPTIONS}
+      ariaLabel="Filter manufacturing orders by status"
+      showAll={false}
+      onFilterValueChange={(value) => {
+        if (value === "all") return;
+
+        onStatusChange(value);
+        table.setSorting([
+          { id: value === "released" ? "priorityRank" : "orderNumber", desc: false },
+        ]);
+      }}
+    />
+  );
+}
+
 export function OrdersTable({
   initialData,
 }: {
   initialData: ManufacturingOrderListRow[];
 }) {
   const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] =
+    useState<ManufacturingStatusFilterValue>("draft");
+  const columnVisibility = useMemo(
+    () => ({ priorityRank: statusFilter === "released" }),
+    [statusFilter]
+  );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: ManufacturingOrderListRow[]) => {
       const response = await fetch("/api/manufacturing-orders/priority-ranks", {
@@ -357,6 +410,7 @@ export function OrdersTable({
   return (
     <DashboardDataTable
       columns={columns}
+      columnVisibility={columnVisibility}
       initialData={initialData}
       queryKey={["manufacturing-orders"]}
       queryFn={async () => {
@@ -372,15 +426,13 @@ export function OrdersTable({
       addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
       toolbarContent={({ table }) => (
-        <DataTableStatusFilter
+        <ManufacturingStatusFilter
           table={table}
-          options={MANUFACTURING_STATUS_FILTER_OPTIONS}
-          ariaLabel="Filter manufacturing orders by status"
-          showAll={false}
+          onStatusChange={setStatusFilter}
         />
       )}
-      initialSorting={[{ id: "priorityRank", desc: false }]}
-      initialColumnFilters={[{ id: "status", value: ["draft"] }]}
+      initialSorting={INITIAL_SORTING}
+      initialColumnFilters={INITIAL_COLUMN_FILTERS}
       rowReorder={{
         disabled: reorderMutation.isPending,
         enabled: (table) => {

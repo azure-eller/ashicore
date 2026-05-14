@@ -17,6 +17,7 @@ type DataTableStatusFilterProps<TData, TValue extends string> = {
   options: readonly StatusOption<TValue>[];
   ariaLabel: string;
   showAll?: boolean;
+  onFilterValueChange?: (value: TValue | "all") => void;
 };
 
 export function DataTableStatusFilter<TData, TValue extends string>({
@@ -25,6 +26,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
   options,
   ariaLabel,
   showAll = true,
+  onFilterValueChange,
 }: DataTableStatusFilterProps<TData, TValue>) {
   const column = table.getColumn(columnId);
   const selected = (column?.getFilterValue() as string[] | undefined) ?? [];
@@ -46,9 +48,11 @@ export function DataTableStatusFilter<TData, TValue extends string>({
         if (!showAll && !nextValue) return;
         if (!nextValue) {
           column.setFilterValue(undefined);
+          onFilterValueChange?.("all");
           return;
         }
         column.setFilterValue(nextValue === "all" ? undefined : [nextValue]);
+        onFilterValueChange?.(nextValue as TValue | "all");
       }}
       aria-label={ariaLabel}
       className="max-w-full flex-wrap rounded-lg bg-muted p-1"
