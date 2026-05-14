@@ -602,13 +602,19 @@ test.describe("Sales order flow", () => {
 
     // UI
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$11.25");
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const editedLineItemsTable = page.locator("#sales-order-panel-lines table").first();
+    await expect(editedLineItemsTable).toContainText("$11.25");
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.reload();
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("$11.25");
+    await page.getByRole("button", { name: /^Line Items/ }).click();
+    const reloadedEditedLineItemsTable = page
+      .locator("#sales-order-panel-lines table")
+      .first();
+    await expect(reloadedEditedLineItemsTable).toContainText("$11.25");
 
     // DB
     const orderRows = await db

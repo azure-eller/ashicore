@@ -596,10 +596,10 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "8.0000",
+        committed: "10.0000",
         demand: "18.0000",
         shortage: "8.0000",
-        reservation: "8.0000",
+        reservation: "10.0000",
         demandSummary: "18.0000",
       });
 
@@ -618,10 +618,10 @@ test.describe("Sales allocation manager slow flow", () => {
         };
       })
       .toEqual({
-        committed: "8.0000",
+        committed: "10.0000",
         demand: "18.0000",
         shortage: "8.0000",
-        reservation: "8.0000",
+        reservation: "10.0000",
         demandSummary: "18.0000",
       });
 
