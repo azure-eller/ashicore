@@ -283,6 +283,11 @@
   opacity: 0.35;
 }
 
+.hideColumnAction {
+  font-size: 14px;
+  line-height: 1;
+}
+
 .headerCoverage {
   position: sticky;
   top: 76px;
