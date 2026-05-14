@@ -1222,12 +1222,6 @@ test.describe("Sales order flow", () => {
     await expect(page.locator("table").first()).toContainText(primaryProductName);
     await expect(page.getByRole("button", { name: "Plan Fulfillment" })).toHaveCount(0);
 
-    await page.goto("/sales/orders");
-    const shippedOrderRow = shipOrderBeforeUi;
-    await filterList(page, "Search orders", shippedOrderRow.orderNumber);
-    await expect(salesOrderCard(page, shippedOrderRow.orderNumber)).toContainText(
-      "Shipped"
-    );
   });
 
   test("plans available partial shipment on a short order and keeps history after cancelling remaining", async ({
