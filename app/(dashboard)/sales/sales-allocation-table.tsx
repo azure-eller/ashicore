@@ -57,6 +57,8 @@ export type AllocationPoolRow = {
   itemId: string;
   stockQty: string;
   incomingQty: string;
+  stockAllocatedQty?: string;
+  incomingAllocatedQty?: string;
   allocatedQty: string;
   assignments: Array<{
     demandLabel: string;
@@ -283,7 +285,7 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
         const cell = row.cells.get(product.itemId);
         return sum + (cell?.alloc ?? 0);
       }, 0);
-      const pool = product.stockQty + product.incomingQty + product.allocatedQty;
+      const pool = product.stockQty + product.incomingQty;
       const surplus = pool - demand;
       let verdict: ColumnCoverage["verdict"] = "idle";
 
@@ -491,8 +493,10 @@ export function SalesAllocationTable({
       if (!pool) return product;
       return {
         ...product,
-        stockQty: parseQuantity(pool.stockQty),
-        incomingQty: parseQuantity(pool.incomingQty),
+        stockQty:
+          parseQuantity(pool.stockQty) + parseQuantity(pool.stockAllocatedQty),
+        incomingQty:
+          parseQuantity(pool.incomingQty) + parseQuantity(pool.incomingAllocatedQty),
         allocatedQty: parseQuantity(pool.allocatedQty),
         reservationSummaries: [
           ...pool.assignments.map(
@@ -972,16 +976,6 @@ function CoverageHeader({
   }
 
   const label = getCoverageLabel(coverage);
-  const coverageTooltip = [
-    `Pool ${compactQuantity(coverage.pool)} = stock ${compactQuantity(coverage.stock)}`,
-    `+ MO ${compactQuantity(coverage.incoming)}.`,
-    `+ assigned ${compactQuantity(coverage.product.allocatedQty)}.`,
-    `Need ${compactQuantity(coverage.demand)}.`,
-    ...coverage.product.reservationSummaries.slice(0, 3),
-    coverage.product.reservationSummaries.length > 3
-      ? `+${coverage.product.reservationSummaries.length - 3} more.`
-      : null,
-  ].join(" ");
 
   return (
     <div className={`${styles.headerCell} ${styles.headerCoverage} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""}`}>
@@ -995,7 +989,20 @@ function CoverageHeader({
             </div>
           </div>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{coverageTooltip}</TooltipContent>
+        <TooltipContent
+          side="bottom"
+          className="block font-mono text-[11px] leading-4 tabular-nums"
+        >
+          <div className="grid grid-cols-[auto_auto] gap-x-3">
+            <span>STOCK</span>
+            <span className="text-right">{compactQuantity(coverage.stock)}</span>
+            <span>+ MO</span>
+            <span className="text-right">{compactQuantity(coverage.incoming)}</span>
+            <span className="col-span-2 my-0.5 border-t border-background/45" />
+            <span>= POOL</span>
+            <span className="text-right">{compactQuantity(coverage.pool)}</span>
+          </div>
+        </TooltipContent>
       </Tooltip>
     </div>
   );
