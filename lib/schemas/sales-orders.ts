@@ -172,6 +172,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   xeroEmailStatus: true,
   xeroEmailError: true,
   xeroEmailedAt: true,
+  priorityRank: true,
   totalAmount: true,
   deletedAt: true,
   createdAt: true,
@@ -238,6 +239,29 @@ export const confirmSalesOrderSchema = z.object({
   confirmDraftAllocationTakeover: z.boolean().optional(),
 });
 export type ConfirmSalesOrder = z.infer<typeof confirmSalesOrderSchema>;
+
+export const reorderSalesOrderPriorityRanksSchema = z.object({
+  orderIds: z
+    .array(z.string().uuid("Sales order is required"))
+    .min(1, "At least one sales order is required")
+    .superRefine((ids, ctx) => {
+      const seen = new Set<string>();
+
+      ids.forEach((id, index) => {
+        if (seen.has(id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Sales order appears more than once",
+            path: [index],
+          });
+        }
+        seen.add(id);
+      });
+    }),
+});
+export type ReorderSalesOrderPriorityRanks = z.infer<
+  typeof reorderSalesOrderPriorityRanksSchema
+>;
 
 export const bulkConfirmSalesOrdersSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),

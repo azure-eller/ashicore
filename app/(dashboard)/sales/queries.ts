@@ -92,6 +92,7 @@ import type {
   BulkConfirmSalesOrders,
   SalesFulfillmentPlanInput,
   InsertSalesOrder,
+  ReorderSalesOrderPriorityRanks,
   SalesShipmentCostsInput,
   SalesShipmentInput,
   ShipSalesShipment,
@@ -988,6 +989,79 @@ function isCancelPayload(
   payload: UpdateSalesOrder
 ): payload is Extract<UpdateSalesOrder, { status: "cancelled" }> {
   return payload.status === "cancelled" && !("lines" in payload);
+}
+
+const OPEN_SALES_ORDER_STATUSES = [
+  "draft",
+  "confirmed",
+  "partially_shipped",
+] as const;
+
+function isOpenSalesOrderStatus(status: string) {
+  return (OPEN_SALES_ORDER_STATUSES as readonly string[]).includes(status);
+}
+
+function assertSameStringSet(actual: string[], expected: string[], message: string) {
+  if (actual.length !== expected.length) {
+    throw new SalesError(message, 400);
+  }
+
+  const expectedSet = new Set(expected);
+  if (actual.some((value) => !expectedSet.has(value))) {
+    throw new SalesError(message, 400);
+  }
+}
+
+async function rerankOpenSalesOrdersInTx(tx: Tx, orgId: string) {
+  const rows = await tx
+    .select({ id: salesOrders.id })
+    .from(salesOrders)
+    .where(
+      and(
+        eq(salesOrders.organizationId, orgId),
+        inArray(salesOrders.status, [...OPEN_SALES_ORDER_STATUSES]),
+        isNull(salesOrders.deletedAt)
+      )
+    )
+    .orderBy(
+      sql`${salesOrders.priorityRank} IS NULL`,
+      asc(salesOrders.priorityRank),
+      asc(salesOrders.shipDate),
+      asc(salesOrders.requestedDate),
+      asc(salesOrders.orderDate),
+      asc(salesOrders.orderNumber),
+      asc(salesOrders.id)
+    )
+    .for("update");
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const now = new Date();
+  await tx
+    .update(salesOrders)
+    .set({
+      priorityRank: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(salesOrders.organizationId, orgId),
+        inArray(salesOrders.status, [...OPEN_SALES_ORDER_STATUSES]),
+        isNull(salesOrders.deletedAt)
+      )
+    );
+
+  for (const [index, row] of rows.entries()) {
+    await tx
+      .update(salesOrders)
+      .set({
+        priorityRank: index + 1,
+        updatedAt: now,
+      })
+      .where(eq(salesOrders.id, row.id));
+  }
 }
 
 async function generateOrderNumber(tx: Tx) {
@@ -4323,6 +4397,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             customerProjectName: customerProjects.name,
             notes: salesOrders.notes,
             status: salesOrders.status,
+            priorityRank: salesOrders.priorityRank,
             orderDate: salesOrders.orderDate,
             shipDate: salesOrders.shipDate,
             requestedDate: salesOrders.requestedDate,
@@ -4343,6 +4418,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           )
           .where(isNull(salesOrders.deletedAt))
           .orderBy(
+            sql`${salesOrders.priorityRank} IS NULL`,
+            asc(salesOrders.priorityRank),
+            asc(salesOrders.shipDate),
             desc(salesOrders.createdAt),
             asc(salesOrders.orderNumber),
             asc(salesOrders.id)
@@ -4603,6 +4681,83 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
       }),
     }
   );
+}
+
+export async function reorderSalesOrderPriorityRanks(
+  payload: ReorderSalesOrderPriorityRanks
+): Promise<{ updated: number }> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const orders = await tx
+      .select({
+        id: salesOrders.id,
+        status: salesOrders.status,
+      })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.organizationId, orgId),
+          inArray(salesOrders.id, payload.orderIds),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    const openOrders = await tx
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.organizationId, orgId),
+          inArray(salesOrders.status, [...OPEN_SALES_ORDER_STATUSES]),
+          isNull(salesOrders.deletedAt)
+        )
+      )
+      .for("update");
+
+    assertSameStringSet(
+      openOrders.map((order) => order.id),
+      payload.orderIds,
+      "Payload must include all open sales orders."
+    );
+
+    assertSameStringSet(
+      orders.map((order) => order.id),
+      payload.orderIds,
+      "Sales order ranking does not match open orders."
+    );
+
+    const invalidOrder = orders.find((order) => !isOpenSalesOrderStatus(order.status));
+    if (invalidOrder) {
+      throw new SalesError("Only open sales orders can be reordered.", 400);
+    }
+
+    const now = new Date();
+    await tx
+      .update(salesOrders)
+      .set({
+        priorityRank: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(salesOrders.organizationId, orgId),
+          inArray(salesOrders.status, [...OPEN_SALES_ORDER_STATUSES]),
+          isNull(salesOrders.deletedAt)
+        )
+      );
+
+    for (const [index, id] of payload.orderIds.entries()) {
+      await tx
+        .update(salesOrders)
+        .set({
+          priorityRank: index + 1,
+          updatedAt: now,
+        })
+        .where(eq(salesOrders.id, id));
+    }
+
+    return { updated: payload.orderIds.length };
+  });
 }
 
 export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> {
@@ -5394,6 +5549,10 @@ export async function createSalesOrder(
       });
     }
 
+    if (isOpenSalesOrderStatus(data.status)) {
+      await rerankOpenSalesOrdersInTx(tx, orgId);
+    }
+
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -5477,6 +5636,7 @@ export async function updateSalesOrder(
           .update(salesOrders)
           .set({
             status: "cancelled",
+            priorityRank: null,
             updatedAt: new Date(),
           })
           .where(eq(salesOrders.id, id));
@@ -5492,6 +5652,7 @@ export async function updateSalesOrder(
           reason: "cancelled",
           salesOrderLineIds: existingLines.map((line) => line.id),
         });
+        await rerankOpenSalesOrdersInTx(tx, orgId);
         const result = { id };
         await finishInventoryOperationInTx(tx, {
           organizationId: orgId,
@@ -6439,11 +6600,16 @@ export async function shipSalesShipment(
       .update(salesOrders)
       .set({
         status: allClosed ? "shipped" : "partially_shipped",
+        ...(allClosed ? { priorityRank: null } : {}),
         shippedAt: allClosed ? shippedAt : null,
         updatedAt: shippedAt,
       })
       .where(eq(salesOrders.id, orderId))
       .returning({ id: salesOrders.id, status: salesOrders.status });
+
+    if (allClosed) {
+      await rerankOpenSalesOrdersInTx(tx, orgId);
+    }
 
     const result = {
       shipmentId,
@@ -6585,9 +6751,12 @@ export async function cancelRemainingSalesOrder(
       .update(salesOrders)
       .set({
         status: "cancelled",
+        priorityRank: null,
         updatedAt: new Date(),
       })
       .where(eq(salesOrders.id, orderId));
+
+    await rerankOpenSalesOrdersInTx(tx, orgId);
 
     const result = { id: orderId };
     await finishInventoryOperationInTx(tx, {
@@ -6766,6 +6935,7 @@ export async function shipSalesOrder(
       .update(salesOrders)
       .set({
         status: "shipped",
+        priorityRank: null,
         shippedAt,
         shipLine1,
         shipLine2,
@@ -6777,6 +6947,8 @@ export async function shipSalesOrder(
       })
       .where(eq(salesOrders.id, id))
       .returning({ id: salesOrders.id });
+
+    await rerankOpenSalesOrdersInTx(tx, orgId);
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -7003,6 +7175,8 @@ export async function confirmSalesOrder(
       reservationLines,
     });
 
+    await rerankOpenSalesOrdersInTx(tx, orgId);
+
     const result = { id };
 
     await finishInventoryOperationInTx(tx, {
@@ -7126,6 +7300,8 @@ export async function bulkConfirmSalesOrders(
       });
     }
 
+    await rerankOpenSalesOrdersInTx(tx, orgId);
+
     const result = { confirmedCount: orderIds.length };
 
     await finishInventoryOperationInTx(tx, {
@@ -7176,6 +7352,7 @@ export async function deleteSalesOrder(
     await tx
       .update(salesOrders)
       .set({
+        priorityRank: null,
         deletedAt,
         updatedAt: deletedAt,
       })
@@ -7192,6 +7369,10 @@ export async function deleteSalesOrder(
       reason: "deleted",
       salesOrderLineIds: existingLines.map((line) => line.id),
     });
+
+    if (isOpenSalesOrderStatus(order.status)) {
+      await rerankOpenSalesOrdersInTx(tx, orgId);
+    }
 
     const result = { deleted: true };
 
@@ -7268,7 +7449,7 @@ export async function deleteSalesOrders(
 
     await tx
       .update(salesOrders)
-      .set({ deletedAt, updatedAt: deletedAt })
+      .set({ priorityRank: null, deletedAt, updatedAt: deletedAt })
       .where(inArray(salesOrders.id, orderIds));
 
     await releaseReservationForSalesLineInTx(tx, {
@@ -7282,6 +7463,10 @@ export async function deleteSalesOrders(
       reason: "deleted",
       salesOrderLineIds: lines.map((line) => line.id),
     });
+
+    if (orders.some((order) => isOpenSalesOrderStatus(order.status))) {
+      await rerankOpenSalesOrdersInTx(tx, orgId);
+    }
 
     const result = { deletedCount: orders.length };
 

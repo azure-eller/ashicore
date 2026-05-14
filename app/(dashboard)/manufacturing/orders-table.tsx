@@ -209,7 +209,7 @@ function doneManufacturingOrderRank(order: ManufacturingOrderListRow) {
 }
 
 function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingOrderListRow }) {
-  if (order.status !== "released") {
+  if (!(OPEN_MANUFACTURING_STATUSES as readonly string[]).includes(order.status)) {
     return <span className="text-muted-foreground">-</span>;
   }
 

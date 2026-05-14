@@ -16,7 +16,6 @@ import {
   createManufacturingOrder,
   createSalesOrder,
   getUnitId,
-  releaseManufacturingOrder,
   testFetch,
   updateItem,
   updateSalesOrder,
@@ -87,14 +86,15 @@ async function createCustomerFixture(name: string) {
   return result.body.id as string;
 }
 
-async function createDraftSalesOrder(params: {
+async function createOpenSalesOrder(params: {
   customerId: string;
   itemId: string;
   quantity: string;
+  confirmOversell?: boolean;
 }) {
   const result = await createSalesOrder({
     customerId: params.customerId,
-    status: "draft",
+    status: "confirmed",
     lines: [
       {
         itemId: params.itemId,
@@ -102,6 +102,7 @@ async function createDraftSalesOrder(params: {
         unitPrice: "9.00",
       },
     ],
+    confirmOversell: params.confirmOversell,
   });
 
   expect(result.status).toBe(201);
@@ -194,18 +195,18 @@ async function setLotDisposition(
 }
 
 test.describe("Reservation correctness", () => {
-  test("sales confirmation records backorder demand without over-reserving stock", async ({
+  test("sales order creation records backorder demand without over-reserving stock", async ({
     db,
   }) => {
     const customerId = await createCustomerFixture(uniqueName("Reservation customer"));
     const itemId = await createMaterial(uniqueName("Limited sales material"), "4");
-    const orderId = await createDraftSalesOrder({
-      customerId,
-      itemId,
-      quantity: "10",
-    });
 
-    const warning = await confirmSalesOrder(orderId);
+    const warning = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      lines: [{ itemId, quantity: "10", unitPrice: "9.00" }],
+      confirmOversell: false,
+    });
     expect(warning.status).toBe(409);
     expect(warning.body.oversell.products[0]).toMatchObject({
       availableQty: 4,
@@ -216,8 +217,12 @@ test.describe("Reservation correctness", () => {
       projectedShortageQty: 6,
     });
 
-    const confirmed = await confirmSalesOrder(orderId, { confirmOversell: true });
-    expect(confirmed.status).toBe(200);
+    const orderId = await createOpenSalesOrder({
+      customerId,
+      itemId,
+      quantity: "10",
+      confirmOversell: true,
+    });
 
     const [order] = await db
       .select({ status: salesOrders.status })
@@ -239,7 +244,7 @@ test.describe("Reservation correctness", () => {
   }) => {
     const customerId = await createCustomerFixture(uniqueName("Full reservation customer"));
     const itemId = await createMaterial(uniqueName("Full reservation material"), "6");
-    const orderId = await createDraftSalesOrder({
+    const orderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "6",
@@ -262,7 +267,7 @@ test.describe("Reservation correctness", () => {
   }) => {
     const customerId = await createCustomerFixture(uniqueName("Confirmed edit customer"));
     const itemId = await createMaterial(uniqueName("Confirmed edit material"), "5");
-    const orderId = await createDraftSalesOrder({
+    const orderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "3",
@@ -274,6 +279,7 @@ test.describe("Reservation correctness", () => {
       status: "confirmed",
       shipDate: "2026-04-15",
       lines: [{ itemId, quantity: "7", unitPrice: "9.00" }],
+      confirmOversell: false,
     });
     expect(warning.status).toBe(409);
     expect(warning.body.oversell.products[0]).toMatchObject({
@@ -315,12 +321,12 @@ test.describe("Reservation correctness", () => {
   }) => {
     const customerId = await createCustomerFixture(uniqueName("ATP customer"));
     const itemId = await createMaterial(uniqueName("ATP material"), "5");
-    const firstOrderId = await createDraftSalesOrder({
+    const firstOrderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "3",
     });
-    const secondOrderId = await createDraftSalesOrder({
+    const secondOrderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "4",
@@ -338,16 +344,23 @@ test.describe("Reservation correctness", () => {
 
     const blockedItemId = await createMaterial(uniqueName("Blocked ATP material"), "5");
     await setLotDisposition(db, blockedItemId, "blocked");
-    const blockedOrderId = await createDraftSalesOrder({
+
+    const blockedWarning = await createSalesOrder({
+      customerId,
+      status: "confirmed",
+      lines: [{ itemId: blockedItemId, quantity: "5", unitPrice: "9.00" }],
+      confirmOversell: false,
+    });
+    expect(blockedWarning.status).toBe(409);
+    expect(blockedWarning.body.oversell.products[0].availableQty).toBe(0);
+
+    const blockedOrderId = await createOpenSalesOrder({
       customerId,
       itemId: blockedItemId,
       quantity: "5",
+      confirmOversell: true,
     });
-
-    const blockedWarning = await confirmSalesOrder(blockedOrderId);
-    expect(blockedWarning.status).toBe(409);
-    expect(blockedWarning.body.oversell.products[0].availableQty).toBe(0);
-    expect((await confirmSalesOrder(blockedOrderId, { confirmOversell: true })).status).toBe(200);
+    expect(blockedOrderId).toBeTruthy();
 
     const blockedBalance = await getItemBalance(db, blockedItemId);
     expect(blockedBalance.committedQty).toBe("0.0000");
@@ -364,7 +377,7 @@ test.describe("Reservation correctness", () => {
     const releasedItemId = await createMaterial(uniqueName("Released material"), "4");
     await setLotDisposition(db, releasedItemId, "blocked");
     await setLotDisposition(db, releasedItemId, "available");
-    const releasedOrderId = await createDraftSalesOrder({
+    const releasedOrderId = await createOpenSalesOrder({
       customerId,
       itemId: releasedItemId,
       quantity: "4",
@@ -376,12 +389,12 @@ test.describe("Reservation correctness", () => {
 
     const blockedItemId = await createMaterial(uniqueName("Blocked material"), "4");
     await setLotDisposition(db, blockedItemId, "blocked");
-    const blockedOrderId = await createDraftSalesOrder({
+    await createOpenSalesOrder({
       customerId,
       itemId: blockedItemId,
       quantity: "4",
+      confirmOversell: true,
     });
-    expect((await confirmSalesOrder(blockedOrderId, { confirmOversell: true })).status).toBe(200);
     const blockedBalance = await getItemBalance(db, blockedItemId);
     expect(blockedBalance.committedQty).toBe("0.0000");
     expect(blockedBalance.shortageQty).toBe("4.0000");
@@ -397,15 +410,11 @@ test.describe("Reservation correctness", () => {
       materialId,
       "2"
     );
-    const order = await createManufacturingOrder({
+    const warning = await createManufacturingOrder({
       productId,
       plannedQuantity: "3",
       ingredients: [{ itemId: materialId, quantityPerUnit: "2" }],
     });
-    expect(order.status).toBe(201);
-
-    const orderId = order.body.id as string;
-    const warning = await releaseManufacturingOrder(orderId);
     expect(warning.status).toBe(409);
     expect(warning.body.shortage.ingredients[0]).toMatchObject({
       itemId: materialId,
@@ -414,8 +423,14 @@ test.describe("Reservation correctness", () => {
       shortage: 3,
     });
 
-    const released = await releaseManufacturingOrder(orderId, { confirmShortage: true });
-    expect(released.status).toBe(200);
+    const released = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "3",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "2" }],
+      confirmShortage: true,
+    });
+    expect(released.status).toBe(201);
+    const orderId = released.body.id as string;
 
     const balance = await getItemBalance(db, materialId);
     expect(balance.committedQty).toBe("3.0000");
@@ -486,14 +501,11 @@ test.describe("Reservation correctness", () => {
       "1",
       7
     );
-    const order = await createManufacturingOrder({
+    const warning = await createManufacturingOrder({
       productId,
       plannedQuantity: "5",
       ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
     });
-    expect(order.status).toBe(201);
-
-    const warning = await releaseManufacturingOrder(order.body.id as string);
     expect(warning.status).toBe(409);
     expect(warning.body.shortage.ingredients[0]).toMatchObject({
       itemId: materialId,
@@ -509,15 +521,16 @@ test.describe("Reservation correctness", () => {
   }) => {
     const customerId = await createCustomerFixture(uniqueName("Concurrent customer"));
     const itemId = await createMaterial(uniqueName("Concurrent material"), "5");
-    const firstOrderId = await createDraftSalesOrder({
+    const firstOrderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "5",
     });
-    const secondOrderId = await createDraftSalesOrder({
+    const secondOrderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "5",
+      confirmOversell: true,
     });
 
     const results = await Promise.all([
@@ -569,10 +582,7 @@ test.describe("Reservation correctness", () => {
       ),
       page.getByRole("button", { name: "Create Order" }).click(),
     ]);
-    expect(createOrderResponse.status()).toBe(201);
-    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
-
-    await page.getByRole("button", { name: "Confirm" }).click();
+    expect(createOrderResponse.status()).toBe(409);
     const oversellDialog = page.getByRole("alertdialog", { name: "Confirm Oversell?" });
     await expect(oversellDialog).toBeVisible();
     await expect(oversellDialog.getByText("Current Stock", { exact: true })).toBeVisible();
@@ -582,11 +592,12 @@ test.describe("Reservation correctness", () => {
       page.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
-          /\/api\/sales-orders\/[0-9a-f-]+\/confirm$/.test(response.url())
+          response.url().endsWith("/api/sales-orders")
       ),
       oversellDialog.getByRole("button", { name: "Confirm Anyway" }).click(),
     ]);
-    expect(confirmResponse.status()).toBe(200);
+    expect(confirmResponse.status()).toBe(201);
+    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
 
     await expect(
       page.locator("main").getByText("Confirmed", { exact: true }).first()
@@ -607,7 +618,7 @@ test.describe("Reservation correctness", () => {
     const materialName = uniqueName("Commitment card material");
     const customerId = await createCustomerFixture(customerName);
     const itemId = await createMaterial(materialName, "8");
-    const orderId = await createDraftSalesOrder({
+    const orderId = await createOpenSalesOrder({
       customerId,
       itemId,
       quantity: "3",

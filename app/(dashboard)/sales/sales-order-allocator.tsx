@@ -1,11 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ListSettingIcon } from "@hugeicons/core-free-icons";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,13 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -32,8 +21,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantity } from "@/lib/format";
+import {
+  ALLOCATION_ALLOCATE_TOOLTIP,
+  ALLOCATION_AVAILABLE_TOOLTIP,
+  ALLOCATION_CURRENT_TOOLTIP,
+  ALLOCATION_SOURCE_TOOLTIP,
+} from "@/lib/tooltip-copy";
 import { cn } from "@/lib/utils";
 import type {
   AllocationSourceRow,
@@ -42,21 +38,23 @@ import type {
 } from "@/lib/inventory/allocation/types";
 import type { SalesOrderListLine, SalesOrderListRow } from "./types";
 
-const ALLOCATOR_PREFERENCE_ENDPOINT = "/api/preferences/sales-orders-allocator";
-const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
+export const ALLOCATOR_PREFERENCE_ENDPOINT =
+  "/api/preferences/sales-orders-allocator";
 
-type AllocatorPreference = {
+export type AllocatorPreference = {
   hiddenProductIds: string[];
 };
 
-type AllocatorProduct = {
+export type AllocatorProduct = {
   itemId: string;
   label: string;
+  familyLabel: string;
+  variantLabel: string;
   sku: string | null;
   unitName: string;
 };
 
-type AllocationTarget = {
+export type AllocationTarget = {
   order: SalesOrderListRow;
   line: SalesOrderListLine & { id: string };
   product: AllocatorProduct;
@@ -64,10 +62,6 @@ type AllocationTarget = {
 };
 
 type SourceDraft = Record<string, string>;
-
-function isOpenSalesOrder(order: SalesOrderListRow) {
-  return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
-}
 
 function parseQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
@@ -78,7 +72,19 @@ function quantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
-function productLabel(line: SalesOrderListLine) {
+function isAllocationDraft(value: string) {
+  return value === "" || /^\d*\.?\d{0,4}$/.test(value);
+}
+
+function formatSourceDate(source: AllocationSourceRow) {
+  if (source.date == null) return null;
+
+  const date = source.date.includes("T") ? source.date.slice(0, 10) : source.date;
+  const label = source.sourceType === "inventory_lot" ? "Received" : "Planned";
+  return `${label} ${formatDate(date)}`;
+}
+
+export function productLabel(line: SalesOrderListLine) {
   return line.attrs.length > 0
     ? `${line.masterName} ${line.attrs.join(" ")}`
     : line.masterName;
@@ -93,11 +99,11 @@ function sourceTypeLabel(sourceType: AllocationSourceType) {
   return "Manufacturing orders";
 }
 
-function getLineRemainingQty(line: SalesOrderListLine) {
+export function getLineRemainingQty(line: SalesOrderListLine) {
   return line.remainingQty ?? line.quantity;
 }
 
-function getLineAllocatedQty(line: SalesOrderListLine) {
+export function getLineAllocatedQty(line: SalesOrderListLine) {
   return line.allocatedQty ?? "0";
 }
 
@@ -114,9 +120,9 @@ function getAllocationTone(line: SalesOrderListLine) {
 
 function getAllocationCellClass(line: SalesOrderListLine) {
   const tone = getAllocationTone(line);
-  if (tone === "success") return "border-success/30 bg-success/10 text-success";
-  if (tone === "warning") return "border-warning/30 bg-warning/10 text-warning";
-  return "border-destructive/30 bg-destructive/10 text-destructive";
+  if (tone === "success") return "bg-success/10 text-success";
+  if (tone === "warning") return "bg-warning/10 text-warning";
+  return "bg-destructive/10 text-destructive";
 }
 
 function groupSources(sources: AllocationSourceRow[]) {
@@ -136,262 +142,13 @@ function groupSources(sources: AllocationSourceRow[]) {
   ];
 }
 
-export function SalesOrderAllocator({ orders }: { orders: SalesOrderListRow[] }) {
-  const queryClient = useQueryClient();
-  const [target, setTarget] = useState<AllocationTarget | null>(null);
-  const openOrders = useMemo(() => orders.filter(isOpenSalesOrder), [orders]);
-
-  const products = useMemo(() => {
-    const byId = new Map<string, AllocatorProduct>();
-
-    openOrders.forEach((order) => {
-      order.lines.forEach((line) => {
-        if (line.itemType !== "product") return;
-        if (byId.has(line.itemId)) return;
-
-        byId.set(line.itemId, {
-          itemId: line.itemId,
-          label: productLabel(line),
-          sku: line.itemSku ?? null,
-          unitName: line.unitName,
-        });
-      });
-    });
-
-    return [...byId.values()].sort((left, right) =>
-      left.label.localeCompare(right.label)
-    );
-  }, [openOrders]);
-
-  const preferenceQuery = useQuery({
-    queryKey: ["sales-orders-allocator-preference"],
-    queryFn: () =>
-      apiJson<AllocatorPreference>(ALLOCATOR_PREFERENCE_ENDPOINT, {
-        fallbackError: "Failed to load allocator preferences.",
-      }),
-    initialData: { hiddenProductIds: [] },
-  });
-  const hiddenProductIds = preferenceQuery.data.hiddenProductIds;
-  const hiddenProductIdSet = useMemo(
-    () => new Set(hiddenProductIds),
-    [hiddenProductIds]
-  );
-  const visibleProducts = products.filter(
-    (product) => !hiddenProductIdSet.has(product.itemId)
-  );
-
-  const preferenceMutation = useMutation({
-    mutationFn: (nextHiddenProductIds: string[]) =>
-      apiJson<AllocatorPreference>(ALLOCATOR_PREFERENCE_ENDPOINT, {
-        method: "PUT",
-        body: { hiddenProductIds: nextHiddenProductIds },
-        fallbackError: "Failed to save allocator preferences.",
-      }),
-    onMutate: async (nextHiddenProductIds) => {
-      await queryClient.cancelQueries({
-        queryKey: ["sales-orders-allocator-preference"],
-      });
-      const previous = queryClient.getQueryData<AllocatorPreference>([
-        "sales-orders-allocator-preference",
-      ]);
-      queryClient.setQueryData<AllocatorPreference>(
-        ["sales-orders-allocator-preference"],
-        { hiddenProductIds: nextHiddenProductIds }
-      );
-      return { previous };
-    },
-    onError: (_error, _variables, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(
-          ["sales-orders-allocator-preference"],
-          context.previous
-        );
-      }
-    },
-    onSuccess: (preference) => {
-      queryClient.setQueryData(
-        ["sales-orders-allocator-preference"],
-        preference
-      );
-    },
-  });
-
-  function setProductHidden(productId: string, hidden: boolean) {
-    const next = new Set(hiddenProductIds);
-    if (hidden) {
-      next.add(productId);
-    } else {
-      next.delete(productId);
-    }
-    preferenceMutation.mutate([...next]);
-  }
-
-  return (
-    <>
-      <div className="w-full">
-        <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{openOrders.length} open</Badge>
-            <Badge variant="outline">{visibleProducts.length} products</Badge>
-          </div>
-          <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  Columns
-                  <HugeiconsIcon
-                    icon={ListSettingIcon}
-                    className="h-4 w-4"
-                    data-icon="inline-end"
-                    aria-hidden
-                  />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuLabel>Product columns</DropdownMenuLabel>
-                {products.length === 0 ? (
-                  <div className="px-1.5 py-2 text-sm text-muted-foreground">
-                    No open order products.
-                  </div>
-                ) : (
-                  products.map((product) => (
-                    <DropdownMenuCheckboxItem
-                      key={product.itemId}
-                      checked={!hiddenProductIdSet.has(product.itemId)}
-                      onCheckedChange={(checked) =>
-                        setProductHidden(product.itemId, checked !== true)
-                      }
-                    >
-                      <span className="min-w-0 truncate">{product.label}</span>
-                    </DropdownMenuCheckboxItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="default" size="sm" asChild>
-              <Link href="/sales/orders/new" prefetch={false}>
-                New Order
-                <HugeiconsIcon
-                  icon={Add01Icon}
-                  className="h-4 w-4"
-                  data-icon="inline-end"
-                  aria-hidden
-                />
-              </Link>
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-md border">
-          <Table containerClassName="max-h-[calc(100vh-15rem)] overflow-auto">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="sticky top-0 left-0 z-40 min-w-48">
-                  Customer
-                </TableHead>
-                <TableHead className="sticky top-0 left-48 z-40 min-w-32">
-                  Order
-                </TableHead>
-                <TableHead className="sticky top-0 z-30 min-w-28">Ship</TableHead>
-                <TableHead className="sticky top-0 z-30 min-w-28">Delivery</TableHead>
-                <TableHead className="sticky top-0 z-30 min-w-32">Status</TableHead>
-                {visibleProducts.map((product) => (
-                  <TableHead
-                    key={product.itemId}
-                    className="sticky top-0 z-30 min-w-36 max-w-48"
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      <span className="truncate">{product.label}</span>
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {product.sku ?? product.unitName}
-                      </span>
-                    </div>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {openOrders.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={5 + visibleProducts.length}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    No open sales orders.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                openOrders.map((order) => {
-                  const lineByItemId = new Map(
-                    order.lines
-                      .filter((line): line is SalesOrderListLine & { id: string } =>
-                        Boolean(line.id)
-                      )
-                      .map((line) => [line.itemId, line])
-                  );
-
-                  return (
-                    <TableRow key={order.id}>
-                      <TableCell className="sticky left-0 z-20 min-w-48 bg-background font-medium">
-                        {order.customerName}
-                      </TableCell>
-                      <TableCell className="sticky left-48 z-20 min-w-32 bg-background">
-                        <Link
-                          href={`/sales/orders/${order.id}`}
-                          className="hover:underline"
-                        >
-                          {order.orderNumber}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{formatDate(order.shipDate)}</TableCell>
-                      <TableCell>{formatDate(order.requestedDate)}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {order.status.replace("_", " ")}
-                        </Badge>
-                      </TableCell>
-                      {visibleProducts.map((product) => {
-                        const line = lineByItemId.get(product.itemId);
-                        return (
-                          <TableCell key={product.itemId}>
-                            {line ? (
-                              <AllocatorCell
-                                key={`${line.id}:${getLineAllocatedQty(line)}`}
-                                line={line}
-                                onCommit={(targetQty) =>
-                                  setTarget({ order, line, product, targetQty })
-                                }
-                              />
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      <AllocationSourceDialog
-        target={target}
-        onOpenChange={(open) => {
-          if (!open) setTarget(null);
-        }}
-      />
-    </>
-  );
-}
-
-function AllocatorCell({
+export function AllocatorCell({
   line,
+  label,
   onCommit,
 }: {
   line: SalesOrderListLine & { id: string };
+  label?: string;
   onCommit: (targetQty: string) => void;
 }) {
   const allocatedQty = getLineAllocatedQty(line);
@@ -401,7 +158,7 @@ function AllocatorCell({
 
   function commit() {
     const next = value.trim();
-    const parsed = Number(next);
+    const parsed = next === "" || next === "." ? 0 : Number(next);
     const remaining = parseQuantity(remainingQty);
 
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -424,38 +181,53 @@ function AllocatorCell({
   }
 
   return (
-    <div className="space-y-1">
+    <div className="flex min-h-12 flex-col">
       <div
         className={cn(
-          "flex h-8 w-32 items-center rounded-md border px-1.5",
+          "flex min-h-12 w-full min-w-16 flex-col justify-center px-1.5 text-sm tabular-nums",
           getAllocationCellClass(line)
         )}
       >
-        <Input
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              event.currentTarget.blur();
-            }
-          }}
-          inputMode="decimal"
-          aria-label={`Allocated ${line.masterName}`}
-          className="h-6 border-0 bg-transparent px-0 text-right shadow-none focus-visible:ring-0"
-        />
-        <span className="px-1 text-muted-foreground">/</span>
-        <span className="min-w-8 text-right text-sm">
-          {formatQuantity(remainingQty)}
-        </span>
+        {label ? (
+          <span className="min-w-0 truncate text-xs font-medium text-foreground">
+            {label}
+          </span>
+        ) : null}
+        <div className="grid grid-cols-[2rem_auto_2.75rem] items-center justify-end">
+          <Input
+            value={value}
+            onChange={(event) => {
+              const nextValue = event.target.value.trim();
+              if (isAllocationDraft(nextValue)) {
+                setValue(nextValue);
+                setError(null);
+              }
+            }}
+            onBlur={commit}
+            onFocus={(event) => event.currentTarget.select()}
+            onMouseUp={(event) => event.preventDefault()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
+            inputMode="decimal"
+            aria-label={`Allocated ${label ?? line.masterName}`}
+            className="h-8 min-w-0 border-0 bg-transparent px-0 text-right shadow-none focus-visible:ring-0"
+          />
+          <span className="px-0.5 text-muted-foreground">/</span>
+          <span className="min-w-0 text-right">{formatQuantity(remainingQty)}</span>
+        </div>
       </div>
-      {error ? <p className="max-w-36 text-xs text-destructive">{error}</p> : null}
+      {error ? (
+        <p className="px-1 py-0.5 text-xs text-destructive">{error}</p>
+      ) : null}
     </div>
   );
 }
 
-function AllocationSourceDialog({
+export function AllocationSourceDialog({
   target,
   onOpenChange,
 }: {
@@ -616,6 +388,8 @@ function AllocationSourceEditor({
   });
 
   function updateSource(source: AllocationSourceRow, value: string) {
+    if (!isAllocationDraft(value.trim())) return;
+
     const key = sourceInputKey(source);
     setDraft((current) => {
       const next = { ...current };
@@ -665,10 +439,36 @@ function AllocationSourceEditor({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Source</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
-                    <TableHead className="text-right">Current</TableHead>
-                    <TableHead className="w-32 text-right">Allocate</TableHead>
+                    <TableHead>
+                      <TooltipHeader
+                        label="Source"
+                        tooltip={ALLOCATION_SOURCE_TOOLTIP}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex justify-end">
+                        <TooltipHeader
+                          label="Available"
+                          tooltip={ALLOCATION_AVAILABLE_TOOLTIP}
+                        />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <div className="flex justify-end">
+                        <TooltipHeader
+                          label="Current"
+                          tooltip={ALLOCATION_CURRENT_TOOLTIP}
+                        />
+                      </div>
+                    </TableHead>
+                    <TableHead className="w-32 text-right">
+                      <div className="flex justify-end">
+                        <TooltipHeader
+                          label="Allocate"
+                          tooltip={ALLOCATION_ALLOCATE_TOOLTIP}
+                        />
+                      </div>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -684,11 +484,17 @@ function AllocationSourceEditor({
                   ) : (
                     group.sources.map((source) => {
                       const key = sourceInputKey(source);
+                      const sourceDate = formatSourceDate(source);
                       return (
                         <TableRow key={key}>
                           <TableCell>
                             <div className="flex flex-col">
                               <span>{source.label}</span>
+                              {sourceDate ? (
+                                <span className="text-xs text-muted-foreground">
+                                  {sourceDate}
+                                </span>
+                              ) : null}
                               {source.contextLabel ? (
                                 <span className="text-xs text-muted-foreground">
                                   {source.contextLabel}
@@ -706,8 +512,10 @@ function AllocationSourceEditor({
                             <Input
                               value={draft[key] ?? ""}
                               onChange={(event) =>
-                                updateSource(source, event.target.value)
+                                updateSource(source, event.target.value.trim())
                               }
+                              onFocus={(event) => event.currentTarget.select()}
+                              onMouseUp={(event) => event.preventDefault()}
                               inputMode="decimal"
                               aria-label={`Allocate from ${source.label}`}
                               className="text-right"

@@ -44,7 +44,7 @@ test.describe("Manufacturing write-path smoke", () => {
       description: "Fast manufacturing sand",
       defaultPurchasePrice: "2.00",
       defaultSellingPrice: null,
-      stock: "20",
+      stock: "100",
       safetyStock: "0",
       bom: [],
     });
@@ -57,7 +57,7 @@ test.describe("Manufacturing write-path smoke", () => {
       description: "Fast manufacturing compost",
       defaultPurchasePrice: "3.00",
       defaultSellingPrice: null,
-      stock: "20",
+      stock: "100",
       safetyStock: "0",
       bom: [],
     });
@@ -117,7 +117,8 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
     expect(order.productId).toBe(productId);
-    expect(order.status).toBe("draft");
+    expect(order.status).toBe("released");
+    expect(order.priorityRank).not.toBeNull();
     expect(order.requestedQuantity).toBe("5.0000");
     expect(order.plannedQuantity).toBe("5.0000");
     expect(order.plannedDate).toBe("2026-04-25");
@@ -191,7 +192,8 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, duplicateId));
     expect(duplicate.productId).toBe(productId);
-    expect(duplicate.status).toBe("draft");
+    expect(duplicate.status).toBe("released");
+    expect(duplicate.priorityRank).not.toBeNull();
     expect(duplicate.requestedQuantity).toBe("5.0000");
     expect(duplicate.plannedQuantity).toBe("5.0000");
     expect(duplicate.plannedDate).toBe("2026-04-25");
@@ -209,7 +211,7 @@ test.describe("Manufacturing write-path smoke", () => {
     );
   });
 
-  test("moves released manufacturing orders from draft to released view", async ({
+  test("ranks open manufacturing orders", async ({
     page,
     db,
   }) => {
@@ -285,20 +287,20 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    const releasedOrders = await db
+    const openOrders = await db
       .select({ id: manufacturingOrders.id })
       .from(manufacturingOrders)
       .where(
         and(
-          eq(manufacturingOrders.status, "released"),
+          inArray(manufacturingOrders.status, ["draft", "released"]),
           isNull(manufacturingOrders.deletedAt)
         )
       )
       .orderBy(asc(manufacturingOrders.priorityRank), asc(manufacturingOrders.orderNumber));
-    const reorderedReleasedOrderIds = [
+    const reorderedOpenOrderIds = [
       secondCreatedOrder.id,
       firstCreatedOrder.id,
-      ...releasedOrders
+      ...openOrders
         .map((order) => order.id)
         .filter(
           (id) => id !== firstCreatedOrder.id && id !== secondCreatedOrder.id
@@ -306,7 +308,7 @@ test.describe("Manufacturing write-path smoke", () => {
     ];
     const reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
       method: "PATCH",
-      body: JSON.stringify({ orderIds: reorderedReleasedOrderIds }),
+      body: JSON.stringify({ orderIds: reorderedOpenOrderIds }),
     });
     expect(reorderResult.status).toBe(200);
 
@@ -378,6 +380,7 @@ test.describe("Manufacturing write-path smoke", () => {
       productId: requirementProductId,
       plannedQuantity: "2",
       ingredients: [{ itemId: requirementMaterialId, quantityPerUnit: "1" }],
+      confirmShortage: true,
     });
     expect(order.status).toBe(201);
     const requirementOrderId = order.body.id as string;
@@ -484,15 +487,15 @@ test.describe("Manufacturing write-path smoke", () => {
     await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
     const batchOrderId = getIdFromUrl(page.url());
 
-    const [draftOrder] = await db
+    const [openOrder] = await db
       .select()
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, batchOrderId));
-    expect(draftOrder.productId).toBe(batchProductId);
-    expect(draftOrder.plannedQuantity).toBe("6.0000");
-    expect(draftOrder.numberOfBatches).toBe(3);
+    expect(openOrder.productId).toBe(batchProductId);
+    expect(openOrder.status).toBe("released");
+    expect(openOrder.plannedQuantity).toBe("6.0000");
+    expect(openOrder.numberOfBatches).toBe(3);
 
-    await page.getByRole("button", { name: "Release" }).click();
     await expect(page.getByRole("link", { name: "Execute" })).toBeVisible({
       timeout: 15_000,
     });
@@ -774,21 +777,25 @@ test.describe("Manufacturing write-path smoke", () => {
     const createOrderBody = await createOrderResponse.json();
     const legacyOrderId = createOrderBody.id as string;
 
-    const draftTemplateIngredients = await db
+    const createdIngredients = await db
       .select()
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
-    expect(draftTemplateIngredients).toHaveLength(2);
-
-    const releaseResponse = await testFetch(`/api/manufacturing-orders/${legacyOrderId}/release`, {
-      method: "POST",
-      body: JSON.stringify({ confirmShortage: false }),
-    });
-    expect(releaseResponse.status).toBe(200);
+    expect(createdIngredients).toHaveLength(6);
+    const draftTemplateIngredients = [
+      createdIngredients.find((ingredient) => ingredient.sortOrder === 0),
+      createdIngredients.find((ingredient) => ingredient.sortOrder === 1),
+    ];
+    if (!draftTemplateIngredients[0] || !draftTemplateIngredients[1]) {
+      throw new Error("Expected batch ingredients to seed legacy template rows.");
+    }
 
     await db
       .delete(manufacturingOrderBatches)
       .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));
+    await db
+      .delete(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
 
     await db.insert(manufacturingOrderIngredients).values(
       draftTemplateIngredients.map((ingredient) => ({
@@ -837,7 +844,7 @@ test.describe("Manufacturing write-path smoke", () => {
     ).toBe(true);
   });
 
-  test("creates a draft order with an approved alternate and consumes alternate stock", async ({
+  test("creates an open order with an approved alternate and consumes alternate stock", async ({
     db,
   }) => {
     const alternateTs = Date.now();

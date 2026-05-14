@@ -157,6 +157,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   toolbarContent?: ReactNode | ((context: ToolbarRenderContext<TData>) => ReactNode);
   addActions?: AddAction[];
   tableClassName?: string;
+  tableWrapperClassName?: string;
   getRowCanExpand?: (row: Row<TData>) => boolean;
   renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
   getSubRows?: (row: TData) => TData[] | undefined;
@@ -168,6 +169,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   columnVisibility?: VisibilityState;
   errorMessage?: string | null;
   stickyHeader?: boolean;
+  verticalColumnBorders?: boolean;
   rowReorder?: RowReorderConfig<TData>;
 };
 
@@ -205,6 +207,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   toolbarContent,
   addActions,
   tableClassName,
+  tableWrapperClassName,
   getRowCanExpand: getRowCanExpandProp,
   renderExpandedRow,
   getSubRows: getSubRowsProp,
@@ -216,6 +219,7 @@ export function DashboardDataTable<TData extends { id: string }>({
   columnVisibility,
   errorMessage,
   stickyHeader = true,
+  verticalColumnBorders = false,
   rowReorder,
 }: DashboardDataTableProps<TData>) {
   const router = useRouter();
@@ -531,13 +535,18 @@ export function DashboardDataTable<TData extends { id: string }>({
           </p>
         )}
 
-        <div className="rounded-md border max-md:overflow-x-auto">
+        <div
+          className={cn(
+            "rounded-md border max-md:overflow-x-auto",
+            tableWrapperClassName
+          )}
+        >
           <Table
             className={tableClassName}
             containerClassName="overflow-visible"
           >
             <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
+              {table.getHeaderGroups().map((headerGroup, headerGroupIndex) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
                     const meta = header.column.columnDef.meta as
@@ -547,9 +556,18 @@ export function DashboardDataTable<TData extends { id: string }>({
                     return (
                       <TableHead
                         key={header.id}
+                        colSpan={header.colSpan}
+                        style={
+                          stickyHeader
+                            ? {
+                                top: `calc(var(--table-head-height) * ${headerGroupIndex})`,
+                              }
+                            : undefined
+                        }
                         className={cn(
                           meta?.className,
-                          stickyHeader && "sticky top-0 z-30"
+                          stickyHeader && "sticky z-30",
+                          verticalColumnBorders && "border-r last:border-r-0"
                         )}
                       >
                         {header.isPlaceholder
@@ -584,6 +602,7 @@ export function DashboardDataTable<TData extends { id: string }>({
                     onRowClick={onRowClick}
                     renderExpandedRow={renderExpandedRow}
                     subRowClassName={subRowClassName}
+                    verticalColumnBorders={verticalColumnBorders}
                     sortable
                   />
                 </SortableContext>
@@ -599,6 +618,7 @@ export function DashboardDataTable<TData extends { id: string }>({
                 onRowClick={onRowClick}
                 renderExpandedRow={renderExpandedRow}
                 subRowClassName={subRowClassName}
+                verticalColumnBorders={verticalColumnBorders}
               />
             )}
           </Table>
@@ -690,6 +710,7 @@ type DashboardTableBodyProps<TData extends { id: string }> = {
   renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
   subRowClassName?: string;
   sortable?: boolean;
+  verticalColumnBorders?: boolean;
 };
 
 function DashboardTableBody<TData extends { id: string }>({
@@ -703,6 +724,7 @@ function DashboardTableBody<TData extends { id: string }>({
   renderExpandedRow,
   subRowClassName,
   sortable = false,
+  verticalColumnBorders = false,
 }: DashboardTableBodyProps<TData>) {
   return (
     <TableBody>
@@ -717,6 +739,7 @@ function DashboardTableBody<TData extends { id: string }>({
             renderExpandedRow={renderExpandedRow}
             subRowClassName={subRowClassName}
             sortable={sortable}
+            verticalColumnBorders={verticalColumnBorders}
           />
         ))
       ) : (
@@ -741,6 +764,7 @@ type DashboardTableRowProps<TData extends { id: string }> = {
   renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
   subRowClassName?: string;
   sortable: boolean;
+  verticalColumnBorders: boolean;
 };
 
 function DashboardTableRow<TData extends { id: string }>({
@@ -751,6 +775,7 @@ function DashboardTableRow<TData extends { id: string }>({
   renderExpandedRow,
   subRowClassName,
   sortable,
+  verticalColumnBorders,
 }: DashboardTableRowProps<TData>) {
   if (sortable) {
     return (
@@ -761,6 +786,7 @@ function DashboardTableRow<TData extends { id: string }>({
         onRowClick={onRowClick}
         renderExpandedRow={renderExpandedRow}
         subRowClassName={subRowClassName}
+        verticalColumnBorders={verticalColumnBorders}
       />
     );
   }
@@ -773,6 +799,7 @@ function DashboardTableRow<TData extends { id: string }>({
       onRowClick={onRowClick}
       renderExpandedRow={renderExpandedRow}
       subRowClassName={subRowClassName}
+      verticalColumnBorders={verticalColumnBorders}
     />
   );
 }
@@ -784,6 +811,7 @@ function SortableDashboardTableRow<TData extends { id: string }>({
   onRowClick,
   renderExpandedRow,
   subRowClassName,
+  verticalColumnBorders,
 }: Omit<DashboardTableRowProps<TData>, "sortable">) {
   const sortableItem = useSortable({ id: row.id });
   const style: CSSProperties = {
@@ -808,6 +836,7 @@ function SortableDashboardTableRow<TData extends { id: string }>({
         onRowClick={onRowClick}
         renderExpandedRow={renderExpandedRow}
         subRowClassName={subRowClassName}
+        verticalColumnBorders={verticalColumnBorders}
         sortableRef={sortableItem.setNodeRef}
         style={style}
         isDragging={sortableItem.isDragging}
@@ -836,6 +865,7 @@ function DashboardTableRowContent<TData extends { id: string }>({
   onRowClick,
   renderExpandedRow,
   subRowClassName,
+  verticalColumnBorders,
   sortableRef,
   style,
   isDragging,
@@ -878,7 +908,14 @@ function DashboardTableRowContent<TData extends { id: string }>({
           const meta = cell.column.columnDef.meta as DashboardColumnMeta | undefined;
 
           return (
-            <TableCell key={cell.id} className={cn(meta?.className, "align-middle")}>
+            <TableCell
+              key={cell.id}
+              className={cn(
+                meta?.className,
+                "align-middle",
+                verticalColumnBorders && "border-r last:border-r-0"
+              )}
+            >
               {flexRender(cell.column.columnDef.cell, cell.getContext())}
             </TableCell>
           );
