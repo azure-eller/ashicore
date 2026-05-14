@@ -861,6 +861,7 @@ test.describe("Sales order flow", () => {
       customerId,
       requestedDate: "2026-04-22",
       notes: "Short manufacturing action coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: primaryProductId,
