@@ -15,6 +15,8 @@ import {
   inventoryLotBalances,
   inventoryReservationsSummary,
   items,
+  accountingClassifications,
+  integrationExternalRecords,
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -25,6 +27,8 @@ import {
   stockAllocations,
   stocktakeItems,
   stocktakes,
+  supplierItems,
+  suppliers,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -1033,7 +1037,6 @@ export async function getItem(id: string) {
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
-        xeroPurchaseAccountCode: items.xeroPurchaseAccountCode,
         currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
           "currentStockUnitCost"
         ),
@@ -1085,6 +1088,36 @@ export async function getItem(id: string) {
       : null;
     const currentBomRevision = await getCurrentBomRevisionInTx(tx, id);
 
+    const [externalItemRecord] = await tx
+      .select({
+        externalCode: integrationExternalRecords.externalCode,
+        externalName: integrationExternalRecords.externalName,
+        externalDescription: integrationExternalRecords.externalDescription,
+        externalUpdatedAt: integrationExternalRecords.externalUpdatedAt,
+      })
+      .from(integrationExternalRecords)
+      .where(
+        and(
+          eq(integrationExternalRecords.provider, "xero"),
+          eq(integrationExternalRecords.entityType, "item"),
+          eq(integrationExternalRecords.localRecordId, id)
+        )
+      );
+
+    const [accountingClassification] = await tx
+      .select({
+        accountCode: accountingClassifications.accountCode,
+        taxType: accountingClassifications.taxType,
+      })
+      .from(accountingClassifications)
+      .where(
+        and(
+          eq(accountingClassifications.provider, "xero"),
+          eq(accountingClassifications.entityType, "item"),
+          eq(accountingClassifications.localRecordId, id)
+        )
+      );
+
     const parentName = row.parentId
       ? await tx
           .select({ name: items.name })
@@ -1101,8 +1134,33 @@ export async function getItem(id: string) {
           .then((rows) => (rows[0]?.variantAxes as string[] | null) ?? [])
       : null;
 
+    const supplierSources = await tx
+      .select({
+        id: supplierItems.id,
+        supplierName: suppliers.name,
+        supplierSku: supplierItems.supplierSku,
+        unitCost: trimScaleNullable(supplierItems.unitCost).as("unitCost"),
+        isPreferred: supplierItems.isPreferred,
+      })
+      .from(supplierItems)
+      .innerJoin(suppliers, eq(supplierItems.supplierId, suppliers.id))
+      .where(
+        and(
+          eq(supplierItems.itemId, id),
+          isNull(supplierItems.deletedAt),
+          isNull(suppliers.deletedAt)
+        )
+      )
+      .orderBy(desc(supplierItems.isPreferred), asc(suppliers.name));
+
     return {
       ...row,
+      xeroItemCode: externalItemRecord?.externalCode ?? null,
+      xeroItemName: externalItemRecord?.externalName ?? null,
+      xeroPurchaseDescription: externalItemRecord?.externalDescription ?? null,
+      accountingPurchaseAccountCode: accountingClassification?.accountCode ?? null,
+      xeroPurchaseTaxType: accountingClassification?.taxType ?? null,
+      xeroUpdatedAt: externalItemRecord?.externalUpdatedAt ?? null,
       parentName,
       variantAxes: (row.variantAxes as string[] | null) ?? null,
       variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
@@ -1118,6 +1176,7 @@ export async function getItem(id: string) {
       purchaseUnitSize: purchaseUnit?.size ?? null,
       purchaseUnitUom: purchaseUnit?.uom ?? null,
       currentBomRevision,
+      supplierSources,
     };
   });
 }

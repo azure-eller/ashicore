@@ -1,9 +1,9 @@
 import "server-only";
 
 import { Address, Contact, Phone, type Contacts } from "xero-node";
-import { eq } from "drizzle-orm";
-import { customers, suppliers } from "@/lib/db/schema";
+import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { upsertExternalRecordInTx } from "@/lib/integrations/external-records";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 import { buildXeroIdempotencyKey } from "./idempotency";
 
@@ -182,16 +182,13 @@ async function persistXeroContactId(
   contactId: string
 ) {
   await withOrgContext(orgId, async (tx) => {
-    if (contact.source === "customer") {
-      await tx
-        .update(customers)
-        .set({ xeroContactId: contactId, updatedAt: new Date() })
-        .where(eq(customers.id, contact.id));
-    } else {
-      await tx
-        .update(suppliers)
-        .set({ xeroContactId: contactId, updatedAt: new Date() })
-        .where(eq(suppliers.id, contact.id));
-    }
+    await upsertExternalRecordInTx(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      entityType: contact.source,
+      localRecordId: contact.id,
+      externalId: contactId,
+      externalName: contact.name,
+    });
   });
 }

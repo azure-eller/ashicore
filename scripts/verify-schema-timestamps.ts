@@ -3,6 +3,7 @@ import { relative } from "node:path";
 
 const ERP_SCHEMA_FILES = [
   "lib/db/schema/bom.ts",
+  "lib/db/schema/accounting.ts",
   "lib/db/schema/inventory-events.ts",
   "lib/db/schema/inventory-idempotency.ts",
   "lib/db/schema/inventory-projections.ts",
@@ -15,7 +16,7 @@ const ERP_SCHEMA_FILES = [
   "lib/db/schema/sales.ts",
   "lib/db/schema/stocktakes.ts",
   "lib/db/schema/units.ts",
-  "lib/db/schema/xero.ts",
+  "lib/db/schema/integrations.ts",
 ];
 
 const TIMESTAMP_CALL_PATTERN =

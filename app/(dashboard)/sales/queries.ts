@@ -21,10 +21,12 @@ import {
   customerCorrespondenceAttendees,
   customerProjectFiles,
   customerProjects,
+  accountingDocumentSyncs,
   customers,
   inventoryEvents,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  integrationExternalRecords,
   items,
   manufacturingOrders,
   pricingScheduleBreaks,
@@ -37,6 +39,7 @@ import {
   stockAllocations,
   unitDefinitions,
 } from "@/lib/db/schema";
+import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -3121,7 +3124,14 @@ const customerRowSelect = {
   shipRegion: customers.shipRegion,
   shipPostcode: customers.shipPostcode,
   shipCountry: customers.shipCountry,
-  xeroContactId: customers.xeroContactId,
+  xeroContactId: sql<string | null>`(
+    SELECT ${integrationExternalRecords.externalId}
+    FROM ${integrationExternalRecords}
+    WHERE ${integrationExternalRecords.provider} = ${ACCOUNTING_PROVIDER_XERO}
+      AND ${integrationExternalRecords.entityType} = 'customer'
+      AND ${integrationExternalRecords.localRecordId} = ${customers.id}
+    LIMIT 1
+  )`,
   notes: customers.notes,
   deletedAt: customers.deletedAt,
   createdAt: customers.createdAt,
@@ -4788,17 +4798,17 @@ export async function getSalesOrder(
         shipRegion: salesOrders.shipRegion,
         shipPostcode: salesOrders.shipPostcode,
         shipCountry: salesOrders.shipCountry,
-        xeroInvoiceId: salesOrders.xeroInvoiceId,
-        xeroInvoiceNumber: salesOrders.xeroInvoiceNumber,
-        xeroPushStatus: salesOrders.xeroPushStatus,
-        xeroPushError: salesOrders.xeroPushError,
-        xeroPushedAt: salesOrders.xeroPushedAt,
-        xeroPushPayloadHash: salesOrders.xeroPushPayloadHash,
-        xeroLastPushAttemptAt: salesOrders.xeroLastPushAttemptAt,
-        xeroRetryCount: salesOrders.xeroRetryCount,
-        xeroEmailStatus: salesOrders.xeroEmailStatus,
-        xeroEmailError: salesOrders.xeroEmailError,
-        xeroEmailedAt: salesOrders.xeroEmailedAt,
+        xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
+        xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
+        xeroPushStatus: accountingDocumentSyncs.pushStatus,
+        xeroPushError: accountingDocumentSyncs.pushError,
+        xeroPushedAt: accountingDocumentSyncs.pushedAt,
+        xeroPushPayloadHash: accountingDocumentSyncs.pushPayloadHash,
+        xeroLastPushAttemptAt: accountingDocumentSyncs.lastPushAttemptAt,
+        xeroRetryCount: sql<number>`COALESCE(${accountingDocumentSyncs.retryCount}, 0)`,
+        xeroEmailStatus: accountingDocumentSyncs.emailStatus,
+        xeroEmailError: accountingDocumentSyncs.emailError,
+        xeroEmailedAt: accountingDocumentSyncs.emailedAt,
         totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
         deletedAt: salesOrders.deletedAt,
         createdAt: salesOrders.createdAt,
@@ -4811,6 +4821,14 @@ export async function getSalesOrder(
         and(
           eq(salesOrders.customerProjectId, customerProjects.id),
           isNull(customerProjects.deletedAt)
+        )
+      )
+      .leftJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, "sales_order"),
+          eq(accountingDocumentSyncs.documentId, salesOrders.id)
         )
       )
       .where(and(...orderConditions));
@@ -4943,10 +4961,10 @@ export async function getSalesOrder(
         customerFreightChargeAmount: trimScaleNullable(
           salesShipments.customerFreightChargeAmount
         ).as("customerFreightChargeAmount"),
-        xeroInvoiceId: salesShipments.xeroInvoiceId,
-        xeroInvoiceNumber: salesShipments.xeroInvoiceNumber,
-        xeroPushStatus: salesShipments.xeroPushStatus,
-        xeroPushError: salesShipments.xeroPushError,
+        xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
+        xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
+        xeroPushStatus: accountingDocumentSyncs.pushStatus,
+        xeroPushError: accountingDocumentSyncs.pushError,
         createdAt: salesShipments.createdAt,
         updatedAt: salesShipments.updatedAt,
         lineId: salesShipmentLines.id,
@@ -4962,6 +4980,14 @@ export async function getSalesOrder(
       .leftJoin(
         salesShipmentLines,
         eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .leftJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, "sales_shipment"),
+          eq(accountingDocumentSyncs.documentId, salesShipments.id)
+        )
       )
       .where(eq(salesShipments.salesOrderId, id))
       .orderBy(asc(salesShipments.sequence), asc(salesShipmentLines.sortOrder));

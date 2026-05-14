@@ -1096,7 +1096,7 @@ export function PurchaseOrderDetail({
                       </div>
                     </TableCell>
                     <TableCell className="font-mono">
-                      {line.xeroPurchaseAccountCode ?? "\u2014"}
+                      {line.accountingPurchaseAccountCode ?? "\u2014"}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatPrice(line.allocatedAdditionalCost) ?? "\u2014"}
@@ -1138,7 +1138,7 @@ export function PurchaseOrderDetail({
                         {ADDITIONAL_COST_DISTRIBUTION_LABELS[cost.distributionMethod]}
                       </TableCell>
                       <TableCell className="font-mono">
-                        {cost.xeroPurchaseAccountCode ?? "\u2014"}
+                        {cost.accountingPurchaseAccountCode ?? "\u2014"}
                       </TableCell>
                       <TableCell className="text-right">
                         {formatPrice(cost.amount) ?? "\u2014"}

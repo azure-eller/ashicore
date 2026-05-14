@@ -45,13 +45,6 @@ export const items = inventorySchema
 
       // Pricing
       defaultPurchasePrice: numeric("default_purchase_price", { precision: 10, scale: 4 }),
-      xeroItemId: text("xero_item_id"),
-      xeroItemCode: varchar("xero_item_code", { length: 100 }),
-      xeroItemName: varchar("xero_item_name", { length: 255 }),
-      xeroPurchaseDescription: text("xero_purchase_description"),
-      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", { length: 20 }),
-      xeroPurchaseTaxType: varchar("xero_purchase_tax_type", { length: 50 }),
-      xeroUpdatedAt: timestamp("xero_updated_at", { withTimezone: true }),
       currentStockUnitCost: numeric("current_stock_unit_cost", {
         precision: 18,
         scale: 6,

@@ -459,8 +459,8 @@ function formatMoneyValue(value: string | null) {
 
 function statusLabel(status: PurchasingCandidateStatus) {
   if (status === "ready") return "Ready";
-  if (status === "needs_item_match") return "Needs item";
-  if (status === "needs_supplier_match") return "Needs supplier";
+  if (status === "needs_item_match") return "No ERP item";
+  if (status === "needs_supplier_match") return "No ERP supplier";
   return "Excluded";
 }
 
@@ -523,7 +523,7 @@ function PurchasingSyncDialog({
           if (!preview) previewMutation.mutate();
         }}
       >
-        Sync purchasing data
+        Update supplier prices
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent
@@ -531,9 +531,10 @@ function PurchasingSyncDialog({
           className="max-h-[calc(100vh-2rem)] w-[min(calc(100vw-2rem),72rem)] grid-rows-[auto_minmax(0,1fr)_auto_auto]"
         >
           <AlertDialogHeader>
-            <AlertDialogTitle>Sync purchasing data</AlertDialogTitle>
+            <AlertDialogTitle>Update supplier item prices</AlertDialogTitle>
             <AlertDialogDescription>
-              Review matched Xero purchasing rows before supplier item prices are updated.
+              Uses Xero purchase history to update ERP supplier item SKUs and costs.
+              It does not create ERP suppliers or inventory items.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -550,9 +551,9 @@ function PurchasingSyncDialog({
             ) : preview ? (
               <div className="flex h-full min-h-0 flex-col gap-3">
                 <div className="grid gap-2 sm:grid-cols-5">
-                  <PreviewMetric label="Ready" value={preview.summary.ready} />
+                  <PreviewMetric label="Matched" value={preview.summary.ready} />
                   <PreviewMetric label="Selected" value={selectedIds.size} />
-                  <PreviewMetric label="Needs item" value={preview.summary.needsItemMatch} />
+                  <PreviewMetric label="No ERP item" value={preview.summary.needsItemMatch} />
                   <PreviewMetric label="Excluded" value={preview.summary.excluded} />
                   <PreviewMetric label="Xero lines" value={preview.totalSourceLines} />
                 </div>
@@ -570,7 +571,7 @@ function PurchasingSyncDialog({
                       });
                     }}
                   />
-                  <span>Select all ready rows from {preview.tenantName}</span>
+                  <span>Select all matched rows from {preview.tenantName}</span>
                 </div>
                 <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-background">
                   <Table className="min-w-[64rem]">
@@ -578,9 +579,9 @@ function PurchasingSyncDialog({
                       <TableRow>
                         <TableHead className="w-10" />
                         <TableHead>Status</TableHead>
-                        <TableHead>Supplier</TableHead>
-                        <TableHead>ERP item</TableHead>
-                        <TableHead>Xero code</TableHead>
+                        <TableHead>ERP supplier</TableHead>
+                        <TableHead>ERP item match</TableHead>
+                        <TableHead>Latest Xero SKU</TableHead>
                         <TableHead>Price</TableHead>
                         <TableHead>History</TableHead>
                       </TableRow>
@@ -688,7 +689,7 @@ function PurchasingSyncDialog({
                   Syncing
                 </>
               ) : (
-                "Apply selected"
+                "Update selected prices"
               )}
             </Button>
           </AlertDialogFooter>

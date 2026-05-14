@@ -1,7 +1,16 @@
 import "server-only";
 
 import { and, eq, isNull } from "drizzle-orm";
-import { items, supplierItems, suppliers, xeroImportRuns, xeroImportRunRows } from "@/lib/db/schema";
+import {
+  accountingClassifications,
+  integrationExternalRecords,
+  integrationImportRunRows,
+  integrationImportRuns,
+  items,
+  supplierItems,
+  suppliers,
+} from "@/lib/db/schema";
+import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { normalizeNumeric } from "@/lib/format";
@@ -26,6 +35,8 @@ type LocalItem = {
   sku: string | null;
   xeroItemId: string | null;
   xeroItemCode: string | null;
+  xeroItemName: string | null;
+  xeroPurchaseDescription: string | null;
   defaultPurchasePrice: string | null;
 };
 
@@ -78,7 +89,7 @@ export type XeroPurchasingCandidate = {
   occurrences: number;
   latestDate: string | null;
   latestSource: string | null;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   xeroPurchaseTaxType: string | null;
 };
 
@@ -130,6 +141,119 @@ function normalizeKey(value: string | null | undefined) {
 
 function compactKey(value: string | null | undefined) {
   return cleanString(value)?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? null;
+}
+
+const ITEM_MATCH_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "bag",
+  "bags",
+  "bulk",
+  "cf",
+  "cu",
+  "cuyd",
+  "each",
+  "ec",
+  "for",
+  "gal",
+  "gallon",
+  "gallons",
+  "lb",
+  "lbs",
+  "low",
+  "of",
+  "pal",
+  "pallet",
+  "pallets",
+  "sku",
+  "store",
+  "the",
+  "yd",
+  "yard",
+  "yards",
+]);
+
+function normalizeMatchToken(token: string) {
+  if (/^\d+(\.\d+)?$/.test(token)) return token;
+  if (token.length > 3 && token.endsWith("s")) return token.slice(0, -1);
+  return token;
+}
+
+function matchTokens(...values: Array<string | null | undefined>) {
+  const tokens = new Set<string>();
+  for (const value of values) {
+    for (const rawToken of cleanString(value)
+      ?.toLowerCase()
+      .match(/[a-z0-9]+/g) ?? []) {
+      const token = normalizeMatchToken(rawToken);
+      if (token.length < 2 || ITEM_MATCH_STOP_WORDS.has(token)) continue;
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+function tokenMatchScore(item: LocalItem, sourceTokens: Set<string>) {
+  const tokenGroups = [
+    matchTokens(item.name),
+    matchTokens(item.xeroItemName),
+    matchTokens(item.xeroPurchaseDescription),
+  ].filter((tokens) => tokens.size > 0);
+  if (tokenGroups.length === 0 || sourceTokens.size === 0) return 0;
+
+  return Math.max(
+    ...tokenGroups.map((itemTokens) => {
+      let matched = 0;
+      for (const token of itemTokens) {
+        if (sourceTokens.has(token)) matched += 1;
+      }
+
+      const itemCoverage = matched / itemTokens.size;
+      const sourceCoverage = matched / sourceTokens.size;
+      return itemCoverage + sourceCoverage * 0.1;
+    })
+  );
+}
+
+function findBestFuzzyItemMatch(
+  line: SourceLine,
+  xeroItem: XeroItemSummary | undefined,
+  localItems: LocalItem[]
+) {
+  const sourceTokens = matchTokens(
+    line.itemCode,
+    line.description,
+    xeroItem?.code,
+    xeroItem?.name,
+    xeroItem?.purchaseDescription
+  );
+  let best: { item: LocalItem; score: number } | null = null;
+  let secondBestScore = 0;
+
+  for (const item of localItems) {
+    const score = tokenMatchScore(item, sourceTokens);
+    if (!best || score > best.score) {
+      secondBestScore = best?.score ?? 0;
+      best = { item, score };
+    } else if (score > secondBestScore) {
+      secondBestScore = score;
+    }
+  }
+
+  if (!best || best.score < 0.5) return null;
+  if (best.score < 0.85 && best.score - secondBestScore < 0.2) return null;
+  return best.item;
+}
+
+function productFingerprint(line: SourceLine, xeroItem: XeroItemSummary | undefined) {
+  const tokens = matchTokens(
+    xeroItem?.name,
+    xeroItem?.purchaseDescription,
+    line.description
+  );
+  if (tokens.size === 0) return normalizeKey(line.itemCode) ?? "missing-code";
+  return [...tokens].sort().join(":");
 }
 
 function normalizePrice(value: number | null | undefined) {
@@ -330,7 +454,6 @@ async function loadLocalDataInTx(tx: Tx) {
     .select({
       id: suppliers.id,
       name: suppliers.name,
-      xeroContactId: suppliers.xeroContactId,
     })
     .from(suppliers)
     .where(isNull(suppliers.deletedAt));
@@ -339,14 +462,46 @@ async function loadLocalDataInTx(tx: Tx) {
       id: items.id,
       name: items.name,
       sku: items.sku,
-      xeroItemId: items.xeroItemId,
-      xeroItemCode: items.xeroItemCode,
       defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
         "defaultPurchasePrice"
       ),
     })
     .from(items)
     .where(isNull(items.deletedAt));
+  const externalRecords = await tx
+    .select({
+      entityType: integrationExternalRecords.entityType,
+      localRecordId: integrationExternalRecords.localRecordId,
+      externalId: integrationExternalRecords.externalId,
+      externalCode: integrationExternalRecords.externalCode,
+      externalName: integrationExternalRecords.externalName,
+      externalDescription: integrationExternalRecords.externalDescription,
+    })
+    .from(integrationExternalRecords)
+    .where(eq(integrationExternalRecords.provider, ACCOUNTING_PROVIDER_XERO));
+  const externalRecordByLocal = new Map(
+    externalRecords.map((record) => [
+      `${record.entityType}:${record.localRecordId}`,
+      record,
+    ])
+  );
+  const suppliersWithExternalData = localSuppliers.map((supplier) => {
+    const external = externalRecordByLocal.get(`supplier:${supplier.id}`);
+    return {
+      ...supplier,
+      xeroContactId: external?.externalId ?? null,
+    };
+  });
+  const itemsWithExternalData = localItems.map((item) => {
+    const external = externalRecordByLocal.get(`item:${item.id}`);
+    return {
+      ...item,
+      xeroItemId: external?.externalId ?? null,
+      xeroItemCode: external?.externalCode ?? null,
+      xeroItemName: external?.externalName ?? null,
+      xeroPurchaseDescription: external?.externalDescription ?? null,
+    };
+  });
   const existingSupplierItems = await tx
     .select({
       id: supplierItems.id,
@@ -359,7 +514,11 @@ async function loadLocalDataInTx(tx: Tx) {
     .from(supplierItems)
     .where(isNull(supplierItems.deletedAt));
 
-  return { localSuppliers, localItems, existingSupplierItems };
+  return {
+    localSuppliers: suppliersWithExternalData,
+    localItems: itemsWithExternalData,
+    existingSupplierItems,
+  };
 }
 
 function findSupplier(
@@ -383,7 +542,8 @@ function findItem(
   itemsByXeroItemId: Map<string, LocalItem>,
   itemsByXeroCode: Map<string, LocalItem>,
   itemsByName: Map<string, LocalItem>,
-  itemsByCompactName: Map<string, LocalItem>
+  itemsByCompactName: Map<string, LocalItem>,
+  localItems: LocalItem[]
 ) {
   const itemCode = normalizeKey(line.itemCode);
   if (xeroItem?.itemId) {
@@ -403,7 +563,10 @@ function findItem(
   }
   const compactName =
     compactKey(xeroItem?.name) ?? compactKey(line.description);
-  return compactName ? itemsByCompactName.get(compactName) ?? null : null;
+  const exactCompactMatch = compactName ? itemsByCompactName.get(compactName) : null;
+  if (exactCompactMatch) return exactCompactMatch;
+
+  return findBestFuzzyItemMatch(line, xeroItem, localItems);
 }
 
 function buildCandidates(
@@ -451,8 +614,6 @@ function buildCandidates(
     {
       supplier: LocalSupplier | null;
       item: LocalItem | null;
-      xeroItem: XeroItemSummary | undefined;
-      itemCode: string;
       lines: SourceLine[];
       exclusionReason: string | null;
     }
@@ -470,22 +631,21 @@ function buildCandidates(
       itemsByXeroItemId,
       itemsByXeroCode,
       itemsByName,
-      itemsByCompactName
+      itemsByCompactName,
+      localData.localItems
     );
     const exclusionReason = isExcludedLine(line);
-    const groupKey = `${supplier?.id ?? "missing-supplier"}:${item?.id ?? "missing-item"}:${normalizeKey(itemCode)}`;
+    const itemGroupKey = item?.id ?? `missing-item:${productFingerprint(line, xeroItem)}`;
+    const groupKey = `${supplier?.id ?? "missing-supplier"}:${itemGroupKey}`;
     const current =
       grouped.get(groupKey) ??
       {
         supplier,
         item,
-        xeroItem,
-        itemCode,
         lines: [],
         exclusionReason,
       };
     current.lines.push(line);
-    if (!current.xeroItem && xeroItem) current.xeroItem = xeroItem;
     if (!current.exclusionReason && exclusionReason) {
       current.exclusionReason = exclusionReason;
     }
@@ -497,6 +657,10 @@ function buildCandidates(
       (right.sourceDate ?? "").localeCompare(left.sourceDate ?? "")
     );
     const latest = sortedLines[0];
+    const latestItemCode = cleanString(latest?.itemCode, 100) ?? "";
+    const latestXeroItem = latestItemCode
+      ? xeroData.xeroItemsByCode.get(normalizeKey(latestItemCode)!)
+      : undefined;
     const latestUnitCost = normalizePrice(latest?.unitAmount);
     const status: XeroPurchasingCandidateStatus = group.exclusionReason
       ? "excluded"
@@ -514,7 +678,7 @@ function buildCandidates(
       id: makeCandidateId({
         supplierId: group.supplier?.id ?? null,
         itemId: group.item?.id ?? null,
-        xeroItemCode: group.itemCode,
+        xeroItemCode: latestItemCode,
       }),
       status,
       selectedByDefault: status === "ready",
@@ -524,18 +688,18 @@ function buildCandidates(
       itemId: group.item?.id ?? null,
       itemName: group.item?.name ?? null,
       itemSku: group.item?.sku ?? null,
-      xeroItemCode: group.itemCode,
-      xeroItemName: group.xeroItem?.name ?? null,
-      xeroPurchaseDescription: group.xeroItem?.purchaseDescription ?? latest?.description ?? null,
+      xeroItemCode: latestItemCode,
+      xeroItemName: latestXeroItem?.name ?? null,
+      xeroPurchaseDescription: latestXeroItem?.purchaseDescription ?? latest?.description ?? null,
       latestUnitCost,
-      xeroItemUnitPrice: normalizePrice(group.xeroItem?.purchaseUnitPrice),
+      xeroItemUnitPrice: normalizePrice(latestXeroItem?.purchaseUnitPrice),
       existingSupplierItemUnitCost: existingSupplierItem?.unitCost ?? null,
       occurrences: group.lines.length,
       latestDate: latest?.sourceDate ?? null,
       latestSource: latest?.sourceNumber ?? null,
-      xeroPurchaseAccountCode:
-        latest?.accountCode ?? group.xeroItem?.purchaseAccountCode ?? null,
-      xeroPurchaseTaxType: latest?.taxType ?? group.xeroItem?.purchaseTaxType ?? null,
+      accountingPurchaseAccountCode:
+        latest?.accountCode ?? latestXeroItem?.purchaseAccountCode ?? null,
+      xeroPurchaseTaxType: latest?.taxType ?? latestXeroItem?.purchaseTaxType ?? null,
     } satisfies XeroPurchasingCandidate;
   });
 
@@ -640,23 +804,65 @@ async function upsertSupplierItemInTx(
 
 async function updateItemXeroMetadataInTx(
   tx: Tx,
+  orgId: string,
   candidate: XeroPurchasingCandidate,
   xeroItem: XeroItemSummary | undefined
 ) {
   if (!candidate.itemId) return;
   await tx
-    .update(items)
-    .set({
-      xeroItemId: xeroItem?.itemId ?? null,
-      xeroItemCode: candidate.xeroItemCode,
-      xeroItemName: candidate.xeroItemName,
-      xeroPurchaseDescription: candidate.xeroPurchaseDescription,
-      xeroPurchaseAccountCode: candidate.xeroPurchaseAccountCode,
-      xeroPurchaseTaxType: candidate.xeroPurchaseTaxType,
-      xeroUpdatedAt: xeroItem?.updatedAt ?? null,
-      updatedAt: new Date(),
+    .insert(integrationExternalRecords)
+    .values({
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      entityType: "item",
+      localRecordId: candidate.itemId,
+      externalId: xeroItem?.itemId ?? null,
+      externalCode: candidate.xeroItemCode,
+      externalName: candidate.xeroItemName,
+      externalDescription: candidate.xeroPurchaseDescription,
+      externalUpdatedAt: xeroItem?.updatedAt ?? null,
+      lastSyncedAt: new Date(),
     })
-    .where(eq(items.id, candidate.itemId));
+    .onConflictDoUpdate({
+      target: [
+        integrationExternalRecords.organizationId,
+        integrationExternalRecords.provider,
+        integrationExternalRecords.entityType,
+        integrationExternalRecords.localRecordId,
+      ],
+      set: {
+        externalId: xeroItem?.itemId ?? null,
+        externalCode: candidate.xeroItemCode,
+        externalName: candidate.xeroItemName,
+        externalDescription: candidate.xeroPurchaseDescription,
+        externalUpdatedAt: xeroItem?.updatedAt ?? null,
+        lastSyncedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+  await tx
+    .insert(accountingClassifications)
+    .values({
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      entityType: "item",
+      localRecordId: candidate.itemId,
+      accountCode: candidate.accountingPurchaseAccountCode,
+      taxType: candidate.xeroPurchaseTaxType,
+    })
+    .onConflictDoUpdate({
+      target: [
+        accountingClassifications.organizationId,
+        accountingClassifications.provider,
+        accountingClassifications.entityType,
+        accountingClassifications.localRecordId,
+      ],
+      set: {
+        accountCode: candidate.accountingPurchaseAccountCode,
+        taxType: candidate.xeroPurchaseTaxType,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 export async function applyXeroPurchasingSync(
@@ -687,14 +893,15 @@ export async function applyXeroPurchasingSync(
       selectedIds.has(candidate.id)
     );
     const [run] = await tx
-      .insert(xeroImportRuns)
+      .insert(integrationImportRuns)
       .values({
         organizationId: orgId,
+        provider: ACCOUNTING_PROVIDER_XERO,
         entityType: "purchasing",
         tenantId: xeroData.tenantId,
         tenantName: xeroData.tenantName,
       })
-      .returning({ id: xeroImportRuns.id });
+      .returning({ id: integrationImportRuns.id });
 
     const result: XeroPurchasingSyncApplyResult = {
       runId: run.id,
@@ -716,17 +923,18 @@ export async function applyXeroPurchasingSync(
           const xeroItem = xeroData.xeroItemsByCode.get(
             normalizeKey(candidate.xeroItemCode)!
           );
-          await updateItemXeroMetadataInTx(rowTx, candidate, xeroItem);
+          await updateItemXeroMetadataInTx(rowTx, orgId, candidate, xeroItem);
           const rowUpsert = await upsertSupplierItemInTx(rowTx, orgId, candidate);
           if (!rowUpsert.id) return rowUpsert;
 
-          await rowTx.insert(xeroImportRunRows).values({
+          await rowTx.insert(integrationImportRunRows).values({
             organizationId: orgId,
+            provider: ACCOUNTING_PROVIDER_XERO,
             runId: run.id,
             entityType: "purchasing",
             action: rowUpsert.action,
             localRecordId: rowUpsert.id,
-            xeroContactId: null,
+            externalRecordId: candidate.xeroItemCode,
             localName: `${candidate.supplierName} - ${
               candidate.itemName ?? candidate.xeroItemCode
             }`,
@@ -753,7 +961,7 @@ export async function applyXeroPurchasingSync(
     result.skipped += selectedIds.size - candidates.length;
 
     await tx
-      .update(xeroImportRuns)
+      .update(integrationImportRuns)
       .set({
         createdCount: result.created,
         updatedCount: result.updated,
@@ -761,7 +969,7 @@ export async function applyXeroPurchasingSync(
         errorCount: result.errors.length,
         updatedAt: new Date(),
       })
-      .where(eq(xeroImportRuns.id, run.id));
+      .where(eq(integrationImportRuns.id, run.id));
 
     return result;
   });

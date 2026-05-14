@@ -120,7 +120,6 @@ const rawBaseItemSchema = createInsertSchema(items, {
   sku: nullableString,
   category: nullableString,
   defaultPurchasePrice: nullableString,
-  xeroPurchaseAccountCode: nullableStringOptional,
   currentStockUnitCost: currentStockUnitCostSchema,
   defaultSellingPrice: nullableString,
   sellable: z.boolean().default(true),

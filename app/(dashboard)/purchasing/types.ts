@@ -40,7 +40,7 @@ export type PurchaseOrderMaterialOption = {
   purchaseToStockFactor: string | null;
   defaultPurchasePrice: string | null;
   currentStockUnitCost: string | null;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
 };
 
 export type PurchaseOrderListRow = {
@@ -75,7 +75,7 @@ export type PurchaseOrderDetailLine = {
   unitCost: string;
   stockUnitCost: string;
   landedCost: string;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   shipAddressEntryId: string | null;
   shipContactName: string | null;
   shipContactPhone: string | null;
@@ -98,7 +98,7 @@ export type PurchaseOrderAdditionalCost = {
   costType: PurchaseOrderAdditionalCostType;
   reference: string | null;
   distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   amount: string;
   sortOrder: number;
   createdAt: Date;
@@ -126,7 +126,7 @@ export type PurchaseOrderDetail = {
   status: PurchaseOrderStatus;
   expectedDate: string | null;
   notes: string | null;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -163,7 +163,7 @@ export type PurchaseOrderEditData = {
   status: PurchaseOrderStatus;
   expectedDate: string | null;
   notes: string | null;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -175,7 +175,7 @@ export type PurchaseOrderEditData = {
     itemId: string;
     quantityOrdered: string;
     unitCost: string;
-    xeroPurchaseAccountCode: string | null;
+    accountingPurchaseAccountCode: string | null;
     shipAddressEntryId: string | null;
     shipContactName: string | null;
     shipContactPhone: string | null;
@@ -191,7 +191,7 @@ export type PurchaseOrderEditData = {
     costType: PurchaseOrderAdditionalCostType;
     reference: string | null;
     distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
-    xeroPurchaseAccountCode: string | null;
+    accountingPurchaseAccountCode: string | null;
     amount: string;
   }>;
   attachments: PurchaseOrderAttachment[];

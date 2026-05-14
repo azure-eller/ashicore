@@ -105,7 +105,12 @@ interface ItemDetailProps {
     purchaseUnitUom: string | null;
     purchaseToStockFactor: string | null;
     defaultPurchasePrice: string | null;
-    xeroPurchaseAccountCode: string | null;
+    xeroItemCode: string | null;
+    xeroItemName: string | null;
+    xeroPurchaseDescription: string | null;
+    accountingPurchaseAccountCode: string | null;
+    xeroPurchaseTaxType: string | null;
+    xeroUpdatedAt: Date | null;
     currentStockUnitCost: string | null;
     defaultSellingPrice: string | null;
     sellable?: boolean | null;
@@ -131,6 +136,13 @@ interface ItemDetailProps {
       createdByName: string | null;
       createdAt: Date;
     } | null;
+    supplierSources?: {
+      id: string;
+      supplierName: string;
+      supplierSku: string | null;
+      unitCost: string | null;
+      isPreferred: boolean;
+    }[];
   };
   itemType: ItemType;
   bom?: {
@@ -438,6 +450,17 @@ function ItemInfoCards({
                 tooltip: ITEM_SKU_TOOLTIP,
               },
               {
+                label: "Xero SKU",
+                value: item.xeroItemCode ?? "\u2014",
+                mono: true,
+                dim: item.xeroItemCode == null,
+              },
+              {
+                label: "Xero item",
+                value: item.xeroItemName ?? "\u2014",
+                dim: item.xeroItemName == null,
+              },
+              {
                 label: "Category",
                 value: item.category ?? "\u2014",
                 dim: item.category == null,
@@ -540,9 +563,15 @@ function ItemInfoCards({
                     },
                     {
                       label: "Xero purchase account",
-                      value: item.xeroPurchaseAccountCode ?? "\u2014",
+                      value: item.accountingPurchaseAccountCode ?? "\u2014",
                       mono: true,
-                      dim: item.xeroPurchaseAccountCode == null,
+                      dim: item.accountingPurchaseAccountCode == null,
+                    },
+                    {
+                      label: "Xero tax type",
+                      value: item.xeroPurchaseTaxType ?? "\u2014",
+                      mono: true,
+                      dim: item.xeroPurchaseTaxType == null,
                     },
                   ]
                 : []),
@@ -571,6 +600,59 @@ function ItemInfoCards({
         </dl>
       </SectionCard>
     </div>
+  );
+}
+
+function SupplierSources({ item }: { item: DetailItem }) {
+  const sources = item.supplierSources ?? [];
+  const hasXeroDescription = item.xeroPurchaseDescription != null;
+
+  if (sources.length === 0 && !hasXeroDescription) return null;
+
+  return (
+    <SectionCard title="Supplier Sources">
+      {hasXeroDescription ? (
+        <div className="border-b p-4 text-sm">
+          <div className="text-xs font-medium text-muted-foreground">
+            Xero purchase description
+          </div>
+          <div className="mt-1">{item.xeroPurchaseDescription}</div>
+          {item.xeroUpdatedAt ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              Updated <DateTimeText value={item.xeroUpdatedAt} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {sources.length > 0 ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Supplier</TableHead>
+              <TableHead>Supplier SKU</TableHead>
+              <TableHead className="text-right">Unit Cost</TableHead>
+              <TableHead className="text-right">Default</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sources.map((source) => (
+              <TableRow key={source.id}>
+                <TableCell>{source.supplierName}</TableCell>
+                <TableCell className="font-mono">
+                  {source.supplierSku ?? "\u2014"}
+                </TableCell>
+                <TableCell className="text-right font-mono">
+                  {formatPrice(source.unitCost) ?? "\u2014"}
+                </TableCell>
+                <TableCell className="text-right">
+                  {source.isPreferred ? <Badge variant="secondary">Preferred</Badge> : "\u2014"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : null}
+    </SectionCard>
   );
 }
 
@@ -668,6 +750,7 @@ function OverviewPanel({
   return (
     <div className="space-y-4">
       <ItemInfoCards item={item} itemType={itemType} lots={lots} />
+      <SupplierSources item={item} />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <ItemHistorySparklineCard itemId={item.id} itemType={itemType} />
         <SectionCard title="Stock Commitments">

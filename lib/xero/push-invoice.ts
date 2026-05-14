@@ -3,6 +3,7 @@ import "server-only";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { Invoice, type Invoices, type LineItem } from "xero-node";
 import {
+  accountingDocumentSyncs,
   customers,
   organization,
   salesOrderLines,
@@ -22,6 +23,16 @@ import {
 import { upsertXeroContact, type XeroContactInput } from "./contacts";
 import { buildXeroIdempotencyKey } from "./idempotency";
 import { hashXeroPayload } from "./payload-hash";
+import {
+  ACCOUNTING_PROVIDER_XERO,
+  markAccountingDocumentPushAttempt,
+  persistAccountingDocumentEmailOutcome,
+  persistAccountingDocumentPushFailure,
+  persistAccountingDocumentPushSuccess,
+} from "@/lib/accounting/sync-state";
+
+const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
+const ACCOUNTING_DOCUMENT_SALES_SHIPMENT = "sales_shipment";
 
 type OrderForPush = {
   id: string;
@@ -164,14 +175,22 @@ async function loadOrderForPushInTx(
       shipPostcode: salesOrders.shipPostcode,
       shipCountry: salesOrders.shipCountry,
       totalAmount: salesOrders.totalAmount,
-      xeroInvoiceId: salesOrders.xeroInvoiceId,
-      xeroInvoiceNumber: salesOrders.xeroInvoiceNumber,
-      xeroPushStatus: salesOrders.xeroPushStatus,
-      xeroPushPayloadHash: salesOrders.xeroPushPayloadHash,
-      xeroEmailStatus: salesOrders.xeroEmailStatus,
+      xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
+      xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
+      xeroPushStatus: accountingDocumentSyncs.pushStatus,
+      xeroPushPayloadHash: accountingDocumentSyncs.pushPayloadHash,
+      xeroEmailStatus: accountingDocumentSyncs.emailStatus,
     })
     .from(salesOrders)
     .innerJoin(organization, eq(salesOrders.organizationId, organization.id))
+    .leftJoin(
+      accountingDocumentSyncs,
+      and(
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_ORDER),
+        eq(accountingDocumentSyncs.documentId, salesOrders.id)
+      )
+    )
     .where(
       and(
         eq(salesOrders.id, orderId),
@@ -187,7 +206,15 @@ async function loadOrderForPushInTx(
       name: customers.name,
       email: customers.email,
       phone: customers.phone,
-      xeroContactId: customers.xeroContactId,
+      xeroContactId: sql<string | null>`(
+        SELECT external_id
+        FROM integrations.external_records
+        WHERE organization_id = ${customers.organizationId}
+          AND provider = ${ACCOUNTING_PROVIDER_XERO}
+          AND entity_type = 'customer'
+          AND local_record_id = ${customers.id}
+        LIMIT 1
+      )`,
       billingLine1: customers.billingLine1,
       billingLine2: customers.billingLine2,
       billingCity: customers.billingCity,
@@ -249,17 +276,25 @@ async function loadShipmentForPushInTx(
       shipPostcode: salesShipments.shipPostcode,
       shipCountry: salesShipments.shipCountry,
       totalAmount: sql<string>`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`,
-      xeroInvoiceId: salesShipments.xeroInvoiceId,
-      xeroInvoiceNumber: salesShipments.xeroInvoiceNumber,
-      xeroPushStatus: salesShipments.xeroPushStatus,
-      xeroPushPayloadHash: salesShipments.xeroPushPayloadHash,
-      xeroEmailStatus: salesShipments.xeroEmailStatus,
+      xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
+      xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
+      xeroPushStatus: accountingDocumentSyncs.pushStatus,
+      xeroPushPayloadHash: accountingDocumentSyncs.pushPayloadHash,
+      xeroEmailStatus: accountingDocumentSyncs.emailStatus,
     })
     .from(salesShipments)
     .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
     .innerJoin(organization, eq(salesOrders.organizationId, organization.id))
     .innerJoin(salesShipmentLines, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
     .innerJoin(salesOrderLines, eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id))
+    .leftJoin(
+      accountingDocumentSyncs,
+      and(
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_SHIPMENT),
+        eq(accountingDocumentSyncs.documentId, salesShipments.id)
+      )
+    )
     .where(
       and(
         eq(salesOrders.id, orderId),
@@ -282,7 +317,15 @@ async function loadShipmentForPushInTx(
       name: customers.name,
       email: customers.email,
       phone: customers.phone,
-      xeroContactId: customers.xeroContactId,
+      xeroContactId: sql<string | null>`(
+        SELECT external_id
+        FROM integrations.external_records
+        WHERE organization_id = ${customers.organizationId}
+          AND provider = ${ACCOUNTING_PROVIDER_XERO}
+          AND entity_type = 'customer'
+          AND local_record_id = ${customers.id}
+        LIMIT 1
+      )`,
       billingLine1: customers.billingLine1,
       billingLine2: customers.billingLine2,
       billingCity: customers.billingCity,
@@ -323,11 +366,14 @@ async function hasShipmentInvoiceForOrderInTx(
 ): Promise<boolean> {
   const [row] = await tx
     .select({ id: salesShipments.id })
-    .from(salesShipments)
+    .from(accountingDocumentSyncs)
+    .innerJoin(salesShipments, eq(accountingDocumentSyncs.documentId, salesShipments.id))
     .where(
       and(
         eq(salesShipments.salesOrderId, orderId),
-        sql`${salesShipments.xeroInvoiceId} IS NOT NULL OR ${salesShipments.xeroPushStatus} = 'pushed'`
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_SHIPMENT),
+        sql`${accountingDocumentSyncs.externalDocumentId} IS NOT NULL OR ${accountingDocumentSyncs.pushStatus} = 'pushed'`
       )
     )
     .limit(1);
@@ -346,27 +392,23 @@ export async function hasShipmentInvoiceForSalesOrder(
 
 async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesOrders)
-      .set({
-        xeroLastPushAttemptAt: new Date(),
-        xeroRetryCount: sql`${salesOrders.xeroRetryCount} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrders.id, orderId));
+    await markAccountingDocumentPushAttempt(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+      documentId: orderId,
+    });
   });
 }
 
 async function markShipmentPushAttempt(orgId: string, shipmentId: string): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesShipments)
-      .set({
-        xeroLastPushAttemptAt: new Date(),
-        xeroRetryCount: sql`${salesShipments.xeroRetryCount} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesShipments.id, shipmentId));
+    await markAccountingDocumentPushAttempt(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
+      documentId: shipmentId,
+    });
   });
 }
 
@@ -378,19 +420,15 @@ async function persistPushSuccess(
   payloadHash: string
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesOrders)
-      .set({
-        xeroInvoiceId: invoiceId,
-        xeroInvoiceNumber: invoiceNumber,
-        xeroPushStatus: "pushed",
-        xeroPushError: null,
-        xeroPushedAt: new Date(),
-        xeroPushPayloadHash: payloadHash,
-        xeroRetryCount: 0,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrders.id, orderId));
+    await persistAccountingDocumentPushSuccess(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+      documentId: orderId,
+      externalDocumentId: invoiceId,
+      externalDocumentNumber: invoiceNumber,
+      payloadHash,
+    });
   });
 }
 
@@ -402,19 +440,15 @@ async function persistShipmentPushSuccess(
   payloadHash: string
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesShipments)
-      .set({
-        xeroInvoiceId: invoiceId,
-        xeroInvoiceNumber: invoiceNumber,
-        xeroPushStatus: "pushed",
-        xeroPushError: null,
-        xeroPushedAt: new Date(),
-        xeroPushPayloadHash: payloadHash,
-        xeroRetryCount: 0,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesShipments.id, shipmentId));
+    await persistAccountingDocumentPushSuccess(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
+      documentId: shipmentId,
+      externalDocumentId: invoiceId,
+      externalDocumentNumber: invoiceNumber,
+      payloadHash,
+    });
   });
 }
 
@@ -490,15 +524,13 @@ async function persistEmailOutcome(
     | { status: "skipped"; error?: never }
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesOrders)
-      .set({
-        xeroEmailStatus: outcome.status,
-        xeroEmailError: outcome.status === "failed" ? outcome.error : null,
-        xeroEmailedAt: outcome.status === "sent" ? new Date() : undefined,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrders.id, orderId));
+    await persistAccountingDocumentEmailOutcome(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+      documentId: orderId,
+      outcome,
+    });
   });
 }
 
@@ -511,15 +543,13 @@ async function persistShipmentEmailOutcome(
     | { status: "skipped"; error?: never }
 ): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesShipments)
-      .set({
-        xeroEmailStatus: outcome.status,
-        xeroEmailError: outcome.status === "failed" ? outcome.error : null,
-        xeroEmailedAt: outcome.status === "sent" ? new Date() : undefined,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesShipments.id, shipmentId));
+    await persistAccountingDocumentEmailOutcome(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
+      documentId: shipmentId,
+      outcome,
+    });
   });
 }
 
@@ -1040,14 +1070,13 @@ export async function markShipmentXeroPushFailed(
 ): Promise<void> {
   const message = extractXeroMessage(error).slice(0, 500);
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesShipments)
-      .set({
-        xeroPushStatus: "failed",
-        xeroPushError: message,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesShipments.id, shipmentId));
+    await persistAccountingDocumentPushFailure(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
+      documentId: shipmentId,
+      error: message,
+    });
   });
 }
 
@@ -1060,10 +1089,18 @@ export async function getOnlineInvoiceUrlForOrder(
   const order = await withOrgContext(orgId, async (tx) => {
     const [row] = await tx
       .select({
-        xeroInvoiceId: salesOrders.xeroInvoiceId,
-        xeroPushStatus: salesOrders.xeroPushStatus,
+        xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
+        xeroPushStatus: accountingDocumentSyncs.pushStatus,
       })
       .from(salesOrders)
+      .leftJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_ORDER),
+          eq(accountingDocumentSyncs.documentId, salesOrders.id)
+        )
+      )
       .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)));
     return row ?? null;
   });
@@ -1098,14 +1135,13 @@ export async function markXeroPushFailed(
 ): Promise<void> {
   const message = extractXeroMessage(error).slice(0, 500);
   await withOrgContext(orgId, async (tx) => {
-    await tx
-      .update(salesOrders)
-      .set({
-        xeroPushStatus: "failed",
-        xeroPushError: message,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrders.id, orderId));
+    await persistAccountingDocumentPushFailure(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+      documentId: orderId,
+      error: message,
+    });
   });
 }
 

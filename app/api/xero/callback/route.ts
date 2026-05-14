@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { xeroConnections } from "@/lib/db/schema";
+import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { captureAppError } from "@/lib/observability/sentry";
 import {
@@ -78,9 +78,14 @@ export const GET = apiHandler(async (request: Request) => {
     // tenant to another when they re-OAuth.
     const existing = await withOrgContext(context.orgId, async (tx) => {
       const [row] = await tx
-        .select({ tenantId: xeroConnections.tenantId })
-        .from(xeroConnections)
-        .where(eq(xeroConnections.organizationId, context.orgId));
+        .select({ tenantId: integrationConnections.tenantId })
+        .from(integrationConnections)
+        .where(
+          and(
+            eq(integrationConnections.organizationId, context.orgId),
+            eq(integrationConnections.provider, "xero")
+          )
+        );
       return row ?? null;
     });
 

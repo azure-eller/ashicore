@@ -1,5 +1,10 @@
 import { expect, test } from "../fixtures";
-import { customers, salesOrders, xeroConnections } from "@/lib/db/schema";
+import {
+  accountingDocumentSyncs,
+  customers,
+  integrationConnections,
+  salesOrders,
+} from "@/lib/db/schema";
 import { readTestEnv } from "../../helpers/test-env";
 
 const { TEST_ORG_ID } = readTestEnv();
@@ -21,9 +26,10 @@ test("xero settings show automation toggles, draft defaults, and export history"
   const orderNumber = `SO-XERO-${run}`;
 
   await db
-    .insert(xeroConnections)
+    .insert(integrationConnections)
     .values({
       organizationId: TEST_ORG_ID,
+      provider: "xero",
       tenantId: `tenant-${run}`,
       tenantName: "Paonia Soil Co.",
       authorizedTenants: [{ tenantId: `tenant-${run}`, tenantName: "Paonia Soil Co." }],
@@ -43,7 +49,10 @@ test("xero settings show automation toggles, draft defaults, and export history"
       purchaseOrderStatusPreference: "DRAFT",
     })
     .onConflictDoUpdate({
-      target: xeroConnections.organizationId,
+      target: [
+        integrationConnections.organizationId,
+        integrationConnections.provider,
+      ],
       set: {
         tenantId: `tenant-${run}`,
         tenantName: "Paonia Soil Co.",
@@ -75,18 +84,25 @@ test("xero settings show automation toggles, draft defaults, and export history"
     })
     .returning({ id: customers.id });
 
-  await db.insert(salesOrders).values({
+  const [order] = await db.insert(salesOrders).values({
     organizationId: TEST_ORG_ID,
     orderNumber,
     customerId: customer.id,
     customerName,
     status: "shipped",
     orderDate: "2026-05-11",
-    xeroInvoiceId: `xero-invoice-${run}`,
-    xeroInvoiceNumber: `INV-${run}`,
-    xeroPushStatus: "pushed",
-    xeroPushedAt: new Date(),
     totalAmount: "42",
+  }).returning({ id: salesOrders.id });
+
+  await db.insert(accountingDocumentSyncs).values({
+    organizationId: TEST_ORG_ID,
+    provider: "xero",
+    documentType: "sales_order",
+    documentId: order.id,
+    externalDocumentId: `xero-invoice-${run}`,
+    externalDocumentNumber: `INV-${run}`,
+    pushStatus: "pushed",
+    pushedAt: new Date(),
   });
 
   await page.goto("/settings");

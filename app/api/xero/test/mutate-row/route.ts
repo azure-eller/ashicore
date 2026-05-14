@@ -1,9 +1,13 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
-import { purchaseOrders, salesOrders } from "@/lib/db/schema";
+import { accountingDocumentSyncs } from "@/lib/db/schema";
+import {
+  ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+  ACCOUNTING_PROVIDER_XERO,
+} from "@/lib/accounting/sync-state";
 import { blockXeroTestEndpointInProduction } from "@/lib/xero/test-endpoints";
 
 export const dynamic = "force-dynamic";
@@ -37,46 +41,58 @@ export const POST = apiHandler(async (request: Request) => {
     if (data.entity === "sales_order") {
       const update: Record<string, unknown> = { updatedAt: new Date() };
       if (data.clearPushIds) {
-        update.xeroInvoiceId = null;
-        update.xeroInvoiceNumber = null;
-        update.xeroPushPayloadHash = null;
+        update.externalDocumentId = null;
+        update.externalDocumentNumber = null;
+        update.pushPayloadHash = null;
       }
       if (data.forcePushFailed) {
-        update.xeroPushStatus = "failed";
-        update.xeroPushError = "smoke-test forced failure";
-        update.xeroRetryCount = 0;
+        update.pushStatus = "failed";
+        update.pushError = "smoke-test forced failure";
+        update.retryCount = 0;
       }
       const [row] = await tx
-        .update(salesOrders)
+        .update(accountingDocumentSyncs)
         .set(update)
-        .where(eq(salesOrders.id, data.id))
+        .where(
+          and(
+            eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+            eq(accountingDocumentSyncs.documentType, "sales_order"),
+            eq(accountingDocumentSyncs.documentId, data.id)
+          )
+        )
         .returning({
-          id: salesOrders.id,
-          xeroInvoiceId: salesOrders.xeroInvoiceId,
-          xeroPushStatus: salesOrders.xeroPushStatus,
+          id: accountingDocumentSyncs.documentId,
+          xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
+          xeroPushStatus: accountingDocumentSyncs.pushStatus,
         });
       return NextResponse.json({ ok: true, row });
     }
 
     const update: Record<string, unknown> = { updatedAt: new Date() };
     if (data.clearPushIds) {
-      update.xeroPurchaseOrderId = null;
-      update.xeroPurchaseOrderNumber = null;
-      update.xeroPushPayloadHash = null;
+      update.externalDocumentId = null;
+      update.externalDocumentNumber = null;
+      update.pushPayloadHash = null;
     }
     if (data.forcePushFailed) {
-      update.xeroPushStatus = "failed";
-      update.xeroPushError = "smoke-test forced failure";
-      update.xeroRetryCount = 0;
+      update.pushStatus = "failed";
+      update.pushError = "smoke-test forced failure";
+      update.retryCount = 0;
     }
     const [row] = await tx
-      .update(purchaseOrders)
+      .update(accountingDocumentSyncs)
       .set(update)
-      .where(eq(purchaseOrders.id, data.id))
+      .where(
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+          eq(accountingDocumentSyncs.documentId, data.id)
+        )
+      )
       .returning({
-        id: purchaseOrders.id,
-        xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
-        xeroPushStatus: purchaseOrders.xeroPushStatus,
+        id: accountingDocumentSyncs.documentId,
+        xeroPurchaseOrderId: accountingDocumentSyncs.externalDocumentId,
+        xeroPushStatus: accountingDocumentSyncs.pushStatus,
       });
     return NextResponse.json({ ok: true, row });
   });

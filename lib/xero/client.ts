@@ -1,8 +1,8 @@
 import "server-only";
 
 import { XeroClient } from "xero-node";
-import { eq } from "drizzle-orm";
-import { xeroConnections } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
+import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import { XeroError, redactXeroError } from "./errors";
 import {
@@ -18,6 +18,7 @@ const REQUIRED_SCOPES = [
   "accounting.attachments",
   "offline_access",
 ];
+const XERO_PROVIDER = "xero";
 
 export function getXeroScopes() {
   return [...REQUIRED_SCOPES];
@@ -41,7 +42,7 @@ export function createXeroClient(): XeroClient {
   });
 }
 
-type ConnectionRow = typeof xeroConnections.$inferSelect;
+type ConnectionRow = typeof integrationConnections.$inferSelect;
 type StoredTokenPair = {
   accessToken: string;
   refreshToken: string;
@@ -53,8 +54,13 @@ async function loadLockedConnection(
 ): Promise<ConnectionRow | null> {
   const [row] = await tx
     .select()
-    .from(xeroConnections)
-    .where(eq(xeroConnections.organizationId, orgId))
+    .from(integrationConnections)
+    .where(
+      and(
+        eq(integrationConnections.organizationId, orgId),
+        eq(integrationConnections.provider, XERO_PROVIDER)
+      )
+    )
     .for("update");
 
   return row ?? null;
@@ -72,7 +78,7 @@ async function persistTokenSet(
   const accessToken = encryptXeroToken(params.accessToken);
   const refreshToken = encryptXeroToken(params.refreshToken);
   await tx
-    .update(xeroConnections)
+    .update(integrationConnections)
     .set({
       accessTokenCiphertext: accessToken.ciphertext,
       refreshTokenCiphertext: refreshToken.ciphertext,
@@ -80,7 +86,12 @@ async function persistTokenSet(
       tokenExpiresAt: params.expiresAt,
       updatedAt: new Date(),
     })
-    .where(eq(xeroConnections.organizationId, orgId));
+    .where(
+      and(
+        eq(integrationConnections.organizationId, orgId),
+        eq(integrationConnections.provider, XERO_PROVIDER)
+      )
+    );
 }
 
 function resolveStoredTokenPair(row: ConnectionRow): StoredTokenPair {
@@ -282,9 +293,10 @@ export async function upsertXeroConnection(
     const accessToken = encryptXeroToken(params.accessToken);
     const refreshToken = encryptXeroToken(params.refreshToken);
     await tx
-      .insert(xeroConnections)
+      .insert(integrationConnections)
       .values({
         organizationId: orgId,
+        provider: XERO_PROVIDER,
         tenantId: params.tenantId,
         tenantName: params.tenantName,
         accessTokenCiphertext: accessToken.ciphertext,
@@ -294,7 +306,10 @@ export async function upsertXeroConnection(
         authorizedTenants: params.authorizedTenants,
       })
       .onConflictDoUpdate({
-        target: xeroConnections.organizationId,
+        target: [
+          integrationConnections.organizationId,
+          integrationConnections.provider,
+        ],
         set: {
           tenantId: params.tenantId,
           tenantName: params.tenantName,

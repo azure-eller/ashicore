@@ -33,7 +33,7 @@ export default async function NewPurchaseOrderPage({
       itemId: material.id,
       quantityOrdered: null,
       unitCost: material.defaultPurchasePrice,
-      xeroPurchaseAccountCode: material.xeroPurchaseAccountCode,
+      accountingPurchaseAccountCode: material.accountingPurchaseAccountCode,
       shipAddressEntryId: null,
       shipContactName: null,
       shipContactPhone: null,

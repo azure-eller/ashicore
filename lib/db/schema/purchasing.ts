@@ -37,17 +37,6 @@ export const suppliers = purchasingSchema
       billingRegion: varchar("billing_region", { length: 120 }),
       billingPostcode: varchar("billing_postcode", { length: 30 }),
       billingCountry: varchar("billing_country", { length: 120 }),
-      xeroContactId: text("xero_contact_id"),
-      xeroContactNumber: varchar("xero_contact_number", { length: 100 }),
-      xeroAccountNumber: varchar("xero_account_number", { length: 100 }),
-      xeroPurchasesDefaultAccountCode: varchar(
-        "xero_purchases_default_account_code",
-        { length: 20 }
-      ),
-      xeroAccountsPayableTaxType: varchar("xero_accounts_payable_tax_type", {
-        length: 50,
-      }),
-      xeroUpdatedAt: timestamp("xero_updated_at", { withTimezone: true }),
       paymentTerms: varchar("payment_terms", { length: 100 }),
       notes: text("notes"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -136,7 +125,7 @@ export const purchaseOrders = purchasingSchema
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       expectedDate: date("expected_date", { mode: "string" }),
       notes: text("notes"),
-      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
+      accountingPurchaseAccountCode: varchar("accounting_purchase_account_code", {
         length: 20,
       }),
       shipLine1: varchar("ship_line1", { length: 255 }),
@@ -154,19 +143,6 @@ export const purchaseOrders = purchasingSchema
       orderedAt: timestamp("ordered_at", { withTimezone: true }),
       receivedAt: timestamp("received_at", { withTimezone: true }),
       cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
-      xeroPurchaseOrderId: text("xero_purchase_order_id"),
-      xeroPurchaseOrderNumber: varchar("xero_purchase_order_number", {
-        length: 50,
-      }),
-      xeroPushStatus: varchar("xero_push_status", { length: 20 }),
-      xeroPushError: text("xero_push_error"),
-      xeroPushedAt: timestamp("xero_pushed_at", { withTimezone: true }),
-      xeroPushPayloadHash: text("xero_push_payload_hash"),
-      xeroLastPushAttemptAt: timestamp("xero_last_push_attempt_at", { withTimezone: true }),
-      xeroRetryCount: integer("xero_retry_count").notNull().default(0),
-      xeroPoEmailStatus: varchar("xero_po_email_status", { length: 20 }),
-      xeroPoEmailError: text("xero_po_email_error"),
-      xeroPoEmailedAt: timestamp("xero_po_emailed_at", { withTimezone: true }),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -229,7 +205,7 @@ export const purchaseOrderLines = purchasingSchema
         .default("0"),
       unitCost: numeric("unit_cost", { precision: 10, scale: 4 }).notNull(),
       stockUnitCost: numeric("stock_unit_cost", { precision: 18, scale: 6 }).notNull(),
-      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
+      accountingPurchaseAccountCode: varchar("accounting_purchase_account_code", {
         length: 20,
       }),
       shipAddressEntryId: uuid("ship_address_entry_id").references(
@@ -287,7 +263,7 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
       costType: varchar("cost_type", { length: 20 }).notNull(),
       reference: varchar("reference", { length: 120 }),
       distributionMethod: varchar("distribution_method", { length: 20 }).notNull(),
-      xeroPurchaseAccountCode: varchar("xero_purchase_account_code", {
+      accountingPurchaseAccountCode: varchar("accounting_purchase_account_code", {
         length: 20,
       }),
       amount: numeric("amount", { precision: 12, scale: 4 }).notNull(),

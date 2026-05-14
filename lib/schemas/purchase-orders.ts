@@ -33,7 +33,7 @@ const rawLineSchema = z.object({
   itemId: z.string().default(""),
   quantityOrdered: nullableString,
   unitCost: nullableString,
-  xeroPurchaseAccountCode: nullableString,
+  accountingPurchaseAccountCode: nullableString,
   shipAddressEntryId: nullableString,
   shipContactName: nullableString,
   shipContactPhone: nullableString,
@@ -52,7 +52,7 @@ const rawAdditionalCostSchema = z.object({
   distributionMethod: z
     .enum(PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS)
     .default("by_value"),
-  xeroPurchaseAccountCode: nullableString,
+  accountingPurchaseAccountCode: nullableString,
   amount: nullableString,
 });
 
@@ -189,7 +189,7 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
     }
   }),
   notes: nullableString,
-  xeroPurchaseAccountCode: nullableString,
+  accountingPurchaseAccountCode: nullableString,
   shipLine1: nullableString,
   shipLine2: nullableString,
   shipCity: nullableString,
@@ -268,7 +268,7 @@ export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
   expectedDate: null,
   shippingCost: "0",
   notes: null,
-  xeroPurchaseAccountCode: null,
+  accountingPurchaseAccountCode: null,
   shipLine1: null,
   shipLine2: null,
   shipCity: null,
@@ -280,7 +280,7 @@ export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
       itemId: "",
       quantityOrdered: null,
       unitCost: null,
-      xeroPurchaseAccountCode: null,
+      accountingPurchaseAccountCode: null,
       shipAddressEntryId: null,
       shipContactName: null,
       shipContactPhone: null,

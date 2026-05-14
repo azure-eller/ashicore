@@ -8,6 +8,8 @@ import {
   type LineItem,
 } from "xero-node";
 import {
+  accountingDocumentSyncs,
+  integrationExternalRecords,
   organization,
   purchaseOrderAdditionalCosts,
   purchaseOrderLines,
@@ -50,7 +52,7 @@ type OrderForPush = {
   supplierName: string;
   expectedDate: string | null;
   notes: string | null;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -86,7 +88,7 @@ type LineForPush = {
   purchaseUnitName: string;
   quantityOrdered: string;
   unitCost: string;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   shipContactName: string | null;
   shipContactPhone: string | null;
   shipLine1: string | null;
@@ -102,7 +104,7 @@ type LineForPush = {
 type AdditionalCostForPush = {
   costType: "shipping" | "customs" | "other";
   reference: string | null;
-  xeroPurchaseAccountCode: string | null;
+  accountingPurchaseAccountCode: string | null;
   amount: string;
 };
 
@@ -157,7 +159,7 @@ async function loadOrderForPushInTx(
       supplierName: purchaseOrders.supplierName,
       expectedDate: purchaseOrders.expectedDate,
       notes: purchaseOrders.notes,
-      xeroPurchaseAccountCode: purchaseOrders.xeroPurchaseAccountCode,
+      accountingPurchaseAccountCode: purchaseOrders.accountingPurchaseAccountCode,
       shipLine1: purchaseOrders.shipLine1,
       shipLine2: purchaseOrders.shipLine2,
       shipCity: purchaseOrders.shipCity,
@@ -166,14 +168,22 @@ async function loadOrderForPushInTx(
       shipCountry: purchaseOrders.shipCountry,
       totalAmount: purchaseOrders.totalAmount,
       orderedAt: purchaseOrders.orderedAt,
-      xeroPurchaseOrderId: purchaseOrders.xeroPurchaseOrderId,
-      xeroPurchaseOrderNumber: purchaseOrders.xeroPurchaseOrderNumber,
-      xeroPushStatus: purchaseOrders.xeroPushStatus,
-      xeroPushPayloadHash: purchaseOrders.xeroPushPayloadHash,
-      xeroPoEmailStatus: purchaseOrders.xeroPoEmailStatus,
+      xeroPurchaseOrderId: accountingDocumentSyncs.externalDocumentId,
+      xeroPurchaseOrderNumber: accountingDocumentSyncs.externalDocumentNumber,
+      xeroPushStatus: accountingDocumentSyncs.pushStatus,
+      xeroPushPayloadHash: accountingDocumentSyncs.pushPayloadHash,
+      xeroPoEmailStatus: accountingDocumentSyncs.emailStatus,
     })
     .from(purchaseOrders)
     .innerJoin(organization, eq(purchaseOrders.organizationId, organization.id))
+    .leftJoin(
+      accountingDocumentSyncs,
+      and(
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+        eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
+      )
+    )
     .where(
       and(
         eq(purchaseOrders.id, orderId),
@@ -189,7 +199,14 @@ async function loadOrderForPushInTx(
       name: suppliers.name,
       email: suppliers.email,
       phone: suppliers.phone,
-      xeroContactId: suppliers.xeroContactId,
+      xeroContactId: sql<string | null>`(
+        SELECT ${integrationExternalRecords.externalId}
+        FROM ${integrationExternalRecords}
+        WHERE ${integrationExternalRecords.provider} = ${ACCOUNTING_PROVIDER_XERO}
+          AND ${integrationExternalRecords.entityType} = 'supplier'
+          AND ${integrationExternalRecords.localRecordId} = ${suppliers.id}
+        LIMIT 1
+      )`,
       billingLine1: suppliers.billingLine1,
       billingLine2: suppliers.billingLine2,
       billingCity: suppliers.billingCity,
@@ -209,7 +226,7 @@ async function loadOrderForPushInTx(
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       quantityOrdered: purchaseOrderLines.quantityOrdered,
       unitCost: purchaseOrderLines.unitCost,
-      xeroPurchaseAccountCode: purchaseOrderLines.xeroPurchaseAccountCode,
+      accountingPurchaseAccountCode: purchaseOrderLines.accountingPurchaseAccountCode,
       shipContactName: purchaseOrderLines.shipContactName,
       shipContactPhone: purchaseOrderLines.shipContactPhone,
       shipLine1: purchaseOrderLines.shipLine1,
@@ -229,7 +246,7 @@ async function loadOrderForPushInTx(
     .select({
       costType: purchaseOrderAdditionalCosts.costType,
       reference: purchaseOrderAdditionalCosts.reference,
-      xeroPurchaseAccountCode: purchaseOrderAdditionalCosts.xeroPurchaseAccountCode,
+      accountingPurchaseAccountCode: purchaseOrderAdditionalCosts.accountingPurchaseAccountCode,
       amount: purchaseOrderAdditionalCosts.amount,
     })
     .from(purchaseOrderAdditionalCosts)
@@ -243,7 +260,7 @@ async function loadOrderForPushInTx(
     additionalCosts: additionalCosts.map((cost) => ({
       costType: cost.costType as AdditionalCostForPush["costType"],
       reference: cost.reference,
-      xeroPurchaseAccountCode: cost.xeroPurchaseAccountCode,
+      accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
       amount: cost.amount,
     })),
   };
@@ -257,14 +274,6 @@ async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
       documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
       documentId: orderId,
     });
-    await tx
-      .update(purchaseOrders)
-      .set({
-        xeroLastPushAttemptAt: new Date(),
-        xeroRetryCount: sql`${purchaseOrders.xeroRetryCount} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(purchaseOrders.id, orderId));
   });
 }
 
@@ -285,19 +294,6 @@ async function persistPushSuccess(
       externalDocumentNumber: purchaseOrderNumber,
       payloadHash,
     });
-    await tx
-      .update(purchaseOrders)
-      .set({
-        xeroPurchaseOrderId: purchaseOrderId,
-        xeroPurchaseOrderNumber: purchaseOrderNumber,
-        xeroPushStatus: "pushed",
-        xeroPushError: null,
-        xeroPushedAt: new Date(),
-        xeroPushPayloadHash: payloadHash,
-        xeroRetryCount: 0,
-        updatedAt: new Date(),
-      })
-      .where(eq(purchaseOrders.id, orderId));
   });
 }
 
@@ -394,20 +390,6 @@ async function persistPurchaseOrderEmailOutcome(
       documentId: orderId,
       outcome,
     });
-    const conditions = [eq(purchaseOrders.id, orderId)];
-    if (outcome.status !== "sent") {
-      conditions.push(sql`COALESCE(${purchaseOrders.xeroPoEmailStatus}, '') <> 'sent'`);
-    }
-
-    await tx
-      .update(purchaseOrders)
-      .set({
-        xeroPoEmailStatus: outcome.status,
-        xeroPoEmailError: outcome.status === "failed" ? outcome.error : null,
-        xeroPoEmailedAt: outcome.status === "sent" ? new Date() : undefined,
-        updatedAt: new Date(),
-      })
-      .where(and(...conditions));
   });
 }
 
@@ -641,15 +623,15 @@ export async function pushPurchaseOrderToXero(
 
   const accountingApi = authed.client.accountingApi;
   const fallbackAccountCode =
-    data.order.xeroPurchaseAccountCode ??
+    data.order.accountingPurchaseAccountCode ??
     connection.purchaseOrderDefaultAccountCode ??
     connection.defaultAccountCode;
 
   const missingAccountLine = data.lines.find(
-    (line) => !(line.xeroPurchaseAccountCode ?? fallbackAccountCode)
+    (line) => !(line.accountingPurchaseAccountCode ?? fallbackAccountCode)
   );
   const missingAccountCost = data.additionalCosts.find(
-    (cost) => !(cost.xeroPurchaseAccountCode ?? fallbackAccountCode)
+    (cost) => !(cost.accountingPurchaseAccountCode ?? fallbackAccountCode)
   );
   if (missingAccountLine || missingAccountCost) {
     throw new XeroError(
@@ -687,7 +669,7 @@ export async function pushPurchaseOrderToXero(
     description: line.itemName,
     quantity: parseFloat(line.quantityOrdered),
     unitAmount: parseFloat(line.unitCost),
-    accountCode: line.xeroPurchaseAccountCode ?? fallbackAccountCode ?? undefined,
+    accountCode: line.accountingPurchaseAccountCode ?? fallbackAccountCode ?? undefined,
     taxType: taxType ?? undefined,
     lineAmount: parseFloat(line.lineTotal),
   }));
@@ -698,7 +680,7 @@ export async function pushPurchaseOrderToXero(
         : ADDITIONAL_COST_TYPE_LABELS[cost.costType],
       quantity: 1,
       unitAmount: parseFloat(cost.amount),
-      accountCode: cost.xeroPurchaseAccountCode ?? fallbackAccountCode ?? undefined,
+      accountCode: cost.accountingPurchaseAccountCode ?? fallbackAccountCode ?? undefined,
       taxType: taxType ?? undefined,
       lineAmount: parseFloat(cost.amount),
     }))
@@ -966,13 +948,5 @@ export async function markXeroPurchaseOrderPushFailed(
       documentId: orderId,
       error: message,
     });
-    await tx
-      .update(purchaseOrders)
-      .set({
-        xeroPushStatus: "failed",
-        xeroPushError: message,
-        updatedAt: new Date(),
-      })
-      .where(eq(purchaseOrders.id, orderId));
   });
 }

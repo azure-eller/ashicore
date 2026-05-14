@@ -7,27 +7,30 @@ import {
   pgSchema,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export type XeroAuthorizedTenant = {
+export const integrationsSchema = pgSchema("integrations");
+
+export type IntegrationAuthorizedTenant = {
   tenantId: string;
   tenantName: string;
 };
 
-export const xeroSchema = pgSchema("xero");
-
-export const xeroConnections = xeroSchema
+export const integrationConnections = integrationsSchema
   .table(
-    "xero_connections",
+    "connections",
     {
-      organizationId: text("organization_id").primaryKey(),
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      provider: varchar("provider", { length: 50 }).notNull(),
       tenantId: text("tenant_id").notNull(),
       tenantName: text("tenant_name").notNull(),
       authorizedTenants: jsonb("authorized_tenants")
-        .$type<XeroAuthorizedTenant[]>()
+        .$type<IntegrationAuthorizedTenant[]>()
         .notNull()
         .default(sql`'[]'::jsonb`),
       accessTokenCiphertext: text("access_token_ciphertext").notNull(),
@@ -66,12 +69,21 @@ export const xeroConnections = xeroSchema
       )
         .notNull()
         .default("DRAFT"),
+      settings: jsonb("settings").$type<Record<string, unknown>>(),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
-      index("xero_connections_tenant_idx").on(table.tenantId),
-      pgPolicy("xero_connections_org_isolation", {
+      index("integration_connections_org_provider_idx").on(
+        table.organizationId,
+        table.provider
+      ),
+      index("integration_connections_tenant_idx").on(table.provider, table.tenantId),
+      uniqueIndex("integration_connections_org_provider_uidx").on(
+        table.organizationId,
+        table.provider
+      ),
+      pgPolicy("integration_connections_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,
@@ -81,23 +93,77 @@ export const xeroConnections = xeroSchema
   )
   .enableRLS();
 
-export type XeroImportEntityType = "customers" | "suppliers" | "purchasing";
-export type XeroImportRunStatus = "completed" | "undone";
-export type XeroImportRowAction = "created" | "updated";
+export type IntegrationExternalEntityType = "item" | "customer" | "supplier";
 
-export const xeroImportRuns = xeroSchema
+export const integrationExternalRecords = integrationsSchema
   .table(
-    "xero_import_runs",
+    "external_records",
     {
       id: uuid("id").primaryKey().defaultRandom(),
       organizationId: text("organization_id").notNull(),
+      provider: varchar("provider", { length: 50 }).notNull(),
+      entityType: varchar("entity_type", { length: 50 })
+        .$type<IntegrationExternalEntityType>()
+        .notNull(),
+      localRecordId: uuid("local_record_id").notNull(),
+      externalId: text("external_id"),
+      externalCode: varchar("external_code", { length: 100 }),
+      externalName: varchar("external_name", { length: 255 }),
+      externalDescription: text("external_description"),
+      metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+      externalUpdatedAt: timestamp("external_updated_at", { withTimezone: true }),
+      lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("external_records_org_provider_idx").on(table.organizationId, table.provider),
+      index("external_records_local_idx").on(
+        table.organizationId,
+        table.provider,
+        table.entityType,
+        table.localRecordId
+      ),
+      uniqueIndex("external_records_local_uidx").on(
+        table.organizationId,
+        table.provider,
+        table.entityType,
+        table.localRecordId
+      ),
+      uniqueIndex("external_records_external_id_uidx")
+        .on(table.organizationId, table.provider, table.entityType, table.externalId)
+        .where(sql`external_id IS NOT NULL`),
+      uniqueIndex("external_records_external_code_uidx")
+        .on(table.organizationId, table.provider, table.entityType, table.externalCode)
+        .where(sql`external_code IS NOT NULL`),
+      pgPolicy("external_records_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export type IntegrationImportEntityType = "customers" | "suppliers" | "purchasing";
+export type IntegrationImportRunStatus = "completed" | "undone";
+export type IntegrationImportRowAction = "created" | "updated";
+
+export const integrationImportRuns = integrationsSchema
+  .table(
+    "import_runs",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      provider: varchar("provider", { length: 50 }).notNull(),
       entityType: varchar("entity_type", { length: 20 })
-        .$type<XeroImportEntityType>()
+        .$type<IntegrationImportEntityType>()
         .notNull(),
       tenantId: text("tenant_id").notNull(),
       tenantName: text("tenant_name").notNull(),
       status: varchar("status", { length: 20 })
-        .$type<XeroImportRunStatus>()
+        .$type<IntegrationImportRunStatus>()
         .notNull()
         .default("completed"),
       createdCount: integer("created_count").notNull().default(0),
@@ -109,12 +175,13 @@ export const xeroImportRuns = xeroSchema
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
-      index("xero_import_runs_org_entity_idx").on(
+      index("integration_import_runs_org_provider_entity_idx").on(
         table.organizationId,
+        table.provider,
         table.entityType,
         table.createdAt
       ),
-      pgPolicy("xero_import_runs_org_isolation", {
+      pgPolicy("integration_import_runs_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,
@@ -124,34 +191,36 @@ export const xeroImportRuns = xeroSchema
   )
   .enableRLS();
 
-export const xeroImportRunRows = xeroSchema
+export const integrationImportRunRows = integrationsSchema
   .table(
-    "xero_import_run_rows",
+    "import_run_rows",
     {
       id: uuid("id").primaryKey().defaultRandom(),
       organizationId: text("organization_id").notNull(),
+      provider: varchar("provider", { length: 50 }).notNull(),
       runId: uuid("run_id")
         .notNull()
-        .references(() => xeroImportRuns.id, { onDelete: "cascade" }),
+        .references(() => integrationImportRuns.id, { onDelete: "cascade" }),
       entityType: varchar("entity_type", { length: 20 })
-        .$type<XeroImportEntityType>()
+        .$type<IntegrationImportEntityType>()
         .notNull(),
       action: varchar("action", { length: 20 })
-        .$type<XeroImportRowAction>()
+        .$type<IntegrationImportRowAction>()
         .notNull(),
       localRecordId: uuid("local_record_id").notNull(),
-      xeroContactId: text("xero_contact_id"),
+      externalRecordId: text("external_record_id"),
       localName: text("local_name").notNull(),
       previousData: jsonb("previous_data"),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
-      index("xero_import_run_rows_run_idx").on(table.runId),
-      index("xero_import_run_rows_local_record_idx").on(
+      index("integration_import_run_rows_run_idx").on(table.runId),
+      index("integration_import_run_rows_local_record_idx").on(
+        table.provider,
         table.entityType,
         table.localRecordId
       ),
-      pgPolicy("xero_import_run_rows_org_isolation", {
+      pgPolicy("integration_import_run_rows_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

@@ -4,17 +4,22 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Address, type Contact, Phone } from "xero-node";
 import {
   customers,
+  integrationExternalRecords,
   purchaseOrders,
   salesOrders,
   suppliers,
-  xeroImportRunRows,
-  xeroImportRuns,
+  integrationImportRunRows,
+  integrationImportRuns,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { normalizeAddressFields } from "@/lib/format";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
+import { upsertExternalRecordInTx } from "@/lib/integrations/external-records";
+import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
+
+const XERO_PROVIDER = ACCOUNTING_PROVIDER_XERO;
 
 export type ContactImportEntity = "customers" | "suppliers";
 
@@ -87,23 +92,19 @@ type CustomerSnapshot = CustomerAddressFields & {
   name: string;
   email: string | null;
   phone: string | null;
-  xeroContactId: string | null;
 };
 
 type SupplierSnapshot = SupplierAddressFields & {
   name: string;
   email: string | null;
   phone: string | null;
-  xeroContactId: string | null;
-  xeroContactNumber: string | null;
-  xeroAccountNumber: string | null;
-  xeroPurchasesDefaultAccountCode: string | null;
-  xeroAccountsPayableTaxType: string | null;
-  xeroUpdatedAt: Date | null;
 };
 
-type ExistingCustomer = CustomerSnapshot & { id: string };
-type ExistingSupplier = SupplierSnapshot & { id: string };
+type ExistingCustomer = CustomerSnapshot & { id: string; xeroContactId: string | null };
+type ExistingSupplier = SupplierSnapshot & {
+  id: string;
+  xeroContactId: string | null;
+};
 type ExistingContactMaps = Awaited<ReturnType<typeof loadExistingContactMapsInTx>>;
 
 function customerSnapshot(row: ExistingCustomer): CustomerSnapshot {
@@ -111,7 +112,6 @@ function customerSnapshot(row: ExistingCustomer): CustomerSnapshot {
     name: row.name,
     email: row.email,
     phone: row.phone,
-    xeroContactId: row.xeroContactId,
     billingLine1: row.billingLine1,
     billingLine2: row.billingLine2,
     billingCity: row.billingCity,
@@ -132,12 +132,6 @@ function supplierSnapshot(row: ExistingSupplier): SupplierSnapshot {
     name: row.name,
     email: row.email,
     phone: row.phone,
-    xeroContactId: row.xeroContactId,
-    xeroContactNumber: row.xeroContactNumber,
-    xeroAccountNumber: row.xeroAccountNumber,
-    xeroPurchasesDefaultAccountCode: row.xeroPurchasesDefaultAccountCode,
-    xeroAccountsPayableTaxType: row.xeroAccountsPayableTaxType,
-    xeroUpdatedAt: row.xeroUpdatedAt,
     billingLine1: row.billingLine1,
     billingLine2: row.billingLine2,
     billingCity: row.billingCity,
@@ -297,7 +291,6 @@ function customerSelect() {
     name: customers.name,
     email: customers.email,
     phone: customers.phone,
-    xeroContactId: customers.xeroContactId,
     billingLine1: customers.billingLine1,
     billingLine2: customers.billingLine2,
     billingCity: customers.billingCity,
@@ -319,12 +312,6 @@ function supplierSelect() {
     name: suppliers.name,
     email: suppliers.email,
     phone: suppliers.phone,
-    xeroContactId: suppliers.xeroContactId,
-    xeroContactNumber: suppliers.xeroContactNumber,
-    xeroAccountNumber: suppliers.xeroAccountNumber,
-    xeroPurchasesDefaultAccountCode: suppliers.xeroPurchasesDefaultAccountCode,
-    xeroAccountsPayableTaxType: suppliers.xeroAccountsPayableTaxType,
-    xeroUpdatedAt: suppliers.xeroUpdatedAt,
     billingLine1: suppliers.billingLine1,
     billingLine2: suppliers.billingLine2,
     billingCity: suppliers.billingCity,
@@ -365,7 +352,7 @@ async function loadExistingContactMapsInTx(
     byName: new Map<string, ExistingCustomer | ExistingSupplier>(),
   };
 
-  const rows =
+  const baseRows =
     entityType === "customers"
       ? await tx
           .select(customerSelect())
@@ -375,6 +362,53 @@ async function loadExistingContactMapsInTx(
           .select(supplierSelect())
           .from(suppliers)
           .where(isNull(suppliers.deletedAt));
+
+  const localRecordIds = baseRows.map((row) => row.id);
+  const externalRows =
+    localRecordIds.length === 0
+      ? []
+      : await tx
+          .select({
+            localRecordId: integrationExternalRecords.localRecordId,
+            externalId: integrationExternalRecords.externalId,
+            externalCode: integrationExternalRecords.externalCode,
+            metadata: integrationExternalRecords.metadata,
+            externalUpdatedAt: integrationExternalRecords.externalUpdatedAt,
+          })
+          .from(integrationExternalRecords)
+          .where(
+            and(
+              eq(integrationExternalRecords.provider, XERO_PROVIDER),
+              eq(
+                integrationExternalRecords.entityType,
+                entityType === "customers" ? "customer" : "supplier"
+              ),
+              inArray(integrationExternalRecords.localRecordId, localRecordIds)
+            )
+          );
+  const externalByLocalId = new Map(
+    externalRows.map((row) => [row.localRecordId, row])
+  );
+  const rows = baseRows.map((row) => {
+    const external = externalByLocalId.get(row.id);
+    const metadata = external?.metadata ?? {};
+    return {
+      ...row,
+      xeroContactId: external?.externalId ?? null,
+      xeroContactNumber: external?.externalCode ?? null,
+      xeroAccountNumber:
+        typeof metadata.accountNumber === "string" ? metadata.accountNumber : null,
+      xeroPurchasesDefaultAccountCode:
+        typeof metadata.purchasesDefaultAccountCode === "string"
+          ? metadata.purchasesDefaultAccountCode
+          : null,
+      xeroAccountsPayableTaxType:
+        typeof metadata.accountsPayableTaxType === "string"
+          ? metadata.accountsPayableTaxType
+          : null,
+      xeroUpdatedAt: external?.externalUpdatedAt ?? null,
+    };
+  });
 
   for (const row of rows) {
     addExistingToMaps(row, maps);
@@ -484,14 +518,15 @@ export async function importContactsFromXero(
 
   return withOrgContext(orgId, async (tx) => {
     const [run] = await tx
-      .insert(xeroImportRuns)
+      .insert(integrationImportRuns)
       .values({
         organizationId: orgId,
+        provider: XERO_PROVIDER,
         entityType,
         tenantId: fetched.tenantId,
         tenantName: fetched.tenantName,
       })
-      .returning({ id: xeroImportRuns.id });
+      .returning({ id: integrationImportRuns.id });
 
     const result: ImportResult = {
       runId: run.id,
@@ -551,7 +586,7 @@ export async function importContactsFromXero(
     }
 
     await tx
-      .update(xeroImportRuns)
+      .update(integrationImportRuns)
       .set({
         createdCount: result.created,
         updatedCount: result.updated,
@@ -559,9 +594,35 @@ export async function importContactsFromXero(
         errorCount: result.errors.length,
         updatedAt: new Date(),
       })
-      .where(eq(xeroImportRuns.id, run.id));
+      .where(eq(integrationImportRuns.id, run.id));
 
     return result;
+  });
+}
+
+async function upsertExternalContactRecordInTx(
+  tx: Tx,
+  orgId: string,
+  entityType: "customer" | "supplier",
+  localRecordId: string,
+  contact: Contact
+) {
+  await upsertExternalRecordInTx(tx, {
+    organizationId: orgId,
+    provider: XERO_PROVIDER,
+    entityType,
+    localRecordId,
+    externalId: cleanString(contact.contactID),
+    externalCode: cleanString(contact.contactNumber, 100),
+    externalName: cleanString(contact.name),
+    metadata: {
+      accountNumber: cleanString(contact.accountNumber, 100),
+      purchasesDefaultAccountCode: cleanString(contact.purchasesDefaultAccountCode, 20),
+      accountsPayableTaxType: cleanString(contact.accountsPayableTaxType, 50),
+      isCustomer: contact.isCustomer === true,
+      isSupplier: contact.isSupplier === true,
+    },
+    externalUpdatedAt: cleanDate(contact.updatedDateUTC),
   });
 }
 
@@ -578,7 +639,6 @@ async function importCustomerInTx(
     name: cleanString(contact.name) ?? existing?.name ?? "",
     email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
     phone: mapPhone(contact) ?? existing?.phone ?? null,
-    xeroContactId: cleanString(contact.contactID) ?? existing?.xeroContactId ?? null,
     billingLine1: addr.billingLine1 ?? existing?.billingLine1 ?? null,
     billingLine2: addr.billingLine2 ?? existing?.billingLine2 ?? null,
     billingCity: addr.billingCity ?? existing?.billingCity ?? null,
@@ -598,36 +658,40 @@ async function importCustomerInTx(
       .update(customers)
       .set({ ...nextData, updatedAt: new Date() })
       .where(eq(customers.id, existing.id));
-    await tx.insert(xeroImportRunRows).values({
+    await upsertExternalContactRecordInTx(tx, orgId, "customer", existing.id, contact);
+    await tx.insert(integrationImportRunRows).values({
       organizationId: orgId,
+      provider: XERO_PROVIDER,
       runId,
       entityType: "customers",
       action: "updated",
       localRecordId: existing.id,
-      xeroContactId: contact.contactID ?? null,
+      externalRecordId: contact.contactID ?? null,
       localName: nextData.name,
       previousData: customerSnapshot(existing),
     });
     result.updated += 1;
-    return { id: existing.id, ...nextData };
+    return { id: existing.id, xeroContactId: contact.contactID ?? null, ...nextData };
   }
 
   const [created] = await tx
     .insert(customers)
     .values({ organizationId: orgId, ...nextData })
     .returning({ id: customers.id });
-  await tx.insert(xeroImportRunRows).values({
+  await upsertExternalContactRecordInTx(tx, orgId, "customer", created.id, contact);
+  await tx.insert(integrationImportRunRows).values({
     organizationId: orgId,
+    provider: XERO_PROVIDER,
     runId,
     entityType: "customers",
     action: "created",
     localRecordId: created.id,
-    xeroContactId: contact.contactID ?? null,
+    externalRecordId: contact.contactID ?? null,
     localName: nextData.name,
     previousData: null,
   });
   result.created += 1;
-  return { id: created.id, ...nextData };
+  return { id: created.id, xeroContactId: contact.contactID ?? null, ...nextData };
 }
 
 async function importSupplierInTx(
@@ -643,20 +707,6 @@ async function importSupplierInTx(
     name: cleanString(contact.name) ?? existing?.name ?? "",
     email: cleanString(contact.emailAddress) ?? existing?.email ?? null,
     phone: mapPhone(contact) ?? existing?.phone ?? null,
-    xeroContactId: cleanString(contact.contactID) ?? existing?.xeroContactId ?? null,
-    xeroContactNumber:
-      cleanString(contact.contactNumber, 100) ?? existing?.xeroContactNumber ?? null,
-    xeroAccountNumber:
-      cleanString(contact.accountNumber, 100) ?? existing?.xeroAccountNumber ?? null,
-    xeroPurchasesDefaultAccountCode:
-      cleanString(contact.purchasesDefaultAccountCode, 20) ??
-      existing?.xeroPurchasesDefaultAccountCode ??
-      null,
-    xeroAccountsPayableTaxType:
-      cleanString(contact.accountsPayableTaxType, 50) ??
-      existing?.xeroAccountsPayableTaxType ??
-      null,
-    xeroUpdatedAt: cleanDate(contact.updatedDateUTC) ?? existing?.xeroUpdatedAt ?? null,
     billingLine1: addr.billingLine1 ?? existing?.billingLine1 ?? null,
     billingLine2: addr.billingLine2 ?? existing?.billingLine2 ?? null,
     billingCity: addr.billingCity ?? existing?.billingCity ?? null,
@@ -670,36 +720,40 @@ async function importSupplierInTx(
       .update(suppliers)
       .set({ ...nextData, updatedAt: new Date() })
       .where(eq(suppliers.id, existing.id));
-    await tx.insert(xeroImportRunRows).values({
+    await upsertExternalContactRecordInTx(tx, orgId, "supplier", existing.id, contact);
+    await tx.insert(integrationImportRunRows).values({
       organizationId: orgId,
+      provider: XERO_PROVIDER,
       runId,
       entityType: "suppliers",
       action: "updated",
       localRecordId: existing.id,
-      xeroContactId: contact.contactID ?? null,
+      externalRecordId: contact.contactID ?? null,
       localName: nextData.name,
       previousData: supplierSnapshot(existing),
     });
     result.updated += 1;
-    return { id: existing.id, ...nextData };
+    return { id: existing.id, xeroContactId: contact.contactID ?? null, ...nextData };
   }
 
   const [created] = await tx
     .insert(suppliers)
     .values({ organizationId: orgId, ...nextData })
     .returning({ id: suppliers.id });
-  await tx.insert(xeroImportRunRows).values({
+  await upsertExternalContactRecordInTx(tx, orgId, "supplier", created.id, contact);
+  await tx.insert(integrationImportRunRows).values({
     organizationId: orgId,
+    provider: XERO_PROVIDER,
     runId,
     entityType: "suppliers",
     action: "created",
     localRecordId: created.id,
-    xeroContactId: contact.contactID ?? null,
+    externalRecordId: contact.contactID ?? null,
     localName: nextData.name,
     previousData: null,
   });
   result.created += 1;
-  return { id: created.id, ...nextData };
+  return { id: created.id, xeroContactId: contact.contactID ?? null, ...nextData };
 }
 
 async function loadUndoPreviewInTx(
@@ -708,8 +762,8 @@ async function loadUndoPreviewInTx(
 ): Promise<ImportUndoPreview> {
   const [run] = await tx
     .select()
-    .from(xeroImportRuns)
-    .where(eq(xeroImportRuns.id, runId));
+    .from(integrationImportRuns)
+    .where(eq(integrationImportRuns.id, runId));
 
   if (!run) {
     throw new XeroError("Xero import run not found.", 404);
@@ -720,12 +774,12 @@ async function loadUndoPreviewInTx(
 
   const rows = await tx
     .select({
-      action: xeroImportRunRows.action,
-      localRecordId: xeroImportRunRows.localRecordId,
-      localName: xeroImportRunRows.localName,
+      action: integrationImportRunRows.action,
+      localRecordId: integrationImportRunRows.localRecordId,
+      localName: integrationImportRunRows.localName,
     })
-    .from(xeroImportRunRows)
-    .where(eq(xeroImportRunRows.runId, runId));
+    .from(integrationImportRunRows)
+    .where(eq(integrationImportRunRows.runId, runId));
 
   const ids = rows
     .map((row) => row.localRecordId)
@@ -795,9 +849,9 @@ export async function getXeroImportRunEntityType(
 ): Promise<ContactImportEntity> {
   return withOrgContext(orgId, async (tx) => {
     const [run] = await tx
-      .select({ entityType: xeroImportRuns.entityType })
-      .from(xeroImportRuns)
-      .where(eq(xeroImportRuns.id, runId));
+      .select({ entityType: integrationImportRuns.entityType })
+      .from(integrationImportRuns)
+      .where(eq(integrationImportRuns.id, runId));
 
     if (!run) {
       throw new XeroError("Xero import run not found.", 404);
@@ -842,8 +896,8 @@ export async function undoXeroImportRun(
   return withOrgContext(orgId, async (tx) => {
     const [lockedRun] = await tx
       .select()
-      .from(xeroImportRuns)
-      .where(eq(xeroImportRuns.id, runId))
+      .from(integrationImportRuns)
+      .where(eq(integrationImportRuns.id, runId))
       .for("update");
 
     if (!lockedRun) {
@@ -861,8 +915,8 @@ export async function undoXeroImportRun(
 
     const rows = await tx
       .select()
-      .from(xeroImportRunRows)
-      .where(eq(xeroImportRunRows.runId, runId));
+      .from(integrationImportRunRows)
+      .where(eq(integrationImportRunRows.runId, runId));
     await lockUndoTargetRowsInTx(
       tx,
       lockedRun.entityType,
@@ -924,9 +978,9 @@ export async function undoXeroImportRun(
     }
 
     await tx
-      .update(xeroImportRuns)
+      .update(integrationImportRuns)
       .set({ status: "undone", undoneAt: now, updatedAt: now })
-      .where(eq(xeroImportRuns.id, runId));
+      .where(eq(integrationImportRuns.id, runId));
 
     return {
       ...preview,

@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  jsonb,
   pgPolicy,
   pgSchema,
   text,
@@ -13,6 +14,42 @@ import { sql } from "drizzle-orm";
 import { attachmentFiles } from "./attachments";
 
 export const accountingSchema = pgSchema("accounting");
+
+export const accountingClassifications = accountingSchema
+  .table(
+    "classifications",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      provider: varchar("provider", { length: 50 }).notNull(),
+      entityType: varchar("entity_type", { length: 50 }).notNull(),
+      localRecordId: uuid("local_record_id").notNull(),
+      accountCode: varchar("account_code", { length: 20 }),
+      taxType: varchar("tax_type", { length: 50 }),
+      metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("accounting_classifications_org_provider_idx").on(
+        table.organizationId,
+        table.provider
+      ),
+      uniqueIndex("accounting_classifications_local_uidx").on(
+        table.organizationId,
+        table.provider,
+        table.entityType,
+        table.localRecordId
+      ),
+      pgPolicy("accounting_classifications_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
 
 export const accountingDocumentSyncs = accountingSchema
   .table(

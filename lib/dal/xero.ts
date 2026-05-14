@@ -2,11 +2,12 @@ import "server-only";
 
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import {
+  accountingDocumentSyncs,
   purchaseOrders,
   salesOrders,
   salesShipments,
-  xeroConnections,
-  xeroImportRuns,
+  integrationConnections,
+  integrationImportRuns,
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "./auth";
 import { withOrgContext } from "@/lib/db/with-org-context";
@@ -15,6 +16,12 @@ import {
   probeXeroConnectionHealth,
   type XeroConnectionHealth,
 } from "@/lib/xero/health";
+import {
+  ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+  ACCOUNTING_PROVIDER_XERO,
+} from "@/lib/accounting/sync-state";
+
+const XERO_PROVIDER = ACCOUNTING_PROVIDER_XERO;
 
 export type XeroConnectionSummary = {
   tenantId: string;
@@ -83,8 +90,13 @@ export async function getXeroConnection(): Promise<XeroConnectionSummary | null>
   return withAuthedOrgContext(async (tx, orgId) => {
     const [row] = await tx
       .select()
-      .from(xeroConnections)
-      .where(eq(xeroConnections.organizationId, orgId));
+      .from(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      );
     return row ? toSummary(row) : null;
   });
 }
@@ -95,20 +107,25 @@ export async function getRecentXeroImportRuns(
   return withAuthedOrgContext(async (tx) => {
     const rows = await tx
       .select({
-        id: xeroImportRuns.id,
-        entityType: xeroImportRuns.entityType,
-        tenantName: xeroImportRuns.tenantName,
-        status: xeroImportRuns.status,
-        createdCount: xeroImportRuns.createdCount,
-        updatedCount: xeroImportRuns.updatedCount,
-        skippedCount: xeroImportRuns.skippedCount,
-        errorCount: xeroImportRuns.errorCount,
-        createdAt: xeroImportRuns.createdAt,
-        undoneAt: xeroImportRuns.undoneAt,
+        id: integrationImportRuns.id,
+        entityType: integrationImportRuns.entityType,
+        tenantName: integrationImportRuns.tenantName,
+        status: integrationImportRuns.status,
+        createdCount: integrationImportRuns.createdCount,
+        updatedCount: integrationImportRuns.updatedCount,
+        skippedCount: integrationImportRuns.skippedCount,
+        errorCount: integrationImportRuns.errorCount,
+        createdAt: integrationImportRuns.createdAt,
+        undoneAt: integrationImportRuns.undoneAt,
       })
-      .from(xeroImportRuns)
-      .where(inArray(xeroImportRuns.entityType, ["customers", "suppliers", "purchasing"]))
-      .orderBy(desc(xeroImportRuns.createdAt))
+      .from(integrationImportRuns)
+      .where(
+        and(
+          eq(integrationImportRuns.provider, XERO_PROVIDER),
+          inArray(integrationImportRuns.entityType, ["customers", "suppliers", "purchasing"])
+        )
+      )
+      .orderBy(desc(integrationImportRuns.createdAt))
       .limit(limit);
 
     return rows.map((row) => ({
@@ -137,22 +154,25 @@ export async function getRecentXeroExports({
               id: salesOrders.id,
               sourceNumber: salesOrders.orderNumber,
               partyName: salesOrders.customerName,
-              xeroDocumentNumber: salesOrders.xeroInvoiceNumber,
-              xeroPushStatus: salesOrders.xeroPushStatus,
-              xeroPushError: salesOrders.xeroPushError,
-              xeroPushedAt: salesOrders.xeroPushedAt,
-              updatedAt: salesOrders.updatedAt,
+              xeroDocumentNumber: accountingDocumentSyncs.externalDocumentNumber,
+              xeroPushStatus: accountingDocumentSyncs.pushStatus,
+              xeroPushError: accountingDocumentSyncs.pushError,
+              xeroPushedAt: accountingDocumentSyncs.pushedAt,
+              updatedAt: accountingDocumentSyncs.updatedAt,
             })
-            .from(salesOrders)
+            .from(accountingDocumentSyncs)
+            .innerJoin(salesOrders, eq(accountingDocumentSyncs.documentId, salesOrders.id))
             .where(
               and(
-                eq(salesOrders.organizationId, orgId),
-                isNotNull(salesOrders.xeroPushStatus)
+                eq(accountingDocumentSyncs.organizationId, orgId),
+                eq(accountingDocumentSyncs.provider, XERO_PROVIDER),
+                eq(accountingDocumentSyncs.documentType, "sales_order"),
+                isNotNull(accountingDocumentSyncs.pushStatus)
               )
             )
             .orderBy(
-              desc(salesOrders.xeroLastPushAttemptAt),
-              desc(salesOrders.updatedAt)
+              desc(accountingDocumentSyncs.lastPushAttemptAt),
+              desc(accountingDocumentSyncs.updatedAt)
             )
             .limit(limit)
         : Promise.resolve([]),
@@ -162,22 +182,25 @@ export async function getRecentXeroExports({
               id: salesShipments.id,
               sourceNumber: salesShipments.shipmentNumber,
               partyName: salesShipments.customerName,
-              xeroDocumentNumber: salesShipments.xeroInvoiceNumber,
-              xeroPushStatus: salesShipments.xeroPushStatus,
-              xeroPushError: salesShipments.xeroPushError,
-              xeroPushedAt: salesShipments.xeroPushedAt,
-              updatedAt: salesShipments.updatedAt,
+              xeroDocumentNumber: accountingDocumentSyncs.externalDocumentNumber,
+              xeroPushStatus: accountingDocumentSyncs.pushStatus,
+              xeroPushError: accountingDocumentSyncs.pushError,
+              xeroPushedAt: accountingDocumentSyncs.pushedAt,
+              updatedAt: accountingDocumentSyncs.updatedAt,
             })
-            .from(salesShipments)
+            .from(accountingDocumentSyncs)
+            .innerJoin(salesShipments, eq(accountingDocumentSyncs.documentId, salesShipments.id))
             .where(
               and(
-                eq(salesShipments.organizationId, orgId),
-                isNotNull(salesShipments.xeroPushStatus)
+                eq(accountingDocumentSyncs.organizationId, orgId),
+                eq(accountingDocumentSyncs.provider, XERO_PROVIDER),
+                eq(accountingDocumentSyncs.documentType, "sales_shipment"),
+                isNotNull(accountingDocumentSyncs.pushStatus)
               )
             )
             .orderBy(
-              desc(salesShipments.xeroLastPushAttemptAt),
-              desc(salesShipments.updatedAt)
+              desc(accountingDocumentSyncs.lastPushAttemptAt),
+              desc(accountingDocumentSyncs.updatedAt)
             )
             .limit(limit)
         : Promise.resolve([]),
@@ -187,22 +210,25 @@ export async function getRecentXeroExports({
               id: purchaseOrders.id,
               sourceNumber: purchaseOrders.orderNumber,
               partyName: purchaseOrders.supplierName,
-              xeroDocumentNumber: purchaseOrders.xeroPurchaseOrderNumber,
-              xeroPushStatus: purchaseOrders.xeroPushStatus,
-              xeroPushError: purchaseOrders.xeroPushError,
-              xeroPushedAt: purchaseOrders.xeroPushedAt,
-              updatedAt: purchaseOrders.updatedAt,
+              xeroDocumentNumber: accountingDocumentSyncs.externalDocumentNumber,
+              xeroPushStatus: accountingDocumentSyncs.pushStatus,
+              xeroPushError: accountingDocumentSyncs.pushError,
+              xeroPushedAt: accountingDocumentSyncs.pushedAt,
+              updatedAt: accountingDocumentSyncs.updatedAt,
             })
-            .from(purchaseOrders)
+            .from(accountingDocumentSyncs)
+            .innerJoin(purchaseOrders, eq(accountingDocumentSyncs.documentId, purchaseOrders.id))
             .where(
               and(
-                eq(purchaseOrders.organizationId, orgId),
-                isNotNull(purchaseOrders.xeroPushStatus)
+                eq(accountingDocumentSyncs.organizationId, orgId),
+                eq(accountingDocumentSyncs.provider, XERO_PROVIDER),
+                eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+                isNotNull(accountingDocumentSyncs.pushStatus)
               )
             )
             .orderBy(
-              desc(purchaseOrders.xeroLastPushAttemptAt),
-              desc(purchaseOrders.updatedAt)
+              desc(accountingDocumentSyncs.lastPushAttemptAt),
+              desc(accountingDocumentSyncs.updatedAt)
             )
             .limit(limit)
         : Promise.resolve([]),
@@ -235,11 +261,16 @@ export async function getXeroAutomationSettingsForOrg(orgId: string) {
   return withOrgContext(orgId, async (tx) => {
     const [row] = await tx
       .select({
-        autoPushSalesInvoices: xeroConnections.autoPushSalesInvoices,
-        autoPushPurchaseOrders: xeroConnections.autoPushPurchaseOrders,
+        autoPushSalesInvoices: integrationConnections.autoPushSalesInvoices,
+        autoPushPurchaseOrders: integrationConnections.autoPushPurchaseOrders,
       })
-      .from(xeroConnections)
-      .where(eq(xeroConnections.organizationId, orgId));
+      .from(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      );
 
     return row ?? null;
   });
@@ -260,8 +291,13 @@ export async function getXeroConnectionWithHealth(): Promise<XeroConnectionWithH
   const result = await withAuthedOrgContext(async (tx, orgId) => {
     const [row] = await tx
       .select()
-      .from(xeroConnections)
-      .where(eq(xeroConnections.organizationId, orgId));
+      .from(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      );
     return row ? { summary: toSummary(row), orgId } : null;
   });
   if (!result) return null;
@@ -273,8 +309,13 @@ export async function getXeroConnectionWithHealth(): Promise<XeroConnectionWithH
 export async function deleteXeroConnection() {
   await withAuthedOrgContext(async (tx, orgId) => {
     await tx
-      .delete(xeroConnections)
-      .where(eq(xeroConnections.organizationId, orgId));
+      .delete(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      );
   });
 }
 
@@ -288,8 +329,13 @@ export async function switchActiveXeroTenant(tenantId: string) {
   return withAuthedOrgContext(async (tx, orgId) => {
     const [existing] = await tx
       .select()
-      .from(xeroConnections)
-      .where(eq(xeroConnections.organizationId, orgId))
+      .from(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      )
       .for("update");
 
     if (!existing) return null;
@@ -306,13 +352,18 @@ export async function switchActiveXeroTenant(tenantId: string) {
     }
 
     const [updated] = await tx
-      .update(xeroConnections)
+      .update(integrationConnections)
       .set({
         tenantId: candidate.tenantId,
         tenantName: candidate.tenantName,
         updatedAt: new Date(),
       })
-      .where(eq(xeroConnections.organizationId, orgId))
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      )
       .returning();
 
     return { ok: true as const, summary: updated ? toSummary(updated) : null };
@@ -335,8 +386,13 @@ export async function updateXeroSettings(params: {
   return withAuthedOrgContext(async (tx, orgId) => {
     const [existing] = await tx
       .select()
-      .from(xeroConnections)
-      .where(eq(xeroConnections.organizationId, orgId))
+      .from(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      )
       .for("update");
 
     if (!existing) return null;
@@ -356,7 +412,7 @@ export async function updateXeroSettings(params: {
     }
 
     const [row] = await tx
-      .update(xeroConnections)
+      .update(integrationConnections)
       .set({
         ...tenantPatch,
         defaultAccountCode: params.defaultAccountCode,
@@ -371,7 +427,12 @@ export async function updateXeroSettings(params: {
         purchaseOrderStatusPreference: params.purchaseOrderStatusPreference,
         updatedAt: new Date(),
       })
-      .where(eq(xeroConnections.organizationId, orgId))
+      .where(
+        and(
+          eq(integrationConnections.organizationId, orgId),
+          eq(integrationConnections.provider, XERO_PROVIDER)
+        )
+      )
       .returning();
 
     return { ok: true as const, summary: row ? toSummary(row) : null };

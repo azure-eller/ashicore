@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { test, expect, getIdFromUrl, selectDate } from "../fixtures";
 import {
+  accountingClassifications,
   inventoryLotBalances,
   items,
   purchaseOrderAdditionalCosts,
@@ -9,6 +10,9 @@ import {
   suppliers as purchasingSuppliers,
 } from "../../../lib/db/schema";
 import { createItem, getUnitId, testFetch } from "../../helpers/api";
+import { readTestEnv } from "../../helpers/test-env";
+
+const { TEST_ORG_ID } = readTestEnv();
 
 test.describe("Purchasing write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
@@ -90,7 +94,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Primary purchasing test material",
       defaultPurchasePrice: "2.00",
-      xeroPurchaseAccountCode: "310",
+      accountingPurchaseAccountCode: "310",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -104,7 +108,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Secondary purchasing test material",
       defaultPurchasePrice: "1.50",
-      xeroPurchaseAccountCode: "311",
+      accountingPurchaseAccountCode: "311",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -115,6 +119,22 @@ test.describe("Purchasing write-path smoke", () => {
     expect(sandCreate.status).toBe(201);
     barkId = barkCreate.body.id;
     sandId = sandCreate.body.id;
+    await db.insert(accountingClassifications).values([
+      {
+        organizationId: TEST_ORG_ID,
+        provider: "xero",
+        entityType: "item",
+        localRecordId: barkId,
+        accountCode: "310",
+      },
+      {
+        organizationId: TEST_ORG_ID,
+        provider: "xero",
+        entityType: "item",
+        localRecordId: sandId,
+        accountCode: "311",
+      },
+    ]);
 
     await page.goto("/purchasing/orders/new");
     await expect(page.getByRole("heading", { name: "Add Purchase Order" })).toBeVisible();
@@ -149,7 +169,7 @@ test.describe("Purchasing write-path smoke", () => {
     await page.getByRole("button", { name: "Add Address" }).click();
     await expect(page.getByRole("dialog", { name: "Add Address" })).toBeHidden();
     const firstLineAccountInput = page.locator(
-      'input[name="lines.0.xeroPurchaseAccountCode"]'
+      'input[name="lines.0.accountingPurchaseAccountCode"]'
     );
     await firstLineAccountInput.fill("312");
     await expect(firstLineAccountInput).toHaveValue("312");
@@ -173,7 +193,7 @@ test.describe("Purchasing write-path smoke", () => {
       page.locator('input[name^="additionalCosts."][name$=".amount"]')
     ).toHaveCount(1);
     await page
-      .locator('input[name="additionalCosts.0.xeroPurchaseAccountCode"]')
+      .locator('input[name="additionalCosts.0.accountingPurchaseAccountCode"]')
       .fill("400");
     await page.locator('input[name="additionalCosts.0.amount"]').fill("12.50");
     await expect(page.getByText("Landed cost adjustments")).toBeVisible();
@@ -200,7 +220,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(order.supplierName).toBe(supplierName);
     expect(order.status).toBe("draft");
     expect(order.expectedDate).toBe("2026-05-01");
-    expect(order.xeroPurchaseAccountCode).toBeNull();
+    expect(order.accountingPurchaseAccountCode).toBeNull();
     expect(order.shipLine1).toBeNull();
     expect(order.notes).toBe("Fast purchase order smoke test");
 
@@ -212,7 +232,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0].itemId).toBe(barkId);
     expect(lines[0].quantityOrdered).toBe("10.0000");
-    expect(lines[0].xeroPurchaseAccountCode).toBe("312");
+    expect(lines[0].accountingPurchaseAccountCode).toBe("312");
     expect(lines[0].shipLine1).toBe("44 Test Dock");
     expect(lines[0].shipCity).toBe("Boulder");
     expect(lines[0].shipRegion).toBe("CO");
@@ -220,7 +240,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(Number(lines[0].stockUnitCost)).toBeCloseTo(2.909091, 6);
     expect(lines[1].itemId).toBe(sandId);
     expect(lines[1].quantityOrdered).toBe("5.0000");
-    expect(lines[1].xeroPurchaseAccountCode).toBe("311");
+    expect(lines[1].accountingPurchaseAccountCode).toBe("311");
     expect(Number(lines[1].stockUnitCost)).toBeCloseTo(2.181818, 6);
     expect(Number(order.totalAmount)).toBeCloseTo(40, 4);
 
@@ -232,7 +252,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(additionalCosts[0].costType).toBe("shipping");
     expect(additionalCosts[0].reference).toBe("Freight smoke");
     expect(additionalCosts[0].distributionMethod).toBe("by_value");
-    expect(additionalCosts[0].xeroPurchaseAccountCode).toBe("400");
+    expect(additionalCosts[0].accountingPurchaseAccountCode).toBe("400");
     expect(additionalCosts[0].amount).toBe("12.5000");
   });
 
@@ -248,7 +268,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Receipt-time landed cost material",
       defaultPurchasePrice: "10",
-      xeroPurchaseAccountCode: "313",
+      accountingPurchaseAccountCode: "313",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -275,7 +295,7 @@ test.describe("Purchasing write-path smoke", () => {
             costType: "shipping",
             reference: "Initial freight estimate",
             distributionMethod: "by_value",
-            xeroPurchaseAccountCode: null,
+            accountingPurchaseAccountCode: null,
             amount: "100",
           },
         ],
@@ -315,7 +335,7 @@ test.describe("Purchasing write-path smoke", () => {
             costType: "shipping",
             reference: "Final freight quote",
             distributionMethod: "by_value",
-            xeroPurchaseAccountCode: null,
+            accountingPurchaseAccountCode: null,
             amount: "200",
           },
         ],
@@ -355,7 +375,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Legacy shipping fallback landed cost material",
       defaultPurchasePrice: "10",
-      xeroPurchaseAccountCode: "315",
+      accountingPurchaseAccountCode: "315",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -420,7 +440,7 @@ test.describe("Purchasing write-path smoke", () => {
       category: `Fast Purchasing ${ts}`,
       description: "Partial landed cost material",
       defaultPurchasePrice: "10",
-      xeroPurchaseAccountCode: "314",
+      accountingPurchaseAccountCode: "314",
       defaultSellingPrice: null,
       stock: "0",
       safetyStock: "0",
@@ -447,7 +467,7 @@ test.describe("Purchasing write-path smoke", () => {
             costType: "shipping",
             reference: "First freight quote",
             distributionMethod: "by_value",
-            xeroPurchaseAccountCode: null,
+            accountingPurchaseAccountCode: null,
             amount: "100",
           },
         ],
@@ -497,7 +517,7 @@ test.describe("Purchasing write-path smoke", () => {
             costType: "shipping",
             reference: "Revised freight quote",
             distributionMethod: "by_value",
-            xeroPurchaseAccountCode: null,
+            accountingPurchaseAccountCode: null,
             amount: "300",
           },
         ],
@@ -558,7 +578,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicate.supplierName).toBe(supplierName);
     expect(duplicate.status).toBe("draft");
     expect(duplicate.notes).toBe("Fast purchase order smoke test");
-    expect(duplicate.xeroPurchaseAccountCode).toBeNull();
+    expect(duplicate.accountingPurchaseAccountCode).toBeNull();
     expect(duplicate.shipLine1).toBeNull();
 
     const duplicateLines = await db
@@ -569,20 +589,20 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicateLines).toHaveLength(2);
     expect(duplicateLines[0].itemId).toBe(barkId);
     expect(duplicateLines[0].quantityOrdered).toBe("10.0000");
-    expect(duplicateLines[0].xeroPurchaseAccountCode).toBe("312");
+    expect(duplicateLines[0].accountingPurchaseAccountCode).toBe("312");
     expect(duplicateLines[0].shipLine1).toBe("44 Test Dock");
     expect(duplicateLines[0].shipCity).toBe("Boulder");
     expect(duplicateLines[0].shipRegion).toBe("CO");
     expect(duplicateLines[0].shipPostcode).toBe("80301");
     expect(duplicateLines[1].itemId).toBe(sandId);
     expect(duplicateLines[1].quantityOrdered).toBe("5.0000");
-    expect(duplicateLines[1].xeroPurchaseAccountCode).toBe("311");
+    expect(duplicateLines[1].accountingPurchaseAccountCode).toBe("311");
 
     const duplicateCosts = await db
       .select()
       .from(purchaseOrderAdditionalCosts)
       .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, duplicateId));
     expect(duplicateCosts).toHaveLength(1);
-    expect(duplicateCosts[0].xeroPurchaseAccountCode).toBe("400");
+    expect(duplicateCosts[0].accountingPurchaseAccountCode).toBe("400");
   });
 });

@@ -15,5 +15,5 @@ export * from "./manufacturing";
 export * from "./purchasing";
 export * from "./attachments";
 export * from "./accounting";
+export * from "./integrations";
 export * from "./auth";
-export * from "./xero";

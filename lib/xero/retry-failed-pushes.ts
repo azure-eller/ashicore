@@ -2,12 +2,17 @@ import "server-only";
 
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
+  accountingDocumentSyncs,
   organization,
   purchaseOrders,
   salesOrders,
   salesShipments,
-  xeroConnections,
+  integrationConnections,
 } from "@/lib/db/schema";
+import {
+  ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+  ACCOUNTING_PROVIDER_XERO,
+} from "@/lib/accounting/sync-state";
 import { db } from "@/lib/db";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { XeroError } from "./errors";
@@ -67,9 +72,14 @@ async function listConnectedOrgs(): Promise<string[]> {
   for (const { id } of orgs) {
     const hasConnection = await withOrgContext(id, async (tx) => {
       const [row] = await tx
-        .select({ orgId: xeroConnections.organizationId })
-        .from(xeroConnections)
-        .where(eq(xeroConnections.organizationId, id))
+        .select({ orgId: integrationConnections.organizationId })
+        .from(integrationConnections)
+        .where(
+          and(
+            eq(integrationConnections.organizationId, id),
+            eq(integrationConnections.provider, ACCOUNTING_PROVIDER_XERO)
+          )
+        )
         .limit(1);
       return row != null;
     });
@@ -83,14 +93,22 @@ async function listFailedSalesOrders(orgId: string): Promise<string[]> {
     const rows = await tx
       .select({ id: salesOrders.id })
       .from(salesOrders)
+      .innerJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, "sales_order"),
+          eq(accountingDocumentSyncs.documentId, salesOrders.id)
+        )
+      )
       .where(
         and(
-          eq(salesOrders.xeroPushStatus, "failed"),
-          sql`${salesOrders.xeroRetryCount} < ${MAX_PUSH_ATTEMPTS}`,
+          eq(accountingDocumentSyncs.pushStatus, "failed"),
+          sql`${accountingDocumentSyncs.retryCount} < ${MAX_PUSH_ATTEMPTS}`,
           isNull(salesOrders.deletedAt)
         )
       )
-      .orderBy(salesOrders.xeroLastPushAttemptAt)
+      .orderBy(accountingDocumentSyncs.lastPushAttemptAt)
       .limit(BATCH_SIZE_PER_ORG);
     return rows.map((row) => row.id);
   });
@@ -107,14 +125,22 @@ async function listFailedSalesShipments(
       })
       .from(salesShipments)
       .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+      .innerJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, "sales_shipment"),
+          eq(accountingDocumentSyncs.documentId, salesShipments.id)
+        )
+      )
       .where(
         and(
-          eq(salesShipments.xeroPushStatus, "failed"),
-          sql`${salesShipments.xeroRetryCount} < ${MAX_PUSH_ATTEMPTS}`,
+          eq(accountingDocumentSyncs.pushStatus, "failed"),
+          sql`${accountingDocumentSyncs.retryCount} < ${MAX_PUSH_ATTEMPTS}`,
           isNull(salesOrders.deletedAt)
         )
       )
-      .orderBy(salesShipments.xeroLastPushAttemptAt)
+      .orderBy(accountingDocumentSyncs.lastPushAttemptAt)
       .limit(BATCH_SIZE_PER_ORG);
     return rows;
   });
@@ -125,14 +151,22 @@ async function listFailedPurchaseOrders(orgId: string): Promise<string[]> {
     const rows = await tx
       .select({ id: purchaseOrders.id })
       .from(purchaseOrders)
+      .innerJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+          eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
+        )
+      )
       .where(
         and(
-          eq(purchaseOrders.xeroPushStatus, "failed"),
-          sql`${purchaseOrders.xeroRetryCount} < ${MAX_PUSH_ATTEMPTS}`,
+          eq(accountingDocumentSyncs.pushStatus, "failed"),
+          sql`${accountingDocumentSyncs.retryCount} < ${MAX_PUSH_ATTEMPTS}`,
           isNull(purchaseOrders.deletedAt)
         )
       )
-      .orderBy(purchaseOrders.xeroLastPushAttemptAt)
+      .orderBy(accountingDocumentSyncs.lastPushAttemptAt)
       .limit(BATCH_SIZE_PER_ORG);
     return rows.map((row) => row.id);
   });

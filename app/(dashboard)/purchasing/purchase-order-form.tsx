@@ -179,7 +179,7 @@ const blankPurchaseOrderLine = {
   itemId: "",
   quantityOrdered: null,
   unitCost: null,
-  xeroPurchaseAccountCode: null,
+  accountingPurchaseAccountCode: null,
   ...EMPTY_DELIVERY_ADDRESS,
 };
 
@@ -187,7 +187,7 @@ const blankPurchaseOrderAdditionalCost = {
   costType: "shipping" as const,
   reference: null,
   distributionMethod: "by_value" as const,
-  xeroPurchaseAccountCode: null,
+  accountingPurchaseAccountCode: null,
   amount: null,
 };
 
@@ -197,13 +197,13 @@ function isBlankPurchaseOrderLine(
   const itemId = line?.itemId?.trim() ?? "";
   const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
   const unitCost = line?.unitCost?.trim() ?? "";
-  const xeroPurchaseAccountCode = line?.xeroPurchaseAccountCode?.trim() ?? "";
+  const accountingPurchaseAccountCode = line?.accountingPurchaseAccountCode?.trim() ?? "";
   const address = normalizeDeliveryAddress(line);
   return (
     itemId === "" &&
     quantityOrdered === "" &&
     unitCost === "" &&
-    xeroPurchaseAccountCode === "" &&
+    accountingPurchaseAccountCode === "" &&
     deliveryAddressKey(address) === ""
   );
 }
@@ -214,13 +214,13 @@ function isBlankPurchaseOrderAdditionalCost(
     | undefined
 ) {
   const reference = cost?.reference?.trim() ?? "";
-  const xeroPurchaseAccountCode = cost?.xeroPurchaseAccountCode?.trim() ?? "";
+  const accountingPurchaseAccountCode = cost?.accountingPurchaseAccountCode?.trim() ?? "";
   const amount = cost?.amount?.trim() ?? "";
   return (
     (cost?.costType == null || cost.costType === "shipping") &&
     (cost?.distributionMethod == null || cost.distributionMethod === "by_value") &&
     reference === "" &&
-    xeroPurchaseAccountCode === "" &&
+    accountingPurchaseAccountCode === "" &&
     amount === ""
   );
 }
@@ -534,13 +534,13 @@ export function PurchaseOrderForm({
           expectedDate: initialData.expectedDate,
           shippingCost: initialData.shippingCost,
           notes: initialData.notes,
-          xeroPurchaseAccountCode: null,
+          accountingPurchaseAccountCode: null,
           ...EMPTY_DELIVERY_ADDRESS,
           lines: initialData.lines.map((line) => ({
             itemId: line.itemId,
             quantityOrdered: line.quantityOrdered,
             unitCost: line.unitCost,
-            xeroPurchaseAccountCode: line.xeroPurchaseAccountCode,
+            accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
             shipAddressEntryId: line.shipAddressEntryId,
             shipContactName: line.shipContactName,
             shipContactPhone: line.shipContactPhone,
@@ -556,7 +556,7 @@ export function PurchaseOrderForm({
         }
     : {
         ...(defaultValues ?? purchaseOrderDefaultValues),
-        xeroPurchaseAccountCode: null,
+        accountingPurchaseAccountCode: null,
         ...EMPTY_DELIVERY_ADDRESS,
         lines: (defaultValues ?? purchaseOrderDefaultValues).lines.map((line) => ({
           ...line,
@@ -1261,8 +1261,8 @@ export function PurchaseOrderForm({
                         }
                       );
                       form.setValue(
-                        `lines.${index}.xeroPurchaseAccountCode`,
-                        material?.xeroPurchaseAccountCode ?? null,
+                        `lines.${index}.accountingPurchaseAccountCode`,
+                        material?.accountingPurchaseAccountCode ?? null,
                         {
                           shouldDirty: true,
                           shouldValidate: true,
@@ -1822,7 +1822,7 @@ function PurchaseOrderLineRow({
       <EditableLineGridCell>
         <Controller
           control={control}
-          name={`lines.${index}.xeroPurchaseAccountCode`}
+          name={`lines.${index}.accountingPurchaseAccountCode`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
               <FieldLabel className="sr-only" htmlFor={`${rowDomId}-xero-account`}>
@@ -1833,7 +1833,7 @@ function PurchaseOrderLineRow({
                 name={field.name}
                 value={field.value ?? ""}
                 accounts={xeroAccounts}
-                placeholder={material?.xeroPurchaseAccountCode ?? "Account"}
+                placeholder={material?.accountingPurchaseAccountCode ?? "Account"}
                 ariaInvalid={fieldState.invalid}
                 onChange={(value) => field.onChange(value || null)}
               />
@@ -2061,7 +2061,7 @@ function PurchaseOrderAdditionalCostRow({
       <EditableLineGridCell>
         <Controller
           control={control}
-          name={`additionalCosts.${index}.xeroPurchaseAccountCode`}
+          name={`additionalCosts.${index}.accountingPurchaseAccountCode`}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
               <FieldLabel className="sr-only" htmlFor={`${rowDomId}-xero-account`}>
