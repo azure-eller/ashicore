@@ -64,6 +64,7 @@ type PurchasingCandidate = {
   id: string;
   status: PurchasingCandidateStatus;
   selectedByDefault: boolean;
+  selectable: boolean;
   exclusionReason: string | null;
   supplierName: string;
   itemName: string | null;
@@ -98,6 +99,8 @@ type PurchasingApplyResult = {
   tenantName: string;
   created: number;
   updated: number;
+  createdSuppliers: number;
+  createdItems: number;
   skipped: number;
   errors: string[];
 };
@@ -432,6 +435,12 @@ function PurchasingSummary({ summary }: { summary: PurchasingApplyResult }) {
       <p className="font-medium">
         Purchasing: {summary.created} supplier items created, {summary.updated} updated
       </p>
+      {summary.createdSuppliers > 0 || summary.createdItems > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Created {summary.createdSuppliers} ERP suppliers and {summary.createdItems} ERP
+          items
+        </p>
+      ) : null}
       {summary.skipped > 0 ? (
         <p className="text-xs text-muted-foreground">{summary.skipped} skipped</p>
       ) : null}
@@ -459,8 +468,8 @@ function formatMoneyValue(value: string | null) {
 
 function statusLabel(status: PurchasingCandidateStatus) {
   if (status === "ready") return "Ready";
-  if (status === "needs_item_match") return "No ERP item";
-  if (status === "needs_supplier_match") return "No ERP supplier";
+  if (status === "needs_item_match") return "Create item";
+  if (status === "needs_supplier_match") return "Create supplier";
   return "Excluded";
 }
 
@@ -509,9 +518,16 @@ function PurchasingSyncDialog({
 
   const readyCandidates =
     preview?.candidates.filter((candidate) => candidate.status === "ready") ?? [];
+  const creatableCandidates =
+    preview?.candidates.filter(
+      (candidate) => candidate.selectable && candidate.status !== "ready"
+    ) ?? [];
   const allReadySelected =
     readyCandidates.length > 0 &&
     readyCandidates.every((candidate) => selectedIds.has(candidate.id));
+  const allCreatableSelected =
+    creatableCandidates.length > 0 &&
+    creatableCandidates.every((candidate) => selectedIds.has(candidate.id));
 
   return (
     <>
@@ -528,17 +544,17 @@ function PurchasingSyncDialog({
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent
           size="content"
-          className="max-h-[calc(100vh-2rem)] w-[min(calc(100vw-2rem),72rem)] grid-rows-[auto_minmax(0,1fr)_auto_auto]"
+          className="h-[min(46rem,calc(100vh-2rem))] !w-[min(calc(100vw-2rem),72rem)] !max-w-[min(calc(100vw-2rem),72rem)] grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden"
         >
           <AlertDialogHeader>
             <AlertDialogTitle>Update supplier item prices</AlertDialogTitle>
             <AlertDialogDescription>
-              Uses Xero purchase history to update ERP supplier item SKUs and costs.
-              It does not create ERP suppliers or inventory items.
+              Uses Xero purchase history to update supplier item SKUs and costs.
+              Unmatched checked rows create missing ERP suppliers or items.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="min-h-0 rounded-md border bg-muted/30 p-3">
+          <div className="min-h-0 overflow-hidden rounded-md border bg-muted/30 p-3">
             {previewMutation.isPending ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner />
@@ -550,44 +566,66 @@ function PurchasingSyncDialog({
               </p>
             ) : preview ? (
               <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
-                <div className="grid gap-2 sm:grid-cols-5">
+                <div className="grid min-w-0 gap-2 sm:grid-cols-5">
                   <PreviewMetric label="Matched" value={preview.summary.ready} />
                   <PreviewMetric label="Selected" value={selectedIds.size} />
-                  <PreviewMetric label="No ERP item" value={preview.summary.needsItemMatch} />
+                  <PreviewMetric
+                    label="Can create"
+                    value={preview.summary.needsItemMatch + preview.summary.needsSupplierMatch}
+                  />
                   <PreviewMetric label="Excluded" value={preview.summary.excluded} />
                   <PreviewMetric label="Xero lines" value={preview.totalSourceLines} />
                 </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={allReadySelected}
-                    onCheckedChange={(checked) => {
-                      setSelectedIds((current) => {
-                        const next = new Set(current);
-                        for (const candidate of readyCandidates) {
-                          if (checked) next.add(candidate.id);
-                          else next.delete(candidate.id);
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                  <span>Select all matched rows from {preview.tenantName}</span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allReadySelected}
+                      onCheckedChange={(checked) => {
+                        setSelectedIds((current) => {
+                          const next = new Set(current);
+                          for (const candidate of readyCandidates) {
+                            if (checked) next.add(candidate.id);
+                            else next.delete(candidate.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>Select matched rows from {preview.tenantName}</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allCreatableSelected}
+                      disabled={creatableCandidates.length === 0}
+                      onCheckedChange={(checked) => {
+                        setSelectedIds((current) => {
+                          const next = new Set(current);
+                          for (const candidate of creatableCandidates) {
+                            if (checked) next.add(candidate.id);
+                            else next.delete(candidate.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>Select rows that create ERP records</span>
+                  </label>
                 </div>
-                <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border bg-background">
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border bg-background">
                   <Table
-                    className="min-w-[72rem] table-fixed"
-                    containerClassName="overflow-visible"
+                    className="min-w-[64rem] table-fixed text-sm"
+                    containerClassName="h-full overflow-auto"
                   >
                     <colgroup>
-                      <col className="w-12" />
+                      <col className="w-10" />
                       <col className="w-28" />
-                      <col className="w-56" />
-                      <col className="w-72" />
-                      <col className="w-72" />
-                      <col className="w-36" />
+                      <col className="w-48" />
+                      <col className="w-60" />
+                      <col className="w-60" />
                       <col className="w-28" />
+                      <col className="w-20" />
                     </colgroup>
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 z-10">
                       <TableRow>
                         <TableHead />
                         <TableHead>Status</TableHead>
@@ -600,7 +638,7 @@ function PurchasingSyncDialog({
                     </TableHeader>
                     <TableBody>
                       {preview.candidates.map((candidate) => {
-                        const selectable = candidate.status === "ready";
+                        const selectable = candidate.selectable;
                         return (
                           <TableRow key={candidate.id}>
                             <TableCell>
@@ -626,7 +664,7 @@ function PurchasingSyncDialog({
                                 {statusLabel(candidate.status)}
                               </Badge>
                               {candidate.exclusionReason ? (
-                                <div className="text-xs text-muted-foreground">
+                                <div className="truncate text-xs text-muted-foreground">
                                   {candidate.exclusionReason}
                                 </div>
                               ) : null}
@@ -668,11 +706,11 @@ function PurchasingSyncDialog({
                             <TableCell>
                               {formatMoneyValue(candidate.latestUnitCost)}
                               {candidate.existingSupplierItemUnitCost ? (
-                                <div className="text-xs text-muted-foreground">
+                                <div className="truncate text-xs text-muted-foreground">
                                   ERP {formatMoneyValue(candidate.existingSupplierItemUnitCost)}
                                 </div>
                               ) : candidate.xeroItemUnitPrice ? (
-                                <div className="text-xs text-muted-foreground">
+                                <div className="truncate text-xs text-muted-foreground">
                                   Xero item {formatMoneyValue(candidate.xeroItemUnitPrice)}
                                 </div>
                               ) : null}
@@ -680,7 +718,7 @@ function PurchasingSyncDialog({
                             <TableCell>
                               {candidate.occurrences}
                               {candidate.latestDate ? (
-                                <div className="text-xs text-muted-foreground">
+                                <div className="truncate text-xs text-muted-foreground">
                                   {candidate.latestDate}
                                 </div>
                               ) : null}

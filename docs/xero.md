@@ -34,9 +34,9 @@ security work, read `docs/xero-partner-readiness.md`.
   only create new rows for Xero contacts flagged as customers or suppliers.
 - **Purchasing sync** — `lib/xero/import-purchasing.ts`. Preview-first,
   history-driven supplier item sync. Fetches purchased Xero items plus recent
-  POs/bills, but writes only selected rows that already match an ERP supplier
-  and item. It populates `supplier_items` and external Xero item metadata; it
-  does not bulk-create ERP items from Xero catalog rows.
+  POs/bills. Matched selected rows update `supplier_items`; unmatched selected
+  rows may create missing ERP suppliers/items first. Xero item codes are stored
+  as external metadata, not ERP item SKUs.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
   beyond that, idempotency comes from reconcile-by-reference, not
