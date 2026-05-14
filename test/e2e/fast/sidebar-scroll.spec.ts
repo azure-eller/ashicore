@@ -1,14 +1,24 @@
 import { expect, test } from "../fixtures";
 
-test("dashboard top navigation remains visible at compact height", async ({
+test("dashboard table header remains visible after top navigation scrolls away", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 520 });
-  await page.goto("/purchasing/orders/new");
+  await page.goto("/inventory/materials");
 
-  await expect(
-    page.getByRole("heading", { name: "Add Purchase Order" })
-  ).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Purchasing" })).toBeVisible();
+  const primaryNav = page.getByRole("navigation", { name: "Primary" });
+  const nameHeader = page.getByRole("columnheader", { name: /Name/ }).first();
+
+  await expect(primaryNav).toBeVisible();
+  await expect(nameHeader).toBeVisible();
+
+  await page.mouse.wheel(0, 900);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+  const navBox = await primaryNav.boundingBox();
+  const headerBox = await nameHeader.boundingBox();
+
+  expect(navBox?.y).toBeLessThan(0);
+  expect(headerBox?.y).toBeGreaterThanOrEqual(0);
+  expect(headerBox?.y).toBeLessThan(4);
 });
