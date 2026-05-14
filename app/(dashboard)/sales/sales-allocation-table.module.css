@@ -257,9 +257,7 @@
 }
 
 .headerVariant:hover .columnActions,
-.headerVariant:focus-within .columnActions,
-.headerBand:hover .columnActions,
-.headerBand:focus-within .columnActions {
+.headerBand:hover .columnActions {
   opacity: 1;
 }
 
