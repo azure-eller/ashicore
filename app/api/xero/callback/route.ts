@@ -12,8 +12,9 @@ import {
 import { XeroError } from "@/lib/xero/errors";
 
 function settingsRedirect(baseUrl: string, error?: string) {
-  const url = new URL("/settings/integrations", baseUrl);
+  const url = new URL("/settings", baseUrl);
   if (error) url.searchParams.set("error", error);
+  url.hash = "integrations";
   return NextResponse.redirect(url);
 }
 
@@ -30,6 +31,11 @@ export const GET = apiHandler(async (request: Request) => {
     ?.split("=")[1];
 
   if (!state || !cookieState || state !== cookieState) {
+    console.warn("Xero OAuth state mismatch:", {
+      hasState: Boolean(state),
+      hasCookieState: Boolean(cookieState),
+      host: url.host,
+    });
     return settingsRedirect(request.url, "state_mismatch");
   }
 

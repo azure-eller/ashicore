@@ -4,6 +4,24 @@ import { apiHandler } from "@/lib/api/handler";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { createXeroClient } from "@/lib/xero/client";
 
+function getCookieDomain() {
+  if (process.env.VERCEL_ENV !== "production") {
+    return undefined;
+  }
+
+  const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) return undefined;
+
+  try {
+    const hostname = new URL(appUrl).hostname;
+    return hostname === "ashicore.app" || hostname === "www.ashicore.app"
+      ? ".ashicore.app"
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const GET = apiHandler(async () => {
   await requireModuleWriteAccess("sales");
 
@@ -22,6 +40,7 @@ export const GET = apiHandler(async () => {
     sameSite: "lax",
     path: "/",
     maxAge: 600,
+    domain: getCookieDomain(),
   });
   return response;
 });
