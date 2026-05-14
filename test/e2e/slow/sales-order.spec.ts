@@ -890,10 +890,14 @@ test.describe("Sales order flow", () => {
     await filterList(page, "Search orders", shortOrder.orderNumber);
 
     const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
+    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
+    const productionDialog = page.getByRole("dialog", { name: "Production" });
+    await expect(productionDialog).toBeVisible();
+    await productionDialog.getByRole("button", { name: "Make to order" }).click();
+
     const createMoDialog = page.getByRole("dialog", {
       name: "Create Manufacturing Orders",
     });
-    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
     await expect(createMoDialog).toBeVisible();
     await expect(
       createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
