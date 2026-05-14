@@ -199,8 +199,8 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
     .sort((left, right) => {
       const leftDate = left.order.shipDate ?? "";
       const rightDate = right.order.shipDate ?? "";
-      if (!leftDate && rightDate) return -1;
-      if (leftDate && !rightDate) return 1;
+      if (!leftDate && rightDate) return 1;
+      if (leftDate && !rightDate) return -1;
       const dateCompare = leftDate.localeCompare(rightDate);
       if (dateCompare !== 0) return dateCompare;
       return left.order.orderNumber.localeCompare(right.order.orderNumber, undefined, {
