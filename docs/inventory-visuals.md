@@ -12,6 +12,7 @@ read_when:
 - `ItemSprite` draws the object only. Use it for plain item identity.
 - `ItemToken` adds UI chrome: state ring, quantity, lot code, and overlays.
 - `ItemTokenStack` shows repeated compact tokens with `+N` overflow.
+- `InventoryVisualLegend` explains packaging shapes and color families.
 
 Import public APIs from the barrel:
 
@@ -20,14 +21,19 @@ import {
   ItemSprite,
   ItemToken,
   ItemTokenStack,
+  InventoryVisualLegend,
   inferItemVisual,
 } from "@/components/inventory-visuals";
 ```
 
 ## Sprite Kinds
 
-- `bag`, `sack`, `bulk`: loose materials and bagged inputs.
-- `box`, `crate`, `tote`: packaged goods, cases, bins, and reusable containers.
+- `bag-1cf`: smaller 1 cubic foot soil bag, slumped or laid down.
+- `bag-2cf`: same visual as `bag`; standard larger retail soil bag.
+- `bag`: generic sealed retail or palletized soil bag.
+- `tote`: cubic yard soil tote with four corner loops.
+- `sack`, `bulk`: loose materials and raw bagged inputs.
+- `box`, `crate`: packaged goods, cases, bins, and reusable containers.
 - `pallet`: palletized supply or large grouped stock.
 - `drum`, `bucket`: liquids, pails, and cylindrical containers.
 - `roll`: labels, film, stickers, and rolled packaging.

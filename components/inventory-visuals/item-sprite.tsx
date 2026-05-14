@@ -180,30 +180,86 @@ function Bucket({ palette }: { palette: Palette }) {
 }
 
 function Bag({ palette, sack = false }: { palette: Palette; sack?: boolean }) {
+  if (!sack) {
+    return (
+      <g stroke={palette.line} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 16 43 16 47 46 C43 51 24 51 20 46Z" fill={palette.front} strokeWidth="2" />
+        <path d="M22 16 43 16 46 24 C40 28 27 28 21 24Z" fill={palette.top} strokeWidth="2" />
+        <path d="M21 24 C27 28 40 28 46 24" fill="none" stroke={palette.light} strokeWidth="2" opacity="0.85" />
+        <path d="M24 19 41 19" fill="none" stroke={palette.band} strokeWidth="2.5" opacity="0.85" />
+        <path d="M25 30 43 30 41 43 27 43Z" fill={palette.band} strokeWidth="1.8" opacity="0.92" />
+        <path d="M28 34 40 34" fill="none" stroke={palette.dark} strokeWidth="1.8" opacity="0.55" />
+        <path d="M29 38 38 38" fill="none" stroke={palette.dark} strokeWidth="1.5" opacity="0.45" />
+        <path d="M24 26 22 45" fill="none" stroke={palette.dark} strokeWidth="1.7" opacity="0.35" />
+        <path d="M43 26 45 45" fill="none" stroke={palette.dark} strokeWidth="1.7" opacity="0.35" />
+        <path d="M25 46 C31 49 38 49 43 46" fill="none" stroke={palette.light} strokeWidth="2" opacity="0.65" />
+        <circle cx="31" cy="35" r="1.1" fill={palette.dark} stroke="none" opacity="0.5" />
+        <circle cx="36" cy="37" r="1" fill={palette.dark} stroke="none" opacity="0.42" />
+      </g>
+    );
+  }
+
   return (
     <g stroke={palette.line} strokeLinecap="round" strokeLinejoin="round">
       <path
-        d={
-          sack
-            ? "M27 14 C31 18 35 18 39 14 L45 43 C42 52 24 52 21 43Z"
-            : "M22 20 C26 15 40 15 44 20 L47 42 C43 51 23 51 19 42Z"
-        }
+        d="M27 14 C31 18 35 18 39 14 L45 43 C42 52 24 52 21 43Z"
         fill={palette.front}
         strokeWidth="2"
       />
-      <path d={sack ? "M27 15 C31 19 35 19 39 15" : "M25 18 C30 22 36 22 41 18"} fill="none" stroke={palette.light} strokeWidth="2" />
+      <path d="M27 15 C31 19 35 19 39 15" fill="none" stroke={palette.light} strokeWidth="2" />
       <path d="M24 28 C30 32 38 32 43 28" fill="none" stroke={palette.side} strokeWidth="2" opacity="0.55" />
       <path d="M27 39 C32 42 38 41 42 37" fill="none" stroke={palette.light} strokeWidth="2" opacity="0.7" />
-      {sack ? (
-        <>
-          <path d="M25 22 23 47" fill="none" stroke={palette.dark} strokeWidth="1.7" opacity="0.42" />
-          <path d="M40 23 42 46" fill="none" stroke={palette.dark} strokeWidth="1.7" opacity="0.35" />
-          <path d="M29 18 25 21" fill="none" stroke={palette.line} strokeWidth="1.5" />
-          <path d="M37 18 41 21" fill="none" stroke={palette.line} strokeWidth="1.5" />
-        </>
-      ) : (
-        <path d="M34 22 34 48" fill="none" stroke={palette.dark} strokeWidth="1.5" opacity="0.35" />
-      )}
+      <path d="M25 22 23 47" fill="none" stroke={palette.dark} strokeWidth="1.7" opacity="0.42" />
+      <path d="M40 23 42 46" fill="none" stroke={palette.dark} strokeWidth="1.7" opacity="0.35" />
+      <path d="M29 18 25 21" fill="none" stroke={palette.line} strokeWidth="1.5" />
+      <path d="M37 18 41 21" fill="none" stroke={palette.line} strokeWidth="1.5" />
+    </g>
+  );
+}
+
+function BagOneCubicFoot({ palette }: { palette: Palette }) {
+  return (
+    <g transform="translate(3 3) scale(0.9)" stroke={palette.line} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 18 H47 C45 28 45 38 47 48 H19 C21 38 21 28 19 18Z" fill={palette.front} strokeWidth="2" />
+      <path d="M22 22 H44" fill="none" stroke={palette.light} strokeWidth="2.2" opacity="0.85" />
+      <path d="M23 25 H43" fill="none" stroke={palette.dark} strokeWidth="1.5" opacity="0.35" />
+      <path d="M20 47 H46" fill="none" stroke={palette.light} strokeWidth="1.8" opacity="0.45" />
+      <path d="M20 24 C21 31 21 36 20 43" fill="none" stroke={palette.dark} strokeWidth="1.5" opacity="0.25" />
+      <path d="M46 24 C45 31 45 36 46 43" fill="none" stroke={palette.dark} strokeWidth="1.5" opacity="0.25" />
+      <path d="M23 28 44 28 43 42 24 42Z" fill={palette.band} strokeWidth="1.8" opacity="0.96" />
+      <path d="M27 32 40 32" fill="none" stroke={palette.dark} strokeWidth="1.6" opacity="0.52" />
+      <path d="M28 37 38 37" fill="none" stroke={palette.dark} strokeWidth="1.4" opacity="0.42" />
+    </g>
+  );
+}
+
+function BagTwoCubicFoot({ palette }: { palette: Palette }) {
+  return (
+    <g transform="translate(-4 -5) scale(1.18)">
+      <Bag palette={palette} />
+    </g>
+  );
+}
+
+function Tote({ palette }: { palette: Palette }) {
+  return (
+    <g stroke={palette.line} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 21 33 13 50 22 34 31Z" fill={palette.dark} strokeWidth="2" />
+      <path d="M18 21 34 31 34 51 18 41Z" fill={palette.front} strokeWidth="2" />
+      <path d="M34 31 50 22 50 42 34 51Z" fill={palette.side} strokeWidth="2" />
+      <path d="M22 23 33 18 45 23 34 29Z" fill={palette.top} stroke="none" opacity="0.65" />
+      <path d="M22 25 34 32 46 25" fill="none" stroke={palette.light} strokeWidth="2" opacity="0.78" />
+      <path d="M21 28 31 34 31 47 21 41Z" fill="none" stroke={palette.dark} strokeWidth="1.8" opacity="0.45" />
+      <path d="M38 34 47 29 47 41 38 46Z" fill="none" stroke={palette.dark} strokeWidth="1.8" opacity="0.42" />
+      <path d="M19 34 34 43 50 34" fill="none" stroke={palette.light} strokeWidth="2" opacity="0.45" />
+      <path d="M18 21 C17 15 23 13 26 18" fill="none" stroke={palette.line} strokeWidth="2.6" />
+      <path d="M32 14 C35 8 42 11 43 18" fill="none" stroke={palette.line} strokeWidth="2.6" />
+      <path d="M50 22 C52 16 47 13 43 19" fill="none" stroke={palette.line} strokeWidth="2.6" />
+      <path d="M34 31 C37 25 43 25 46 29" fill="none" stroke={palette.line} strokeWidth="2.6" />
+      <path d="M20 21 C20 18 23 17 25 19" fill="none" stroke={palette.light} strokeWidth="1.5" opacity="0.82" />
+      <path d="M35 15 C37 13 40 15 41 18" fill="none" stroke={palette.light} strokeWidth="1.5" opacity="0.82" />
+      <path d="M48 22 C49 19 46 18 44 19" fill="none" stroke={palette.light} strokeWidth="1.5" opacity="0.78" />
+      <path d="M37 30 C39 28 43 28 45 29" fill="none" stroke={palette.light} strokeWidth="1.5" opacity="0.78" />
     </g>
   );
 }
@@ -224,11 +280,15 @@ function Bulk({ palette }: { palette: Palette }) {
 function Roll({ palette }: { palette: Palette }) {
   return (
     <g stroke={palette.line} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M25 22 47 30 41 46 19 38Z" fill={palette.front} strokeWidth="2" />
-      <ellipse cx="25" cy="30" rx="9" ry="12" transform="rotate(18 25 30)" fill={palette.top} strokeWidth="2.2" />
-      <ellipse cx="25" cy="30" rx="4" ry="5.7" transform="rotate(18 25 30)" fill={palette.band} strokeWidth="2" />
-      <path d="M34 25 28 42" fill="none" stroke={palette.light} strokeWidth="2.2" opacity="0.85" />
-      <path d="M42 28 36 45" fill="none" stroke={palette.side} strokeWidth="2.2" opacity="0.75" />
+      <path d="M17 31 47 23 52 40 22 48Z" fill={palette.front} strokeWidth="2" />
+      <ellipse cx="18" cy="39.5" rx="6.5" ry="9" transform="rotate(-15 18 39.5)" fill={palette.top} strokeWidth="2" />
+      <ellipse cx="48" cy="31.5" rx="6.5" ry="9" transform="rotate(-15 48 31.5)" fill={palette.side} strokeWidth="2" />
+      <ellipse cx="18" cy="39.5" rx="2.4" ry="3.6" transform="rotate(-15 18 39.5)" fill={palette.band} strokeWidth="1.8" />
+      <ellipse cx="48" cy="31.5" rx="2.4" ry="3.6" transform="rotate(-15 48 31.5)" fill={palette.band} strokeWidth="1.8" />
+      <path d="M11 41 17 39.5" fill="none" stroke={palette.line} strokeWidth="2.2" />
+      <path d="M49 31.5 56 29.5" fill="none" stroke={palette.line} strokeWidth="2.2" />
+      <path d="M27 28 32 45" fill="none" stroke={palette.light} strokeWidth="2" opacity="0.8" />
+      <path d="M38 25 43 42" fill="none" stroke={palette.dark} strokeWidth="2" opacity="0.35" />
     </g>
   );
 }
@@ -253,6 +313,10 @@ function SpriteObject({
   palette: Palette;
 }) {
   switch (kind) {
+    case "bag-1cf":
+      return <BagOneCubicFoot palette={palette} />;
+    case "bag-2cf":
+      return <BagTwoCubicFoot palette={palette} />;
     case "bag":
       return <Bag palette={palette} />;
     case "box":
@@ -260,7 +324,7 @@ function SpriteObject({
     case "crate":
       return <IsoBox palette={palette} crate />;
     case "tote":
-      return <IsoBox palette={palette} open />;
+      return <Tote palette={palette} />;
     case "pallet":
       return <Pallet palette={palette} />;
     case "drum":

@@ -17,6 +17,8 @@ const KIND_HINTS: Array<{ kind: ItemSpriteKind; patterns: RegExp[] }> = [
   { kind: "tote", patterns: [/tote/i, /bin/i, /tray/i] },
   { kind: "roll", patterns: [/roll/i, /film/i, /label/i, /sticker/i] },
   { kind: "sack", patterns: [/sack/i, /burlap/i] },
+  { kind: "bag-1cf", patterns: [/\b1\s*(?:cubic\s*foot|cu\s*ft|cf|cfb)\s*bag/i, /\b1cfb?\b/i, /bag[_\s-]*1cf/i] },
+  { kind: "bag-2cf", patterns: [/\b2\s*(?:cubic\s*foot|cu\s*ft|cf|cfb)\s*bag/i, /\b2cfb?\b/i, /bag[_\s-]*2cf/i] },
   { kind: "bag", patterns: [/bag/i, /pouch/i, /packet/i] },
   { kind: "box", patterns: [/box/i, /carton/i, /pack/i] },
   { kind: "bulk", patterns: [/bulk/i, /soil/i, /compost/i, /mix/i, /aggregate/i] },
@@ -57,14 +59,17 @@ export function inferItemVisual(input: InferItemVisualInput): InferredItemVisual
   const text = haystack(input);
   const kindMatch = firstPatternMatch(text, KIND_HINTS);
   const colorMatch = firstPatternMatch(text, COLOR_HINTS);
+  const kind = kindMatch?.kind;
 
   const fallbackKind: ItemSpriteKind =
     input.itemType === "material" ? "bag" : input.itemType === "product" ? "box" : "generic";
   const fallbackColor: ItemColorFamily =
     input.itemType === "material" ? "green" : input.itemType === "product" ? "purple" : "slate";
+  const packagingColor: ItemColorFamily | null =
+    kind === "bag-1cf" || kind === "bag-2cf" ? "green" : null;
 
   return {
-    kind: kindMatch?.kind ?? fallbackKind,
-    color: colorMatch?.color ?? fallbackColor,
+    kind: kind ?? fallbackKind,
+    color: colorMatch?.color ?? packagingColor ?? fallbackColor,
   };
 }

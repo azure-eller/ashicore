@@ -1,4 +1,6 @@
 export const ITEM_SPRITE_KINDS = [
+  "bag-1cf",
+  "bag-2cf",
   "bag",
   "box",
   "crate",
