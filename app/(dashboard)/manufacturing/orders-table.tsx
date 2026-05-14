@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef, type Table as TanStackTable } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
+import {
+  type ColumnDef,
+  type ColumnFiltersState,
+  type SortingState,
+  type Table as TanStackTable,
+} from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
@@ -32,6 +38,12 @@ const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 
 const OPEN_MANUFACTURING_STATUSES = ["draft", "released"] as const;
 const DONE_MANUFACTURING_STATUSES = ["completed", "cancelled"] as const;
+type ManufacturingWorkflowFilterValue = "open" | "done";
+
+const INITIAL_SORTING: SortingState = [{ id: "priorityRank", desc: false }];
+const INITIAL_COLUMN_FILTERS: ColumnFiltersState = [
+  { id: "status", value: [...OPEN_MANUFACTURING_STATUSES] },
+];
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -121,6 +133,10 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
 
 function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
   const progress = getOrderProgress(order);
+  const fillClassName =
+    order.status === "completed"
+      ? "alloc-progress-fill-supply"
+      : "alloc-progress-fill-held";
 
   return (
     <div className="min-w-32 space-y-1">
@@ -130,7 +146,7 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
       </div>
       <div className="alloc-progress-track h-2 rounded-full">
         <div
-          className="alloc-progress-fill-held h-full rounded-full transition-[width]"
+          className={`${fillClassName} h-full rounded-full transition-[width]`}
           style={{ width: `${progress.percent}%` }}
         />
       </div>
@@ -193,6 +209,10 @@ function doneManufacturingOrderRank(order: ManufacturingOrderListRow) {
 }
 
 function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingOrderListRow }) {
+  if (order.status !== "released") {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
   return (
     <div className="flex items-center gap-1.5">
       <DashboardDataTableDragHandle label={`Reorder ${order.orderNumber}`} />
@@ -203,50 +223,52 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingO
   );
 }
 
-const columns: ColumnDef<ManufacturingOrderListRow>[] = [
-  {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all manufacturing orders"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.orderNumber}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-  },
-  {
-    accessorKey: "priorityRank",
-    header: "Rank",
-    sortingFn: (a, b) => {
-      const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-      const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-      const rankCompare = left - right;
-
-      if (rankCompare !== 0) {
-        return rankCompare;
+const selectColumn: ColumnDef<ManufacturingOrderListRow> = {
+  id: "select",
+  header: ({ table }) => (
+    <Checkbox
+      checked={
+        table.getIsAllPageRowsSelected() ||
+        (table.getIsSomePageRowsSelected() && "indeterminate")
       }
+      onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+      aria-label="Select all manufacturing orders"
+    />
+  ),
+  cell: ({ row }) => (
+    <Checkbox
+      checked={row.getIsSelected()}
+      onCheckedChange={(value) => row.toggleSelected(!!value)}
+      aria-label={`Select ${row.original.orderNumber}`}
+    />
+  ),
+  enableSorting: false,
+  enableHiding: false,
+};
 
-      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-        numeric: true,
-      });
-    },
-    cell: ({ row }) => (
-      <RankCell rowIndex={row.index} order={row.original} />
-    ),
-    meta: { className: "w-20" },
+const rankColumn: ColumnDef<ManufacturingOrderListRow> = {
+  accessorKey: "priorityRank",
+  header: "Rank",
+  sortingFn: (a, b) => {
+    const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const rankCompare = left - right;
+
+    if (rankCompare !== 0) {
+      return rankCompare;
+    }
+
+    return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
+      numeric: true,
+    });
   },
+  cell: ({ row }) => (
+    <RankCell rowIndex={row.index} order={row.original} />
+  ),
+  meta: { className: "w-20" },
+};
+
+const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
   {
     accessorKey: "orderNumber",
     header: ({ column }) => <SortableHeader column={column} label="Order" />,
@@ -372,12 +394,91 @@ const columns: ColumnDef<ManufacturingOrderListRow>[] = [
   },
 ];
 
+const columns: ColumnDef<ManufacturingOrderListRow>[] = [
+  selectColumn,
+  rankColumn,
+  ...orderColumns,
+];
+
+function ManufacturingStatusFilter({
+  table,
+  onStatusChange,
+}: {
+  table: TanStackTable<ManufacturingOrderListRow>;
+  onStatusChange: (status: ManufacturingWorkflowFilterValue) => void;
+}) {
+  const statusColumn = table.getColumn("status");
+  const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
+  const isDone =
+    selected.length === DONE_MANUFACTURING_STATUSES.length &&
+    DONE_MANUFACTURING_STATUSES.every((status) => selected.includes(status));
+  const value: ManufacturingWorkflowFilterValue = isDone ? "done" : "open";
+  const statusCounts = statusColumn?.getFacetedUniqueValues();
+  const openCount =
+    (statusCounts?.get("draft") ?? 0) + (statusCounts?.get("released") ?? 0);
+  const doneCount =
+    (statusCounts?.get("completed") ?? 0) + (statusCounts?.get("cancelled") ?? 0);
+
+  const applyFilter = (nextValue: ManufacturingWorkflowFilterValue) => {
+    if (!statusColumn) return;
+    onStatusChange(nextValue);
+    statusColumn.setFilterValue(
+      nextValue === "open"
+        ? [...OPEN_MANUFACTURING_STATUSES]
+        : [...DONE_MANUFACTURING_STATUSES]
+    );
+    table.setSorting([
+      { id: nextValue === "open" ? "priorityRank" : "orderNumber", desc: false },
+    ]);
+  };
+
+  return (
+    <ToggleGroup
+      type="single"
+      size="sm"
+      value={value}
+      onValueChange={(nextValue) => {
+        if (nextValue === "open" || nextValue === "done") {
+          applyFilter(nextValue);
+        }
+      }}
+      aria-label="Filter manufacturing orders by status"
+      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
+    >
+      <ToggleGroupItem
+        value="open"
+        aria-label="Show open orders"
+        className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
+        onClick={() => applyFilter("open")}
+      >
+        Open
+        <span className="text-muted-foreground">{openCount}</span>
+      </ToggleGroupItem>
+      <ToggleGroupItem
+        value="done"
+        aria-label="Show done orders"
+        className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
+        onClick={() => applyFilter("done")}
+      >
+        Done
+        <span className="text-muted-foreground">{doneCount}</span>
+      </ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
+
 export function OrdersTable({
   initialData,
 }: {
   initialData: ManufacturingOrderListRow[];
 }) {
   const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] =
+    useState<ManufacturingWorkflowFilterValue>("open");
+  const columnVisibility = useMemo(
+    () => ({ priorityRank: statusFilter === "open" }),
+    [statusFilter]
+  );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: ManufacturingOrderListRow[]) => {
       const response = await fetch("/api/manufacturing-orders/priority-ranks", {
@@ -421,6 +522,7 @@ export function OrdersTable({
   return (
     <DashboardDataTable
       columns={columns}
+      columnVisibility={columnVisibility}
       initialData={initialData}
       queryKey={["manufacturing-orders"]}
       queryFn={async () => {
@@ -436,10 +538,13 @@ export function OrdersTable({
       addAriaLabel="New Order"
       emptyMessage="No manufacturing orders yet."
       toolbarContent={({ table }) => (
-        <ManufacturingOrderStatusTabs table={table} />
+        <ManufacturingStatusFilter
+          table={table}
+          onStatusChange={setStatusFilter}
+        />
       )}
-      initialSorting={[{ id: "priorityRank", desc: false }]}
-      initialColumnFilters={[{ id: "status", value: [...OPEN_MANUFACTURING_STATUSES] }]}
+      initialSorting={INITIAL_SORTING}
+      initialColumnFilters={INITIAL_COLUMN_FILTERS}
       rowReorder={{
         disabled: reorderMutation.isPending,
         enabled: (table) => {
@@ -466,67 +571,5 @@ export function OrdersTable({
           "Completed or cancelled orders will be soft-deleted and removed from normal views. Open orders must be cancelled first.",
       }}
     />
-  );
-}
-
-function ManufacturingOrderStatusTabs({
-  table,
-}: {
-  table: TanStackTable<ManufacturingOrderListRow>;
-}) {
-  const statusColumn = table.getColumn("status");
-  const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
-  const value =
-    selected.length === 2 &&
-    selected.includes("draft") &&
-    selected.includes("released")
-      ? "open"
-      : "done";
-
-  const statusCounts = statusColumn?.getFacetedUniqueValues();
-  const openCount =
-    (statusCounts?.get("draft") ?? 0) + (statusCounts?.get("released") ?? 0);
-  const doneCount =
-    (statusCounts?.get("completed") ?? 0) + (statusCounts?.get("cancelled") ?? 0);
-
-  return (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      value={value}
-      onValueChange={(nextValue) => {
-        if (!statusColumn || !nextValue) return;
-        if (nextValue === "open") {
-          statusColumn.setFilterValue([...OPEN_MANUFACTURING_STATUSES]);
-          return;
-        }
-        statusColumn.setFilterValue([...DONE_MANUFACTURING_STATUSES]);
-      }}
-      aria-label="Filter manufacturing orders by status"
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
-    >
-      <ToggleGroupItem
-        value="open"
-        aria-label="Show open orders"
-        className="gap-1.5"
-        onClick={() =>
-          statusColumn?.setFilterValue([...OPEN_MANUFACTURING_STATUSES])
-        }
-      >
-        Open
-        <span className="text-muted-foreground">{openCount}</span>
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="done"
-        aria-label="Show done orders"
-        className="gap-1.5"
-        onClick={() =>
-          statusColumn?.setFilterValue([...DONE_MANUFACTURING_STATUSES])
-        }
-      >
-        Done
-        <span className="text-muted-foreground">{doneCount}</span>
-      </ToggleGroupItem>
-    </ToggleGroup>
   );
 }

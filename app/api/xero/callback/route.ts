@@ -4,6 +4,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { xeroConnections } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { captureAppError } from "@/lib/observability/sentry";
 import {
   createXeroClient,
   tokenSetToPersistable,
@@ -12,8 +13,9 @@ import {
 import { XeroError } from "@/lib/xero/errors";
 
 function settingsRedirect(baseUrl: string, error?: string) {
-  const url = new URL("/settings/integrations", baseUrl);
+  const url = new URL("/settings", baseUrl);
   if (error) url.searchParams.set("error", error);
+  url.hash = "integrations";
   return NextResponse.redirect(url);
 }
 
@@ -30,6 +32,11 @@ export const GET = apiHandler(async (request: Request) => {
     ?.split("=")[1];
 
   if (!state || !cookieState || state !== cookieState) {
+    console.warn("Xero OAuth state mismatch:", {
+      hasState: Boolean(state),
+      hasCookieState: Boolean(cookieState),
+      host: url.host,
+    });
     return settingsRedirect(request.url, "state_mismatch");
   }
 
@@ -91,6 +98,21 @@ export const GET = apiHandler(async (request: Request) => {
       authorizedTenants,
     });
   } catch (error) {
+    captureAppError(error, {
+      route: "/api/xero/callback",
+      method: "GET",
+      module: "xero",
+      operation: "oauth_callback",
+      source: "xero_oauth_callback",
+      appDebug: {
+        error_name: (error as Error)?.name,
+        oauth_error: (error as { error?: string })?.error,
+        status:
+          (error as { response?: { statusCode?: number } })?.response
+            ?.statusCode ??
+          (error as { statusCode?: number })?.statusCode,
+      },
+    });
     console.error("Xero OAuth callback failed:", {
       name: (error as Error)?.name,
       status:

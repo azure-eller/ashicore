@@ -257,25 +257,48 @@ test.describe("Manufacturing write-path smoke", () => {
     if (!firstOrderNumber || !secondOrderNumber || !firstCreatedOrder || !secondCreatedOrder) {
       throw new Error("Expected two manufacturing orders.");
     }
-    expect(firstCreatedOrder.priorityRank).toBeGreaterThan(0);
-    expect(secondCreatedOrder.priorityRank).toBeGreaterThan(
-      firstCreatedOrder.priorityRank ?? 0
-    );
+    expect(firstCreatedOrder.priorityRank).not.toBeNull();
+    expect(secondCreatedOrder.priorityRank).not.toBeNull();
 
-    const activeOrders = await db
+    await page.goto("/manufacturing/orders");
+    await filterList(page, "Search manufacturing orders", productName);
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeVisible();
+
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+      .getByRole("link", { name: "Execute" })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeVisible();
+
+    await page.getByRole("radio", { name: "Show open orders" }).click();
+    await expect(
+      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
+    ).toContainText("Not started", { timeout: 15_000 });
+    await expect(
+      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
+    ).toBeVisible();
+
+    const releasedOrders = await db
       .select({ id: manufacturingOrders.id })
       .from(manufacturingOrders)
       .where(
         and(
-          inArray(manufacturingOrders.status, ["draft", "released"]),
+          eq(manufacturingOrders.status, "released"),
           isNull(manufacturingOrders.deletedAt)
         )
       )
       .orderBy(asc(manufacturingOrders.priorityRank), asc(manufacturingOrders.orderNumber));
-    const reorderedActiveOrderIds = [
+    const reorderedReleasedOrderIds = [
       secondCreatedOrder.id,
       firstCreatedOrder.id,
-      ...activeOrders
+      ...releasedOrders
         .map((order) => order.id)
         .filter(
           (id) => id !== firstCreatedOrder.id && id !== secondCreatedOrder.id
@@ -283,7 +306,7 @@ test.describe("Manufacturing write-path smoke", () => {
     ];
     const reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
       method: "PATCH",
-      body: JSON.stringify({ orderIds: reorderedActiveOrderIds }),
+      body: JSON.stringify({ orderIds: reorderedReleasedOrderIds }),
     });
     expect(reorderResult.status).toBe(200);
 
@@ -299,27 +322,6 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     expect(rankById.get(secondCreatedOrder.id)).toBe(1);
     expect(rankById.get(firstCreatedOrder.id)).toBe(2);
-
-    await page.goto("/manufacturing/orders");
-    await filterList(page, "Search manufacturing orders", productName);
-    await expect(
-      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
-    ).toBeVisible();
-
-    await page
-      .getByRole("row", { name: new RegExp(firstOrderNumber) })
-      .getByRole("button", { name: "Release" })
-      .click();
-    await expect(
-      page.getByRole("row", { name: new RegExp(firstOrderNumber) })
-      .getByRole("link", { name: "Execute" })
-    ).toBeVisible({ timeout: 15_000 });
-    await expect(
-      page.getByRole("row", { name: new RegExp(secondOrderNumber) })
-    ).toBeVisible();
 
     await page.getByRole("radio", { name: "Show done orders" }).click();
     await expect(

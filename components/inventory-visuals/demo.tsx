@@ -8,6 +8,7 @@ import {
 import { ItemSprite } from "./item-sprite";
 import { ItemToken } from "./item-token";
 import { ItemTokenStack } from "./item-token-stack";
+import { InventoryVisualLegend } from "./legend";
 
 const SAMPLE_COLORS: ItemColorFamily[] = ["amber", "green", "blue", "purple"];
 
@@ -20,6 +21,8 @@ export function InventoryVisualsDemo() {
           Sprite matrix for reviewing shape consistency, state clarity, and small-size legibility.
         </p>
       </header>
+
+      <InventoryVisualLegend />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold">Sprite Kinds</h2>

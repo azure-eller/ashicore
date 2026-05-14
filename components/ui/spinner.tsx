@@ -1,23 +1,39 @@
-import { Loading03Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import type { SVGProps } from "react"
 
 import { cn } from "@/lib/utils"
 
-type SpinnerProps = Omit<
-  React.ComponentProps<typeof HugeiconsIcon>,
-  "icon" | "strokeWidth"
->
+type SpinnerProps = SVGProps<SVGSVGElement>
 
 function Spinner({ className, ...props }: SpinnerProps) {
   return (
-    <HugeiconsIcon
-      icon={Loading03Icon}
-      strokeWidth={2}
+    <svg
+      viewBox="0 0 50 50"
       role="status"
       aria-label="Loading"
-      className={cn("size-4 animate-spin", className)}
+      className={cn("size-4 animate-spin text-foreground", className)}
       {...props}
-    />
+    >
+      <circle
+        cx="25"
+        cy="25"
+        r="20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+        opacity="0.16"
+      />
+      <circle
+        cx="25"
+        cy="25"
+        r="20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeDasharray="90 150"
+        strokeDashoffset="-35"
+      />
+    </svg>
   )
 }
 

@@ -3,6 +3,7 @@ import { DashboardTopNav } from "@/components/dashboard-top-nav";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { Providers } from "@/app/providers";
 import { TimeZoneProvider } from "@/components/time-zone-provider";
+import { DashboardNavigationContent } from "@/components/navigation-pending";
 import {
   getAuthedMemberContext,
   getAuthedOrganizations,
@@ -47,7 +48,9 @@ export default async function DashboardLayout({
               slug: organization.slug,
             }))}
           />
-          <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+          <main className="flex min-h-0 flex-1 flex-col">
+            <DashboardNavigationContent>{children}</DashboardNavigationContent>
+          </main>
           <FeedbackWidget />
         </div>
       </TimeZoneProvider>

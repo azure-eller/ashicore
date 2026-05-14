@@ -102,7 +102,6 @@ export function CreateManufacturingOrdersDialog({
     undefined
   );
   const [selectedLineIds, setSelectedLineIds] = useState<string[] | null>(null);
-  const [priorityRank, setPriorityRank] = useState("");
   const [lineQuantities, setLineQuantities] = useState<Record<string, string>>({});
   const initialLineQuantityMap = useMemo(
     () =>
@@ -179,7 +178,7 @@ export function CreateManufacturingOrdersDialog({
         body: {
           plannedDate: effectivePlannedDate || null,
           salesOrderLineIds: effectiveSelectedLineIds,
-          priorityRank: priorityRank.trim() || null,
+          priorityRank: null,
           lineQuantities: effectiveSelectedLineIds.map((lineId) => ({
             salesOrderLineId: lineId,
             quantity:
@@ -213,7 +212,6 @@ export function CreateManufacturingOrdersDialog({
   const resetForm = () => {
     setPlannedDate(undefined);
     setSelectedLineIds(null);
-    setPriorityRank("");
     setLineQuantities({});
     mutation.reset();
   };
@@ -313,19 +311,6 @@ export function CreateManufacturingOrdersDialog({
                   value={effectiveSalesOrderLabel}
                   readOnly
                   disabled
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="mo-priority-rank">
-                  Priority Rank
-                </label>
-                <Input
-                  id="mo-priority-rank"
-                  value={priorityRank}
-                  onChange={(event) => setPriorityRank(event.target.value)}
-                  inputMode="numeric"
-                  autoComplete="off"
-                  placeholder="None"
                 />
               </div>
             </div>

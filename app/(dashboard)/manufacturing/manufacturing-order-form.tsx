@@ -392,7 +392,7 @@ export function ManufacturingOrderForm({
                 salesOrderPreview?.lines
                   .filter((line) => line.status === "will_create")
                   .map((line) => line.salesOrderLineId) ?? [],
-              priorityRank: values.priorityRank,
+              priorityRank: null,
               notes: values.notes,
               confirmShortage: true,
             }),
@@ -442,7 +442,7 @@ export function ManufacturingOrderForm({
             salesOrderId: values.salesOrderId,
             salesOrderLineId: values.salesOrderLineId,
             plannedQuantity,
-            priorityRank: values.priorityRank,
+            priorityRank: null,
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
@@ -454,7 +454,7 @@ export function ManufacturingOrderForm({
             plannedQuantity,
             batchCount:
               manualBatchCount != null ? normalizeNumeric(manualBatchCount) : undefined,
-            priorityRank: values.priorityRank,
+            priorityRank: null,
             plannedDate: values.plannedDate,
             notes: values.notes,
             ingredients: values.ingredients,
@@ -901,27 +901,6 @@ export function ManufacturingOrderForm({
                     </p>
                   </div>
                 )}
-
-                <Controller
-                  control={form.control}
-                  name="priorityRank"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Priority Rank</FieldLabel>
-                      <Input
-                        id={field.name}
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
-                        onBlur={field.onBlur}
-                        aria-invalid={fieldState.invalid}
-                        inputMode="numeric"
-                        autoComplete="off"
-                        placeholder="None"
-                      />
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
 
                 <Controller
                   control={form.control}
