@@ -350,6 +350,12 @@ export const SALES_LINE_SHORT_TOOLTIP =
 export const ALLOCATION_SOURCE_TOOLTIP =
   "Lot or manufacturing order that can supply this demand.";
 
+export const ALLOCATION_ON_HAND_TOOLTIP =
+  "Physical lot quantity before other assignments.";
+
+export const ALLOCATION_EXPECTED_TOOLTIP =
+  "Open production quantity before other assignments.";
+
 export const ALLOCATION_AVAILABLE_TOOLTIP =
   "Uncommitted quantity available from this source.";
 
