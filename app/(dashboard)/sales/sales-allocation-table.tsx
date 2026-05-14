@@ -53,7 +53,7 @@ type AllocationProduct = AllocatorProduct & {
   isStandalone: boolean;
 };
 
-type AllocationPoolRow = {
+export type AllocationPoolRow = {
   itemId: string;
   stockQty: string;
   incomingQty: string;
@@ -283,7 +283,7 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
         const cell = row.cells.get(product.itemId);
         return sum + (cell?.alloc ?? 0);
       }, 0);
-      const pool = product.stockQty + product.incomingQty;
+      const pool = product.stockQty + product.incomingQty + product.allocatedQty;
       const surplus = pool - demand;
       let verdict: ColumnCoverage["verdict"] = "idle";
 
@@ -384,8 +384,10 @@ function isToday(value: string | null) {
 
 export function SalesAllocationTable({
   initialData,
+  initialPools,
 }: {
   initialData: SalesOrderListRow[];
+  initialPools?: AllocationPoolRow[];
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -478,7 +480,7 @@ export function SalesAllocationTable({
       apiJson<AllocationPoolRow[]>(`/api/allocation/pools?${poolParams}`, {
         fallbackError: "Failed to fetch allocation pools.",
       }),
-    initialData: [] as AllocationPoolRow[],
+    initialData: initialPools,
   });
   const productsWithPools = useMemo(() => {
     const poolsByItemId = new Map(
@@ -973,7 +975,7 @@ function CoverageHeader({
   const coverageTooltip = [
     `Pool ${compactQuantity(coverage.pool)} = stock ${compactQuantity(coverage.stock)}`,
     `+ MO ${compactQuantity(coverage.incoming)}.`,
-    `Assigned ${compactQuantity(coverage.product.allocatedQty)}.`,
+    `+ assigned ${compactQuantity(coverage.product.allocatedQty)}.`,
     `Need ${compactQuantity(coverage.demand)}.`,
     ...coverage.product.reservationSummaries.slice(0, 3),
     coverage.product.reservationSummaries.length > 3
