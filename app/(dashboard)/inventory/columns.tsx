@@ -2,8 +2,6 @@
 
 import { type ColumnDef, type FilterFn } from "@tanstack/react-table";
 import Link from "next/link";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
@@ -54,9 +52,7 @@ const categoryFilter: FilterFn<ItemRow> = (row, columnId, filterValue) => {
     return true;
   }
 
-  return row.original.subRows?.some((subRow) =>
-    subRow.category != null && selected.includes(subRow.category)
-  ) ?? false;
+  return false;
 };
 
 const REPLENISHMENT_FILTER_OPTIONS = [
@@ -193,41 +189,11 @@ export function getColumns(
       accessorKey: "displayName",
       header: ({ column }) => <SortableHeader column={column} label="Name" />,
       cell: ({ row }) => {
-        const { isMaster, parentId, variantCount, variantAttrs, sellable } = row.original;
-        const isVariant = parentId != null;
-        const attention = isMaster ? null : getInventoryAttention(row.original);
-
-        if (row.depth > 0 && !isSubAssemblies) {
-          const attrValues = variantAttrs
-            ? Object.values(variantAttrs).join(" / ")
-            : row.original.displayName;
-
-          return (
-            <Link
-              href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
-              prefetch={false}
-              className="block pl-6 text-sm text-muted-foreground hover:text-foreground hover:underline"
-            >
-              {attrValues}
-            </Link>
-          );
-        }
+        const { sellable } = row.original;
+        const attention = getInventoryAttention(row.original);
 
         return (
-          <div className={`flex items-center gap-1.5 ${isVariant && !isSubAssemblies ? "pl-7" : ""}`}>
-            {isMaster && !isSubAssemblies ? (
-              <button
-                type="button"
-                onClick={() => row.toggleExpanded()}
-                aria-label={row.getIsExpanded() ? "Collapse" : "Expand"}
-                className="p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <HugeiconsIcon
-                  icon={row.getIsExpanded() ? ArrowDown01Icon : ArrowRight01Icon}
-                  className="h-4 w-4"
-                />
-              </button>
-            ) : null}
+          <div className="flex items-center gap-1.5">
             {attention ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -246,11 +212,6 @@ export function getColumns(
             >
               {row.original.displayName}
             </Link>
-            {isMaster && variantCount > 0 ? (
-              <Badge variant="outline" className="text-xs">
-                {variantCount} variant{variantCount !== 1 ? "s" : ""}
-              </Badge>
-            ) : null}
             {isSubAssemblies && sellable === false ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -351,7 +312,7 @@ export function getColumns(
             header: ({ column }) => (
               <SortableHeader
                 column={column}
-                label="Avg. Margin"
+                label="Margin"
                 tooltip={MARGIN_TOOLTIP}
               />
             ),
@@ -396,7 +357,6 @@ export function getColumns(
       accessorKey: "sku",
       header: () => <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />,
       cell: ({ row }) => {
-        if (row.original.isMaster) return "—";
         return (row.getValue("sku") as string | null) ?? "—";
       },
     },

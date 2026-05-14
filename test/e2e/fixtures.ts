@@ -190,25 +190,12 @@ export async function getExpectedInventoryTabCounts(db: TestDb): Promise<{
         AND parent_item.deleted_at IS NULL
     )
   `;
-  const masterHasSellableVariant = sql`
-    EXISTS (
-      SELECT 1
-      FROM inventory.items v
-      WHERE v.parent_id = ${items.id}
-        AND v.deleted_at IS NULL
-        AND v.sellable = true
-    )
-  `;
-
   const [counts] = await db
     .select({
       products: sql<number>`COUNT(*) FILTER (
         WHERE ${items.itemType} = 'product'
-          AND ${items.parentId} IS NULL
-          AND (
-            (${items.isMaster} = false AND ${items.sellable} = true)
-            OR (${items.isMaster} = true AND ${masterHasSellableVariant})
-          )
+          AND ${items.isMaster} = false
+          AND ${items.sellable} = true
       )::int`,
       materials: sql<number>`COUNT(*) FILTER (
         WHERE ${items.itemType} = 'material'

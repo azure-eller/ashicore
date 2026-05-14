@@ -22,6 +22,8 @@ test.describe("Inventory visibility ranking", () => {
   const zeroOlderName = `Revenue Rank ${ts} Zero Older`;
   const zeroNewerName = `Revenue Rank ${ts} Zero Newer`;
   const familyName = `Revenue Rank ${ts} Family`;
+  const soldVariantDisplayName = `${familyName} / Retail`;
+  const unsoldVariantDisplayName = `${familyName} / Bulk`;
 
   test("creates fulfilled sales history for revenue-ranked products", async () => {
     const material = await createItem({
@@ -224,8 +226,15 @@ test.describe("Inventory visibility ranking", () => {
     expect((await confirmSalesOrder(familyOrder.body.id)).status).toBe(200);
     expect((await fulfillSalesOrder(familyOrder.body.id)).status).toBe(200);
 
-    const rankedNames = [familyName, productAName, productBName, zeroNewerName, zeroOlderName];
-    expect(rankedNames).toHaveLength(5);
+    const rankedNames = [
+      soldVariantDisplayName,
+      productAName,
+      productBName,
+      unsoldVariantDisplayName,
+      zeroNewerName,
+      zeroOlderName,
+    ];
+    expect(rankedNames).toHaveLength(6);
     expect(customerId).not.toBe("");
     expect(materialId).not.toBe("");
     expect(unsoldVariant.body.id).not.toBe("");
@@ -243,11 +252,11 @@ test.describe("Inventory visibility ranking", () => {
     );
 
     expect(orderedNames.slice(0, 5)).toEqual([
-      familyName,
+      soldVariantDisplayName,
       productAName,
       productBName,
+      unsoldVariantDisplayName,
       zeroNewerName,
-      zeroOlderName,
     ]);
   });
 });

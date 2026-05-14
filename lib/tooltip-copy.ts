@@ -62,7 +62,7 @@ export const SELLING_PRICE_TOOLTIP =
   "Default sales price per selling unit.";
 
 export const MARGIN_TOOLTIP =
-  "Default margin; master rows average sellable variants.";
+  "Default selling price minus estimated COGS.";
 
 export const ESTIMATED_MARGIN_TOOLTIP =
   "Selling price minus estimated COGS, as a percent of selling price.";

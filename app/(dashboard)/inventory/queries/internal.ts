@@ -95,9 +95,6 @@ import {
 import {
   applyMarginTiers,
   calculateMarginPercent,
-  formatAggregateNumber,
-  formatAverageMargin,
-  formatPriceRange,
   parseNumeric,
 } from "./metrics";
 import { hasBomChanged, type BomInputRow } from "./bom-write";
@@ -810,6 +807,7 @@ export async function getItems(filters?: {
                 unitSize: unitDefinitions.size,
                 unitUom: unitDefinitions.uom,
                 category: items.category,
+                potential: potentialSubquery,
                 variantAttrs: items.variantAttrs,
                 sellable: items.sellable,
                 createdAt: items.createdAt,
@@ -887,145 +885,55 @@ export async function getItems(filters?: {
               (variant) => variant.sellable === true,
             );
 
-            if (visibleVariants.length === 0) {
-              return [];
-            }
+            return visibleVariants.map((variant) => {
+              const variantUsedInCount = usedInCounts.get(variant.id) ?? 0;
+              const estimatedUnitCost = estimatedUnitCostByItemId.get(variant.id) ?? null;
 
-            const stock = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.stock), 0),
-            );
-            const committedQty = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.committedQty), 0),
-            );
-            const demandQty = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.demandQty), 0),
-            );
-            const shortageQty = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.shortageQty), 0),
-            );
-            const availableQty = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.availableQty), 0),
-            );
-            const expectedQty = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.expectedQty), 0),
-            );
-            const safetyStock = formatAggregateNumber(
-              visibleVariants.reduce((sum, variant) => sum + parseNumeric(variant.safetyStock), 0),
-            );
-            const usedInCount = visibleVariants.reduce(
-              (sum, variant) => sum + (usedInCounts.get(variant.id) ?? 0),
-              0,
-            );
-            const revenueTotal = visibleVariants.reduce(
-              (sum, variant) => sum + parseNumeric(revenueByItemId.get(variant.id)),
-              0,
-            );
-            const knownVariantMargins = visibleVariants
-              .map((variant) => calculateMarginPercent(
-                variant.defaultSellingPrice,
-                estimatedUnitCostByItemId.get(variant.id),
-              ))
-              .filter((value): value is string => value != null)
-              .map((value) => Number.parseFloat(value))
-              .filter((value) => Number.isFinite(value));
-            const averageMargin = formatAverageMargin(knownVariantMargins);
-            const knownVariantCosts = visibleVariants
-              .map((variant) => estimatedUnitCostByItemId.get(variant.id))
-              .filter((value): value is string => value != null)
-              .map((value) => Number.parseFloat(value))
-              .filter((value) => Number.isFinite(value));
-            const avgEstimatedUnitCost = knownVariantCosts.length > 0
-              ? formatAggregateNumber(
-                  knownVariantCosts.reduce((sum, value) => sum + value, 0) /
-                    knownVariantCosts.length,
-                )
-              : null;
-
-            return [{
-              id: row.id,
-              name: row.name,
-              displayName: row.name,
-              sku: row.sku,
-              itemType: row.itemType as ItemType,
-              stock,
-              committedQty,
-              demandQty,
-              shortageQty,
-              availableQty,
-              expectedQty,
-              safetyStock,
-              currentStockUnitCost: null,
-              unit: null,
-              unitSize: null,
-              unitUom: null,
-              category: "Soil Blend",
-              potential: row.potential,
-              estimatedUnitCost: avgEstimatedUnitCost,
-              marginPercent: averageMargin,
-              marginTier: null,
-              isMaster: true,
-              parentId: null,
-              variantCount: visibleVariants.length,
-              variantAxes: (row.variantAxes as string[] | null) ?? null,
-              variantAttrs: null,
-              priceRange: formatPriceRange(
-                visibleVariants.map((variant) => variant.defaultSellingPrice),
-              ),
-              sellable: null,
-              hasBom: false,
-              usedInBom: usedInCount > 0,
-              usedInCount,
-              revenue30d: revenueTotal > 0 ? formatAggregateNumber(revenueTotal) : null,
-              createdAt: row.createdAt,
-              subRows: visibleVariants.map((variant) => {
-                const variantUsedInCount = usedInCounts.get(variant.id) ?? 0;
-                const estimatedUnitCost = estimatedUnitCostByItemId.get(variant.id) ?? null;
-                return {
-                  id: variant.id,
-                  name: variant.name,
-                  displayName: row.variantAxes
-                    ? formatVariantDisplay(
-                        row.name,
-                        (variant.variantAttrs as Record<string, string>) ?? {},
-                        row.variantAxes as string[],
-                      )
-                    : variant.name,
-                  sku: variant.sku,
-                  itemType: variant.itemType as ItemType,
-                  stock: variant.stock,
-                  committedQty: variant.committedQty,
-                  demandQty: variant.demandQty,
-                  shortageQty: variant.shortageQty,
-                  availableQty: variant.availableQty,
-                  expectedQty: variant.expectedQty,
-                  safetyStock: variant.safetyStock,
-                  currentStockUnitCost: null,
-                  unit: variant.unit ?? null,
-                  unitSize: variant.unitSize ?? null,
-                  unitUom: variant.unitUom ?? null,
-                  category: variant.category,
-                  potential: null,
+              return {
+                id: variant.id,
+                name: variant.name,
+                displayName: row.variantAxes
+                  ? formatVariantDisplay(
+                      row.name,
+                      (variant.variantAttrs as Record<string, string>) ?? {},
+                      row.variantAxes as string[],
+                    )
+                  : variant.name,
+                sku: variant.sku,
+                itemType: variant.itemType as ItemType,
+                stock: variant.stock,
+                committedQty: variant.committedQty,
+                demandQty: variant.demandQty,
+                shortageQty: variant.shortageQty,
+                availableQty: variant.availableQty,
+                expectedQty: variant.expectedQty,
+                safetyStock: variant.safetyStock,
+                currentStockUnitCost: null,
+                unit: variant.unit ?? null,
+                unitSize: variant.unitSize ?? null,
+                unitUom: variant.unitUom ?? null,
+                category: variant.category,
+                potential: variant.potential,
+                estimatedUnitCost,
+                marginPercent: calculateMarginPercent(
+                  variant.defaultSellingPrice,
                   estimatedUnitCost,
-                  marginPercent: calculateMarginPercent(
-                    variant.defaultSellingPrice,
-                    estimatedUnitCost,
-                  ),
-                  marginTier: null,
-                  isMaster: false,
-                  parentId: variant.parentId,
-                  variantCount: 0,
-                  variantAxes: null,
-                  variantAttrs: (variant.variantAttrs as Record<string, string> | null) ?? null,
-                  priceRange: null,
-                  sellable: variant.sellable,
-                  hasBom: hasBomSet.has(variant.id),
-                  usedInBom: variantUsedInCount > 0,
-                  usedInCount: variantUsedInCount,
-                  revenue30d: revenueByItemId.get(variant.id) ?? null,
-                  createdAt: variant.createdAt,
-                } satisfies ItemRow;
-              }),
-            } satisfies ItemRow];
+                ),
+                marginTier: null,
+                isMaster: false,
+                parentId: variant.parentId,
+                variantCount: 0,
+                variantAxes: null,
+                variantAttrs: (variant.variantAttrs as Record<string, string> | null) ?? null,
+                priceRange: null,
+                sellable: variant.sellable,
+                hasBom: hasBomSet.has(variant.id),
+                usedInBom: variantUsedInCount > 0,
+                usedInCount: variantUsedInCount,
+                revenue30d: revenueByItemId.get(variant.id) ?? null,
+                createdAt: variant.createdAt,
+              } satisfies ItemRow;
+            });
           })
           .sort((a, b) => {
             const revenueDiff = parseNumeric(b.revenue30d) - parseNumeric(a.revenue30d);
@@ -1078,25 +986,12 @@ export async function getInventoryTabCounts(): Promise<InventoryTabCounts> {
           AND ${bomParentVisibilityCondition}
       )
     `;
-    const masterHasSellableVariant = sql`
-      EXISTS (
-        SELECT 1
-        FROM inventory.items v
-        WHERE v.parent_id = ${items.id}
-          AND v.deleted_at IS NULL
-          AND v.sellable = true
-      )
-    `;
-
     const [counts] = await tx
       .select({
         products: sql<number>`COUNT(*) FILTER (
           WHERE ${items.itemType} = 'product'
-            AND ${items.parentId} IS NULL
-            AND (
-              (${items.isMaster} = false AND ${items.sellable} = true)
-              OR (${items.isMaster} = true AND ${masterHasSellableVariant})
-            )
+            AND ${items.isMaster} = false
+            AND ${items.sellable} = true
         )::int`,
         materials: sql<number>`COUNT(*) FILTER (
           WHERE ${items.itemType} = 'material'

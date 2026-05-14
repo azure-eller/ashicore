@@ -16,6 +16,7 @@ test.describe("inventory visibility", () => {
   const mixedMasterName = `Visibility Family ${ts}`;
   const mixedSellableVariantValue = "Retail Bag";
   const mixedInternalVariantValue = "1 Yard Tote";
+  const mixedSellableVariantDisplay = `${mixedMasterName} / ${mixedSellableVariantValue}`;
   const mixedInternalVariantDisplay = `${mixedMasterName} / ${mixedInternalVariantValue}`;
 
   let sellableOnlyId = "";
@@ -185,8 +186,9 @@ test.describe("inventory visibility", () => {
     await expect(page.getByRole("link", { name: sharedComponentName })).toBeVisible();
 
     await filterList(page, "Search items", mixedMasterName);
-    await expect(page.getByRole("link", { name: mixedMasterName })).toBeVisible();
-    await expect(page.getByText("1 variant")).toBeVisible();
+    await expect(page.getByRole("link", { name: mixedSellableVariantDisplay })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Expand|Collapse)$/ })).toHaveCount(0);
+    await expect(page.getByText(/\d+ variants?/)).toHaveCount(0);
     await expect(page.getByRole("link", { name: mixedInternalVariantDisplay })).toHaveCount(0);
   });
 
