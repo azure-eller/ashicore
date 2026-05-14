@@ -6,6 +6,16 @@ import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Search01Icon } from "@hugeicons/core-free-icons";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -114,6 +124,8 @@ type DragState =
       position: "before" | "after";
     }
   | null;
+
+type BulkAllocationAction = "allocate_fifo" | "unallocate_open";
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
   return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
@@ -455,6 +467,8 @@ export function SalesAllocationTable({
     id: string;
   } | null>(null);
   const [dragState, setDragState] = useState<DragState>(null);
+  const [pendingBulkAction, setPendingBulkAction] =
+    useState<BulkAllocationAction | null>(null);
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -516,6 +530,33 @@ export function SalesAllocationTable({
       queryClient.setQueryData(
         ["sales-orders-allocator-preference"],
         preference
+      );
+    },
+  });
+  const bulkAllocationMutation = useMutation({
+    mutationFn: (action: BulkAllocationAction) =>
+      apiJson<{
+        action: BulkAllocationAction;
+        itemCount: number;
+        lineCount: number;
+        quantity: string;
+      }>("/api/allocation/sales-orders/bulk", {
+        method: "POST",
+        body: { action },
+        fallbackError: "Failed to update sales allocations.",
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      void queryClient.invalidateQueries({ queryKey: ["allocation-pools"] });
+      void queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] });
+      setPendingBulkAction(null);
+    },
+    onError: (error) => {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to update sales allocations."
       );
     },
   });
@@ -733,6 +774,17 @@ export function SalesAllocationTable({
     });
   }
 
+  const bulkActionTitle =
+    pendingBulkAction === "allocate_fifo"
+      ? "Allocate unallocated orders?"
+      : "Unallocate open orders?";
+  const bulkActionDescription =
+    pendingBulkAction === "allocate_fifo"
+      ? "All currently unallocated orders will be attempted to be filled by on-hand stock in FIFO order, based on soonest ship dates for the orders."
+      : "This will unallocate all stock for currently open orders.";
+  const bulkActionLabel =
+    pendingBulkAction === "allocate_fifo" ? "Allocate FIFO" : "Unallocate";
+
   useEffect(() => {
     if (!highlightedOrderId) return;
     const target = document.getElementById(`sales-allocation-order-${highlightedOrderId}`);
@@ -777,9 +829,26 @@ export function SalesAllocationTable({
             <Chip tone="partial" label={`${totals.shortLines} short of ${totals.lines} lines`} />
             <Chip tone="met" label={`${totals.complete} complete`} />
             <Chip tone="neutral" label={`${compactQuantity(totals.alloc)} / ${compactQuantity(totals.demand)} allocated`} />
-            <button type="button" className={styles.allocateButton}>
-              Allocate
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className={styles.allocateButton}>
+                  Allocate / Unallocate
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuLabel>Bulk allocation</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => setPendingBulkAction("allocate_fifo")}
+                >
+                  Allocate unallocated FIFO
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setPendingBulkAction("unallocate_open")}
+                >
+                  Unallocate open orders
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -981,6 +1050,39 @@ export function SalesAllocationTable({
           </div>
         </div>
       </div>
+
+      <AlertDialog
+        open={pendingBulkAction != null}
+        onOpenChange={(open) => {
+          if (!open && !bulkAllocationMutation.isPending) {
+            setPendingBulkAction(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{bulkActionTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkActionDescription} Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkAllocationMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkAllocationMutation.isPending}
+              onClick={() => {
+                if (pendingBulkAction) {
+                  bulkAllocationMutation.mutate(pendingBulkAction);
+                }
+              }}
+            >
+              {bulkAllocationMutation.isPending ? "Working..." : bulkActionLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AllocationSourceDialog
         target={allocationTarget}
