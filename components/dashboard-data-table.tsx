@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   type QueryKey,
   useMutation,
@@ -128,6 +128,7 @@ type DashboardDataTableProps<TData extends { id: string }> = {
   initialSorting?: SortingState;
   initialColumnFilters?: ColumnFiltersState;
   errorMessage?: string | null;
+  stickyHeader?: boolean;
 };
 
 function isInteractiveRowTarget(target: EventTarget | null) {
@@ -164,14 +165,20 @@ export function DashboardDataTable<TData extends { id: string }>({
   initialSorting,
   initialColumnFilters,
   errorMessage,
+  stickyHeader = true,
 }: DashboardDataTableProps<TData>) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const queryColumnFilters = useMemo(
+    () => getColumnFiltersFromSearchParams(searchParams, columns, initialColumnFilters),
+    [columns, initialColumnFilters, searchParams]
+  );
   const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(
-    initialColumnFilters ?? []
+    queryColumnFilters
   );
   const [expanded, setExpanded] = useState<ExpandedState>({});
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -186,6 +193,10 @@ export function DashboardDataTable<TData extends { id: string }>({
     enabled: queryFn != null,
   });
   const data = controlledData ?? queriedData;
+
+  useEffect(() => {
+    setColumnFilters(queryColumnFilters);
+  }, [queryColumnFilters]);
 
   const deleteMutation = useMutation<void, Error, string[]>({
     mutationFn: async (ids) => {
@@ -438,8 +449,11 @@ export function DashboardDataTable<TData extends { id: string }>({
           </p>
         )}
 
-        <div className="rounded-md border">
-          <Table className={tableClassName}>
+        <div className="rounded-md border max-md:overflow-x-auto">
+          <Table
+            className={tableClassName}
+            containerClassName="overflow-visible"
+          >
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -449,7 +463,13 @@ export function DashboardDataTable<TData extends { id: string }>({
                       | undefined;
 
                     return (
-                      <TableHead key={header.id} className={meta?.className}>
+                      <TableHead
+                        key={header.id}
+                        className={cn(
+                          meta?.className,
+                          stickyHeader && "sticky top-0 z-30"
+                        )}
+                      >
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -599,4 +619,52 @@ export function DashboardDataTable<TData extends { id: string }>({
       )}
     </>
   );
+}
+
+function getColumnFiltersFromSearchParams<TData>(
+  searchParams: Pick<URLSearchParams, "get" | "has">,
+  columns: ColumnDef<TData>[],
+  initialColumnFilters: ColumnFiltersState | undefined
+): ColumnFiltersState {
+  const filters = new Map<string, unknown>(
+    (initialColumnFilters ?? []).map((filter) => [filter.id, filter.value])
+  );
+
+  for (const column of columns) {
+    const columnId = getColumnId(column);
+
+    if (!columnId || !searchParams.has(columnId)) {
+      continue;
+    }
+
+    const value = searchParams.get(columnId)?.trim();
+
+    if (!value || value === "all") {
+      filters.delete(columnId);
+      continue;
+    }
+
+    const values = value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (values.length > 0) {
+      filters.set(columnId, values);
+    }
+  }
+
+  return Array.from(filters.entries()).map(([id, value]) => ({ id, value }));
+}
+
+function getColumnId<TData>(column: ColumnDef<TData>) {
+  if ("id" in column && typeof column.id === "string") {
+    return column.id;
+  }
+
+  if ("accessorKey" in column && typeof column.accessorKey === "string") {
+    return column.accessorKey;
+  }
+
+  return null;
 }

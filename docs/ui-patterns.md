@@ -159,6 +159,7 @@ For standard dashboard list pages, use the shared `DashboardDataTable` shell ins
 - Keep column definitions local to the domain file
 - Pass `queryKey`, `queryFn`, `addHref`, empty-state copy, and optional `deleteAction` config into the shared shell
 - Use `deleteAction.trackDeletingRows` only when rows should dim during delete, like inventory items
+- Main list table headers are sticky by default under the dashboard top nav; pass `stickyHeader={false}` only for an unusual embedded table.
 
 ```tsx
 <DashboardDataTable

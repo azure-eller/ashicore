@@ -452,12 +452,12 @@ export function canAssignModuleAccess(
 }
 
 export function getDefaultDashboardPath(role: string | string[] | null | undefined) {
-  if (canReadModule(role, "inventory")) {
-    return "/inventory/materials";
-  }
-
   if (canReadModule(role, "sales")) {
     return "/sales/orders";
+  }
+
+  if (canReadModule(role, "inventory")) {
+    return "/inventory/materials";
   }
 
   if (canReadModule(role, "manufacturing")) {
