@@ -645,6 +645,13 @@
       "when": 1778771839301,
       "tag": "0091_open_order_ranking",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1778771839302,
+      "tag": "0092_xero_auto_push_defaults",
+      "breakpoints": true
     }
   ]
 }

@@ -526,7 +526,10 @@ function PurchasingSyncDialog({
         Sync purchasing data
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent size="3xl">
+        <AlertDialogContent
+          size="content"
+          className="max-h-[calc(100vh-2rem)] w-[min(calc(100vw-2rem),72rem)] grid-rows-[auto_minmax(0,1fr)_auto_auto]"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Sync purchasing data</AlertDialogTitle>
             <AlertDialogDescription>
@@ -534,7 +537,7 @@ function PurchasingSyncDialog({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="min-h-80 rounded-md border bg-muted/30 p-3">
+          <div className="min-h-0 rounded-md border bg-muted/30 p-3">
             {previewMutation.isPending ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner />
@@ -545,7 +548,7 @@ function PurchasingSyncDialog({
                 {(previewMutation.error as Error).message}
               </p>
             ) : preview ? (
-              <div className="space-y-3">
+              <div className="flex h-full min-h-0 flex-col gap-3">
                 <div className="grid gap-2 sm:grid-cols-5">
                   <PreviewMetric label="Ready" value={preview.summary.ready} />
                   <PreviewMetric label="Selected" value={selectedIds.size} />
@@ -569,8 +572,8 @@ function PurchasingSyncDialog({
                   />
                   <span>Select all ready rows from {preview.tenantName}</span>
                 </div>
-                <div className="max-h-[22rem] overflow-auto rounded-md border bg-background">
-                  <Table>
+                <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-background">
+                  <Table className="min-w-[64rem]">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-10" />

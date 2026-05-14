@@ -43,10 +43,10 @@ export const xeroConnections = xeroSchema
         .default("DRAFT"),
       autoPushSalesInvoices: boolean("auto_push_sales_invoices")
         .notNull()
-        .default(true),
+        .default(false),
       autoPushPurchaseOrders: boolean("auto_push_purchase_orders")
         .notNull()
-        .default(true),
+        .default(false),
       autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
         .notNull()
         .default(false),
