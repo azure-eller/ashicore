@@ -174,9 +174,7 @@ test.describe("Purchasing write-path smoke", () => {
       .fill("400");
     await page.locator('input[name="additionalCosts.0.amount"]').fill("12.50");
     await expect(page.getByText("Landed cost adjustments")).toBeVisible();
-    await expect(page.getByText("Inventory cost preview")).toBeVisible();
-    await expect(page.getByText(/\$2\.91 \//)).toHaveCount(1);
-    await expect(page.getByText(/\$2\.18/)).toHaveCount(2);
+    await expect(page.getByText("Inventory cost preview")).toHaveCount(0);
 
     const [saveOrderResponse] = await Promise.all([
       page.waitForResponse(

@@ -27,7 +27,6 @@ import {
 } from "@/lib/schemas/purchase-orders";
 import {
   formatPrice,
-  formatQuantity,
   formatAddressLines,
   getFieldArrayError,
   getFirstFormErrorMessage,
@@ -451,11 +450,6 @@ function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   });
 }
 
-function unitCostLabel(value: number | null | undefined) {
-  if (value == null) return "\u2014";
-  return formatPrice(normalizeLandedDisplayNumber(value)) ?? "\u2014";
-}
-
 export function PurchaseOrderForm({
   suppliers,
   materials,
@@ -619,32 +613,6 @@ export function PurchaseOrderForm({
   const additionalCostCount = additionalCostRows.filter(
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost)
   ).length;
-  const landedUnitCostRows = (watchedLines ?? [])
-    .map((line, index) => {
-      if (isBlankPurchaseOrderLine(line)) return null;
-
-      const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
-      const lineCosts = landedCostPreview.lines[index];
-      const addedStockUnitCost =
-        lineCosts?.stockQuantityOrdered > 0
-          ? lineCosts.allocatedAdditionalCost / lineCosts.stockQuantityOrdered
-          : null;
-
-      return {
-        key: `${line?.itemId ?? "blank"}-${index}`,
-        materialName: material?.name ?? "Unselected material",
-        stockQuantityOrdered: lineCosts?.stockQuantityOrdered ?? 0,
-        stockingUnitName: material?.stockingUnitName ?? "stock unit",
-        allocatedAdditionalCost: lineCosts?.allocatedAdditionalCost ?? 0,
-        addedStockUnitCost,
-        landedStockUnitCost: lineCosts?.landedStockUnitCost ?? null,
-      };
-    })
-    .filter((row): row is NonNullable<typeof row> => row != null);
-  const totalStockUnits = landedUnitCostRows.reduce(
-    (sum, row) => sum + row.stockQuantityOrdered,
-    0
-  );
   const canAutosaveDraft = hasAutosaveMinimum(form.getValues());
 
   const savePurchaseOrder = useCallback(
@@ -971,8 +939,6 @@ export function PurchaseOrderForm({
       string,
       {
         key: string;
-        label: string;
-        materials: string[];
         contactName: string | null;
         contactPhone: string | null;
         addressLines: string[];
@@ -980,24 +946,15 @@ export function PurchaseOrderForm({
       }
     >();
 
-    (watchedLines ?? []).forEach((line, index) => {
+    (watchedLines ?? []).forEach((line) => {
       const option = makeDeliveryAddressOption(line);
       if (!option) return;
 
-      const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
-      const materialName = material?.name ?? `Line ${index + 1}`;
       const existing = summaries.get(option.id);
-      if (existing) {
-        if (materialName && !existing.materials.includes(materialName)) {
-          existing.materials.push(materialName);
-        }
-        return;
-      }
+      if (existing) return;
 
       summaries.set(option.id, {
         key: option.id,
-        label: option.label,
-        materials: materialName ? [materialName] : [`Line ${index + 1}`],
         contactName: option.shipContactName,
         contactPhone: option.shipContactPhone,
         addressLines: formatAddressLines({
@@ -1013,7 +970,7 @@ export function PurchaseOrderForm({
     });
 
     return [...summaries.values()];
-  }, [materialMap, watchedLines]);
+  }, [watchedLines]);
   const autosaveState = canAutosaveDraft ? autosave.state : "blocked";
   const autosaveMessage = canAutosaveDraft
     ? autosave.state === "saved" || autosave.state === "idle"
@@ -1098,43 +1055,6 @@ export function PurchaseOrderForm({
                   },
                 ]}
               />
-              {landedUnitCostRows.length > 0 ? (
-                <div className="mt-4 border-t pt-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-xs font-medium uppercase text-muted-foreground">
-                      Inventory cost preview
-                    </div>
-                    <div className="text-right text-xs text-muted-foreground">
-                      {formatQuantity(normalizeLandedDisplayNumber(totalStockUnits))} stock units
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {landedUnitCostRows.map((row) => (
-                      <div key={row.key} className="space-y-1 rounded-md border p-3">
-                        <div className="truncate text-sm font-medium">
-                          {row.materialName}
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span className="text-muted-foreground">
-                            Added / {row.stockingUnitName}
-                          </span>
-                          <span className="font-mono tabular-nums">
-                            {unitCostLabel(row.addedStockUnitCost)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span className="text-muted-foreground">
-                            Landed / {row.stockingUnitName}
-                          </span>
-                          <span className="font-mono font-semibold tabular-nums">
-                            {unitCostLabel(row.landedStockUnitCost)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
             </CreateSidebarCard>
             {selectedSupplier ? (
               <CreateSidebarCard title="Selected supplier">
@@ -1151,14 +1071,6 @@ export function PurchaseOrderForm({
                 <div className="space-y-3">
                   {deliveryAddressSummaries.map((address) => (
                     <div key={address.key} className="space-y-2 rounded-md border p-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">
-                          {address.label}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {address.materials.join(", ")}
-                        </div>
-                      </div>
                       <div className="space-y-1 text-xs text-muted-foreground">
                         {address.contactName ? (
                           <div className="truncate">{address.contactName}</div>
@@ -1273,7 +1185,7 @@ export function PurchaseOrderForm({
                   />,
                   <TooltipHeader
                     key="purchase-unit"
-                    label="Purch. Unit"
+                    label="UoM"
                     tooltip={PURCHASE_UNIT_TOOLTIP}
                   />,
                   <TooltipHeader
