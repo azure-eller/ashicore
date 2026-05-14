@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  DeleteColumnIcon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -30,16 +35,15 @@ import type { SalesOrderListLine, SalesOrderListRow } from "./types";
 import styles from "./sales-allocation-table.module.css";
 
 const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
-const MISC_FAMILY_LABEL = "MISC";
-const CUSTOMER_COL_WIDTH = 250;
-const SHIP_COL_WIDTH = 110;
-const MISC_COL_WIDTH = 220;
-const VARIANT_COL_WIDTH = 104;
+const STANDALONE_FAMILY_LABEL = "Standalone Products";
+const CUSTOMER_COL_WIDTH = 230;
+const SHIP_COL_WIDTH = 96;
+const VARIANT_COL_WIDTH = 86;
 
 type AllocationProduct = AllocatorProduct & {
   stockQty: number;
   incomingQty: number;
-  isMisc: boolean;
+  isStandalone: boolean;
 };
 
 type AllocationCell = {
@@ -52,7 +56,6 @@ type AllocationCell = {
 type AllocationRow = {
   order: SalesOrderListRow;
   cells: Map<string, AllocationCell>;
-  miscCells: AllocationCell[];
 };
 
 type RowProgress = {
@@ -118,24 +121,26 @@ function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[])
       if (byId.has(line.itemId)) return;
 
       const inventoryItem = inventoryById.get(line.itemId);
-      const isMisc = line.attrs.length === 0;
+      const isStandalone = line.attrs.length === 0;
 
       byId.set(line.itemId, {
         itemId: line.itemId,
         label: productLabel(line),
-        familyLabel: isMisc ? MISC_FAMILY_LABEL : line.masterName,
-        variantLabel: isMisc ? line.masterName : line.attrs.join(" "),
+        familyLabel: isStandalone ? STANDALONE_FAMILY_LABEL : line.masterName,
+        variantLabel: isStandalone ? line.masterName : line.attrs.join(" "),
         sku: line.itemSku ?? null,
         unitName: line.unitName,
         stockQty: parseQuantity(inventoryItem?.availableQty),
         incomingQty: parseQuantity(inventoryItem?.expectedQty),
-        isMisc,
+        isStandalone,
       });
     });
   });
 
   return [...byId.values()].sort((left, right) => {
-    if (left.isMisc !== right.isMisc) return left.isMisc ? -1 : 1;
+    if (left.isStandalone !== right.isStandalone) {
+      return left.isStandalone ? 1 : -1;
+    }
     const familyCompare = left.familyLabel.localeCompare(right.familyLabel);
     if (familyCompare !== 0) return familyCompare;
     return left.label.localeCompare(right.label);
@@ -149,7 +154,6 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
     .filter(isOpenSalesOrder)
     .map((order): AllocationRow => {
       const cells = new Map<string, AllocationCell>();
-      const miscCells: AllocationCell[] = [];
 
       order.lines.forEach((line) => {
         if (!line.id) return;
@@ -163,14 +167,10 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
           alloc: parseQuantity(line.allocatedQty),
         };
 
-        if (product.isMisc) {
-          miscCells.push(cell);
-        } else {
-          cells.set(product.itemId, cell);
-        }
+        cells.set(product.itemId, cell);
       });
 
-      return { order, cells, miscCells };
+      return { order, cells };
     })
     .sort((left, right) => {
       const leftDate = left.order.shipDate ?? "";
@@ -190,7 +190,7 @@ function rowProgress(row: AllocationRow): RowProgress {
   let alloc = 0;
   let anyDemand = false;
 
-  [...row.cells.values(), ...row.miscCells].forEach((cell) => {
+  row.cells.forEach((cell) => {
     if (cell.demand > 0) anyDemand = true;
     demand += cell.demand || 0;
     alloc += cell.alloc || 0;
@@ -286,14 +286,12 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
   );
 }
 
-function getGridTemplate(variantCount: number, includeMisc: boolean) {
+function getGridTemplate(productCount: number) {
   return [
     `${CUSTOMER_COL_WIDTH}px`,
     `${SHIP_COL_WIDTH}px`,
-    includeMisc ? `${MISC_COL_WIDTH}px` : null,
-    ...Array.from({ length: variantCount }, () => `${VARIANT_COL_WIDTH}px`),
+    ...Array.from({ length: productCount }, () => `${VARIANT_COL_WIDTH}px`),
   ]
-    .filter(Boolean)
     .join(" ");
 }
 
@@ -318,11 +316,46 @@ function getCoverageLabel(coverage: ColumnCoverage) {
 function getFilteredRows(rows: AllocationRow[], search: string) {
   const normalized = search.trim().toLowerCase();
   if (!normalized) return rows;
-  return rows.filter(
-    (row) =>
-      row.order.customerName.toLowerCase().includes(normalized) ||
-      row.order.orderNumber.toLowerCase().includes(normalized)
-  );
+  return rows.filter((row) => {
+    if (row.order.customerName.toLowerCase().includes(normalized)) return true;
+    if (row.order.orderNumber.toLowerCase().includes(normalized)) return true;
+
+    return [...row.cells.values()].some((cell) => {
+      const sku = cell.product.sku?.toLowerCase() ?? "";
+      return (
+        cell.product.label.toLowerCase().includes(normalized) ||
+        cell.product.familyLabel.toLowerCase().includes(normalized) ||
+        sku.includes(normalized)
+      );
+    });
+  });
+}
+
+function applyProductOrder(
+  products: AllocationProduct[],
+  productOrder: string[]
+) {
+  if (productOrder.length === 0) return products;
+  const orderIndex = new Map(productOrder.map((id, index) => [id, index]));
+
+  return [...products].sort((left, right) => {
+    if (left.familyLabel !== right.familyLabel) {
+      return products.indexOf(left) - products.indexOf(right);
+    }
+
+    const leftIndex = orderIndex.get(left.itemId) ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = orderIndex.get(right.itemId) ?? Number.MAX_SAFE_INTEGER;
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+    return products.indexOf(left) - products.indexOf(right);
+  });
+}
+
+function todayLabel() {
+  return formatShipDate(todayBusinessDate());
+}
+
+function isToday(value: string | null) {
+  return value === todayBusinessDate();
 }
 
 export function SalesAllocationTable({
@@ -339,6 +372,7 @@ export function SalesAllocationTable({
   const [allocationTarget, setAllocationTarget] = useState<AllocationTarget | null>(
     null
   );
+  const [productOrder, setProductOrder] = useState<string[]>([]);
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -408,48 +442,54 @@ export function SalesAllocationTable({
     () => getAllocatorProducts(orders, inventory),
     [orders, inventory]
   );
-  const miscProducts = useMemo(
-    () => allProducts.filter((product) => product.isMisc),
-    [allProducts]
+  const orderedProducts = useMemo(
+    () => applyProductOrder(allProducts, productOrder),
+    [allProducts, productOrder]
   );
   const visibleProducts = useMemo(
     () =>
-      allProducts.filter(
-        (product) => product.isMisc || !hiddenProductIdSet.has(product.itemId)
-      ),
-    [allProducts, hiddenProductIdSet]
+      orderedProducts.filter((product) => !hiddenProductIdSet.has(product.itemId)),
+    [orderedProducts, hiddenProductIdSet]
   );
-  const visibleVariants = visibleProducts.filter((product) => !product.isMisc);
   const allRows = useMemo(() => buildRows(orders, allProducts), [orders, allProducts]);
   const rows = useMemo(
     () => getFilteredRows(allRows, search),
     [allRows, search]
   );
   const coverageById = useMemo(
-    () => getCoverage(visibleVariants, rows),
-    [visibleVariants, rows]
+    () => getCoverage(visibleProducts, rows),
+    [visibleProducts, rows]
   );
   const familyLastVisibleIds = useMemo(() => {
     const byFamily = new Map<string, string>();
-    visibleVariants.forEach((product) => {
+    visibleProducts.forEach((product) => {
       byFamily.set(product.familyLabel, product.itemId);
     });
     return new Set(byFamily.values());
-  }, [visibleVariants]);
+  }, [visibleProducts]);
+  const familyFirstVisibleIds = useMemo(() => {
+    const ids = new Set<string>();
+    const seen = new Set<string>();
+    visibleProducts.forEach((product) => {
+      if (seen.has(product.familyLabel)) return;
+      seen.add(product.familyLabel);
+      ids.add(product.itemId);
+    });
+    return ids;
+  }, [visibleProducts]);
   const families = useMemo(() => {
     const groups = new Map<string, AllocationProduct[]>();
-    visibleVariants.forEach((product) => {
+    visibleProducts.forEach((product) => {
       const bucket = groups.get(product.familyLabel) ?? [];
       bucket.push(product);
       groups.set(product.familyLabel, bucket);
     });
     return [...groups.entries()];
-  }, [visibleVariants]);
+  }, [visibleProducts]);
 
-  const hasMisc = miscProducts.length > 0;
-  const gridTemplateColumns = getGridTemplate(visibleVariants.length, hasMisc);
+  const gridTemplateColumns = getGridTemplate(visibleProducts.length);
   const hiddenProducts = allProducts.filter(
-    (product) => !product.isMisc && hiddenProductIdSet.has(product.itemId)
+    (product) => hiddenProductIdSet.has(product.itemId)
   );
   const totals = rows.reduce(
     (acc, row) => {
@@ -459,7 +499,7 @@ export function SalesAllocationTable({
       acc.demand += progress.demand;
       if (late) acc.late += 1;
       if (progress.state === "complete") acc.complete += 1;
-      [...row.cells.values(), ...row.miscCells].forEach((cell) => {
+      row.cells.forEach((cell) => {
         if (cell.demand > cell.alloc) acc.shortLines += 1;
         if (cell.demand > 0) acc.lines += 1;
       });
@@ -480,6 +520,30 @@ export function SalesAllocationTable({
     preferenceMutation.mutate([]);
   }
 
+  function moveColumn(productId: string, direction: -1 | 1) {
+    setProductOrder((current) => {
+      const ordered = applyProductOrder(allProducts, current);
+      const product = ordered.find((entry) => entry.itemId === productId);
+      if (!product) return current;
+      const familyProducts = ordered.filter(
+        (entry) =>
+          entry.familyLabel === product.familyLabel &&
+          !hiddenProductIdSet.has(entry.itemId)
+      );
+      const familyIndex = familyProducts.findIndex(
+        (entry) => entry.itemId === productId
+      );
+      const swapWith = familyProducts[familyIndex + direction];
+      if (!swapWith) return current;
+
+      const next = [...ordered];
+      const currentIndex = next.findIndex((entry) => entry.itemId === productId);
+      const swapIndex = next.findIndex((entry) => entry.itemId === swapWith.itemId);
+      [next[currentIndex], next[swapIndex]] = [next[swapIndex], next[currentIndex]];
+      return next.map((entry) => entry.itemId);
+    });
+  }
+
   function openAllocation(row: AllocationRow, cell: AllocationCell) {
     setSelected({ rowId: row.order.id, colId: cell.product.itemId });
     setAllocationTarget({
@@ -494,15 +558,27 @@ export function SalesAllocationTable({
     <>
       <div className={styles.shell}>
         <div className={styles.toolbar}>
-          <div className={styles.searchWrap}>
-            <HugeiconsIcon icon={Search01Icon} className={styles.searchIcon} />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search..."
-              aria-label="Search sales allocations"
-              className={styles.searchInput}
-            />
+          <div className={styles.toolbarLeft}>
+            <div className={styles.searchWrap}>
+              <HugeiconsIcon icon={Search01Icon} className={styles.searchIcon} />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search orders, SKUs, customers..."
+                aria-label="Search sales allocations"
+                className={styles.searchInput}
+              />
+            </div>
+            <span className={styles.toolbarDivider} />
+            <button type="button" className={styles.toolbarButton}>
+              Filter <span>·</span> <strong>3</strong>
+            </button>
+            <button type="button" className={styles.toolbarButton}>
+              Sort: Lateness ↓
+            </button>
+            <button type="button" className={styles.toolbarButton}>
+              Group by SKU family
+            </button>
           </div>
           <div className={styles.chips}>
             {hiddenProducts.length > 0 ? (
@@ -515,7 +591,10 @@ export function SalesAllocationTable({
             {totals.late > 0 ? <Chip tone="short" label={`${totals.late} late`} /> : null}
             <Chip tone="partial" label={`${totals.shortLines} short of ${totals.lines} lines`} />
             <Chip tone="met" label={`${totals.complete} complete`} />
-            <Chip tone="neutral" label={`${compactQuantity(totals.alloc)} / ${compactQuantity(totals.demand)} units`} />
+            <Chip tone="neutral" label={`${compactQuantity(totals.alloc)} / ${compactQuantity(totals.demand)} allocated`} />
+            <button type="button" className={styles.allocateButton}>
+              Allocate
+            </button>
           </div>
         </div>
 
@@ -535,17 +614,13 @@ export function SalesAllocationTable({
             }
           >
             <div className={`${styles.headerCell} ${styles.headerBand} ${styles.stickyCustomerHeader}`} style={{ gridColumn: "1 / span 2" }}>
-              <span>{rows.length} orders</span>
+              <span>{rows.length} ORDERS</span>
             </div>
-            {hasMisc ? (
-              <div className={`${styles.headerCell} ${styles.headerBand} ${styles.familyEnd}`} style={{ gridColumn: "3 / span 1" }}>
-                Misc
-              </div>
-            ) : null}
-            {families.map(([familyLabel, products]) => (
+            {families.map(([familyLabel, products], familyIndex) => (
               <div
                 key={familyLabel}
                 className={`${styles.headerCell} ${styles.headerBand} ${styles.familyEnd}`}
+                data-family-tone={familyIndex % 2 === 1 ? "tint" : "plain"}
                 style={{ gridColumn: `span ${products.length}` }}
               >
                 {familyLabel}
@@ -554,28 +629,52 @@ export function SalesAllocationTable({
 
             <div className={`${styles.headerCell} ${styles.headerVariant} ${styles.stickyCustomer}`} style={{ gridColumn: "1" }} />
             <div className={`${styles.headerCell} ${styles.headerVariant} ${styles.stickyShip}`} style={{ gridColumn: "2" }} />
-            {hasMisc ? (
-              <div className={`${styles.headerCell} ${styles.headerVariant} ${styles.familyEnd}`}>
-                <span className={styles.variantName}>Custom product</span>
-              </div>
-            ) : null}
-            {visibleVariants.map((product) => (
+            {visibleProducts.map((product) => {
+              const familyProducts = visibleProducts.filter(
+                (entry) => entry.familyLabel === product.familyLabel
+              );
+              const familyIndex = familyProducts.findIndex(
+                (entry) => entry.itemId === product.itemId
+              );
+
+              return (
               <div
                 key={product.itemId}
-                className={`${styles.headerCell} ${styles.headerVariant} ${familyLastVisibleIds.has(product.itemId) ? styles.familyEnd : ""}`}
+                className={`${styles.headerCell} ${styles.headerVariant} ${familyFirstVisibleIds.has(product.itemId) ? styles.familyStart : ""} ${familyLastVisibleIds.has(product.itemId) ? styles.familyEnd : ""}`}
               >
                 <span className={styles.variantName}>{product.variantLabel}</span>
                 <span className={styles.sku}>{product.sku ?? product.unitName}</span>
-                <button
-                  type="button"
-                  className={styles.hideButton}
-                  aria-label={`Hide ${product.label}`}
-                  onClick={() => hideColumn(product.itemId)}
-                >
-                  ×
-                </button>
+                <div className={styles.columnActions}>
+                  <button
+                    type="button"
+                    className={styles.columnAction}
+                    aria-label={`Move ${product.label} left`}
+                    onClick={() => moveColumn(product.itemId, -1)}
+                    disabled={familyIndex === 0}
+                  >
+                    <HugeiconsIcon icon={ArrowLeft01Icon} size={12} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.columnAction}
+                    aria-label={`Move ${product.label} right`}
+                    onClick={() => moveColumn(product.itemId, 1)}
+                    disabled={familyIndex === familyProducts.length - 1}
+                  >
+                    <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.columnAction}
+                    aria-label={`Hide ${product.label}`}
+                    onClick={() => hideColumn(product.itemId)}
+                  >
+                    <HugeiconsIcon icon={DeleteColumnIcon} size={12} strokeWidth={2} />
+                  </button>
+                </div>
               </div>
-            ))}
+              );
+            })}
 
             <div className={`${styles.headerCell} ${styles.headerCoverage} ${styles.stickyCustomer}`} style={{ gridColumn: "1" }}>
               <span>Coverage</span>
@@ -583,15 +682,13 @@ export function SalesAllocationTable({
             </div>
             <div className={`${styles.headerCell} ${styles.headerCoverage} ${styles.stickyShip}`} style={{ gridColumn: "2" }}>
               <span>Today</span>
-              <small>{formatShipDate(todayBusinessDate())}</small>
+              <small>{todayLabel()}</small>
             </div>
-            {hasMisc ? (
-              <div className={`${styles.headerCell} ${styles.headerCoverage} ${styles.familyEnd}`} />
-            ) : null}
-            {visibleVariants.map((product) => (
+            {visibleProducts.map((product) => (
               <CoverageHeader
                 key={product.itemId}
                 coverage={coverageById.get(product.itemId)}
+                isFamilyStart={familyFirstVisibleIds.has(product.itemId)}
                 isFamilyEnd={familyLastVisibleIds.has(product.itemId)}
               />
             ))}
@@ -607,8 +704,8 @@ export function SalesAllocationTable({
                   row={row}
                   progress={progress}
                   lateDays={late?.daysLate ?? null}
-                  hasMisc={hasMisc}
-                  visibleVariants={visibleVariants}
+                  visibleProducts={visibleProducts}
+                  familyFirstVisibleIds={familyFirstVisibleIds}
                   familyLastVisibleIds={familyLastVisibleIds}
                   hover={hover}
                   selected={selected}
@@ -625,13 +722,11 @@ export function SalesAllocationTable({
             <div className={`${styles.footerCell} ${styles.stickyShipFooter}`}>
               <span>vs pool</span>
             </div>
-            {hasMisc ? (
-              <div className={`${styles.footerCell} ${styles.familyEnd}`} />
-            ) : null}
-            {visibleVariants.map((product) => (
+            {visibleProducts.map((product) => (
               <CoverageFooter
                 key={product.itemId}
                 coverage={coverageById.get(product.itemId)}
+                isFamilyStart={familyFirstVisibleIds.has(product.itemId)}
                 isFamilyEnd={familyLastVisibleIds.has(product.itemId)}
               />
             ))}
@@ -653,8 +748,8 @@ function AllocationGridRow({
   row,
   progress,
   lateDays,
-  hasMisc,
-  visibleVariants,
+  visibleProducts,
+  familyFirstVisibleIds,
   familyLastVisibleIds,
   hover,
   selected,
@@ -665,8 +760,8 @@ function AllocationGridRow({
   row: AllocationRow;
   progress: RowProgress;
   lateDays: number | null;
-  hasMisc: boolean;
-  visibleVariants: AllocationProduct[];
+  visibleProducts: AllocationProduct[];
+  familyFirstVisibleIds: Set<string>;
   familyLastVisibleIds: Set<string>;
   hover: HoverState;
   selected: { rowId: string; colId: string } | null;
@@ -676,12 +771,14 @@ function AllocationGridRow({
 }) {
   const rowTone =
     lateDays != null ? "late" : progress.state === "complete" ? "complete" : progress.state;
+  const today = isToday(row.order.shipDate);
 
   return (
     <>
       <div
         className={`${styles.dataCell} ${styles.customerCell} ${styles.stickyCustomer} ${hover.rowId === row.order.id ? styles.hovered : ""}`}
         data-row-tone={rowTone}
+        data-today={today ? "true" : undefined}
         onMouseEnter={() => onHover({ rowId: row.order.id, colId: hover.colId })}
       >
         <span className={styles.rail} />
@@ -693,37 +790,17 @@ function AllocationGridRow({
       </div>
       <div
         className={`${styles.dataCell} ${styles.shipCell} ${styles.stickyShip} ${hover.rowId === row.order.id ? styles.hovered : ""}`}
+        data-today={today ? "true" : undefined}
         onMouseEnter={() => onHover({ rowId: row.order.id, colId: hover.colId })}
       >
-        <span className={styles.shipDate}>{formatShipDate(row.order.shipDate)}</span>
-        <span className={styles.relativeBadge} data-ship-tone={getShipTone(row, lateDays)}>
-          {relativeShipLabel(row.order.shipDate)}
-        </span>
+        <span className={styles.shipDate}>{today ? "Today" : formatShipDate(row.order.shipDate)}</span>
+        {lateDays != null ? (
+          <span className={styles.relativeBadge} data-ship-tone="late">
+            {relativeShipLabel(row.order.shipDate)}
+          </span>
+        ) : null}
       </div>
-      {hasMisc ? (
-        <div
-          className={`${styles.dataCell} ${styles.miscCell} ${styles.familyEnd} ${hover.rowId === row.order.id ? styles.hovered : ""} ${hover.colId === "misc" ? styles.hovered : ""}`}
-          onMouseEnter={() => onHover({ rowId: row.order.id, colId: "misc" })}
-        >
-          {row.miscCells.map((cell) => (
-            <button
-              key={cell.line.id}
-              type="button"
-              className={styles.miscButton}
-              data-status={getCellStatus(cell)}
-              onClick={() => onOpenAllocation(row, cell)}
-            >
-              <span className={styles.miscName}>{cell.product.label}</span>
-              <span className={styles.miscQty}>
-                <strong>{compactQuantity(cell.alloc)}</strong>
-                <span> / </span>
-                {compactQuantity(cell.demand)}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {visibleVariants.map((product) => {
+      {visibleProducts.map((product) => {
         const cell = row.cells.get(product.itemId) ?? null;
         const isHovered =
           hover.rowId === row.order.id || hover.colId === product.itemId;
@@ -738,10 +815,12 @@ function AllocationGridRow({
             cell={cell}
             row={row}
             product={product}
+            isFamilyStart={familyFirstVisibleIds.has(product.itemId)}
             isFamilyEnd={familyLastVisibleIds.has(product.itemId)}
             isHovered={isHovered}
             isIntersection={isIntersection}
             isSelected={isSelected}
+            isToday={today}
             onHover={() => onHover({ rowId: row.order.id, colId: product.itemId })}
             onOpenAllocation={onOpenAllocation}
           />
@@ -751,35 +830,28 @@ function AllocationGridRow({
   );
 }
 
-function getShipTone(row: AllocationRow, lateDays: number | null) {
-  const progress = rowProgress(row);
-  if (progress.state === "complete") return "complete";
-  if (lateDays != null) return "late";
-  const days = daysFromToday(row.order.shipDate);
-  if (days == null) return "neutral";
-  if (days <= 2) return "soon";
-  if (days <= 5) return "tight";
-  return "neutral";
-}
-
 function AllocationMatrixCell({
   cell,
   row,
   product,
+  isFamilyStart,
   isFamilyEnd,
   isHovered,
   isIntersection,
   isSelected,
+  isToday,
   onHover,
   onOpenAllocation,
 }: {
   cell: AllocationCell | null;
   row: AllocationRow;
   product: AllocationProduct;
+  isFamilyStart: boolean;
   isFamilyEnd: boolean;
   isHovered: boolean;
   isIntersection: boolean;
   isSelected: boolean;
+  isToday: boolean;
   onHover: () => void;
   onOpenAllocation: (row: AllocationRow, cell: AllocationCell) => void;
 }) {
@@ -789,8 +861,9 @@ function AllocationMatrixCell({
   return (
     <button
       type="button"
-      className={`${styles.dataCell} ${styles.matrixCell} ${isFamilyEnd ? styles.familyEnd : ""} ${isHovered ? styles.hovered : ""} ${isIntersection ? styles.intersection : ""} ${isSelected ? styles.selected : ""}`}
+      className={`${styles.dataCell} ${styles.matrixCell} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""} ${isHovered ? styles.hovered : ""} ${isIntersection ? styles.intersection : ""} ${isSelected ? styles.selected : ""}`}
       data-status={status}
+      data-today={isToday ? "true" : undefined}
       onMouseEnter={onHover}
       onClick={() => {
         if (cell) onOpenAllocation(row, cell);
@@ -815,13 +888,15 @@ function AllocationMatrixCell({
 
 function CoverageHeader({
   coverage,
+  isFamilyStart,
   isFamilyEnd,
 }: {
   coverage: ColumnCoverage | undefined;
+  isFamilyStart: boolean;
   isFamilyEnd: boolean;
 }) {
   if (!coverage) {
-    return <div className={`${styles.headerCell} ${styles.headerCoverage} ${isFamilyEnd ? styles.familyEnd : ""}`} />;
+    return <div className={`${styles.headerCell} ${styles.headerCoverage} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""}`} />;
   }
 
   const label = getCoverageLabel(coverage);
@@ -832,7 +907,7 @@ function CoverageHeader({
   const poolTitle = `Stock ${compactQuantity(coverage.stock)} · MO ${compactQuantity(coverage.incoming)} · Need ${compactQuantity(coverage.demand)}`;
 
   return (
-    <div className={`${styles.headerCell} ${styles.headerCoverage} ${isFamilyEnd ? styles.familyEnd : ""}`}>
+    <div className={`${styles.headerCell} ${styles.headerCoverage} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""}`}>
       <div className={styles.verdict} data-tone={label.tone}>{label.text}</div>
       <div className={styles.coverageBar} title={poolTitle} aria-label={poolTitle}>
         <span className={styles.stockSegment} style={{ width: `${stockWidth}%` }} />
@@ -849,19 +924,21 @@ function CoverageHeader({
 
 function CoverageFooter({
   coverage,
+  isFamilyStart,
   isFamilyEnd,
 }: {
   coverage: ColumnCoverage | undefined;
+  isFamilyStart: boolean;
   isFamilyEnd: boolean;
 }) {
   if (!coverage) {
-    return <div className={`${styles.footerCell} ${isFamilyEnd ? styles.familyEnd : ""}`} />;
+    return <div className={`${styles.footerCell} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""}`} />;
   }
 
   const label = getCoverageLabel(coverage);
 
   return (
-    <div className={`${styles.footerCell} ${styles.totalCell} ${isFamilyEnd ? styles.familyEnd : ""}`}>
+    <div className={`${styles.footerCell} ${styles.totalCell} ${isFamilyStart ? styles.familyStart : ""} ${isFamilyEnd ? styles.familyEnd : ""}`}>
       <div>
         <span>{compactQuantity(coverage.alloc)} / {compactQuantity(coverage.demand)}</span>
         <strong>{compactQuantity(coverage.pool)}</strong>
