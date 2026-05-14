@@ -4,6 +4,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { xeroConnections } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { captureAppError } from "@/lib/observability/sentry";
 import {
   createXeroClient,
   tokenSetToPersistable,
@@ -97,6 +98,21 @@ export const GET = apiHandler(async (request: Request) => {
       authorizedTenants,
     });
   } catch (error) {
+    captureAppError(error, {
+      route: "/api/xero/callback",
+      method: "GET",
+      module: "xero",
+      operation: "oauth_callback",
+      source: "xero_oauth_callback",
+      appDebug: {
+        error_name: (error as Error)?.name,
+        oauth_error: (error as { error?: string })?.error,
+        status:
+          (error as { response?: { statusCode?: number } })?.response
+            ?.statusCode ??
+          (error as { statusCode?: number })?.statusCode,
+      },
+    });
     console.error("Xero OAuth callback failed:", {
       name: (error as Error)?.name,
       status:
