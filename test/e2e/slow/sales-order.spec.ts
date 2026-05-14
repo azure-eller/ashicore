@@ -1266,6 +1266,7 @@ test.describe("Sales order flow", () => {
     const partialOrderId = await createDraftSalesOrder({
       customerId: partialCustomerResult.body.id as string,
       notes: "Partial shortage coverage",
+      confirmOversell: true,
       lines: [
         {
           itemId: shortItemResult.body.id as string,
