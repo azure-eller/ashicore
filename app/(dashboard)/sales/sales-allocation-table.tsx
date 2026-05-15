@@ -651,6 +651,10 @@ function CoverageSummaryCell({ coverage }: { coverage: ColumnCoverage | undefine
           <div className={styles.verdict} data-tone={label.tone}>
             {label.text}
           </div>
+          <div className={styles.coverageSubline}>
+            <span>pool {compactQuantity(coverage.pool)}</span>
+            <span>need {compactQuantity(coverage.demand)}</span>
+          </div>
         </div>
       </TooltipTrigger>
       <TooltipContent
@@ -1208,6 +1212,7 @@ export function SalesAllocationTable({
         rowHeight={42}
         headerHeight={54}
         groupHeaderHeight={34}
+        columnHoverHighlight
         defaultColDef={{
           resizable: true,
           suppressHeaderMenuButton: true,

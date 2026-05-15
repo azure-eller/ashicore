@@ -76,6 +76,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   onRowDragEnd?: (event: RowDragEndEvent<TData>) => void;
   onSortChange?: (hasActiveSort: boolean) => void;
   resetRowDataOnUpdate?: boolean;
+  columnHoverHighlight?: boolean;
   rowClassRules?: RowClassRules<TData>;
   onGridReady?: (event: GridReadyEvent<TData>) => void;
   onFirstDataRendered?: (event: FirstDataRenderedEvent<TData>) => void;
@@ -186,6 +187,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   onRowDragEnd,
   onSortChange,
   resetRowDataOnUpdate = false,
+  columnHoverHighlight = false,
   rowClassRules,
   onGridReady,
   onFirstDataRendered,
@@ -386,6 +388,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           rowHeight={rowHeight}
           headerHeight={headerHeight}
           groupHeaderHeight={groupHeaderHeight}
+          columnHoverHighlight={columnHoverHighlight}
           quickFilterText={enableQuickFilter ? searchValue : undefined}
           rowClassRules={rowClassRules}
           rowSelection={rowSelection}

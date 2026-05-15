@@ -37,6 +37,16 @@
   background-color: color-mix(in oklch, var(--muted) 45%, transparent);
 }
 
+.grid :global(.ag-cell.ag-column-hover),
+.grid :global(.ag-header-cell.ag-column-hover),
+.grid :global(.ag-header-group-cell.ag-column-hover) {
+  background-color: color-mix(in oklch, var(--primary) 7%, transparent);
+}
+
+.grid :global(.ag-row-hover .ag-cell.ag-column-hover) {
+  background-color: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
 .grid :global(.ag-row-selected) {
   background-color: color-mix(in oklch, var(--primary) 8%, transparent);
 }

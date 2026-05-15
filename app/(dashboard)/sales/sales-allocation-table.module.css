@@ -288,8 +288,10 @@
   display: flex;
   width: 100%;
   height: 100%;
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
+  gap: 0.125rem;
   padding: 0 0.5rem;
 }
 
@@ -297,6 +299,7 @@
   overflow: hidden;
   font-size: 0.75rem;
   font-weight: 700;
+  line-height: 1;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -316,6 +319,21 @@
 
 .verdict[data-tone="met"] {
   color: var(--chart-2);
+}
+
+.coverageSubline {
+  display: flex;
+  max-width: 100%;
+  justify-content: center;
+  gap: 0.3125rem;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .totalCell {
