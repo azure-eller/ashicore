@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ICellRendererParams, RowDragEndEvent } from "ag-grid-community";
+import type { ICellRendererParams } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import {
@@ -526,17 +526,10 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
         onSortChange={setHasActiveSort}
-        onRowDragEnd={(event: RowDragEndEvent<SalesOrderListRow>) => {
+        onManagedRowDragReorder={(orderedRows) => {
           if (!reorderEnabled || reorderMutation.isPending) {
             return;
           }
-
-          const orderedRows: SalesOrderListRow[] = [];
-          event.api.forEachNodeAfterFilterAndSort((node) => {
-            if (node.data) {
-              orderedRows.push(node.data);
-            }
-          });
 
           reorderMutation.mutate(orderedRows);
         }}

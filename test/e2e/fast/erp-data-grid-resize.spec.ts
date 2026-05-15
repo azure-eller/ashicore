@@ -132,10 +132,10 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
   expect(itemResult.status).toBe(201);
 
   const orderIds: string[] = [];
-  for (const marker of ["A", "B"]) {
+  for (const marker of ["A", "B", "C"]) {
     const orderResult = await createSalesOrder({
       customerId: customerResult.body.id as string,
-      status: "draft",
+      status: "open",
       requestedDate: "2026-05-20",
       notes: `Grid drag ${marker} ${suffix}`,
       lines: [
@@ -159,7 +159,7 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
     .filter(
       (order) =>
         !orderIds.includes(order.id) &&
-        ["draft", "confirmed", "partially_shipped"].includes(order.status)
+        order.status === "open"
     )
     .map((order) => order.id);
   const rankResponse = await testFetch("/api/sales-orders/priority-ranks", {
@@ -174,18 +174,42 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
   const centerRows = page.locator(
     '[data-slot="erp-data-grid"] .ag-center-cols-container [role="row"][row-index]'
   );
-  await expect(centerRows.nth(1)).toBeVisible();
+  await expect(centerRows.nth(2)).toBeVisible();
 
   const firstRowBefore = await centerRows.nth(0).textContent();
   const secondRowBefore = await centerRows.nth(1).textContent();
+  const thirdRowBefore = await centerRows.nth(2).textContent();
   expect(firstRowBefore).toContain(`Grid drag A ${suffix}`);
   expect(secondRowBefore).toContain(`Grid drag B ${suffix}`);
+  expect(thirdRowBefore).toContain(`Grid drag C ${suffix}`);
+
+  const staleOrderResult = await createSalesOrder({
+    customerId: customerResult.body.id as string,
+    status: "open",
+    requestedDate: "2026-05-20",
+    notes: `Grid drag stale ${suffix}`,
+    lines: [
+      {
+        itemId: itemResult.body.id as string,
+        quantity: "1",
+        unitPrice: "10",
+      },
+    ],
+  });
+  expect(staleOrderResult.status).toBe(201);
+
   const firstHandle = centerRows.nth(0).locator(".ag-row-drag").first();
-  const secondRowBox = await centerRows.nth(1).boundingBox();
+  const thirdRowBox = await centerRows.nth(2).boundingBox();
   const firstHandleBox = await firstHandle.boundingBox();
 
-  if (!firstHandleBox || !secondRowBox || !firstRowBefore || !secondRowBefore) {
-    throw new Error("Expected draggable first two sales order rows");
+  if (
+    !firstHandleBox ||
+    !thirdRowBox ||
+    !firstRowBefore ||
+    !secondRowBefore ||
+    !thirdRowBefore
+  ) {
+    throw new Error("Expected draggable first three sales order rows");
   }
 
   await page.mouse.move(
@@ -195,7 +219,7 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
   await page.mouse.down();
   await page.mouse.move(
     firstHandleBox.x + firstHandleBox.width / 2,
-    secondRowBox.y + secondRowBox.height + 4,
+    thirdRowBox.y + thirdRowBox.height + 4,
     { steps: 8 }
   );
 
@@ -208,15 +232,81 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
   await expect
     .poll(async () =>
       centerRows.evaluateAll((rows, markers) => {
-        const [firstMarker, secondMarker] = markers as string[];
+        const [firstMarker, secondMarker, thirdMarker] = markers as string[];
         const firstIndex = rows.findIndex((row) =>
-            row.textContent?.includes(firstMarker)
-          );
+          row.textContent?.includes(firstMarker)
+        );
         const secondIndex = rows.findIndex((row) =>
-            row.textContent?.includes(secondMarker)
-          );
-        return secondIndex >= 0 && firstIndex > secondIndex;
-      }, [`Grid drag A ${suffix}`, `Grid drag B ${suffix}`])
+          row.textContent?.includes(secondMarker)
+        );
+        const thirdIndex = rows.findIndex((row) =>
+          row.textContent?.includes(thirdMarker)
+        );
+        return secondIndex >= 0 && thirdIndex >= 0 && firstIndex > thirdIndex;
+      }, [
+        `Grid drag A ${suffix}`,
+        `Grid drag B ${suffix}`,
+        `Grid drag C ${suffix}`,
+      ])
+    )
+    .toBe(true);
+
+  const movedHandle = centerRows
+    .filter({ hasText: `Grid drag A ${suffix}` })
+    .first()
+    .locator(".ag-row-drag")
+    .first();
+  await expect(movedHandle).toBeVisible();
+  const movedHandleBox = await movedHandle.boundingBox();
+  const secondMarkerRowBox = await centerRows
+    .filter({ hasText: `Grid drag B ${suffix}` })
+    .first()
+    .boundingBox();
+
+  if (!movedHandleBox || !secondMarkerRowBox) {
+    throw new Error("Expected moved sales order row to remain draggable");
+  }
+
+  await page.mouse.move(
+    movedHandleBox.x + movedHandleBox.width / 2,
+    movedHandleBox.y + movedHandleBox.height / 2
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    movedHandleBox.x + movedHandleBox.width / 2,
+    secondMarkerRowBox.y + 2,
+    { steps: 8 }
+  );
+
+  await expect(
+    page.locator(".ag-row-highlight-below, .ag-row-highlight-above").first()
+  ).toBeVisible();
+
+  await page.mouse.up();
+
+  await expect
+    .poll(async () =>
+      centerRows.evaluateAll((rows, markers) => {
+        const [firstMarker, secondMarker, thirdMarker] = markers as string[];
+        const firstIndex = rows.findIndex((row) =>
+          row.textContent?.includes(firstMarker)
+        );
+        const secondIndex = rows.findIndex((row) =>
+          row.textContent?.includes(secondMarker)
+        );
+        const thirdIndex = rows.findIndex((row) =>
+          row.textContent?.includes(thirdMarker)
+        );
+        return (
+          firstIndex >= 0 &&
+          firstIndex < secondIndex &&
+          firstIndex < thirdIndex
+        );
+      }, [
+        `Grid drag A ${suffix}`,
+        `Grid drag B ${suffix}`,
+        `Grid drag C ${suffix}`,
+      ])
     )
     .toBe(true);
   expect(runtimeErrors).toEqual([]);

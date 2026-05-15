@@ -485,6 +485,31 @@ function assertSameStringSet(
   }
 }
 
+function mergeSubmittedOrderIds(
+  currentIds: string[],
+  submittedIds: string[]
+) {
+  const submittedIdSet = new Set(submittedIds);
+  let submittedIndex = 0;
+
+  const mergedIds = currentIds.map((id) => {
+    if (!submittedIdSet.has(id)) {
+      return id;
+    }
+
+    return submittedIds[submittedIndex++] ?? id;
+  });
+
+  if (submittedIndex !== submittedIds.length) {
+    throw new ManufacturingError(
+      "Manufacturing order ranking does not match active orders.",
+      400
+    );
+  }
+
+  return mergedIds;
+}
+
 async function assertPriorityRankAvailableInTx(
   tx: Tx,
   orgId: string,
@@ -3544,7 +3569,11 @@ export async function reorderManufacturingOrderPriorityRanks(
       .for("update");
 
     const openOrders = await tx
-      .select({ id: manufacturingOrders.id })
+      .select({
+        id: manufacturingOrders.id,
+        priorityRank: manufacturingOrders.priorityRank,
+        orderNumber: manufacturingOrders.orderNumber,
+      })
       .from(manufacturingOrders)
       .where(
         and(
@@ -3553,13 +3582,11 @@ export async function reorderManufacturingOrderPriorityRanks(
           isNull(manufacturingOrders.deletedAt)
         )
       )
+      .orderBy(
+        asc(sql`COALESCE(${manufacturingOrders.priorityRank}, 2147483647)`),
+        asc(manufacturingOrders.orderNumber)
+      )
       .for("update");
-
-    assertSameStringSet(
-      openOrders.map((order) => order.id),
-      payload.orderIds,
-      "Payload must include all open manufacturing orders."
-    );
 
     assertSameStringSet(
       orders.map((order) => order.id),
@@ -3579,6 +3606,11 @@ export async function reorderManufacturingOrderPriorityRanks(
       );
     }
 
+    const orderedIds = mergeSubmittedOrderIds(
+      openOrders.map((order) => order.id),
+      payload.orderIds
+    );
+
     const now = new Date();
     await tx
       .update(manufacturingOrders)
@@ -3594,7 +3626,7 @@ export async function reorderManufacturingOrderPriorityRanks(
         )
       );
 
-    for (const [index, id] of payload.orderIds.entries()) {
+    for (const [index, id] of orderedIds.entries()) {
       await tx
         .update(manufacturingOrders)
         .set({
@@ -3604,7 +3636,7 @@ export async function reorderManufacturingOrderPriorityRanks(
         .where(eq(manufacturingOrders.id, id));
     }
 
-    return { updated: payload.orderIds.length };
+    return { updated: orderedIds.length };
   });
 }
 

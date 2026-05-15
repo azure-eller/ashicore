@@ -953,6 +953,25 @@ function assertSameStringSet(actual: string[], expected: string[], message: stri
   }
 }
 
+function mergeSubmittedOrderIds(currentIds: string[], submittedIds: string[]) {
+  const submittedIdSet = new Set(submittedIds);
+  let submittedIndex = 0;
+
+  const mergedIds = currentIds.map((id) => {
+    if (!submittedIdSet.has(id)) {
+      return id;
+    }
+
+    return submittedIds[submittedIndex++] ?? id;
+  });
+
+  if (submittedIndex !== submittedIds.length) {
+    throw new SalesError("Sales order ranking does not match open orders.", 400);
+  }
+
+  return mergedIds;
+}
+
 async function rerankOpenSalesOrdersInTx(tx: Tx, orgId: string) {
   const rows = await tx
     .select({ id: salesOrders.id })
@@ -4032,7 +4051,11 @@ export async function reorderSalesOrderPriorityRanks(
       .for("update");
 
     const openOrders = await tx
-      .select({ id: salesOrders.id })
+      .select({
+        id: salesOrders.id,
+        priorityRank: salesOrders.priorityRank,
+        orderNumber: salesOrders.orderNumber,
+      })
       .from(salesOrders)
       .where(
         and(
@@ -4041,13 +4064,11 @@ export async function reorderSalesOrderPriorityRanks(
           isNull(salesOrders.deletedAt)
         )
       )
+      .orderBy(
+        asc(sql`COALESCE(${salesOrders.priorityRank}, 2147483647)`),
+        asc(salesOrders.orderNumber)
+      )
       .for("update");
-
-    assertSameStringSet(
-      openOrders.map((order) => order.id),
-      payload.orderIds,
-      "Payload must include all open sales orders."
-    );
 
     assertSameStringSet(
       orders.map((order) => order.id),
@@ -4059,6 +4080,11 @@ export async function reorderSalesOrderPriorityRanks(
     if (invalidOrder) {
       throw new SalesError("Only open sales orders can be reordered.", 400);
     }
+
+    const orderedIds = mergeSubmittedOrderIds(
+      openOrders.map((order) => order.id),
+      payload.orderIds
+    );
 
     const now = new Date();
     await tx
@@ -4075,7 +4101,7 @@ export async function reorderSalesOrderPriorityRanks(
         )
       );
 
-    for (const [index, id] of payload.orderIds.entries()) {
+    for (const [index, id] of orderedIds.entries()) {
       await tx
         .update(salesOrders)
         .set({
@@ -4085,7 +4111,7 @@ export async function reorderSalesOrderPriorityRanks(
         .where(eq(salesOrders.id, id));
     }
 
-    return { updated: payload.orderIds.length };
+    return { updated: orderedIds.length };
   });
 }
 

@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
@@ -55,10 +61,88 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   onSelectionChange?: (rows: TData[]) => void;
   enableManagedRowDrag?: boolean;
   suppressMoveWhenRowDragging?: boolean;
+  onManagedRowDragReorder?: (rows: TData[]) => void;
   onRowDragEnd?: (event: RowDragEndEvent<TData>) => void;
   onSortChange?: (hasActiveSort: boolean) => void;
   resetRowDataOnUpdate?: boolean;
 };
+
+function arraysEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function hasSameUniqueMembers(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+
+  const leftSet = new Set(left);
+  if (leftSet.size !== left.length) return false;
+
+  return right.every((value) => leftSet.has(value));
+}
+
+function getResolvedRowId<TData extends { id: string }>(
+  row: TData,
+  getRowId?: (row: TData) => string
+) {
+  return getRowId ? getRowId(row) : row.id;
+}
+
+function buildRowsFromDropTarget<TData extends { id: string }>(
+  sourceRows: TData[],
+  event: RowDragEndEvent<TData>,
+  getRowId?: (row: TData) => string
+) {
+  const drop = event.rowsDrop;
+  if (
+    !drop?.allowed ||
+    !drop.target?.data ||
+    drop.position === "none" ||
+    drop.position === "inside"
+  ) {
+    return null;
+  }
+
+  const draggedIds = new Set(
+    drop.rows
+      .map((node) =>
+        node.data ? getResolvedRowId(node.data, getRowId) : null
+      )
+      .filter((id): id is string => id != null)
+  );
+  if (draggedIds.size === 0) {
+    return null;
+  }
+
+  const targetId = getResolvedRowId(drop.target.data, getRowId);
+  if (draggedIds.has(targetId)) {
+    return null;
+  }
+
+  const draggedRows = sourceRows.filter((row) =>
+    draggedIds.has(getResolvedRowId(row, getRowId))
+  );
+  const remainingRows = sourceRows.filter(
+    (row) => !draggedIds.has(getResolvedRowId(row, getRowId))
+  );
+  const targetIndex = remainingRows.findIndex(
+    (row) => getResolvedRowId(row, getRowId) === targetId
+  );
+
+  if (targetIndex < 0 || draggedRows.length !== draggedIds.size) {
+    return null;
+  }
+
+  const insertIndex =
+    drop.position === "above" ? targetIndex : targetIndex + 1;
+
+  return [
+    ...remainingRows.slice(0, insertIndex),
+    ...draggedRows,
+    ...remainingRows.slice(insertIndex),
+  ];
+}
 
 export function ERPDataGrid<TData extends { id: string }>({
   rows,
@@ -77,10 +161,21 @@ export function ERPDataGrid<TData extends { id: string }>({
   onSelectionChange,
   enableManagedRowDrag = false,
   suppressMoveWhenRowDragging = false,
+  onManagedRowDragReorder,
   onRowDragEnd,
   onSortChange,
   resetRowDataOnUpdate = false,
 }: ERPDataGridProps<TData>) {
+  const managedRowDragStateRef = useRef({
+    enableManagedRowDrag,
+    getRowId,
+    onManagedRowDragReorder,
+    rows,
+    searchValue,
+  });
+  const managedRowDragTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const defaultColDef = useMemo<ColDef<TData>>(
     () => ({
       minWidth: 88,
@@ -121,6 +216,110 @@ export function ERPDataGrid<TData extends { id: string }>({
     }),
     [height]
   );
+
+  useEffect(() => {
+    managedRowDragStateRef.current = {
+      enableManagedRowDrag,
+      getRowId,
+      onManagedRowDragReorder,
+      rows,
+      searchValue,
+    };
+  }, [enableManagedRowDrag, getRowId, onManagedRowDragReorder, rows, searchValue]);
+
+  useEffect(
+    () => () => {
+      if (managedRowDragTimeoutRef.current != null) {
+        clearTimeout(managedRowDragTimeoutRef.current);
+      }
+    },
+    []
+  );
+
+  const getId = (row: TData) => getResolvedRowId(row, getRowId);
+
+  const handleRowDragEnd = (event: RowDragEndEvent<TData>) => {
+    onRowDragEnd?.(event);
+
+    if (!onManagedRowDragReorder) {
+      return;
+    }
+
+    if (managedRowDragTimeoutRef.current != null) {
+      clearTimeout(managedRowDragTimeoutRef.current);
+    }
+
+    const sourceRows = rows;
+    const sourceIds = sourceRows.map(getId);
+
+    managedRowDragTimeoutRef.current = setTimeout(() => {
+      managedRowDragTimeoutRef.current = null;
+
+      if (event.api.isDestroyed()) {
+        return;
+      }
+
+      const latestState = managedRowDragStateRef.current;
+      const latestSourceIds = latestState.rows.map((row) =>
+        getResolvedRowId(row, latestState.getRowId)
+      );
+      if (
+        !latestState.enableManagedRowDrag ||
+        !arraysEqual(latestSourceIds, sourceIds) ||
+        latestState.searchValue?.trim()
+      ) {
+        return;
+      }
+
+      const hasActiveSort = event.api
+        .getColumnState()
+        .some((column) => column.sort != null);
+      if (hasActiveSort || event.api.isAnyFilterPresent()) {
+        return;
+      }
+
+      const orderedRows: TData[] = [];
+      event.api.forEachNodeAfterFilterAndSort((node) => {
+        if (node.data) {
+          orderedRows.push(node.data);
+        }
+      });
+
+      const nextIds = orderedRows.map((row) =>
+        getResolvedRowId(row, latestState.getRowId)
+      );
+      if (
+        nextIds.length === sourceIds.length &&
+        hasSameUniqueMembers(nextIds, sourceIds) &&
+        !arraysEqual(nextIds, sourceIds)
+      ) {
+        latestState.onManagedRowDragReorder?.(orderedRows);
+        return;
+      }
+
+      const dropTargetRows = buildRowsFromDropTarget(
+        sourceRows,
+        event,
+        latestState.getRowId
+      );
+      if (!dropTargetRows) {
+        return;
+      }
+
+      const dropTargetIds = dropTargetRows.map((row) =>
+        getResolvedRowId(row, latestState.getRowId)
+      );
+      if (
+        dropTargetIds.length !== sourceIds.length ||
+        !hasSameUniqueMembers(dropTargetIds, sourceIds) ||
+        arraysEqual(dropTargetIds, sourceIds)
+      ) {
+        return;
+      }
+
+      latestState.onManagedRowDragReorder?.(dropTargetRows);
+    }, 0);
+  };
 
   return (
     <section className={cn("space-y-3", styles.root, className)}>
@@ -170,6 +369,9 @@ export function ERPDataGrid<TData extends { id: string }>({
           selectionColumnDef={enableRowSelection ? selectionColumnDef : undefined}
           rowDragManaged={enableManagedRowDrag}
           suppressMoveWhenRowDragging={suppressMoveWhenRowDragging}
+          suppressRowDrag={
+            onManagedRowDragReorder ? !enableManagedRowDrag : undefined
+          }
           suppressCellFocus
           suppressColumnMoveAnimation
           rowDragText={(params) => params.defaultTextValue}
@@ -179,7 +381,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
           }}
-          onRowDragEnd={onRowDragEnd}
+          onRowDragEnd={handleRowDragEnd}
           onSortChanged={(event: SortChangedEvent<TData>) => {
             onSortChange?.(
               event.api.getColumnState().some((column) => column.sort != null)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ICellRendererParams, RowDragEndEvent } from "ag-grid-community";
+import type { ICellRendererParams } from "ag-grid-community";
 import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
@@ -532,17 +532,10 @@ export function OrdersTable({
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
         onSortChange={setHasActiveSort}
-        onRowDragEnd={(event: RowDragEndEvent<ManufacturingOrderListRow>) => {
+        onManagedRowDragReorder={(orderedRows) => {
           if (!reorderEnabled || reorderMutation.isPending) {
             return;
           }
-
-          const orderedRows: ManufacturingOrderListRow[] = [];
-          event.api.forEachNodeAfterFilterAndSort((node) => {
-            if (node.data) {
-              orderedRows.push(node.data);
-            }
-          });
 
           reorderMutation.mutate(orderedRows);
         }}
