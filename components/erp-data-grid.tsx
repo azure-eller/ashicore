@@ -13,9 +13,13 @@ import {
   ModuleRegistry,
   themeQuartz,
   type ColDef,
+  type ColGroupDef,
+  type FirstDataRenderedEvent,
+  type GridReadyEvent,
   type GetRowIdParams,
   type IRowNode,
   type RowDragEndEvent,
+  type RowClassRules,
   type SortChangedEvent,
   type SelectionChangedEvent,
 } from "ag-grid-community";
@@ -46,13 +50,20 @@ const erpGridTheme = themeQuartz.withParams({
 
 export type ERPDataGridProps<TData extends { id: string }> = {
   rows: TData[];
-  columns: ColDef<TData>[];
+  columns: Array<ColDef<TData> | ColGroupDef<TData>>;
+  pinnedTopRows?: TData[];
+  pinnedBottomRows?: TData[];
   getRowId?: (row: TData) => string;
   height?: string | number;
+  rowHeight?: number;
+  headerHeight?: number;
+  groupHeaderHeight?: number;
+  defaultColDef?: ColDef<TData>;
   emptyMessage?: string;
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchAriaLabel?: string;
+  enableQuickFilter?: boolean;
   toolbarContent?: ReactNode;
   actions?: ReactNode;
   className?: string;
@@ -65,6 +76,9 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   onRowDragEnd?: (event: RowDragEndEvent<TData>) => void;
   onSortChange?: (hasActiveSort: boolean) => void;
   resetRowDataOnUpdate?: boolean;
+  rowClassRules?: RowClassRules<TData>;
+  onGridReady?: (event: GridReadyEvent<TData>) => void;
+  onFirstDataRendered?: (event: FirstDataRenderedEvent<TData>) => void;
 };
 
 function arraysEqual(left: string[], right: string[]) {
@@ -147,12 +161,19 @@ function buildRowsFromDropTarget<TData extends { id: string }>(
 export function ERPDataGrid<TData extends { id: string }>({
   rows,
   columns,
+  pinnedTopRows,
+  pinnedBottomRows,
   getRowId,
   height = "calc(100dvh - 10.75rem)",
+  rowHeight = 54,
+  headerHeight = 42,
+  groupHeaderHeight,
+  defaultColDef: defaultColDefOverrides,
   emptyMessage = "No rows found.",
   searchValue,
   onSearchChange,
   searchAriaLabel = "Search rows",
+  enableQuickFilter = true,
   toolbarContent,
   actions,
   className,
@@ -165,6 +186,9 @@ export function ERPDataGrid<TData extends { id: string }>({
   onRowDragEnd,
   onSortChange,
   resetRowDataOnUpdate = false,
+  rowClassRules,
+  onGridReady,
+  onFirstDataRendered,
 }: ERPDataGridProps<TData>) {
   const managedRowDragStateRef = useRef({
     enableManagedRowDrag,
@@ -182,8 +206,9 @@ export function ERPDataGrid<TData extends { id: string }>({
       resizable: true,
       sortable: true,
       suppressHeaderMenuButton: true,
+      ...defaultColDefOverrides,
     }),
-    []
+    [defaultColDefOverrides]
   );
   const rowSelection = useMemo(
     () =>
@@ -350,15 +375,19 @@ export function ERPDataGrid<TData extends { id: string }>({
         <AgGridReact<TData>
           rowData={rows}
           columnDefs={columns}
+          pinnedTopRowData={pinnedTopRows}
+          pinnedBottomRowData={pinnedBottomRows}
           defaultColDef={defaultColDef}
           getRowId={({ data }: GetRowIdParams<TData>) =>
             getRowId ? getRowId(data) : data.id
           }
           resetRowDataOnUpdate={resetRowDataOnUpdate}
           theme={erpGridTheme}
-          rowHeight={54}
-          headerHeight={42}
-          quickFilterText={searchValue}
+          rowHeight={rowHeight}
+          headerHeight={headerHeight}
+          groupHeaderHeight={groupHeaderHeight}
+          quickFilterText={enableQuickFilter ? searchValue : undefined}
+          rowClassRules={rowClassRules}
           rowSelection={rowSelection}
           isRowSelectable={
             isRowSelectable
@@ -381,6 +410,8 @@ export function ERPDataGrid<TData extends { id: string }>({
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
           }}
+          onGridReady={onGridReady}
+          onFirstDataRendered={onFirstDataRendered}
           onRowDragEnd={handleRowDragEnd}
           onSortChanged={(event: SortChangedEvent<TData>) => {
             onSortChange?.(
@@ -393,4 +424,4 @@ export function ERPDataGrid<TData extends { id: string }>({
   );
 }
 
-export type { ColDef };
+export type { ColDef, ColGroupDef };
