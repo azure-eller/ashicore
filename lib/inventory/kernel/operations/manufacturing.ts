@@ -869,6 +869,7 @@ export async function reconcileIngredientActualsInTx(
     referenceId: string;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    allowNegativeStock?: boolean;
   }
 ): Promise<{ newTotalQuantity: number; newTotalCost: number }> {
   const replay = await beginInventoryOperationInTx<{
@@ -937,6 +938,7 @@ export async function reconcileIngredientActualsInTx(
               : params.idempotencyKey ?? null,
             metadata: { manufacturingOrderIngredientId: params.ingredient.id },
             unavailableByLotId,
+            allowNegativeStock: params.allowNegativeStock ?? false,
           })
         : { allocations: [], eventIds: [] };
     const consumed = {

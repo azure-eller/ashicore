@@ -319,6 +319,7 @@ export const recordManufacturingOutputSchema = z.object({
     }, "Output quantity must be a non-zero number"),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   notes: nullableString,
+  confirmNegativeStock: z.boolean().optional(),
 });
 export type RecordManufacturingOutput = z.infer<
   typeof recordManufacturingOutputSchema

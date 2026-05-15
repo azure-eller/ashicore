@@ -3898,9 +3898,6 @@ export async function recordManufacturingOutput(
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: batch?.id ?? null,
     });
-    if (normalizeQuantityNumber(existingOutputQuantity + outputQuantity) > plannedOutputQuantity) {
-      throw new ManufacturingError("Output above planned quantity is blocked in v1.", 400);
-    }
 
     const ingredientRows =
       batch != null
@@ -3936,12 +3933,8 @@ export async function recordManufacturingOutput(
     for (const ingredient of ingredientRows) {
       const plannedIngredientQuantity = parseFloat(ingredient.plannedQuantity);
       const alreadyOutputConsumed = outputConsumedByIngredient.get(ingredient.id) ?? 0;
-      const remainingPlanned = Math.max(
-        0,
-        plannedIngredientQuantity - alreadyOutputConsumed
-      );
       const requiredQuantity = normalizeQuantityNumber(
-        Math.min(remainingPlanned, plannedIngredientQuantity * ratio)
+        plannedIngredientQuantity * ratio
       );
       if (requiredQuantity <= 0) {
         continue;
@@ -4020,23 +4013,49 @@ export async function recordManufacturingOutput(
             },
           }
         );
-        const fifoConsumed =
-          heldConsumed.remainingQuantity > 0
-            ? await consumeStockFifoInTx(tx, {
-                organizationId: orgId,
-                locationId: location.id,
-                itemId: ingredient.itemId,
-                quantity: heldConsumed.remainingQuantity,
-                eventType: "manufacturing_ingredient_consumption",
-                eventSubtype: "manufacturing_output",
-                referenceType: batch != null ? "manufacturing_batch" : "manufacturing_order",
-                referenceId: batch?.id ?? orderId,
-                actorUserId: userId,
-                idempotencyKey: heldConsumed.idempotencyUsed ? null : consumeIdempotencyKey,
-                metadata: { manufacturingOrderIngredientId: ingredient.id },
-                unavailableByLotId,
-              })
-            : { allocations: [], eventIds: [] };
+        let fifoConsumed: Awaited<ReturnType<typeof consumeStockFifoInTx>> | {
+          allocations: [];
+          eventIds: [];
+        };
+        try {
+          fifoConsumed =
+            heldConsumed.remainingQuantity > 0
+              ? await consumeStockFifoInTx(tx, {
+                  organizationId: orgId,
+                  locationId: location.id,
+                  itemId: ingredient.itemId,
+                  quantity: heldConsumed.remainingQuantity,
+                  eventType: "manufacturing_ingredient_consumption",
+                  eventSubtype: "manufacturing_output",
+                  referenceType: batch != null ? "manufacturing_batch" : "manufacturing_order",
+                  referenceId: batch?.id ?? orderId,
+                  actorUserId: userId,
+                  idempotencyKey: heldConsumed.idempotencyUsed ? null : consumeIdempotencyKey,
+                  metadata: { manufacturingOrderIngredientId: ingredient.id },
+                  unavailableByLotId,
+                  allowNegativeStock: payload.confirmNegativeStock === true,
+                })
+              : { allocations: [], eventIds: [] };
+        } catch (error) {
+          if (error instanceof InsufficientStockError) {
+            throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
+              shortage: {
+                ingredients: [
+                  {
+                    itemId: ingredient.itemId,
+                    itemName: ingredient.itemName,
+                    unitName: ingredient.unitName,
+                    needed: error.requested,
+                    available: error.available,
+                    shortage: normalizeQuantityNumber(error.requested - error.available),
+                    warningType: "stock_shortage",
+                  },
+                ],
+              },
+            });
+          }
+          throw error;
+        }
         const consumed = {
           allocations: [...heldConsumed.allocations, ...fifoConsumed.allocations],
           eventIds: [...heldConsumed.eventIds, ...fifoConsumed.eventIds],
@@ -4950,22 +4969,45 @@ export async function completeManufacturingOrder(
       let effectiveCost: number;
 
       if (suppliedActual != null) {
-        const reconciled = await reconcileIngredientActualsInTx(tx, {
-          organizationId: orgId,
-          ingredient: {
-            id: ingredient.id,
-            itemId: ingredient.itemId,
-            pickedQuantity: pickedQty,
-          },
-          actualConsumedQuantity: suppliedActual,
-          referenceType: "manufacturing_order",
-          referenceId: id,
-          actorUserId: userId,
-          idempotencyKey: deriveInventoryIdempotencyKey(
-            options?.idempotencyKey,
-            `variance:${ingredient.id}`
-          ),
-        });
+        let reconciled: Awaited<ReturnType<typeof reconcileIngredientActualsInTx>>;
+        try {
+          reconciled = await reconcileIngredientActualsInTx(tx, {
+            organizationId: orgId,
+            ingredient: {
+              id: ingredient.id,
+              itemId: ingredient.itemId,
+              pickedQuantity: pickedQty,
+            },
+            actualConsumedQuantity: suppliedActual,
+            referenceType: "manufacturing_order",
+            referenceId: id,
+            actorUserId: userId,
+            idempotencyKey: deriveInventoryIdempotencyKey(
+              options?.idempotencyKey,
+              `variance:${ingredient.id}`
+            ),
+            allowNegativeStock: payload.confirmNegativeStock === true,
+          });
+        } catch (error) {
+          if (error instanceof InsufficientStockError) {
+            throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
+              shortage: {
+                ingredients: [
+                  {
+                    itemId: ingredient.itemId,
+                    itemName: ingredient.itemName,
+                    unitName: ingredient.unitName,
+                    needed: error.requested,
+                    available: error.available,
+                    shortage: normalizeQuantityNumber(error.requested - error.available),
+                    warningType: "stock_shortage",
+                  },
+                ],
+              },
+            });
+          }
+          throw error;
+        }
         effectiveQuantity = reconciled.newTotalQuantity;
         effectiveCost = reconciled.newTotalCost;
       } else {
@@ -5265,22 +5307,45 @@ export async function completeManufacturingBatch(
       let effectiveCost: number;
 
       if (suppliedActual != null) {
-        const reconciled = await reconcileIngredientActualsInTx(tx, {
-          organizationId: orgId,
-          ingredient: {
-            id: ingredient.id,
-            itemId: ingredient.itemId,
-            pickedQuantity: pickedQty,
-          },
-          actualConsumedQuantity: suppliedActual,
-          referenceType: "manufacturing_batch",
-          referenceId: batchId,
-          actorUserId: userId,
-          idempotencyKey: deriveInventoryIdempotencyKey(
-            options?.idempotencyKey,
-            `batch-variance:${batchId}:${ingredient.id}`
-          ),
-        });
+        let reconciled: Awaited<ReturnType<typeof reconcileIngredientActualsInTx>>;
+        try {
+          reconciled = await reconcileIngredientActualsInTx(tx, {
+            organizationId: orgId,
+            ingredient: {
+              id: ingredient.id,
+              itemId: ingredient.itemId,
+              pickedQuantity: pickedQty,
+            },
+            actualConsumedQuantity: suppliedActual,
+            referenceType: "manufacturing_batch",
+            referenceId: batchId,
+            actorUserId: userId,
+            idempotencyKey: deriveInventoryIdempotencyKey(
+              options?.idempotencyKey,
+              `batch-variance:${batchId}:${ingredient.id}`
+            ),
+            allowNegativeStock: payload.confirmNegativeStock === true,
+          });
+        } catch (error) {
+          if (error instanceof InsufficientStockError) {
+            throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
+              shortage: {
+                ingredients: [
+                  {
+                    itemId: ingredient.itemId,
+                    itemName: ingredient.itemName,
+                    unitName: ingredient.unitName,
+                    needed: error.requested,
+                    available: error.available,
+                    shortage: normalizeQuantityNumber(error.requested - error.available),
+                    warningType: "stock_shortage",
+                  },
+                ],
+              },
+            });
+          }
+          throw error;
+        }
         effectiveQuantity = reconciled.newTotalQuantity;
         effectiveCost = reconciled.newTotalCost;
       } else {
