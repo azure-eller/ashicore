@@ -6,6 +6,7 @@ import {
   getSentryTracesSampleRate,
   isSentryEnabled,
   sanitizeSentryEvent,
+  sanitizeSentryLog,
 } from "@/lib/observability/sentry";
 
 if (isSentryEnabled()) {
@@ -17,6 +18,10 @@ if (isSentryEnabled()) {
     tracesSampleRate: getSentryTracesSampleRate(),
     sendDefaultPii: false,
     enableLogs: true,
+    integrations: [
+      Sentry.consoleLoggingIntegration({ levels: ["error", "warn"] }),
+    ],
     beforeSend: sanitizeSentryEvent,
+    beforeSendLog: sanitizeSentryLog,
   });
 }

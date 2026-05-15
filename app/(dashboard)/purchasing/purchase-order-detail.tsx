@@ -78,6 +78,7 @@ import {
 } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { captureAppError } from "@/lib/observability/sentry";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
@@ -99,6 +100,8 @@ type ApiError = {
   status?: number;
   error?: string;
   errors?: Record<string, string[]>;
+  requestId?: string | null;
+  receivedLineCount?: number;
   overReceipt?: {
     lines: Array<{
       lineId: string;
@@ -109,6 +112,45 @@ type ApiError = {
     }>;
   };
 };
+
+function captureReceiveFailure(error: ApiError, orderId: string) {
+  if (error.status === 409 && error.overReceipt) return;
+  if (error.errors) return;
+
+  const sentryError = new Error("Purchase receive API failed");
+  sentryError.name = "PurchaseReceiveApiError";
+
+  captureAppError(sentryError, {
+    requestId: error.requestId ?? undefined,
+    route: `/api/purchase-orders/${orderId}/receive`,
+    method: "POST",
+    runtime: "browser",
+    module: "purchasing",
+    operation: "receive_purchase_order",
+    source: "client_mutation",
+    appDebug: {
+      http_status: error.status,
+      received_line_count: error.receivedLineCount,
+      has_field_errors: Boolean(error.errors),
+      has_over_receipt_warning: Boolean(error.overReceipt),
+    },
+  });
+}
+
+function captureReceiveUnexpectedError(error: Error, orderId: string) {
+  captureAppError(error, {
+    route: `/api/purchase-orders/${orderId}/receive`,
+    method: "POST",
+    runtime: "browser",
+    module: "purchasing",
+    operation: "receive_purchase_order",
+    source: "client_mutation",
+  });
+}
+
+function isApiError(error: unknown): error is ApiError {
+  return error != null && typeof error === "object" && "status" in error;
+}
 
 const ADDITIONAL_COST_TYPE_LABELS: Record<
   PurchaseOrderDetailType["additionalCosts"][number]["costType"],
@@ -538,31 +580,45 @@ export function PurchaseOrderDetail({
         body: JSON.stringify(values),
       });
       const body = await response.json().catch(() => null);
-	      if (!response.ok) {
-	        throw {
-	          status: response.status,
-	          error: body?.error ?? "Failed to receive purchase order.",
-	          errors: body?.errors,
-	          overReceipt: body?.overReceipt,
-	        } satisfies ApiError;
-	      }
+      if (!response.ok) {
+        const apiError: ApiError = {
+          status: response.status,
+          error: body?.error ?? "Failed to receive purchase order.",
+          errors: body?.errors,
+          overReceipt: body?.overReceipt,
+          requestId:
+            response.headers.get("x-erp-request-id") ??
+            response.headers.get("x-request-id") ??
+            body?.requestId,
+          receivedLineCount: values.lines.length,
+        };
+
+        captureReceiveFailure(apiError, order.id);
+        throw apiError;
+      }
     },
     onMutate: () => {
       setActionError(null);
       receiveForm.clearErrors();
     },
-	    onSuccess: async () => {
-	      await refreshQueries();
-	      setReceiveOpen(false);
-	      setOverReceiptWarning(null);
-	      router.refresh();
-	    },
-	    onError: (error: ApiError) => {
-	      if (error.status === 409 && error.overReceipt) {
-	        setOverReceiptWarning(error.overReceipt);
-	        return;
-	      }
-	      if (error.errors) {
+    onSuccess: async () => {
+      await refreshQueries();
+      setReceiveOpen(false);
+      setOverReceiptWarning(null);
+      router.refresh();
+    },
+    onError: (error: ApiError | Error) => {
+      if (!isApiError(error)) {
+        captureReceiveUnexpectedError(error, order.id);
+        setActionError(error.message || "Failed to receive purchase order.");
+        return;
+      }
+
+      if (error.status === 409 && error.overReceipt) {
+        setOverReceiptWarning(error.overReceipt);
+        return;
+      }
+      if (error.errors) {
         Object.entries(error.errors).forEach(([field, messages]) => {
           receiveForm.setError(field as never, {
             type: "server",

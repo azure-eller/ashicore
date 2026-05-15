@@ -20,6 +20,11 @@ type SentryEvent = {
   transaction?: string;
 };
 
+type SentryLog = {
+  message: unknown;
+  attributes?: Record<string, unknown>;
+};
+
 const SENSITIVE_PATTERNS = [
   /address/i,
   /password/i,
@@ -119,6 +124,14 @@ function scrubValue(value: unknown, depth = 0): unknown {
   }
 
   return value;
+}
+
+function scrubLogMessage(message: unknown) {
+  if (typeof message !== "string") return message;
+
+  return message
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [Filtered]")
+    .replace(/(password|token|secret|authorization|cookie)=\S+/gi, "$1=[Filtered]");
 }
 
 function getErrorRecord(error: unknown): Record<string, unknown> {
@@ -373,4 +386,10 @@ export function sanitizeSentryEvent<T extends SentryEvent>(event: T): T {
   }
 
   return event;
+}
+
+export function sanitizeSentryLog<T extends SentryLog>(log: T): T {
+  log.message = scrubLogMessage(log.message);
+  log.attributes = scrubValue(log.attributes) as Record<string, unknown> | undefined;
+  return log;
 }
