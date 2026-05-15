@@ -8,6 +8,7 @@ import {
   themeQuartz,
   type ColDef,
   type GetRowIdParams,
+  type IRowNode,
   type RowDragEndEvent,
   type SortChangedEvent,
   type SelectionChangedEvent,
@@ -50,6 +51,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   actions?: ReactNode;
   className?: string;
   enableRowSelection?: boolean;
+  isRowSelectable?: (row: TData) => boolean;
   onSelectionChange?: (rows: TData[]) => void;
   enableManagedRowDrag?: boolean;
   suppressMoveWhenRowDragging?: boolean;
@@ -71,6 +73,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   actions,
   className,
   enableRowSelection = false,
+  isRowSelectable,
   onSelectionChange,
   enableManagedRowDrag = false,
   suppressMoveWhenRowDragging = false,
@@ -158,6 +161,12 @@ export function ERPDataGrid<TData extends { id: string }>({
           headerHeight={42}
           quickFilterText={searchValue}
           rowSelection={rowSelection}
+          isRowSelectable={
+            isRowSelectable
+              ? (node: IRowNode<TData>) =>
+                  node.data ? isRowSelectable(node.data) : false
+              : undefined
+          }
           selectionColumnDef={enableRowSelection ? selectionColumnDef : undefined}
           rowDragManaged={enableManagedRowDrag}
           suppressMoveWhenRowDragging={suppressMoveWhenRowDragging}

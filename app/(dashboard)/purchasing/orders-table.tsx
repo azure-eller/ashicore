@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
-import { SortableHeader } from "@/components/sortable-header";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
-import { Checkbox } from "@/components/ui/checkbox";
+import type { ICellRendererParams } from "ag-grid-community";
+import { ERPDataGridList } from "@/components/erp-data-grid-list";
+import type { ColDef } from "@/components/erp-data-grid";
 import { formatDate, formatPrice } from "@/lib/format";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
@@ -14,79 +12,67 @@ import {
 import { PurchaseOrderStatusBadge } from "./status-badge";
 import type { PurchaseOrderListRow } from "./types";
 
-const columns: ColumnDef<PurchaseOrderListRow>[] = [
+const columns: ColDef<PurchaseOrderListRow>[] = [
   {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all purchase orders"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.orderNumber}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
+    field: "orderNumber",
+    headerName: "Order",
+    width: 150,
+    minWidth: 130,
+    cellRenderer: ({ data }: ICellRendererParams<PurchaseOrderListRow>) =>
+      data ? (
+        <Link href={`/purchasing/orders/${data.id}`} className="hover:underline">
+          {data.orderNumber}
+        </Link>
+      ) : null,
+    comparator: (left, right) =>
+      String(left ?? "").localeCompare(String(right ?? ""), undefined, {
+        numeric: true,
+      }),
   },
   {
-    accessorKey: "orderNumber",
-    header: ({ column }) => <SortableHeader column={column} label="Order" />,
-    cell: ({ row }) => (
-      <Link href={`/purchasing/orders/${row.original.id}`} className="hover:underline">
-        {row.original.orderNumber}
-      </Link>
-    ),
+    field: "supplierName",
+    headerName: "Supplier",
+    width: 240,
+    minWidth: 180,
+    flex: 1,
   },
   {
-    accessorKey: "supplierName",
-    header: ({ column }) => <SortableHeader column={column} label="Supplier" />,
+    field: "itemSummary",
+    headerName: "Materials",
+    width: 300,
+    minWidth: 220,
+    flex: 1.2,
   },
   {
-    accessorKey: "itemSummary",
-    header: "Materials",
+    field: "totalAmount",
+    headerName: "Total",
+    width: 130,
+    comparator: (left, right) =>
+      parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
+    valueFormatter: ({ value }) => formatPrice(String(value ?? "")) ?? "—",
   },
   {
-    accessorKey: "totalAmount",
-    header: ({ column }) => <SortableHeader column={column} label="Total" />,
-    sortingFn: (a, b) =>
-      parseFloat(a.original.totalAmount) - parseFloat(b.original.totalAmount),
-    cell: ({ row }) => formatPrice(row.original.totalAmount) ?? "\u2014",
+    field: "status",
+    headerName: "Status",
+    headerTooltip: PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP,
+    width: 150,
+    cellRenderer: ({ data }: ICellRendererParams<PurchaseOrderListRow>) =>
+      data ? <PurchaseOrderStatusBadge status={data.status} /> : null,
   },
   {
-    accessorKey: "status",
-    header: ({ column }) => (
-      <FilterableHeader
-        column={column}
-        label="Status"
-        tooltip={PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP}
-      />
-    ),
-    filterFn: multiValueFilter,
-    cell: ({ row }) => <PurchaseOrderStatusBadge status={row.original.status} />,
-  },
-  {
-    accessorKey: "expectedDate",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Expected" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
-    ),
-    cell: ({ row }) => formatDate(row.original.expectedDate),
+    field: "expectedDate",
+    headerName: "Expected",
+    headerTooltip: EXPECTED_DELIVERY_DATE_TOOLTIP,
+    width: 150,
+    valueFormatter: ({ value }) => formatDate(value as string | null),
   },
 ];
 
 export function OrdersTable({ initialData }: { initialData: PurchaseOrderListRow[] }) {
   return (
-    <DashboardDataTable
+    <ERPDataGridList
+      rows={initialData}
       columns={columns}
-      initialData={initialData}
       queryKey={["purchase-orders"]}
       queryFn={async () => {
         const response = await fetch("/api/purchase-orders");

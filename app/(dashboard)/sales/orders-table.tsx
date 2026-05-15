@@ -576,12 +576,25 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
             <Button
               type="button"
               variant="destructive"
+              size="icon"
               disabled={selectedCount === 0 || deleteMutation.isPending}
+              className="relative"
+              aria-label={
+                selectedCount > 0
+                  ? `Delete ${selectedCount} selected`
+                  : "Delete selected"
+              }
               onClick={() => setDeleteDialogOpen(true)}
             >
-              <HugeiconsIcon icon={Delete02Icon} data-icon="inline-start" />
-              Delete selected
-              {selectedCount > 0 ? ` (${selectedCount})` : ""}
+              <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" aria-hidden />
+              {selectedCount > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground"
+                >
+                  {selectedCount}
+                </span>
+              ) : null}
             </Button>
             <Button asChild aria-label="New Order">
               <Link href="/sales/orders/new">

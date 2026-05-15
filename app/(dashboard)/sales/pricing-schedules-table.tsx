@@ -1,12 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
-import { Checkbox } from "@/components/ui/checkbox";
+import type { ICellRendererParams } from "ag-grid-community";
 import { DateTimeText } from "@/components/date-time-text";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
-import { SortableHeader } from "@/components/sortable-header";
-import { TooltipHeader } from "@/components/tooltip-header";
+import { ERPDataGridList } from "@/components/erp-data-grid-list";
+import type { ColDef } from "@/components/erp-data-grid";
 import {
   PRICING_BREAKS_TOOLTIP,
   PRICING_SCOPE_TOOLTIP,
@@ -14,64 +12,53 @@ import {
 } from "@/lib/tooltip-copy";
 import type { PricingScheduleRow } from "./types";
 
-const columns: ColumnDef<PricingScheduleRow>[] = [
+const columns: ColDef<PricingScheduleRow>[] = [
   {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all pricing schedules"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.name}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
+    field: "name",
+    headerName: "Schedule",
+    width: 280,
+    minWidth: 200,
+    flex: 1.2,
+    cellRenderer: ({ data }: ICellRendererParams<PricingScheduleRow>) =>
+      data ? (
+        <Link
+          href={`/sales/pricing/schedules/${data.id}/edit`}
+          className="hover:underline"
+        >
+          {data.name}
+        </Link>
+      ) : null,
   },
   {
-    accessorKey: "name",
-    header: ({ column }) => <SortableHeader column={column} label="Schedule" />,
-    cell: ({ row }) => (
-      <Link
-        href={`/sales/pricing/schedules/${row.original.id}/edit`}
-        className="hover:underline"
-      >
-        {row.original.name}
-      </Link>
-    ),
+    field: "customerScopeLabel",
+    headerName: "Scope",
+    headerTooltip: PRICING_SCOPE_TOOLTIP,
+    width: 220,
+    minWidth: 170,
+    flex: 1,
   },
   {
-    accessorKey: "customerScopeLabel",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Scope" tooltip={PRICING_SCOPE_TOOLTIP} />
-    ),
+    field: "unitLabel",
+    headerName: "Unit",
+    headerTooltip: PRICING_UNIT_TOOLTIP,
+    width: 190,
   },
   {
-    accessorKey: "unitLabel",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Unit" tooltip={PRICING_UNIT_TOOLTIP} />
-    ),
+    field: "breakSummary",
+    headerName: "Breaks",
+    headerTooltip: PRICING_BREAKS_TOOLTIP,
+    width: 280,
+    minWidth: 200,
+    flex: 1,
   },
   {
-    accessorKey: "breakSummary",
-    header: () => <TooltipHeader label="Breaks" tooltip={PRICING_BREAKS_TOOLTIP} />,
-  },
-  {
-    accessorKey: "updatedAt",
-    header: ({ column }) => <SortableHeader column={column} label="Updated" />,
-    sortingFn: (a, b) =>
-      new Date(a.original.updatedAt).getTime() -
-      new Date(b.original.updatedAt).getTime(),
-    cell: ({ row }) => <DateTimeText value={row.original.updatedAt} />,
+    field: "updatedAt",
+    headerName: "Updated",
+    width: 190,
+    comparator: (left, right) =>
+      new Date(left ?? 0).getTime() - new Date(right ?? 0).getTime(),
+    cellRenderer: ({ data }: ICellRendererParams<PricingScheduleRow>) =>
+      data ? <DateTimeText value={data.updatedAt} /> : null,
   },
 ];
 
@@ -81,9 +68,9 @@ export function PricingSchedulesTable({
   initialData: PricingScheduleRow[];
 }) {
   return (
-    <DashboardDataTable
+    <ERPDataGridList
+      rows={initialData}
       columns={columns}
-      initialData={initialData}
       queryKey={["pricing-schedules"]}
       queryFn={async () => {
         const response = await fetch("/api/pricing-schedules");

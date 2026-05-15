@@ -2,16 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { ICellRendererParams } from "ag-grid-community";
 import { Copy01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
-import { SortableHeader } from "@/components/sortable-header";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
 import { DateTimeText } from "@/components/date-time-text";
+import { ERPDataGridList } from "@/components/erp-data-grid-list";
+import type { ColDef } from "@/components/erp-data-grid";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,113 +27,91 @@ import {
 import { StocktakeStatusBadge } from "./status-badge";
 import { formatScope, type StocktakeListRow } from "./types";
 
-const columns: ColumnDef<StocktakeListRow>[] = [
+const columns: ColDef<StocktakeListRow>[] = [
   {
-    id: "select",
-    header: ({ table }) => {
-      const canSelectAny = table
-        .getPaginationRowModel()
-        .flatRows.some((row) => row.getCanSelect());
-
-      return (
-        <Checkbox
-          checked={
-            canSelectAny &&
-            (table.getIsAllPageRowsSelected() ||
-              (table.getIsSomePageRowsSelected() && "indeterminate"))
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all draft stocktakes"
-          disabled={!canSelectAny}
-        />
-      );
-    },
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.name}`}
-        disabled={!row.getCanSelect()}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
+    field: "name",
+    headerName: "Name",
+    width: 280,
+    minWidth: 200,
+    flex: 1.2,
+    cellRenderer: ({ data }: ICellRendererParams<StocktakeListRow>) =>
+      data ? (
+        <Link href={`/inventory/stocktakes/${data.id}`} className="hover:underline">
+          {data.name}
+        </Link>
+      ) : null,
   },
   {
-    accessorKey: "name",
-    header: ({ column }) => <SortableHeader column={column} label="Name" />,
-    cell: ({ row }) => (
-      <Link href={`/inventory/stocktakes/${row.original.id}`} className="hover:underline">
-        {row.original.name}
-      </Link>
-    ),
+    field: "scope",
+    headerName: "Scope",
+    headerTooltip: STOCKTAKE_SCOPE_TOOLTIP,
+    width: 190,
+    valueFormatter: ({ value }) => formatScope(value),
   },
   {
-    accessorKey: "scope",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Scope" tooltip={STOCKTAKE_SCOPE_TOOLTIP} />
-    ),
-    cell: ({ row }) => formatScope(row.original.scope),
+    field: "status",
+    headerName: "Status",
+    headerTooltip: STOCKTAKE_STATUS_COLUMN_TOOLTIP,
+    width: 150,
+    cellRenderer: ({ data }: ICellRendererParams<StocktakeListRow>) =>
+      data ? <StocktakeStatusBadge status={data.status} /> : null,
   },
   {
-    accessorKey: "status",
-    header: ({ column }) => (
-      <FilterableHeader
-        column={column}
-        label="Status"
-        tooltip={STOCKTAKE_STATUS_COLUMN_TOOLTIP}
-      />
-    ),
-    filterFn: multiValueFilter,
-    cell: ({ row }) => <StocktakeStatusBadge status={row.original.status} />,
+    field: "itemCount",
+    headerName: "Items",
+    headerTooltip: STOCKTAKE_ITEM_COUNT_TOOLTIP,
+    width: 120,
   },
   {
-    accessorKey: "itemCount",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Items" tooltip={STOCKTAKE_ITEM_COUNT_TOOLTIP} />
-    ),
+    colId: "countedCount",
+    headerName: "Counted",
+    headerTooltip: STOCKTAKE_COUNTED_TOOLTIP,
+    width: 140,
+    valueGetter: ({ data }) =>
+      data ? `${data.countedCount} / ${data.itemCount}` : "",
+    comparator: (_left, _right, leftNode, rightNode) =>
+      (leftNode.data?.countedCount ?? 0) - (rightNode.data?.countedCount ?? 0),
   },
   {
-    accessorKey: "countedCount",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Counted" tooltip={STOCKTAKE_COUNTED_TOOLTIP} />
-    ),
-    cell: ({ row }) =>
-      `${row.original.countedCount} / ${row.original.itemCount}`,
+    field: "varianceCount",
+    headerName: "Variance",
+    headerTooltip: STOCKTAKE_VARIANCE_TOOLTIP,
+    width: 130,
   },
   {
-    accessorKey: "varianceCount",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Variance" tooltip={STOCKTAKE_VARIANCE_TOOLTIP} />
-    ),
+    field: "createdAt",
+    headerName: "Created",
+    width: 190,
+    cellRenderer: ({ data }: ICellRendererParams<StocktakeListRow>) =>
+      data ? <DateTimeText value={data.createdAt} /> : null,
   },
   {
-    accessorKey: "createdAt",
-    header: ({ column }) => <SortableHeader column={column} label="Created" />,
-    cell: ({ row }) => <DateTimeText value={row.original.createdAt} />,
+    field: "completedAt",
+    headerName: "Completed",
+    width: 190,
+    cellRenderer: ({ data }: ICellRendererParams<StocktakeListRow>) =>
+      data ? <DateTimeText value={data.completedAt} /> : null,
   },
   {
-    accessorKey: "completedAt",
-    header: ({ column }) => <SortableHeader column={column} label="Completed" />,
-    cell: ({ row }) => <DateTimeText value={row.original.completedAt} />,
-  },
-  {
-    id: "actions",
-    cell: ({ row }) => <StocktakeRowActions stocktake={row.original} />,
-    enableSorting: false,
-    enableHiding: false,
-    size: 40,
-    minSize: 40,
-    maxSize: 48,
-    enableResizing: false,
+    colId: "actions",
+    headerName: "",
+    width: 54,
+    minWidth: 48,
+    maxWidth: 60,
+    resizable: false,
+    sortable: false,
+    pinned: "right",
+    cellRenderer: ({ data }: ICellRendererParams<StocktakeListRow>) =>
+      data ? <StocktakeRowActions stocktake={data} /> : null,
+    getQuickFilterText: () => "",
   },
 ];
 
 export function StocktakesTable({ initialData }: { initialData: StocktakeListRow[] }) {
   return (
-    <DashboardDataTable
+    <ERPDataGridList
+      rows={initialData}
       columns={columns}
-      initialData={initialData}
       queryKey={["stocktakes"]}
       queryFn={async () => {
         const response = await fetch("/api/stocktakes");
@@ -145,7 +121,6 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
 
         return response.json();
       }}
-      enableRowSelection={(row) => row.original.status === "draft"}
       searchAriaLabel="Search stocktakes"
       addHref="/inventory/stocktakes/new"
       addAriaLabel="New Stocktake"
@@ -158,6 +133,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
           `Delete ${count} stocktake${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>
           `The selected draft stocktake${count !== 1 ? "s" : ""} will be cancelled. Only draft stocktakes can be deleted.`,
+        isRowSelectable: (row) => row.status === "draft",
       }}
     />
   );

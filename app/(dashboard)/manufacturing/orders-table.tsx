@@ -2,28 +2,30 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import {
-  type ColumnDef,
-  type ColumnFiltersState,
-  type SortingState,
-  type Table as TanStackTable,
-} from "@tanstack/react-table";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { multiValueFilter } from "@/components/filterable-header";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ICellRendererParams, RowDragEndEvent } from "ag-grid-community";
+import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { apiJson } from "@/lib/client/api";
+import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
-import { SortableHeader } from "@/components/sortable-header";
-import { TooltipHeader } from "@/components/tooltip-header";
-import {
-  DashboardDataTable,
-  DashboardDataTableDragHandle,
-} from "@/components/dashboard-data-table";
 import {
   OperationalStateCell,
   type OperationalState,
 } from "@/components/operational-state-cell";
 import { DateTimeText } from "@/components/date-time-text";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDate } from "@/lib/format";
 import {
@@ -35,15 +37,9 @@ import { MoStageAction } from "./mo-stage-action";
 import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
-
 const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
 const DONE_MANUFACTURING_STATUSES = ["done"] as const;
 type ManufacturingWorkflowFilterValue = "open" | "done";
-
-const INITIAL_SORTING: SortingState = [{ id: "priorityRank", desc: false }];
-const INITIAL_COLUMN_FILTERS: ColumnFiltersState = [
-  { id: "status", value: [...OPEN_MANUFACTURING_STATUSES] },
-];
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -75,11 +71,11 @@ function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
       <QuantityWithUnit value={order.plannedQuantity} unitName={order.unitName} />
-      {batchLabel != null && (
+      {batchLabel != null ? (
         <Badge variant="outline" className="text-xs font-normal">
           {batchLabel}
         </Badge>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -218,258 +214,65 @@ function doneManufacturingOrderRank(order: ManufacturingOrderListRow) {
   return -1;
 }
 
-function RankCell({ rowIndex, order }: { rowIndex: number; order: ManufacturingOrderListRow }) {
+function compareManufacturingRank(
+  left: ManufacturingOrderListRow,
+  right: ManufacturingOrderListRow
+) {
+  const leftRank = left.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rightRank = right.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rankCompare = leftRank - rightRank;
+
+  if (rankCompare !== 0) {
+    return rankCompare;
+  }
+
+  return left.orderNumber.localeCompare(right.orderNumber, undefined, {
+    numeric: true,
+  });
+}
+
+function manufacturingOrderMatchesSearch(
+  order: ManufacturingOrderListRow,
+  searchValue: string
+) {
+  const normalizedSearch = searchValue.trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  return [
+    order.orderNumber,
+    order.productName,
+    order.productMasterName,
+    order.productSku,
+    order.salesOrderNumber,
+    order.salesCustomerName,
+    order.plannedQuantity,
+    order.actualQuantity,
+    order.plannedDate,
+    getIngredientState(order).label,
+    getProductionState(order).label,
+  ].some((value) => value?.toLowerCase().includes(normalizedSearch));
+}
+
+function RankCell({
+  rowIndex,
+  order,
+}: {
+  rowIndex: number;
+  order: ManufacturingOrderListRow;
+}) {
   if (!(OPEN_MANUFACTURING_STATUSES as readonly string[]).includes(order.status)) {
     return <span className="text-muted-foreground">-</span>;
   }
 
   return (
-    <div className="flex items-center gap-1.5">
-      <DashboardDataTableDragHandle label={`Reorder ${order.orderNumber}`} />
-      <span className="w-6 text-sm text-muted-foreground tabular-nums">
+    <div className="flex h-full items-center">
+      <span className="w-8 text-[1.0625rem] text-muted-foreground tabular-nums">
         {order.priorityRank ?? rowIndex + 1}
       </span>
     </div>
-  );
-}
-
-const selectColumn: ColumnDef<ManufacturingOrderListRow> = {
-  id: "select",
-  header: ({ table }) => (
-    <Checkbox
-      checked={
-        table.getIsAllPageRowsSelected() ||
-        (table.getIsSomePageRowsSelected() && "indeterminate")
-      }
-      onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-      aria-label="Select all manufacturing orders"
-    />
-  ),
-  cell: ({ row }) => (
-    <Checkbox
-      checked={row.getIsSelected()}
-      onCheckedChange={(value) => row.toggleSelected(!!value)}
-      aria-label={`Select ${row.original.orderNumber}`}
-    />
-  ),
-  enableSorting: false,
-  enableHiding: false,
-};
-
-const rankColumn: ColumnDef<ManufacturingOrderListRow> = {
-  accessorKey: "priorityRank",
-  header: "Rank",
-  sortingFn: (a, b) => {
-    const left = a.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-    const right = b.original.priorityRank ?? Number.MAX_SAFE_INTEGER;
-    const rankCompare = left - right;
-
-    if (rankCompare !== 0) {
-      return rankCompare;
-    }
-
-    return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-      numeric: true,
-    });
-  },
-  cell: ({ row }) => (
-    <RankCell rowIndex={row.index} order={row.original} />
-  ),
-  size: 64,
-  minSize: 56,
-  maxSize: 110,
-  enableResizing: false,
-};
-
-const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
-  {
-    accessorKey: "orderNumber",
-    header: ({ column }) => <SortableHeader column={column} label="Order" />,
-    cell: ({ row }) => (
-      <Link
-        href={`/manufacturing/orders/${row.original.id}`}
-        className="hover:underline"
-      >
-        {row.original.orderNumber}
-      </Link>
-    ),
-  },
-  {
-    accessorKey: "productName",
-    header: ({ column }) => <SortableHeader column={column} label="Product" />,
-    cell: ({ row }) => <ProductCell order={row.original} />,
-  },
-  {
-    accessorKey: "salesOrderNumber",
-    header: () => (
-      <TooltipHeader label="Sales Order" tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP} />
-    ),
-    cell: ({ row }) => row.original.salesOrderNumber ?? "\u2014",
-  },
-  {
-    accessorKey: "plannedQuantity",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Planned"
-        tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
-      />
-    ),
-    sortingFn: (a, b) =>
-      parseFloat(a.original.plannedQuantity) - parseFloat(b.original.plannedQuantity),
-    cell: ({ row }) => <PlannedQuantityCell order={row.original} />,
-  },
-  {
-    accessorKey: "pickProgressPercent",
-    header: ({ column }) => <SortableHeader column={column} label="Progress" />,
-    sortingFn: (a, b) =>
-      getOrderProgress(a.original).percent - getOrderProgress(b.original).percent,
-    cell: ({ row }) => <ProgressCell order={row.original} />,
-    size: 160,
-    minSize: 140,
-  },
-  {
-    accessorKey: "ingredientReadiness",
-    header: ({ column }) => <SortableHeader column={column} label="Ingredients" />,
-    sortingFn: (a, b) =>
-      getIngredientState(a.original).label.localeCompare(
-        getIngredientState(b.original).label
-      ),
-    cell: ({ row }) => <OperationalStateCell state={getIngredientState(row.original)} />,
-    size: 160,
-    minSize: 140,
-  },
-  {
-    id: "productionState",
-    header: ({ column }) => <SortableHeader column={column} label="Production" />,
-    sortingFn: (a, b) => {
-      const doneRank =
-        doneManufacturingOrderRank(a.original) -
-        doneManufacturingOrderRank(b.original);
-      if (doneRank !== 0) return doneRank;
-      return getProductionState(a.original).label.localeCompare(
-        getProductionState(b.original).label
-      );
-    },
-    cell: ({ row }) => <ProductionActionCell order={row.original} />,
-    size: 176,
-    minSize: 150,
-  },
-  {
-    accessorKey: "actualQuantity",
-    header: () => (
-      <TooltipHeader label="Actual" tooltip={MANUFACTURING_ACTUAL_QTY_TOOLTIP} />
-    ),
-    cell: ({ row }) =>
-      row.original.actualQuantity != null
-        ? (
-            <QuantityWithUnit
-              value={row.original.actualQuantity}
-              unitName={row.original.unitName}
-            />
-          )
-        : "\u2014",
-  },
-  {
-    accessorKey: "plannedDate",
-    header: ({ column }) => <SortableHeader column={column} label="Planned Date" />,
-    sortingFn: (a, b) => {
-      const dateCompare = (a.original.plannedDate ?? "").localeCompare(
-        b.original.plannedDate ?? ""
-      );
-
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-
-      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-        numeric: true,
-      });
-    },
-    cell: ({ row }) => formatDate(row.original.plannedDate),
-  },
-  {
-    accessorKey: "status",
-    header: "",
-    filterFn: multiValueFilter,
-    cell: () => null,
-    meta: { className: "hidden" },
-  },
-  {
-    accessorKey: "completedAt",
-    header: ({ column }) => <SortableHeader column={column} label="Completed" />,
-    cell: ({ row }) => <DateTimeText value={row.original.completedAt} />,
-  },
-];
-
-const columns: ColumnDef<ManufacturingOrderListRow>[] = [
-  selectColumn,
-  rankColumn,
-  ...orderColumns,
-];
-
-function ManufacturingStatusFilter({
-  table,
-  onStatusChange,
-}: {
-  table: TanStackTable<ManufacturingOrderListRow>;
-  onStatusChange: (status: ManufacturingWorkflowFilterValue) => void;
-}) {
-  const statusColumn = table.getColumn("status");
-  const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
-  const isDone =
-    selected.length === DONE_MANUFACTURING_STATUSES.length &&
-    DONE_MANUFACTURING_STATUSES.every((status) => selected.includes(status));
-  const value: ManufacturingWorkflowFilterValue = isDone ? "done" : "open";
-  const statusCounts = statusColumn?.getFacetedUniqueValues();
-  const openCount = statusCounts?.get("open") ?? 0;
-  const doneCount = statusCounts?.get("done") ?? 0;
-
-  const applyFilter = (nextValue: ManufacturingWorkflowFilterValue) => {
-    if (!statusColumn) return;
-    onStatusChange(nextValue);
-    statusColumn.setFilterValue(
-      nextValue === "open"
-        ? [...OPEN_MANUFACTURING_STATUSES]
-        : [...DONE_MANUFACTURING_STATUSES]
-    );
-    table.setSorting([
-      { id: nextValue === "open" ? "priorityRank" : "orderNumber", desc: false },
-    ]);
-  };
-
-  return (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue === "open" || nextValue === "done") {
-          applyFilter(nextValue);
-        }
-      }}
-      aria-label="Filter manufacturing orders by status"
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
-    >
-      <ToggleGroupItem
-        value="open"
-        aria-label="Show open orders"
-        className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
-        onClick={() => applyFilter("open")}
-      >
-        Open
-        <span className="text-muted-foreground">{openCount}</span>
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="done"
-        aria-label="Show done orders"
-        className="gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs"
-        onClick={() => applyFilter("done")}
-      >
-        Done
-        <span className="text-muted-foreground">{doneCount}</span>
-      </ToggleGroupItem>
-    </ToggleGroup>
   );
 }
 
@@ -481,38 +284,217 @@ export function OrdersTable({
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] =
     useState<ManufacturingWorkflowFilterValue>("open");
-  const columnVisibility = useMemo(
-    () => ({ priorityRank: statusFilter === "open" }),
-    [statusFilter]
+  const [searchValue, setSearchValue] = useState("");
+  const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [hasActiveSort, setHasActiveSort] = useState(false);
+  const { data: orders = initialData } = useQuery({
+    queryKey: ["manufacturing-orders"],
+    queryFn: () =>
+      apiJson<ManufacturingOrderListRow[]>("/api/manufacturing-orders", {
+        fallbackError: "Failed to fetch manufacturing orders.",
+      }),
+    initialData,
+  });
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const order of orders) {
+      counts.set(order.status, (counts.get(order.status) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [orders]);
+  const displayedOrders = useMemo(() => {
+    const allowedStatuses =
+      statusFilter === "done"
+        ? DONE_MANUFACTURING_STATUSES
+        : OPEN_MANUFACTURING_STATUSES;
+    const filteredOrders = orders.filter(
+      (order) =>
+        (allowedStatuses as readonly string[]).includes(order.status) &&
+        manufacturingOrderMatchesSearch(order, searchValue)
+    );
+
+    if (statusFilter === "done") {
+      return filteredOrders;
+    }
+
+    return [...filteredOrders].sort(compareManufacturingRank);
+  }, [orders, searchValue, statusFilter]);
+  const reorderEnabled =
+    statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
+  const gridColumns = useMemo<ColDef<ManufacturingOrderListRow>[]>(
+    () => [
+      {
+        colId: "priorityRank",
+        field: "priorityRank",
+        headerName: "Rank",
+        width: 64,
+        minWidth: 56,
+        maxWidth: 110,
+        resizable: false,
+        sortable: false,
+        rowDrag: reorderEnabled,
+        hide: statusFilter !== "open",
+        cellRenderer: ({
+          data,
+          node,
+        }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? (
+            <RankCell rowIndex={node.rowIndex ?? 0} order={data} />
+          ) : null,
+        getQuickFilterText: () => "",
+      },
+      {
+        field: "orderNumber",
+        headerName: "Order",
+        width: 150,
+        minWidth: 130,
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? (
+            <Link
+              href={`/manufacturing/orders/${data.id}`}
+              className="hover:underline"
+            >
+              {data.orderNumber}
+            </Link>
+          ) : null,
+        comparator: (left, right) =>
+          String(left ?? "").localeCompare(String(right ?? ""), undefined, {
+            numeric: true,
+          }),
+      },
+      {
+        field: "productName",
+        headerName: "Product",
+        width: 270,
+        minWidth: 200,
+        flex: 1.3,
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? <ProductCell order={data} /> : null,
+      },
+      {
+        field: "salesOrderNumber",
+        headerName: "Sales Order",
+        headerTooltip: MANUFACTURING_SALES_ORDER_TOOLTIP,
+        width: 160,
+        valueFormatter: ({ value }) => value ?? "—",
+      },
+      {
+        field: "plannedQuantity",
+        headerName: "Planned",
+        headerTooltip: MANUFACTURING_PLANNED_QTY_TOOLTIP,
+        width: 140,
+        comparator: (left, right) =>
+          parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? <PlannedQuantityCell order={data} /> : null,
+      },
+      {
+        field: "pickProgressPercent",
+        headerName: "Progress",
+        width: 170,
+        minWidth: 150,
+        comparator: (_left, _right, leftNode, rightNode) =>
+          (leftNode.data ? getOrderProgress(leftNode.data).percent : 0) -
+          (rightNode.data ? getOrderProgress(rightNode.data).percent : 0),
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? <ProgressCell order={data} /> : null,
+      },
+      {
+        field: "ingredientReadiness",
+        headerName: "Ingredients",
+        width: 170,
+        minWidth: 150,
+        valueGetter: ({ data }) => (data ? getIngredientState(data).label : ""),
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? <OperationalStateCell state={getIngredientState(data)} /> : null,
+      },
+      {
+        colId: "productionState",
+        headerName: "Production",
+        width: 185,
+        minWidth: 160,
+        valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? <ProductionActionCell order={data} /> : null,
+        comparator: (_left, _right, leftNode, rightNode) => {
+          if (!leftNode.data || !rightNode.data) return 0;
+          const doneRank =
+            doneManufacturingOrderRank(leftNode.data) -
+            doneManufacturingOrderRank(rightNode.data);
+          if (doneRank !== 0) return doneRank;
+          return getProductionState(leftNode.data).label.localeCompare(
+            getProductionState(rightNode.data).label
+          );
+        },
+      },
+      {
+        field: "actualQuantity",
+        headerName: "Actual",
+        headerTooltip: MANUFACTURING_ACTUAL_QTY_TOOLTIP,
+        width: 130,
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data?.actualQuantity != null ? (
+            <QuantityWithUnit
+              value={data.actualQuantity}
+              unitName={data.unitName}
+            />
+          ) : (
+            "—"
+          ),
+      },
+      {
+        field: "plannedDate",
+        headerName: "Planned Date",
+        width: 150,
+        valueFormatter: ({ value }) => formatDate(value as string | null),
+      },
+      {
+        field: "completedAt",
+        headerName: "Completed",
+        width: 190,
+        hide: statusFilter !== "done",
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
+          data ? <DateTimeText value={data.completedAt} /> : null,
+      },
+    ],
+    [reorderEnabled, statusFilter]
   );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: ManufacturingOrderListRow[]) => {
-      const response = await fetch("/api/manufacturing-orders/priority-ranks", {
+      await apiJson<void>("/api/manufacturing-orders/priority-ranks", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: orderedRows.map((row) => row.id) }),
+        body: { orderIds: orderedRows.map((row) => row.id) },
+        fallbackError: "Failed to reorder manufacturing orders.",
       });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to reorder manufacturing orders.");
-      }
     },
     onMutate: async (orderedRows) => {
       await queryClient.cancelQueries({ queryKey: ["manufacturing-orders"] });
       const previous =
-        queryClient.getQueryData<ManufacturingOrderListRow[]>(["manufacturing-orders"]);
+        queryClient.getQueryData<ManufacturingOrderListRow[]>([
+          "manufacturing-orders",
+        ]);
       const rankById = new Map(
         orderedRows.map((row, index) => [row.id, index + 1])
       );
 
       queryClient.setQueryData<ManufacturingOrderListRow[]>(
         ["manufacturing-orders"],
-        (current) =>
-          current?.map((row) => ({
-            ...row,
+        (current) => {
+          if (!current) return current;
+
+          const currentById = new Map(current.map((row) => [row.id, row]));
+          const orderedIds = new Set(orderedRows.map((row) => row.id));
+          const reorderedRows = orderedRows.map((row) => ({
+            ...(currentById.get(row.id) ?? row),
             priorityRank: rankById.get(row.id) ?? row.priorityRank,
-          }))
+          }));
+          const untouchedRows = current.filter((row) => !orderedIds.has(row.id));
+
+          return [...reorderedRows, ...untouchedRows];
+        }
       );
 
       return { previous };
@@ -524,62 +506,177 @@ export function OrdersTable({
       await queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
     },
   });
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiJson<void>("/api/manufacturing-orders", {
+        method: "DELETE",
+        body: { ids },
+        idempotencyKey: "manufacturing-orders-delete",
+        fallbackError: "Failed to delete manufacturing orders.",
+      });
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setSelectedOrders([]);
+      setDeleteDialogOpen(false);
+    },
+  });
+  const selectedCount = selectedOrders.length;
 
   return (
-    <DashboardDataTable
-      columns={columns}
-      columnVisibility={columnVisibility}
-      initialData={initialData}
-      queryKey={["manufacturing-orders"]}
-      queryFn={async () => {
-        const response = await fetch("/api/manufacturing-orders");
-        if (!response.ok) {
-          throw new Error("Failed to fetch manufacturing orders");
+    <>
+      <ERPDataGrid
+        rows={displayedOrders}
+        columns={gridColumns}
+        searchAriaLabel="Search manufacturing orders"
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        emptyMessage="No manufacturing orders yet."
+        enableRowSelection
+        onSelectionChange={setSelectedOrders}
+        enableManagedRowDrag={reorderEnabled && !reorderMutation.isPending}
+        suppressMoveWhenRowDragging
+        resetRowDataOnUpdate
+        onSortChange={setHasActiveSort}
+        onRowDragEnd={(event: RowDragEndEvent<ManufacturingOrderListRow>) => {
+          if (!reorderEnabled || reorderMutation.isPending) {
+            return;
+          }
+
+          const orderedRows: ManufacturingOrderListRow[] = [];
+          event.api.forEachNodeAfterFilterAndSort((node) => {
+            if (node.data) {
+              orderedRows.push(node.data);
+            }
+          });
+
+          reorderMutation.mutate(orderedRows);
+        }}
+        toolbarContent={
+          <ManufacturingStatusFilter
+            value={statusFilter}
+            statusCounts={statusCounts}
+            onStatusChange={setStatusFilter}
+          />
         }
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="destructive"
+              size="icon"
+              disabled={selectedCount === 0 || deleteMutation.isPending}
+              className="relative"
+              aria-label={
+                selectedCount > 0
+                  ? `Delete ${selectedCount} selected`
+                  : "Delete selected"
+              }
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" aria-hidden />
+              {selectedCount > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground"
+                >
+                  {selectedCount}
+                </span>
+              ) : null}
+            </Button>
+            <Button asChild aria-label="New Order">
+              <Link href="/manufacturing/orders/new">
+                <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+                New Order
+              </Link>
+            </Button>
+          </>
+        }
+      />
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedCount} manufacturing order
+              {selectedCount !== 1 ? "s" : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Selected manufacturing orders will be deleted and removed from
+              normal views.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteMutation.isPending || selectedCount === 0}
+              onClick={(event) => {
+                event.preventDefault();
+                deleteMutation.mutate(selectedOrders.map((order) => order.id));
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
 
-        return response.json();
-      }}
-      searchAriaLabel="Search manufacturing orders"
-      addHref="/manufacturing/orders/new"
-      addAriaLabel="New Order"
-      emptyMessage="No manufacturing orders yet."
-      toolbarContent={({ table }) => (
-        <ManufacturingStatusFilter
-          table={table}
-          onStatusChange={setStatusFilter}
-        />
-      )}
-      initialSorting={INITIAL_SORTING}
-      initialColumnFilters={INITIAL_COLUMN_FILTERS}
-      rowReorder={{
-        disabled: reorderMutation.isPending,
-        enabled: (table) => {
-          const selected =
-            (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
-          const columnFilters = table.getState().columnFilters;
-          const sorting = table.getState().sorting;
+function ManufacturingStatusFilter({
+  value,
+  statusCounts,
+  onStatusChange,
+}: {
+  value: ManufacturingWorkflowFilterValue;
+  statusCounts: Map<string, number>;
+  onStatusChange: (status: ManufacturingWorkflowFilterValue) => void;
+}) {
+  const openCount = OPEN_MANUFACTURING_STATUSES.reduce(
+    (sum, status) => sum + (statusCounts.get(status) ?? 0),
+    0
+  );
+  const doneCount = DONE_MANUFACTURING_STATUSES.reduce(
+    (sum, status) => sum + (statusCounts.get(status) ?? 0),
+    0
+  );
 
-          return (
-            !table.getState().globalFilter &&
-            sorting.length === 1 &&
-            sorting[0]?.id === "priorityRank" &&
-            sorting[0]?.desc === false &&
-            columnFilters.every((filter) => filter.id === "status") &&
-            selected.length === OPEN_MANUFACTURING_STATUSES.length &&
-            OPEN_MANUFACTURING_STATUSES.every((status) => selected.includes(status))
-          );
-        },
-        onReorder: (orderedRows) => reorderMutation.mutate(orderedRows),
+  return (
+    <ToggleGroup
+      type="single"
+      size="sm"
+      value={value}
+      onValueChange={(nextValue) => {
+        if (nextValue === "open" || nextValue === "done") {
+          onStatusChange(nextValue);
+        }
       }}
-      deleteAction={{
-        endpoint: "/api/manufacturing-orders",
-        invalidateQueryKeys: [["manufacturing-orders"], ["items"]],
-        defaultErrorMessage: "Failed to delete manufacturing orders.",
-        confirmTitle: (count) =>
-          `Delete ${count} manufacturing order${count !== 1 ? "s" : ""}?`,
-        confirmDescription: () =>
-          "Selected manufacturing orders will be deleted and removed from normal views.",
-      }}
-    />
+      aria-label="Filter manufacturing orders by status"
+      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
+    >
+      <ToggleGroupItem
+        value="open"
+        aria-label="Show open orders"
+        className="gap-1.5"
+        onClick={() => onStatusChange("open")}
+      >
+        Open
+        <span className="text-muted-foreground">{openCount}</span>
+      </ToggleGroupItem>
+      <ToggleGroupItem
+        value="done"
+        aria-label="Show done orders"
+        className="gap-1.5"
+        onClick={() => onStatusChange("done")}
+      >
+        Done
+        <span className="text-muted-foreground">{doneCount}</span>
+      </ToggleGroupItem>
+    </ToggleGroup>
   );
 }

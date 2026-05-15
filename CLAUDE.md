@@ -467,12 +467,12 @@ Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCel
 
 Mutable multi-control arrays use `EditableLineItems` from `components/editable-line-items.tsx`; it wraps `EditableLineGrid`, owns row chrome (drag handle, right-side remove, add button), and always creates one initial blank row. Pass only data columns/headers. Call `appendLineAfterCommit()` only after a committed picker selection; never create rows from typing, focus, blur, or Tab. Mark the first editable row control with `data-editable-line-primary` so Add row can focus it. Use flexible `minmax(..., fr)` tracks and a compact `minWidth`; use bare `EditableLineGrid` only for fixed editable grids like stocktake counts.
 
-### Shared dashboard tables
+### Shared dashboard list grids
 
-List pages with search + add + optional bulk delete should use `DashboardDataTable` from `components/dashboard-data-table.tsx`. Keep route table files to columns + config only.
+List pages with search + add + optional bulk delete should use `ERPDataGridList` from `components/erp-data-grid-list.tsx`. Keep route table files to AG Grid columns + config only. Use `ERPDataGrid` directly only for custom list behavior such as persisted row drag.
 
 ```tsx
-<DashboardDataTable columns={columns} queryKey={["customers"]} addHref="/sales/customers/new" />
+<ERPDataGridList columns={columns} rows={initialData} queryKey={["customers"]} addHref="/sales/customers/new" />
 ```
 
 ### Domain errors

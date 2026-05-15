@@ -1,98 +1,74 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
-import { SortableHeader } from "@/components/sortable-header";
+import type { ICellRendererParams } from "ag-grid-community";
+import { ERPDataGridList } from "@/components/erp-data-grid-list";
+import type { ColDef } from "@/components/erp-data-grid";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
-import { Checkbox } from "@/components/ui/checkbox";
 import type { CustomerRow } from "./types";
 
-const columns: ColumnDef<CustomerRow>[] = [
+const columns: ColDef<CustomerRow>[] = [
   {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all customers"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.name}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
+    field: "name",
+    headerName: "Name",
+    width: 260,
+    minWidth: 190,
+    flex: 1.2,
+    cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
+      data ? (
+        <Link href={`/sales/customers/${data.id}`} className="hover:underline">
+          {data.name}
+        </Link>
+      ) : null,
   },
   {
-    accessorKey: "name",
-    header: ({ column }) => <SortableHeader column={column} label="Name" />,
-    cell: ({ row }) => (
-      <Link
-        href={`/sales/customers/${row.original.id}`}
-        className="hover:underline"
-      >
-        {row.original.name}
-      </Link>
-    ),
+    field: "customerCategoryName",
+    headerName: "Pricing",
+    headerTooltip: CUSTOMER_PRICING_TOOLTIP,
+    width: 170,
+    valueFormatter: ({ value }) => value ?? "Everyone",
   },
   {
-    accessorKey: "customerCategoryName",
-    header: ({ column }) => (
-      <FilterableHeader column={column} label="Pricing" tooltip={CUSTOMER_PRICING_TOOLTIP} />
-    ),
-    filterFn: multiValueFilter,
-    cell: ({ row }) => row.original.customerCategoryName ?? "Everyone",
+    field: "email",
+    headerName: "Email",
+    width: 260,
+    minWidth: 180,
+    flex: 1,
+    valueFormatter: ({ value }) => value ?? "—",
   },
   {
-    accessorKey: "email",
-    header: ({ column }) => <SortableHeader column={column} label="Email" />,
-    cell: ({ row }) => row.original.email ?? "\u2014",
+    field: "phone",
+    headerName: "Phone",
+    width: 160,
+    valueFormatter: ({ value }) => value ?? "—",
   },
   {
-    accessorKey: "phone",
-    header: ({ column }) => <SortableHeader column={column} label="Phone" />,
-    cell: ({ row }) => row.original.phone ?? "\u2014",
-  },
-  {
-    accessorKey: "xeroContactId",
-    header: ({ column }) => <SortableHeader column={column} label="Reference ID" />,
-    cell: ({ row }) =>
-      row.original.xeroContactId ? (
-        <span title={row.original.xeroContactId}>
-          {row.original.xeroContactId}
-        </span>
+    field: "xeroContactId",
+    headerName: "Reference ID",
+    width: 190,
+    cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
+      data?.xeroContactId ? (
+        <span title={data.xeroContactId}>{data.xeroContactId}</span>
       ) : (
-        "\u2014"
+        "—"
       ),
   },
   {
-    accessorKey: "notes",
-    header: ({ column }) => <SortableHeader column={column} label="Comment" />,
-    cell: ({ row }) =>
-      row.original.notes ? (
-        <span title={row.original.notes}>
-          {row.original.notes}
-        </span>
-      ) : (
-        "\u2014"
-      ),
+    field: "notes",
+    headerName: "Comment",
+    width: 280,
+    minWidth: 180,
+    flex: 1,
+    cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
+      data?.notes ? <span title={data.notes}>{data.notes}</span> : "—",
   },
 ];
 
 export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) {
   return (
-    <DashboardDataTable
+    <ERPDataGridList
+      rows={initialData}
       columns={columns}
-      initialData={initialData}
       queryKey={["customers"]}
       queryFn={async () => {
         const response = await fetch("/api/customers");

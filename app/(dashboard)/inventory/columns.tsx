@@ -1,18 +1,15 @@
 "use client";
 
-import { type ColumnDef, type FilterFn } from "@tanstack/react-table";
 import Link from "next/link";
-import { Checkbox } from "@/components/ui/checkbox";
+import type { ICellRendererParams } from "ag-grid-community";
 import { Badge } from "@/components/ui/badge";
-import { FilterableHeader, multiValueFilter } from "@/components/filterable-header";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
-import { SortableHeader } from "@/components/sortable-header";
-import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { ColDef } from "@/components/erp-data-grid";
 import {
   CALCULATED_STOCK_ALERT_TOOLTIP,
   ITEM_SKU_TOOLTIP,
@@ -26,40 +23,13 @@ import {
 import { formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { calcProjectedStock, calcStock, getReplenishmentStatus } from "./types";
-import type {
-  InventoryProductView,
-  ItemRow,
-  ItemType,
-} from "./types";
+import type { InventoryProductView, ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
 type InventoryAttention = {
   label: string;
   tooltip: string;
 };
-
-const categoryFilter: FilterFn<ItemRow> = (row, columnId, filterValue) => {
-  const selected = Array.isArray(filterValue) ? filterValue : [];
-  if (selected.length === 0) return true;
-
-  const ownCategory = row.getValue(columnId) as string | null;
-  if (ownCategory != null && selected.includes(ownCategory)) {
-    return true;
-  }
-
-  const parentCategory = row.getParentRow()?.original.category;
-  if (parentCategory != null && selected.includes(parentCategory)) {
-    return true;
-  }
-
-  return false;
-};
-
-const REPLENISHMENT_FILTER_OPTIONS = [
-  { value: "order-now", label: "Order now" },
-  { value: "order-soon", label: "Order soon" },
-  { value: "stocked", label: "Stocked" },
-] as const;
 
 function getInventoryAttention(row: ItemRow): InventoryAttention | null {
   const shortage = parseFloat(row.shortageQty);
@@ -155,184 +125,139 @@ function ProjectedSafetyCell({ row }: { row: ItemRow }) {
   );
 }
 
+function NameCell({
+  row,
+  isSubAssemblies,
+}: {
+  row: ItemRow;
+  isSubAssemblies: boolean;
+}) {
+  const attention = getInventoryAttention(row);
+
+  return (
+    <div className="flex h-full min-w-0 items-center gap-1.5">
+      {attention ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="size-2 shrink-0 cursor-default rounded-full bg-destructive"
+              aria-label={attention.label}
+            />
+          </TooltipTrigger>
+          <TooltipContent side="top">{attention.tooltip}</TooltipContent>
+        </Tooltip>
+      ) : null}
+      <Link
+        href={`/inventory/${ITEM_TYPE_SEGMENTS[row.itemType]}/${row.id}`}
+        prefetch={false}
+        className="truncate hover:underline"
+      >
+        {row.displayName}
+      </Link>
+      {isSubAssemblies && row.sellable === false ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className="text-xs">
+              Not sellable
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="top">{NOT_SELLABLE_TOOLTIP}</TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
+}
+
 export function getColumns(
   itemType: ItemType,
-  view?: InventoryProductView,
-): ColumnDef<ItemRow>[] {
+  view?: InventoryProductView
+): ColDef<ItemRow>[] {
   const isProduct = itemType === "product";
   const isSubAssemblies = view === "sub-assemblies";
 
   return [
     {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && "indeterminate")
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label={`Select ${row.original.displayName}`}
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
+      field: "displayName",
+      headerName: "Name",
+      width: 300,
+      minWidth: 220,
+      flex: 1.3,
+      cellRenderer: ({ data }: ICellRendererParams<ItemRow>) =>
+        data ? <NameCell row={data} isSubAssemblies={isSubAssemblies} /> : null,
+      getQuickFilterText: ({ data }) =>
+        [data?.displayName, data?.name, data?.sku, data?.category]
+          .filter(Boolean)
+          .join(" "),
     },
     {
-      accessorKey: "displayName",
-      header: ({ column }) => <SortableHeader column={column} label="Name" />,
-      cell: ({ row }) => {
-        const { sellable } = row.original;
-        const attention = getInventoryAttention(row.original);
-
-        return (
-          <div className="flex items-center gap-1.5">
-            {attention ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className="size-2 shrink-0 cursor-default rounded-full bg-destructive"
-                    aria-label={attention.label}
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="top">{attention.tooltip}</TooltipContent>
-              </Tooltip>
-            ) : null}
-            <Link
-              href={`/inventory/${ITEM_TYPE_SEGMENTS[row.original.itemType]}/${row.original.id}`}
-              prefetch={false}
-              className="hover:underline"
-            >
-              {row.original.displayName}
-            </Link>
-            {isSubAssemblies && sellable === false ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-xs">
-                    Not sellable
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="top">{NOT_SELLABLE_TOOLTIP}</TooltipContent>
-              </Tooltip>
-            ) : null}
-          </div>
-        );
-      },
+      field: "category",
+      headerName: "Category",
+      width: 170,
+      valueFormatter: ({ value }) => value ?? "—",
     },
     {
-      accessorKey: "category",
-      header: ({ column }) => <FilterableHeader column={column} label="Category" />,
-      filterFn: categoryFilter,
-      cell: ({ row, column }) => {
-        const value = row.getValue("category") as string | null;
-        if (!value) return "—";
-
-        return (
-          <button
-            type="button"
-            className="cursor-pointer text-left"
-            onClick={() => {
-              const current = column.getFilterValue() as string[] | undefined;
-              if (current?.length === 1 && current[0] === value) {
-                column.setFilterValue(undefined);
-              } else {
-                column.setFilterValue([value]);
-              }
-            }}
-          >
-            {value}
-          </button>
-        );
-      },
-    },
-    {
-      accessorKey: "stock",
-      sortDescFirst: false,
-      sortingFn: (rowA, rowB) =>
-        parseFloat(rowA.getValue("stock")) - parseFloat(rowB.getValue("stock")),
-      header: ({ column }) => (
-        <SortableHeader column={column} label="Stock" tooltip={ON_HAND_STOCK_TOOLTIP} />
-      ),
-      cell: ({ row }) => formatQuantity(row.getValue("stock")),
+      field: "stock",
+      headerName: "Stock",
+      headerTooltip: ON_HAND_STOCK_TOOLTIP,
+      width: 130,
+      comparator: (left, right) =>
+        parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
+      valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
     },
     ...(!isProduct
       ? [
           {
-            accessorKey: "unit",
-            header: () => (
-              <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
-            ),
-            cell: ({ row }) => row.original.unit ?? "—",
-          } satisfies ColumnDef<ItemRow>,
-        ]
-      : []),
-    ...(!isProduct
-      ? [
+            field: "unit",
+            headerName: "Stocking Unit",
+            headerTooltip: STOCKING_UNIT_TOOLTIP,
+            width: 150,
+            valueFormatter: ({ value }) => value ?? "—",
+          } satisfies ColDef<ItemRow>,
           {
-            accessorFn: (row) => getReplenishmentStatus(row),
-            id: "projectedSafety",
-            size: 260,
-            minSize: 220,
-            maxSize: 420,
-            sortDescFirst: false,
-            filterFn: multiValueFilter,
-            sortingFn: (rowA, rowB) =>
-              calcProjectedStock(rowA.original) - calcProjectedStock(rowB.original),
-            header: ({ column }) => (
-              <FilterableHeader
-                column={column}
-                label="Projected vs safety"
-                tooltip={PROJECTED_VS_SAFETY_TOOLTIP}
-                options={REPLENISHMENT_FILTER_OPTIONS}
-              />
-            ),
-            cell: ({ row }) => <ProjectedSafetyCell row={row.original} />,
-          } satisfies ColumnDef<ItemRow>,
+            colId: "projectedSafety",
+            headerName: "Projected vs safety",
+            headerTooltip: PROJECTED_VS_SAFETY_TOOLTIP,
+            width: 280,
+            minWidth: 230,
+            valueGetter: ({ data }) => (data ? getReplenishmentStatus(data) : ""),
+            comparator: (_left, _right, leftNode, rightNode) =>
+              (leftNode.data ? calcProjectedStock(leftNode.data) : 0) -
+              (rightNode.data ? calcProjectedStock(rightNode.data) : 0),
+            cellRenderer: ({ data }: ICellRendererParams<ItemRow>) =>
+              data ? <ProjectedSafetyCell row={data} /> : null,
+          } satisfies ColDef<ItemRow>,
         ]
       : []),
     ...(isProduct && !isSubAssemblies
       ? [
           {
-            accessorKey: "marginPercent",
-            sortDescFirst: true,
-            sortingFn: (rowA, rowB) => {
-              const a = rowA.original.marginPercent != null
-                ? parseFloat(rowA.original.marginPercent)
-                : Number.NEGATIVE_INFINITY;
-              const b = rowB.original.marginPercent != null
-                ? parseFloat(rowB.original.marginPercent)
-                : Number.NEGATIVE_INFINITY;
-              return a - b;
+            field: "marginPercent",
+            headerName: "Margin",
+            headerTooltip: MARGIN_TOOLTIP,
+            width: 130,
+            comparator: (_left, _right, leftNode, rightNode) => {
+              const left =
+                leftNode.data?.marginPercent != null
+                  ? parseFloat(leftNode.data.marginPercent)
+                  : Number.NEGATIVE_INFINITY;
+              const right =
+                rightNode.data?.marginPercent != null
+                  ? parseFloat(rightNode.data.marginPercent)
+                  : Number.NEGATIVE_INFINITY;
+              return left - right;
             },
-            header: ({ column }) => (
-              <SortableHeader
-                column={column}
-                label="Margin"
-                tooltip={MARGIN_TOOLTIP}
-              />
-            ),
-            cell: ({ row }) => <MarginBadge row={row.original} />,
-          } satisfies ColumnDef<ItemRow>,
+            cellRenderer: ({ data }: ICellRendererParams<ItemRow>) =>
+              data ? <MarginBadge row={data} /> : null,
+          } satisfies ColDef<ItemRow>,
           {
-            accessorKey: "potential",
-            sortDescFirst: false,
-            sortingFn: (rowA, rowB) => {
-              const a = rowA.original.potential != null ? parseFloat(rowA.original.potential) : -1;
-              const b = rowB.original.potential != null ? parseFloat(rowB.original.potential) : -1;
-              return a - b;
-            },
-            header: ({ column }) => (
-              <SortableHeader column={column} label="Potential" tooltip={POTENTIAL_TOOLTIP} />
-            ),
-            cell: ({ row }) => {
-              const val = row.original.potential;
+            field: "potential",
+            headerName: "Potential",
+            headerTooltip: POTENTIAL_TOOLTIP,
+            width: 130,
+            comparator: (left, right) =>
+              parseFloat(String(left ?? "-1")) - parseFloat(String(right ?? "-1")),
+            cellRenderer: ({ data }: ICellRendererParams<ItemRow>) => {
+              const val = data?.potential;
               if (val == null) return "—";
               const num = parseFloat(val);
               return (
@@ -341,26 +266,26 @@ export function getColumns(
                 </span>
               );
             },
-          } satisfies ColumnDef<ItemRow>,
+          } satisfies ColDef<ItemRow>,
         ]
       : []),
     ...(isProduct
       ? [
           {
-            accessorKey: "unit",
-            header: () => (
-              <TooltipHeader label="Stocking Unit" tooltip={STOCKING_UNIT_TOOLTIP} />
-            ),
-            cell: ({ row }) => row.original.unit ?? "—",
-          } satisfies ColumnDef<ItemRow>,
+            field: "unit",
+            headerName: "Stocking Unit",
+            headerTooltip: STOCKING_UNIT_TOOLTIP,
+            width: 150,
+            valueFormatter: ({ value }) => value ?? "—",
+          } satisfies ColDef<ItemRow>,
         ]
       : []),
     {
-      accessorKey: "sku",
-      header: () => <TooltipHeader label="SKU" tooltip={ITEM_SKU_TOOLTIP} />,
-      cell: ({ row }) => {
-        return (row.getValue("sku") as string | null) ?? "—";
-      },
+      field: "sku",
+      headerName: "SKU",
+      headerTooltip: ITEM_SKU_TOOLTIP,
+      width: 170,
+      valueFormatter: ({ value }) => value ?? "—",
     },
   ];
 }

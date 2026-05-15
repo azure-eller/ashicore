@@ -1,77 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
-import { SortableHeader } from "@/components/sortable-header";
-import { TooltipHeader } from "@/components/tooltip-header";
-import { DashboardDataTable } from "@/components/dashboard-data-table";
+import type { ICellRendererParams } from "ag-grid-community";
 import { DateTimeText } from "@/components/date-time-text";
-import { Checkbox } from "@/components/ui/checkbox";
+import { ERPDataGridList } from "@/components/erp-data-grid-list";
+import type { ColDef } from "@/components/erp-data-grid";
 import { SUPPLIER_CODE_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "./types";
 
-const columns: ColumnDef<SupplierRow>[] = [
+const columns: ColDef<SupplierRow>[] = [
   {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all suppliers"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.name}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
+    field: "name",
+    headerName: "Name",
+    width: 240,
+    minWidth: 180,
+    flex: 1.1,
+    cellRenderer: ({ data }: ICellRendererParams<SupplierRow>) =>
+      data ? (
+        <Link href={`/purchasing/suppliers/${data.id}`} className="hover:underline">
+          {data.name}
+        </Link>
+      ) : null,
   },
   {
-    accessorKey: "name",
-    header: ({ column }) => <SortableHeader column={column} label="Name" />,
-    cell: ({ row }) => (
-      <Link href={`/purchasing/suppliers/${row.original.id}`} className="hover:underline">
-        {row.original.name}
-      </Link>
-    ),
+    field: "code",
+    headerName: "Code",
+    headerTooltip: SUPPLIER_CODE_TOOLTIP,
+    width: 130,
+    valueFormatter: ({ value }) => value ?? "—",
   },
   {
-    accessorKey: "code",
-    header: () => <TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />,
-    cell: ({ row }) => row.original.code ?? "\u2014",
+    field: "contactName",
+    headerName: "Contact",
+    width: 190,
+    valueFormatter: ({ value }) => value ?? "—",
   },
   {
-    accessorKey: "contactName",
-    header: "Contact",
-    cell: ({ row }) => row.original.contactName ?? "\u2014",
+    field: "email",
+    headerName: "Email",
+    width: 260,
+    flex: 1,
+    valueFormatter: ({ value }) => value ?? "—",
   },
   {
-    accessorKey: "email",
-    header: "Email",
-    cell: ({ row }) => row.original.email ?? "\u2014",
-  },
-  {
-    accessorKey: "updatedAt",
-    header: ({ column }) => <SortableHeader column={column} label="Updated" />,
-    sortingFn: (a, b) =>
-      new Date(a.original.updatedAt).getTime() -
-      new Date(b.original.updatedAt).getTime(),
-    cell: ({ row }) => <DateTimeText value={row.original.updatedAt} />,
+    field: "updatedAt",
+    headerName: "Updated",
+    width: 190,
+    comparator: (left, right) =>
+      new Date(left ?? 0).getTime() - new Date(right ?? 0).getTime(),
+    cellRenderer: ({ data }: ICellRendererParams<SupplierRow>) =>
+      data ? <DateTimeText value={data.updatedAt} /> : null,
   },
 ];
 
 export function SuppliersTable({ initialData }: { initialData: SupplierRow[] }) {
   return (
-    <DashboardDataTable
+    <ERPDataGridList
+      rows={initialData}
       columns={columns}
-      initialData={initialData}
       queryKey={["suppliers"]}
       queryFn={async () => {
         const response = await fetch("/api/suppliers");
