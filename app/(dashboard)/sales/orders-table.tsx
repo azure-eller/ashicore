@@ -636,6 +636,7 @@ function SalesOrderWorkflowTabs({
   return (
     <ToggleGroup
       type="single"
+      variant="segmented"
       size="sm"
       value={value}
       onValueChange={(nextValue) => {

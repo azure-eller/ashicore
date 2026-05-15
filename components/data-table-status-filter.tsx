@@ -35,12 +35,12 @@ export function DataTableStatusFilter<TData, TValue extends string>({
   const allCount = statusCounts
     ? Array.from(statusCounts.values()).reduce((sum, count) => sum + count, 0)
     : table.getFilteredRowModel().rows.length;
-  const itemClassName =
-    "gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-xs";
+  const itemClassName = "gap-1.5";
 
   return (
     <ToggleGroup
       type="single"
+      variant="segmented"
       size="sm"
       value={value}
       onValueChange={(nextValue) => {
