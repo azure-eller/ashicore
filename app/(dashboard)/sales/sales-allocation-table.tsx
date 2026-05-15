@@ -211,6 +211,7 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
           .filter((line): line is SalesOrderListLine & { id: string } => line.id != null)
           .map((line) => [line.id, line])
       );
+      const plannedByOrderLineId = new Map<string, number>();
       const rows: AllocationRow[] = [];
 
       order.shipments
@@ -222,6 +223,11 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
             const product = productById.get(shipmentLine.itemId);
             if (!product) return;
             const orderLine = orderLineById.get(shipmentLine.salesOrderLineId);
+            plannedByOrderLineId.set(
+              shipmentLine.salesOrderLineId,
+              (plannedByOrderLineId.get(shipmentLine.salesOrderLineId) ?? 0) +
+                parseQuantity(shipmentLine.quantity)
+            );
             const line: SalesOrderListLine & { id: string } = {
               id: shipmentLine.id,
               allocationDemandType: "sales_shipment_line",
@@ -265,13 +271,21 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
 
       const fallbackCells = new Map<string, AllocationCell>();
       order.lines.forEach((line) => {
-        if (!line.id || parseQuantity(line.remainingQty ?? line.quantity) <= 0) return;
+        if (!line.id) return;
+        const remainingQty = parseQuantity(line.remainingQty ?? line.quantity);
+        const unplannedQty =
+          remainingQty - (plannedByOrderLineId.get(line.id) ?? 0);
+        if (unplannedQty <= 0) return;
         const product = productById.get(line.itemId);
         if (!product) return;
+        const unplannedQuantity = quantityString(unplannedQty);
         const demandLine: SalesOrderListLine & { id: string } = {
           ...line,
           id: line.id,
           allocationDemandType: "sales_order_line",
+          quantity: unplannedQuantity,
+          remainingQty: unplannedQuantity,
+          shortQty: unplannedQuantity,
         };
         fallbackCells.set(product.itemId, {
           line: demandLine,

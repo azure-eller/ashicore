@@ -24,7 +24,6 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
-  inventoryReservationsSummary,
   integrationExternalRecords,
   items,
   manufacturingOrders,
@@ -45,7 +44,6 @@ import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
   consumeForShipmentInTx,
-  defaultLocationIdSubquery,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   InsufficientStockError,
@@ -4919,14 +4917,28 @@ export async function getSalesOrder(
         ).as("onHandQty"),
         availableQty: availableQtySubquery,
         allocatedQty: trimScale(sql`COALESCE((
-          SELECT SUM(${inventoryReservationsSummary.quantity})
-          FROM ${inventoryReservationsSummary}
-          WHERE ${inventoryReservationsSummary.organizationId} = ${items.organizationId}
-            AND ${inventoryReservationsSummary.itemId} = ${items.id}
-            AND ${inventoryReservationsSummary.locationId} = ${defaultLocationIdSubquery(items.organizationId)}
-            AND ${inventoryReservationsSummary.referenceType} = 'sales_order_line'
-            AND ${inventoryReservationsSummary.referenceId} = ${salesOrderLines.id}
-            AND ${inventoryReservationsSummary.quantity} > 0
+          SELECT SUM(${stockAllocations.quantity})
+          FROM ${stockAllocations}
+          WHERE ${stockAllocations.organizationId} = ${items.organizationId}
+            AND ${stockAllocations.itemId} = ${items.id}
+            AND ${stockAllocations.status} = 'active'
+            AND (
+              (
+                ${stockAllocations.demandType} = 'sales_order_line'
+                AND ${stockAllocations.demandId} = ${salesOrderLines.id}
+              )
+              OR (
+                ${stockAllocations.demandType} = 'sales_shipment_line'
+                AND ${stockAllocations.demandId} IN (
+                  SELECT ${salesShipmentLines.id}
+                  FROM ${salesShipmentLines}
+                  INNER JOIN ${salesShipments}
+                    ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
+                  WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
+                    AND ${salesShipments.status} = 'planned'
+                )
+              )
+            )
         ), 0)`).as("allocatedQty"),
         potential: projectedPotentialQty(
           items.organizationId,
@@ -5340,9 +5352,17 @@ export async function getSalesOrder(
     }
     const linesWithAllocation = linesWithFulfillment.map((line) => {
       const allocation = allocationSummaryByLineId.get(line.id);
-      const allocatedQty = Number(allocation?.allocatedQty ?? 0);
+      const fallbackAllocatedQty = Number(line.reservationAllocatedQty ?? 0);
+      const allocatedQty = Math.max(
+        Number(allocation?.allocatedQty ?? 0),
+        fallbackAllocatedQty
+      );
       const shortQty = roundQuantity(
-        Number(allocation?.shortQty ?? 0) + Number(line.unplannedRemainingQuantity)
+        Math.max(
+          0,
+          Number(allocation?.shortQty ?? Number(line.remainingQuantity)) -
+            Math.max(0, allocatedQty - Number(allocation?.allocatedQty ?? 0))
+        ) + Number(line.unplannedRemainingQuantity)
       );
       const sources = allocation?.sources ?? [];
 

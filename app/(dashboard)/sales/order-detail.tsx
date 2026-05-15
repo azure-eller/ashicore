@@ -114,6 +114,11 @@ type ActionError = {
   negativeStock?: NegativeStockWarningPayload;
 };
 
+type XeroInvoiceSetupStatus =
+  | "ready"
+  | "not_connected"
+  | "missing_sales_account";
+
 function formatMarginPercent(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
 }
@@ -291,15 +296,31 @@ async function fetchSalesOrderDetail(id: string): Promise<SalesOrderDetailType> 
   return body as SalesOrderDetailType;
 }
 
+function isMissingSalesInvoiceAccountError(error: string | null | undefined) {
+  return (
+    error ===
+      "Set a default Xero account code in settings before pushing invoices." ||
+    error ===
+      "Set a sales invoice account code in Xero settings before creating invoices."
+  );
+}
+
 function salesOrderAccountingDocument(
-  order: SalesOrderDetailType
+  order: SalesOrderDetailType,
+  options?: { salesInvoiceAccountReady?: boolean }
 ): AccountingSyncDocument {
+  const pushError =
+    options?.salesInvoiceAccountReady &&
+    isMissingSalesInvoiceAccountError(order.xeroPushError)
+      ? "Previous invoice sync failed before the sales invoice account code was configured. Retry sync."
+      : order.xeroPushError;
+
   return {
     providerName: "Xero",
     documentLabel: "invoice",
     documentNumber: order.xeroInvoiceNumber,
     pushStatus: order.xeroPushStatus,
-    pushError: order.xeroPushError,
+    pushError,
     pushedAt: order.xeroPushedAt,
     retryCount: order.xeroRetryCount,
     emailStatus: null,
@@ -859,6 +880,7 @@ function ShippingPanel({
   order,
   canCreateShipment,
   canCreateOrderInvoice,
+  canCreateShipmentInvoice,
   canEdit,
   hasCancelledRemainingHistory,
   onCreateShipment,
@@ -876,6 +898,7 @@ function ShippingPanel({
   order: SalesOrderDetailType;
   canCreateShipment: boolean;
   canCreateOrderInvoice: boolean;
+  canCreateShipmentInvoice: boolean;
   canEdit: boolean;
   hasCancelledRemainingHistory: boolean;
   onCreateShipment: () => void;
@@ -1060,7 +1083,10 @@ function ShippingPanel({
                           variant="ghost"
                           size="sm"
                           onClick={() => onCreateShipmentInvoice(shipment)}
-                          disabled={createShipmentInvoicePending}
+                          disabled={
+                            createShipmentInvoicePending ||
+                            !canCreateShipmentInvoice
+                          }
                         >
                           {shipment.xeroPushStatus === "pushed"
                             ? "Invoice created"
@@ -1247,9 +1273,11 @@ function ActivityPanel({ order }: { order: SalesOrderDetailType }) {
 export function OrderDetail({
   order,
   canViewLedger = false,
+  xeroInvoiceSetupStatus = "not_connected",
 }: {
   order: SalesOrderDetailType;
   canViewLedger?: boolean;
+  xeroInvoiceSetupStatus?: XeroInvoiceSetupStatus;
 }) {
   const timeZone = useOrganizationTimeZone();
   const router = useRouter();
@@ -1272,7 +1300,10 @@ export function OrderDetail({
     useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
-  const accountingDocument = salesOrderAccountingDocument(order);
+  const currentSalesInvoiceAccountReady = xeroInvoiceSetupStatus === "ready";
+  const accountingDocument = salesOrderAccountingDocument(order, {
+    salesInvoiceAccountReady: currentSalesInvoiceAccountReady,
+  });
   const [activeTab, setActiveTab] = useState<SalesOrderDetailTab>(() =>
     getInitialSalesOrderDetailTab(order.shipments.length > 0 ? "shipping" : "lines")
   );
@@ -1331,7 +1362,9 @@ export function OrderDetail({
   }) => {
     try {
       const latest = await fetchSalesOrderDetail(order.id);
-      const latestDocument = salesOrderAccountingDocument(latest);
+      const latestDocument = salesOrderAccountingDocument(latest, {
+        salesInvoiceAccountReady: currentSalesInvoiceAccountReady,
+      });
       setSyncDialog({
         title,
         description,
@@ -1606,7 +1639,9 @@ export function OrderDetail({
       ]);
 
       const latest = await fetchSalesOrderDetail(order.id);
-      const latestDocument = salesOrderAccountingDocument(latest);
+      const latestDocument = salesOrderAccountingDocument(latest, {
+        salesInvoiceAccountReady: currentSalesInvoiceAccountReady,
+      });
       const includeAccounting = latest.status === "done";
       setSyncDialog({
         title: includeAccounting ? "Shipment Complete" : "Shipment Recorded",
@@ -1754,11 +1789,13 @@ export function OrderDetail({
   const canDelete = !isDeleted;
   const canDownloadBol = order.status === "done";
   const canInvoiceOrderStatus = order.status === "open" || order.status === "done";
+  const canUseXeroInvoices = xeroInvoiceSetupStatus === "ready";
   const canRetryXeroPush =
+    canUseXeroInvoices &&
     canInvoiceOrderStatus &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
   const canCreateXeroInvoice =
-    !isDeleted && canInvoiceOrderStatus && !order.xeroPushStatus;
+    !isDeleted && canUseXeroInvoices && canInvoiceOrderStatus && !order.xeroPushStatus;
   const canCreateShipment =
     !isDeleted &&
     order.status === "open";
@@ -1773,7 +1810,24 @@ export function OrderDetail({
     },
     { value: "activity", label: "Activity" },
   ];
-  const accountingStatus = canCreateXeroInvoice ? (
+  const accountingStatus = !canUseXeroInvoices && canInvoiceOrderStatus ? (
+    <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+      <span className="font-medium">Accounting Sync</span>
+      <Badge variant="secondary">Setup needed</Badge>
+      <span className="text-warning/80">
+        {xeroInvoiceSetupStatus === "missing_sales_account"
+          ? "Set a sales invoice account code before creating Xero invoices."
+          : "Connect Xero before creating invoices."}
+      </span>
+      <Button type="button" size="sm" variant="outline" asChild>
+        <Link href="/settings#integrations">
+          {xeroInvoiceSetupStatus === "missing_sales_account"
+            ? "Open settings"
+            : "Connect Xero"}
+        </Link>
+      </Button>
+    </div>
+  ) : canCreateXeroInvoice ? (
     <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
       <span className="font-medium">Accounting Sync</span>
       <Badge variant="secondary">Not synced</Badge>
@@ -1982,6 +2036,7 @@ export function OrderDetail({
                   order={order}
                   canCreateShipment={canCreateShipment}
                   canCreateOrderInvoice={canCreateXeroInvoice}
+                  canCreateShipmentInvoice={canUseXeroInvoices}
                   canEdit={canEdit}
                   hasCancelledRemainingHistory={hasCancelledRemainingHistory}
                   onCreateShipment={() =>

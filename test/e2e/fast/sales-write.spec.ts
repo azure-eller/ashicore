@@ -10,6 +10,7 @@ import {
   customerCorrespondenceAttendees,
   customerProjectFiles,
   customerProjects,
+  integrationConnections,
   lots,
   manufacturingOrders,
   purchaseOrderLines,
@@ -474,10 +475,70 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(productBalance?.committedQty ?? "0.0000").toBe("3.0000");
 
+    await db
+      .insert(integrationConnections)
+      .values({
+        organizationId: await getOrgId(),
+        provider: "xero",
+        tenantId: `tenant-sales-${ts}`,
+        tenantName: "Paonia Soil Co.",
+        authorizedTenants: [
+          { tenantId: `tenant-sales-${ts}`, tenantName: "Paonia Soil Co." },
+        ],
+        accessTokenCiphertext: `test-access-token-ciphertext-${ts}`,
+        refreshTokenCiphertext: `test-refresh-token-ciphertext-${ts}`,
+        tokenEncryptionKeyId: "test",
+        tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        defaultAccountCode: null,
+        defaultTaxType: "OUTPUT",
+        invoiceStatusPreference: "DRAFT",
+        autoPushSalesInvoices: false,
+        autoPushPurchaseOrders: false,
+        autoEmailSalesInvoices: false,
+        autoEmailPurchaseOrders: false,
+        purchaseOrderDefaultAccountCode: "500",
+        purchaseOrderDefaultTaxType: "NONE",
+        purchaseOrderStatusPreference: "DRAFT",
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnections.organizationId,
+          integrationConnections.provider,
+        ],
+        set: {
+          tenantId: `tenant-sales-${ts}`,
+          tenantName: "Paonia Soil Co.",
+          authorizedTenants: [
+            { tenantId: `tenant-sales-${ts}`, tenantName: "Paonia Soil Co." },
+          ],
+          accessTokenCiphertext: `test-access-token-ciphertext-${ts}`,
+          refreshTokenCiphertext: `test-refresh-token-ciphertext-${ts}`,
+          tokenEncryptionKeyId: "test",
+          tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          defaultAccountCode: null,
+          defaultTaxType: "OUTPUT",
+          invoiceStatusPreference: "DRAFT",
+          autoPushSalesInvoices: false,
+          autoPushPurchaseOrders: false,
+          autoEmailSalesInvoices: false,
+          autoEmailPurchaseOrders: false,
+          purchaseOrderDefaultAccountCode: "500",
+          purchaseOrderDefaultTaxType: "NONE",
+          purchaseOrderStatusPreference: "DRAFT",
+          updatedAt: new Date(),
+        },
+      });
+
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.getByText("Confirm the order before shipping.")).toHaveCount(0);
     await expect(page.getByText("Failed to confirm order.")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Create invoice" }).first()).toBeVisible();
+    await expect(
+      page.getByText("Set a sales invoice account code before creating Xero invoices.")
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open settings" })).toHaveAttribute(
+      "href",
+      "/settings#integrations"
+    );
 
     const shipments = await db
       .select()
@@ -2655,20 +2716,17 @@ test.describe("Sales write-path smoke", () => {
     );
     expect(splitExistingResponse.status).toBe(200);
 
-    const planResponse = await testFetch(
-      `/api/sales-orders/${shortOrderId}/shipments`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          fulfillmentType: "delivery",
-          scheduledDate: "2026-04-23",
-          notes: "Plan now, allocate later",
-          lines: [{ salesOrderLineId: line.id, quantity: "4" }],
-        }),
-      }
-    );
-    expect(planResponse.status).toBe(201);
-    const plannedShipment = await planResponse.json();
+    const [plannedShipment] = await db
+      .select({ id: salesShipments.id, scheduledDate: salesShipments.scheduledDate })
+      .from(salesShipments)
+      .where(
+        and(
+          eq(salesShipments.salesOrderId, shortOrderId),
+          sql`${salesShipments.id} <> ${initialPlannedShipment.id}`
+        )
+      );
+    expect(plannedShipment).toBeTruthy();
+    expect(plannedShipment.scheduledDate).toBeNull();
 
     const [plannedLine] = await db
       .select({ quantity: salesShipmentLines.quantity })
