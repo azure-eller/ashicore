@@ -285,9 +285,11 @@
 }
 
 .coverageSummary {
-  display: grid;
+  display: flex;
   width: 100%;
-  gap: 0.1875rem;
+  height: 100%;
+  align-items: center;
+  justify-content: flex-end;
   padding: 0 0.5rem;
 }
 
@@ -314,16 +316,6 @@
 
 .verdict[data-tone="met"] {
   color: var(--chart-2);
-}
-
-.coverageSubline {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.3125rem;
-  color: var(--muted-foreground);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.6875rem;
-  font-variant-numeric: tabular-nums;
 }
 
 .totalCell {

@@ -651,10 +651,6 @@ function CoverageSummaryCell({ coverage }: { coverage: ColumnCoverage | undefine
           <div className={styles.verdict} data-tone={label.tone}>
             {label.text}
           </div>
-          <div className={styles.coverageSubline}>
-            <span>pool {compactQuantity(coverage.pool)}</span>
-            <span>need {compactQuantity(coverage.demand)}</span>
-          </div>
         </div>
       </TooltipTrigger>
       <TooltipContent
@@ -1001,10 +997,6 @@ export function SalesAllocationTable({
     () => [{ id: "coverage", rowType: "coverage", coverageByProductId: coverageById }],
     [coverageById]
   );
-  const pinnedBottomRows = useMemo<SalesAllocationGridRow[]>(
-    () => [{ id: "totals", rowType: "totals", coverageByProductId: coverageById }],
-    [coverageById]
-  );
   const highlightedOrderId = searchParams.get("highlightOrderId");
   const hiddenProducts = allProducts.filter(
     (product) => hiddenProductIdSet.has(product.itemId)
@@ -1205,7 +1197,6 @@ export function SalesAllocationTable({
         rows={gridRows}
         columns={columns}
         pinnedTopRows={pinnedTopRows}
-        pinnedBottomRows={pinnedBottomRows}
         getRowId={(row) => row.id}
         searchValue={search}
         onSearchChange={setSearch}
