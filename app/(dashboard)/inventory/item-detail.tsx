@@ -672,32 +672,45 @@ function SupplierSources({ item }: { item: DetailItem }) {
   );
 }
 
-function UsedInLine({
+function UsedInCard({
   usedInParents,
 }: {
   usedInParents: ItemDetailProps["usedInParents"];
 }) {
+  const count = usedInParents?.length ?? 0;
+
   return (
-    <div className="border-t py-3 text-sm">
-      <span className="font-medium">Used in</span>
+    <SectionCard
+      title="Used In"
+      action={
+        count > 0 ? (
+          <Badge variant="secondary">
+            {count} {count === 1 ? "product" : "products"}
+          </Badge>
+        ) : null
+      }
+    >
       {usedInParents && usedInParents.length > 0 ? (
-        <span className="ml-3 inline-flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap gap-2 p-4">
           {usedInParents.map((parent) => (
-            <Link
+            <Badge
+              asChild
               key={parent.id}
-              href={`/inventory/products/${parent.id}`}
-              className="font-medium text-foreground hover:underline"
+              variant="outline"
+              className="max-w-full justify-start sm:max-w-72"
             >
-              {parent.displayName}
-            </Link>
+              <Link href={`/inventory/products/${parent.id}`}>
+                {parent.displayName}
+              </Link>
+            </Badge>
           ))}
-        </span>
+        </div>
       ) : (
-        <span className="ml-3 text-muted-foreground">
+        <div className="p-4 text-sm text-muted-foreground">
           Not used in any current product recipes.
-        </span>
+        </div>
       )}
-    </div>
+    </SectionCard>
   );
 }
 
@@ -786,7 +799,7 @@ function OverviewPanel({
         </SectionCard>
       </div>
       <LotDispositionOverview item={item} lots={lots} />
-      <UsedInLine usedInParents={usedInParents} />
+      <UsedInCard usedInParents={usedInParents} />
     </div>
   );
 }
