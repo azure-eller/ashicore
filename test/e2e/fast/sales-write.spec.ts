@@ -1193,7 +1193,7 @@ test.describe("Sales write-path smoke", () => {
     expect(order.status).toBe("done");
   });
 
-  test("allocation workspace hides parent fallback when shipment lines exist", async ({
+  test("partial shipment edit creates an unscheduled remainder allocation target", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-FALLBACK-HIDE`;
@@ -1252,6 +1252,35 @@ test.describe("Sales write-path smoke", () => {
     );
     expect(editResponse.status).toBe(200);
 
+    const shipmentLines = await db
+      .select({
+        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        scheduledDate: salesShipments.scheduledDate,
+        notes: salesShipments.notes,
+        quantity: salesShipmentLines.quantity,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, orderResult.body.id as string))
+      .orderBy(asc(salesShipments.sequence));
+    expect(shipmentLines).toEqual([
+      expect.objectContaining({
+        id: shipmentLine.id,
+        scheduledDate: "2026-05-19",
+        quantity: "3.0000",
+      }),
+      expect.objectContaining({
+        salesOrderLineId: shipmentLine.salesOrderLineId,
+        scheduledDate: null,
+        notes: "Remaining demand",
+        quantity: "7.0000",
+      }),
+    ]);
+
     const workspaceResponse = await testFetch(
       `/api/allocation/workspace?itemId=${itemResult.body.id}`
     );
@@ -1260,16 +1289,32 @@ test.describe("Sales write-path smoke", () => {
     const orderDemands = workspace.demands.filter(
       (demand: { demandId: string; demandType: string }) =>
         demand.demandId === shipmentLine.salesOrderLineId ||
-        demand.demandId === shipmentLine.id
+        shipmentLines.some((line) => line.id === demand.demandId)
     );
 
-    expect(orderDemands).toEqual([
-      expect.objectContaining({
-        demandType: "sales_shipment_line",
-        demandId: shipmentLine.id,
-        openQty: "3",
-      }),
-    ]);
+    expect(orderDemands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          demandType: "sales_shipment_line",
+          demandId: shipmentLine.id,
+          openQty: "3",
+        }),
+        expect.objectContaining({
+          demandType: "sales_shipment_line",
+          demandId: shipmentLines[1].id,
+          openQty: "7",
+        }),
+      ])
+    );
+    expect(orderDemands).toHaveLength(2);
+
+    const detailResponse = await testFetch(
+      `/api/sales-orders/${orderResult.body.id}`
+    );
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    expect(detail.fulfillmentSummary.shortQty).toBe("10");
+    expect(detail.fulfillmentSummary.label).toBe("Short");
   });
 
   test("planned shipment edits preserve unchanged shipment-line allocations", async ({

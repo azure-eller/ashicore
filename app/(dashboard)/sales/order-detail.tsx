@@ -2476,7 +2476,7 @@ export function OrderDetail({
           <AlertDialogHeader>
             <AlertDialogTitle>Ship this shipment?</AlertDialogTitle>
             <AlertDialogDescription>
-              Inventory will be consumed. If this completes the order, the invoice will sync to Xero and email will not be sent.
+              Inventory allocated to this shipment will be consumed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
