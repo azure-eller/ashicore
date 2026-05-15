@@ -48,9 +48,11 @@ The live inventory truth remains the ledger and projections; `stocktake_items.ex
 
 - `draft`: counts can be edited
 - `completed`: inventory has been reconciled
-- `cancelled`: snapshot kept for history, no inventory mutation
+- `deleted`: internal state for removed draft stocktakes; hidden from normal reads
 
-There is no delete flow in v1.
+Draft stocktakes can be deleted without mutating inventory. Completed
+stocktakes cannot be deleted because stocktake adjustment history must be
+preserved.
 
 ### Create preview
 
@@ -116,4 +118,4 @@ Stocktake completion reuses the inventory kernel and reconciles the available bu
 
 Hot-path reads after completion come from `inventory_item_balances` and `inventory_lot_balances`, not by replaying the stocktake rows themselves.
 
-Draft stocktakes block item soft deletion. Completed and cancelled stocktakes do not.
+Draft stocktakes block item soft deletion. Completed and deleted stocktakes do not.

@@ -187,7 +187,7 @@ export async function releaseExpectedFromPurchaseInTx(
     purchaseOrderId: string;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
-    reason: "cancelled" | "received";
+    reason: "cancelled" | "deleted" | "received";
     lineIds?: string[];
   }
 ) {

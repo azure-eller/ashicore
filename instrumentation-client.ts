@@ -7,6 +7,7 @@ import {
   getSentryReplaySessionSampleRate,
   getSentryTracesSampleRate,
   sanitizeSentryEvent,
+  sanitizeSentryLog,
 } from "@/lib/observability/sentry";
 
 const publicDsn = getPublicSentryDsn();
@@ -23,12 +24,14 @@ if (publicDsn) {
     replaysOnErrorSampleRate: getSentryReplayErrorSampleRate(),
     enableLogs: true,
     integrations: [
+      Sentry.consoleLoggingIntegration({ levels: ["error", "warn"] }),
       Sentry.replayIntegration({
         maskAllText: true,
         blockAllMedia: true,
       }),
     ],
     beforeSend: sanitizeSentryEvent,
+    beforeSendLog: sanitizeSentryLog,
   });
 }
 

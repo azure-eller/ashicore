@@ -22,8 +22,13 @@ export const DELETE = apiHandler(async (request) => {
   const idempotencyKey = requireIdempotencyKey(request, "deleteSalesOrders");
   const body = await request.json();
   const data = bulkDeleteSchema.parse(body);
-  const result = await deleteSalesOrders(data.ids, { idempotencyKey });
-  return NextResponse.json(result);
+  try {
+    const result = await deleteSalesOrders(data.ids, { idempotencyKey });
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof SalesError) return error.toResponse();
+    throw error;
+  }
 });
 
 export const POST = apiHandler(async (request) => {

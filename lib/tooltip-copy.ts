@@ -246,11 +246,12 @@ export const RECEIPT_DISPOSITION_TOOLTIP =
 export const STOCKTAKE_STATUS_TOOLTIP = {
   draft: "Counts can still be entered or edited.",
   completed: "Finished; inventory adjusted to match counts.",
-  cancelled: "Cancelled; no inventory changes made.",
+  cancelled: "Removed without inventory changes.",
+  deleted: "Removed without inventory changes.",
 } as const;
 
 export const STOCKTAKE_STATUS_COLUMN_TOOLTIP =
-  "Status values: draft, completed, cancelled.";
+  "Status values: draft, completed, deleted.";
 
 export const STOCKTAKE_SCOPE_TOOLTIP =
   "Items included in the stocktake snapshot.";

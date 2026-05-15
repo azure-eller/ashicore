@@ -15,7 +15,7 @@ export function StocktakeStatusBadge({ status }: { status: StocktakeStatus }) {
   } else if (status === "completed") {
     badge = <Badge variant="outline">Completed</Badge>;
   } else {
-    badge = <Badge variant="destructive">Cancelled</Badge>;
+    badge = <Badge variant="destructive">Deleted</Badge>;
   }
 
   return (

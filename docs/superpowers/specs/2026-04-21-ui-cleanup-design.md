@@ -73,10 +73,10 @@ Per-page mapping:
 |---|---|---|---|
 | MO draft | Release | ✓ | Cancel, Delete |
 | MO released | Execute | — | Cancel |
-| MO completed/cancelled | — | — | Delete |
+| MO completed/deleted | — | — | Delete |
 | SO draft | Confirm | ✓ | Cancel, Delete |
 | SO confirmed | Ship | ✓ | Cancel |
-| SO shipped/cancelled | — | — | — |
+| SO shipped/deleted | — | — | — |
 | PO ordered | Receive | ✓ | Cancel, Delete |
 | Product / Material | — | ✓ | Delete |
 | Customer / Supplier | — | ✓ | Delete |

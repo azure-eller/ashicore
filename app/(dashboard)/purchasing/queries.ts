@@ -1052,13 +1052,7 @@ export async function getEditablePurchaseOrder(
         and(
           eq(purchaseOrders.id, id),
           isNull(purchaseOrders.deletedAt),
-          inArray(purchaseOrders.status, [
-            "draft",
-            "ordered",
-            "partial",
-            "received",
-            "cancelled",
-          ])
+          inArray(purchaseOrders.status, ["draft", "ordered", "partial", "received"])
         )
       );
 
@@ -2004,88 +1998,32 @@ export async function receivePurchaseOrder(
   });
 }
 
-export async function cancelPurchaseOrder(
-  id: string,
-  options?: { idempotencyKey?: string }
-) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "cancelPurchaseOrder",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id },
-    });
-
-    if (replay.replayed) {
-      return replay.result;
-    }
-
-    const order = await getLockedPurchaseOrderInTx(tx, id);
-
-    if (!order) {
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result: null,
-      });
-      return null;
-    }
-
-    if (!["ordered", "partial"].includes(order.status)) {
-      throw new PurchasingError(
-        "Only ordered or partially received purchase orders can be cancelled.",
-        400
-      );
-    }
-
-    await tx
-      .update(purchaseOrders)
-      .set({
-        status: "cancelled",
-        cancelledAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(purchaseOrders.id, id));
-
-    await releaseExpectedFromPurchaseInTx(tx, {
-      organizationId: orgId,
-      purchaseOrderId: id,
-      actorUserId: userId,
-      idempotencyKey: deriveInventoryIdempotencyKey(
-        options?.idempotencyKey,
-        "cancel-order"
-      ),
-      reason: "cancelled",
-    });
-
-    const result = { id };
-
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-
-    return result;
-  });
-}
-
 export async function deletePurchaseOrder(
   id: string
 ): Promise<{ deleted: boolean; error?: string }> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
       return { deleted: false };
     }
 
-    if (["ordered", "partial"].includes(order.status)) {
+    if (["partial", "received"].includes(order.status)) {
       return {
         deleted: false,
         error:
-          "Ordered or partially received purchase orders must be cancelled or fully received before deleting.",
+          "Cannot delete this purchase order because inventory has already been received. Received inventory history must be preserved.",
       };
+    }
+
+    if (order.status === "ordered") {
+      await releaseExpectedFromPurchaseInTx(tx, {
+        organizationId: orgId,
+        purchaseOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: `delete-purchase-order:${id}`,
+        reason: "deleted",
+      });
     }
 
     await tx
@@ -2103,7 +2041,7 @@ export async function deletePurchaseOrder(
 export async function deletePurchaseOrders(
   ids: string[]
 ): Promise<{ deletedCount: number; error?: string }> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     const uniqueIds = [...new Set(ids)];
 
     // Lock all candidate rows so status can't change between check and delete
@@ -2118,15 +2056,15 @@ export async function deletePurchaseOrders(
       )
       .for("update");
 
-    const activeOrder = orders.find((o) =>
-      ["ordered", "partial"].includes(o.status)
+    const receivedOrder = orders.find((o) =>
+      ["partial", "received"].includes(o.status)
     );
 
-    if (activeOrder) {
+    if (receivedOrder) {
       return {
         deletedCount: 0,
         error:
-          "Ordered or partially received purchase orders must be cancelled or fully received before deleting.",
+          "Cannot delete the selected purchase orders because inventory has already been received for at least one order. Received inventory history must be preserved.",
       };
     }
 
@@ -2136,6 +2074,16 @@ export async function deletePurchaseOrders(
 
     const orderIds = orders.map((o) => o.id);
     const deletedAt = new Date();
+
+    for (const order of orders.filter((o) => o.status === "ordered")) {
+      await releaseExpectedFromPurchaseInTx(tx, {
+        organizationId: orgId,
+        purchaseOrderId: order.id,
+        actorUserId: userId,
+        idempotencyKey: `delete-purchase-order:${order.id}`,
+        reason: "deleted",
+      });
+    }
 
     const deleted = await tx
       .update(purchaseOrders)

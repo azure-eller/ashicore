@@ -320,13 +320,6 @@ export function getDashboardSearchActions(
         group: "Purchasing",
       },
       {
-        title: "Purchase Orders - Cancelled",
-        description: "View cancelled purchase orders",
-        href: "/purchasing/orders?status=cancelled",
-        icon: ShoppingBag01Icon,
-        group: "Purchasing",
-      },
-      {
         title: "Suppliers",
         description: "View suppliers",
         href: "/purchasing/suppliers",

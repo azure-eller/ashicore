@@ -128,7 +128,10 @@ function mapSalesDemandRow(
 async function loadSalesRowsInTx(
   tx: Tx,
   whereClause: ReturnType<typeof and>,
-  options?: { subtractPlannedShipments?: boolean }
+  options?: {
+    subtractPlannedShipments?: boolean;
+    hideWhenPlannedShipmentsExist?: boolean;
+  }
 ) {
   const masterItems = alias(items, "allocation_sales_master_items");
   const rows = await tx
@@ -168,6 +171,11 @@ async function loadSalesRowsInTx(
     : new Map<string, number>();
 
   return rows
+    .filter(
+      (row) =>
+        !options?.hideWhenPlannedShipmentsExist ||
+        (plannedByLine.get(row.salesOrderLineId) ?? 0) <= 0
+    )
     .map((row) =>
       mapSalesDemandRow(
         row,
@@ -265,7 +273,10 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
       ),
-      { subtractPlannedShipments: true }
+      {
+        subtractPlannedShipments: true,
+        hideWhenPlannedShipmentsExist: true,
+      }
     );
   },
   async validateDemandItemInTx(tx, params) {

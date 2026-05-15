@@ -332,7 +332,15 @@ test.describe("Manufacturing batch ingredient actuals", () => {
     expect(completeResponse.status).toBe(409);
     const completeBody = await completeResponse.json();
     expect(completeBody).toMatchObject({
-      error: expect.stringContaining("Insufficient stock"),
+      error: expect.stringMatching(/^(Insufficient stock|Not enough )/),
+      shortage: {
+        ingredients: [
+          expect.objectContaining({
+            itemId: soilId,
+            warningType: "stock_shortage",
+          }),
+        ],
+      },
     });
 
     const [order] = await db
@@ -442,7 +450,15 @@ test.describe("Manufacturing batch ingredient actuals", () => {
     expect(completeResponse.status).toBe(409);
     const completeBody = await completeResponse.json();
     expect(completeBody).toMatchObject({
-      error: expect.stringContaining("Insufficient stock"),
+      error: expect.stringMatching(/^(Insufficient stock|Not enough )/),
+      shortage: {
+        ingredients: [
+          expect.objectContaining({
+            itemId: soilId,
+            warningType: "stock_shortage",
+          }),
+        ],
+      },
     });
 
     const [batchRow] = await db

@@ -17,7 +17,7 @@ Sales v1 includes:
 - customer projects/jobs as optional sales-order context
 - multi-line sales orders
 - customer and product snapshots on saved orders
-- `draft`, `confirmed`, `partially_shipped`, `shipped`, and `cancelled` statuses
+- `open` and `done` statuses
 - projection-backed committed supply from non-deleted confirmed orders with non-deleted lines
 - sales shipments under confirmed and partially shipped orders
 - automatically generated draft shipment BOLs before loading
@@ -36,52 +36,38 @@ Sales v1 does not include:
 
 ## Status Rules
 
-- `draft` orders are editable
-- `confirmed` orders are editable until shipped, and can create draft shipments, cancel remaining quantities, or be soft-deleted
-- `partially_shipped` orders are read-only and can create more draft shipments or cancel remaining quantities
-- `shipped` orders are terminal, read-only, and can only be soft-deleted
-- `cancelled` orders are terminal and can only be soft-deleted
+- `open` orders are editable operational work
+- `done` orders are terminal fulfillment history
+- delete is allowed only before shipped fulfillment, finalized invoice, or accounting-push history exists
 
 Valid transitions:
 
-- create `draft`
-- create `confirmed`
-- edit `draft`
-- edit `confirmed`
-- confirm `draft`
-- create/cancel/edit draft shipment under `confirmed` or `partially_shipped`
-- ship draft shipment from `confirmed` or `partially_shipped`
-- ship final remaining quantity to reach `shipped`
-- cancel remaining quantity from `confirmed` or `partially_shipped`
-- cancel `confirmed`
-- soft-delete `draft`
-- soft-delete `confirmed`
-- soft-delete `partially_shipped`
-- soft-delete `shipped`
-- soft-delete `cancelled`
+- create `open`
+- edit `open`
+- create/delete/edit planned shipment under `open`
+- ship planned shipment from `open`
+- ship final remaining quantity to reach `done`
+- soft-delete `open`
 
 Invalid transitions:
 
-- edit `shipped`
-- edit `cancelled`
-- cancel `draft`
-- cancel `shipped`
-- ship `draft`
-- ship `cancelled`
-- edit shipped/cancelled shipments
+- edit `done`
+- ship `done`
+- soft-delete `done`
+- edit shipped shipments
 - cancel shipped shipments
-- transition out of `cancelled`
 
 ## Soft Delete Rules
 
 - customers use soft delete
 - sales orders use soft delete
 
-Historical rules:
-
-- deleting an order soft-deletes the order row
+- deleting an open order soft-deletes the order row, deletes planned shipments,
+  deletes linked open manufacturing orders created specifically for that sales
+  order, and releases active allocations/reservations
 - editing a draft order hard-deletes all existing lines, then inserts a fresh set
-- deleting a shipped order is history-only and never restores stock
+- shipped fulfillment, finalized invoices, accounting pushes, completed
+  manufacturing output, and finalized inventory consumption block deletion
 - active list and selector reads exclude soft-deleted rows
 - direct route access may still render a deleted order in read-only detail mode
 
@@ -126,7 +112,7 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - `unplanned_remaining = remaining_to_ship - sum(draft shipment planned_qty)`
 - backend validation enforces draft planned quantity plus shipped quantity cannot exceed ordered quantity minus cancelled quantity
 - shipment numbers use order suffixes like `SO-2026-0123-S1`; numbers are never reused
-- draft shipments are editable/cancellable and automatically expose a shipment BOL before loading
+- planned shipments are editable/deletable and automatically expose a shipment BOL before loading
 - shipped shipments are immutable and automatically expose final shipment BOLs
 - shipment costs and customer freight recovery stay editable after shipping because they do not change stock movement history
 - shipping a draft shipment consumes live lot-backed stock FIFO for shipment quantities only

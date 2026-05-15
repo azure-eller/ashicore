@@ -78,6 +78,7 @@ import {
 } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { captureAppError } from "@/lib/observability/sentry";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
@@ -99,6 +100,8 @@ type ApiError = {
   status?: number;
   error?: string;
   errors?: Record<string, string[]>;
+  requestId?: string | null;
+  receivedLineCount?: number;
   overReceipt?: {
     lines: Array<{
       lineId: string;
@@ -109,6 +112,45 @@ type ApiError = {
     }>;
   };
 };
+
+function captureReceiveFailure(error: ApiError, orderId: string) {
+  if (error.status === 409 && error.overReceipt) return;
+  if (error.errors) return;
+
+  const sentryError = new Error("Purchase receive API failed");
+  sentryError.name = "PurchaseReceiveApiError";
+
+  captureAppError(sentryError, {
+    requestId: error.requestId ?? undefined,
+    route: `/api/purchase-orders/${orderId}/receive`,
+    method: "POST",
+    runtime: "browser",
+    module: "purchasing",
+    operation: "receive_purchase_order",
+    source: "client_mutation",
+    appDebug: {
+      http_status: error.status,
+      received_line_count: error.receivedLineCount,
+      has_field_errors: Boolean(error.errors),
+      has_over_receipt_warning: Boolean(error.overReceipt),
+    },
+  });
+}
+
+function captureReceiveUnexpectedError(error: Error, orderId: string) {
+  captureAppError(error, {
+    route: `/api/purchase-orders/${orderId}/receive`,
+    method: "POST",
+    runtime: "browser",
+    module: "purchasing",
+    operation: "receive_purchase_order",
+    source: "client_mutation",
+  });
+}
+
+function isApiError(error: unknown): error is ApiError {
+  return error != null && typeof error === "object" && "status" in error;
+}
 
 const ADDITIONAL_COST_TYPE_LABELS: Record<
   PurchaseOrderDetailType["additionalCosts"][number]["costType"],
@@ -250,8 +292,7 @@ export function PurchaseOrderDetail({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [cancelOpen, setCancelOpen] = useState(false);
-	  const [receiveOpen, setReceiveOpen] = useState(false);
+		  const [receiveOpen, setReceiveOpen] = useState(false);
 	  const [overReceiptWarning, setOverReceiptWarning] =
 	    useState<ApiError["overReceipt"] | null>(null);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
@@ -539,31 +580,45 @@ export function PurchaseOrderDetail({
         body: JSON.stringify(values),
       });
       const body = await response.json().catch(() => null);
-	      if (!response.ok) {
-	        throw {
-	          status: response.status,
-	          error: body?.error ?? "Failed to receive purchase order.",
-	          errors: body?.errors,
-	          overReceipt: body?.overReceipt,
-	        } satisfies ApiError;
-	      }
+      if (!response.ok) {
+        const apiError: ApiError = {
+          status: response.status,
+          error: body?.error ?? "Failed to receive purchase order.",
+          errors: body?.errors,
+          overReceipt: body?.overReceipt,
+          requestId:
+            response.headers.get("x-erp-request-id") ??
+            response.headers.get("x-request-id") ??
+            body?.requestId,
+          receivedLineCount: values.lines.length,
+        };
+
+        captureReceiveFailure(apiError, order.id);
+        throw apiError;
+      }
     },
     onMutate: () => {
       setActionError(null);
       receiveForm.clearErrors();
     },
-	    onSuccess: async () => {
-	      await refreshQueries();
-	      setReceiveOpen(false);
-	      setOverReceiptWarning(null);
-	      router.refresh();
-	    },
-	    onError: (error: ApiError) => {
-	      if (error.status === 409 && error.overReceipt) {
-	        setOverReceiptWarning(error.overReceipt);
-	        return;
-	      }
-	      if (error.errors) {
+    onSuccess: async () => {
+      await refreshQueries();
+      setReceiveOpen(false);
+      setOverReceiptWarning(null);
+      router.refresh();
+    },
+    onError: (error: ApiError | Error) => {
+      if (!isApiError(error)) {
+        captureReceiveUnexpectedError(error, order.id);
+        setActionError(error.message || "Failed to receive purchase order.");
+        return;
+      }
+
+      if (error.status === 409 && error.overReceipt) {
+        setOverReceiptWarning(error.overReceipt);
+        return;
+      }
+      if (error.errors) {
         Object.entries(error.errors).forEach(([field, messages]) => {
           receiveForm.setError(field as never, {
             type: "server",
@@ -574,30 +629,6 @@ export function PurchaseOrderDetail({
       }
 
       setActionError(error.error ?? "Failed to receive purchase order.");
-    },
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/purchase-orders/${order.id}/cancel`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("purchase-order-cancel"),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel purchase order.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await refreshQueries();
-      setCancelOpen(false);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
     },
   });
 
@@ -697,8 +728,7 @@ export function PurchaseOrderDetail({
   const canEdit = !isDeleted;
   const canSubmit = !isDeleted && order.status === "draft";
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
-  const canCancel = !isDeleted && ["ordered", "partial"].includes(order.status);
-  const canDelete = !isDeleted && !["ordered", "partial"].includes(order.status);
+  const canDelete = !isDeleted;
   const canSyncAccounting =
     !isDeleted && ["ordered", "partial", "received"].includes(order.status);
   const canRetryXeroEmail =
@@ -767,15 +797,6 @@ export function PurchaseOrderDetail({
                       label: "Retry PO email",
                       onSelect: () => xeroEmailMutation.mutate(),
                       disabled: xeroEmailMutation.isPending,
-                    },
-                  ]
-                : []),
-              ...(canCancel
-                ? [
-                    {
-                      label: "Cancel order",
-                      onSelect: () => setCancelOpen(true),
-                      disabled: cancelMutation.isPending,
                     },
                   ]
                 : []),
@@ -995,10 +1016,6 @@ export function PurchaseOrderDetail({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Received</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.receivedAt, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.cancelledAt, timeZone)}</dd>
           </div>
           {order.deletedAt && (
             <div>
@@ -1227,34 +1244,14 @@ export function PurchaseOrderDetail({
         isPending={submitMutation.isPending}
       />
 
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel this purchase order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The order will remain in history, and its remaining quantity will
-              stop contributing to expected inventory.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this purchase order?</AlertDialogTitle>
             <AlertDialogDescription>
-              Draft, received, and cancelled orders can be soft-deleted and removed
-              from normal views.
+              Unreceived orders will be removed from normal views and any expected
+              inventory will be released. Received orders cannot be deleted. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

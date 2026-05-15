@@ -982,6 +982,25 @@ test.describe("Manufacturing write-path smoke", () => {
       quantity: "3.9956",
     });
 
+    await db
+      .update(manufacturingOrderIngredients)
+      .set({ actualQuantity: "0" })
+      .where(eq(manufacturingOrderIngredients.id, releasedIngredient.id));
+
+    const deleteResponse = await testFetch(
+      `/api/manufacturing-orders/${alternateOrderId}`,
+      { method: "DELETE" }
+    );
+    const deleteBody = await deleteResponse.json();
+    expect(deleteResponse.status).toBe(400);
+    expect(deleteBody.error).toContain("finalized ingredient consumption");
+
+    const [blockedOrder] = await db
+      .select({ deletedAt: manufacturingOrders.deletedAt })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, alternateOrderId));
+    expect(blockedOrder.deletedAt).toBeNull();
+
     const [alternateBalance] = await db
       .select({
         onHandQty: inventoryItemBalances.onHandQty,

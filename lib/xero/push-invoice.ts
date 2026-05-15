@@ -695,7 +695,7 @@ export async function pushSalesOrderToXero(
 
   if (!connection.defaultAccountCode) {
     throw new XeroError(
-      "Set a default Xero account code in settings before pushing invoices.",
+      "Set a sales invoice account code in Xero settings before creating invoices.",
       400
     );
   }
@@ -896,7 +896,7 @@ export async function pushSalesShipmentToXero(
 
   if (!connection.defaultAccountCode) {
     throw new XeroError(
-      "Set a default Xero account code in settings before pushing invoices.",
+      "Set a sales invoice account code in Xero settings before creating invoices.",
       400
     );
   }

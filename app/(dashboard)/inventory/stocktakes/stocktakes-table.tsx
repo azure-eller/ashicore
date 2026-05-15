@@ -132,7 +132,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
         confirmTitle: (count) =>
           `Delete ${count} stocktake${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>
-          `The selected draft stocktake${count !== 1 ? "s" : ""} will be cancelled. Only draft stocktakes can be deleted.`,
+          `The selected draft stocktake${count !== 1 ? "s" : ""} will be removed from normal views. Completed stocktakes cannot be deleted.`,
         isRowSelectable: (row) => row.status === "draft",
       }}
     />

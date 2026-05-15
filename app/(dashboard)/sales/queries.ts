@@ -1,7 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   formatVariantDisplay,
@@ -24,7 +24,6 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
-  inventoryReservationsSummary,
   integrationExternalRecords,
   items,
   manufacturingOrders,
@@ -44,8 +43,8 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
+  cancelActiveStockAllocationsInTx,
   consumeForShipmentInTx,
-  defaultLocationIdSubquery,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   InsufficientStockError,
@@ -70,6 +69,7 @@ import {
   calculateUnitMarginMetrics,
 } from "@/lib/margin";
 import { measureObservedOperation } from "@/lib/observability/request-log";
+import { deleteManufacturingOrdersInTx } from "@/app/(dashboard)/manufacturing/queries";
 import { getSalesAllocationReadModelForItemInTx } from "./allocation-service";
 import { syncSalesLineAllocationReservationInTx } from "@/lib/inventory/allocation/adapters/sales-order-line";
 import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
@@ -1185,7 +1185,15 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       id: salesOrders.id,
       orderNumber: salesOrders.orderNumber,
       status: salesOrders.status,
+      customerId: salesOrders.customerId,
+      customerName: salesOrders.customerName,
       shipDate: salesOrders.shipDate,
+      shipLine1: salesOrders.shipLine1,
+      shipLine2: salesOrders.shipLine2,
+      shipCity: salesOrders.shipCity,
+      shipRegion: salesOrders.shipRegion,
+      shipPostcode: salesOrders.shipPostcode,
+      shipCountry: salesOrders.shipCountry,
     })
     .from(salesOrders)
     .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
@@ -1778,7 +1786,8 @@ type SalesFulfillmentPlanResult = {
 async function getActivePlannedShipmentInTx(
   tx: Tx,
   orderId: string,
-  shipmentId?: string | null
+  shipmentId?: string | null,
+  options?: { excludeShipmentId?: string | null; unscheduledOnly?: boolean }
 ) {
   const conditions = [
     eq(salesShipments.salesOrderId, orderId),
@@ -1787,6 +1796,12 @@ async function getActivePlannedShipmentInTx(
 
   if (shipmentId) {
     conditions.push(eq(salesShipments.id, shipmentId));
+  }
+  if (options?.excludeShipmentId) {
+    conditions.push(sql`${salesShipments.id} <> ${options.excludeShipmentId}`);
+  }
+  if (options?.unscheduledOnly) {
+    conditions.push(sql`${salesShipments.scheduledDate} IS NULL`);
   }
 
   const [shipment] = await tx
@@ -1963,16 +1978,239 @@ async function deletePlannedShipmentsInTx(
   await tx.delete(salesShipments).where(inArray(salesShipments.id, shipmentIds));
 }
 
+async function getSalesOrderDeleteBlockerInTx(tx: Tx, orderIds: string[]) {
+  const [shippedOrder] = await tx
+    .select({
+      orderNumber: salesOrders.orderNumber,
+    })
+    .from(salesOrders)
+    .where(
+      and(
+        inArray(salesOrders.id, orderIds),
+        or(eq(salesOrders.status, "done"), sql`${salesOrders.shippedAt} IS NOT NULL`)
+      )
+    )
+    .limit(1);
+
+  if (shippedOrder) {
+    return `Cannot delete sales order ${shippedOrder.orderNumber} because it has already shipped. Shipped fulfillment history must be preserved.`;
+  }
+
+  const [shippedShipment] = await tx
+    .select({
+      shipmentNumber: salesShipments.shipmentNumber,
+    })
+    .from(salesShipments)
+    .where(
+      and(
+        inArray(salesShipments.salesOrderId, orderIds),
+        or(eq(salesShipments.status, "shipped"), sql`${salesShipments.shippedAt} IS NOT NULL`)
+      )
+    )
+    .limit(1);
+
+  if (shippedShipment) {
+    return `Cannot delete this sales order because shipment ${shippedShipment.shipmentNumber} has already shipped. Shipped fulfillment history must be preserved.`;
+  }
+
+  const [directOrderConsumption] = await tx
+    .select({
+      orderNumber: salesOrders.orderNumber,
+    })
+    .from(inventoryEvents)
+    .innerJoin(
+      salesOrders,
+      and(
+        eq(inventoryEvents.referenceType, "sales_order"),
+        eq(inventoryEvents.referenceId, salesOrders.id)
+      )
+    )
+    .where(
+      and(
+        inArray(salesOrders.id, orderIds),
+        eq(inventoryEvents.eventType, "sales_consumption")
+      )
+    )
+    .limit(1);
+
+  if (directOrderConsumption) {
+    return `Cannot delete sales order ${directOrderConsumption.orderNumber} because inventory has already been consumed for fulfillment. Inventory history must be preserved.`;
+  }
+
+  const [salesLineConsumption] = await tx
+    .select({
+      orderNumber: salesOrders.orderNumber,
+    })
+    .from(inventoryEvents)
+    .innerJoin(
+      salesOrderLines,
+      and(
+        eq(inventoryEvents.referenceType, "sales_order_line"),
+        eq(inventoryEvents.referenceId, salesOrderLines.id)
+      )
+    )
+    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+    .where(
+      and(
+        inArray(salesOrders.id, orderIds),
+        eq(inventoryEvents.eventType, "sales_consumption")
+      )
+    )
+    .limit(1);
+
+  if (salesLineConsumption) {
+    return `Cannot delete sales order ${salesLineConsumption.orderNumber} because inventory has already been consumed for fulfillment. Inventory history must be preserved.`;
+  }
+
+  const [shipmentConsumption] = await tx
+    .select({
+      orderNumber: salesOrders.orderNumber,
+    })
+    .from(inventoryEvents)
+    .innerJoin(
+      salesShipments,
+      and(
+        eq(inventoryEvents.referenceType, "sales_shipment"),
+        eq(inventoryEvents.referenceId, salesShipments.id)
+      )
+    )
+    .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+    .where(
+      and(
+        inArray(salesOrders.id, orderIds),
+        eq(inventoryEvents.eventType, "sales_consumption")
+      )
+    )
+    .limit(1);
+
+  if (shipmentConsumption) {
+    return `Cannot delete sales order ${shipmentConsumption.orderNumber} because inventory has already been consumed for fulfillment. Inventory history must be preserved.`;
+  }
+
+  const [pushedOrderInvoice] = await tx
+    .select({
+      orderNumber: salesOrders.orderNumber,
+    })
+    .from(accountingDocumentSyncs)
+    .innerJoin(salesOrders, eq(accountingDocumentSyncs.documentId, salesOrders.id))
+    .where(
+      and(
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+        eq(accountingDocumentSyncs.documentType, "sales_order"),
+        inArray(accountingDocumentSyncs.documentId, orderIds),
+        or(
+          eq(accountingDocumentSyncs.pushStatus, "pushed"),
+          sql`${accountingDocumentSyncs.externalDocumentId} IS NOT NULL`
+        )
+      )
+    )
+    .limit(1);
+
+  if (pushedOrderInvoice) {
+    return `Cannot delete sales order ${pushedOrderInvoice.orderNumber} because its invoice has already been pushed to accounting. Accounting history must be preserved.`;
+  }
+
+  const [pushedShipmentInvoice] = await tx
+    .select({
+      shipmentNumber: salesShipments.shipmentNumber,
+    })
+    .from(accountingDocumentSyncs)
+    .innerJoin(salesShipments, eq(accountingDocumentSyncs.documentId, salesShipments.id))
+    .where(
+      and(
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+        eq(accountingDocumentSyncs.documentType, "sales_shipment"),
+        inArray(salesShipments.salesOrderId, orderIds),
+        or(
+          eq(accountingDocumentSyncs.pushStatus, "pushed"),
+          sql`${accountingDocumentSyncs.externalDocumentId} IS NOT NULL`
+        )
+      )
+    )
+    .limit(1);
+
+  if (pushedShipmentInvoice) {
+    return `Cannot delete this sales order because shipment ${pushedShipmentInvoice.shipmentNumber} has already been pushed to accounting. Accounting history must be preserved.`;
+  }
+
+  return null;
+}
+
+async function deleteSalesLinkedManufacturingOrdersInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    actorUserId?: string | null;
+    salesOrderIds: string[];
+    salesOrderLineIds: string[];
+  }
+) {
+  const linkedOrders = await tx
+    .select({
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        inArray(manufacturingOrders.salesOrderId, params.salesOrderIds),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .for("update");
+
+  if (linkedOrders.length === 0) {
+    return null;
+  }
+
+  const salesOrderLineIdSet = new Set(params.salesOrderLineIds);
+  const linkedToMissingLine = linkedOrders.find(
+    (order) =>
+      !order.salesOrderLineId || !salesOrderLineIdSet.has(order.salesOrderLineId)
+  );
+
+  if (linkedToMissingLine) {
+    return `Cannot delete this sales order because manufacturing order ${linkedToMissingLine.orderNumber} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.`;
+  }
+
+  const linkedOrderIds = linkedOrders.map((order) => order.id);
+  const [sharedAllocation] = await tx
+    .select({
+      orderNumber: manufacturingOrders.orderNumber,
+    })
+    .from(stockAllocations)
+    .innerJoin(manufacturingOrders, eq(stockAllocations.sourceId, manufacturingOrders.id))
+    .where(
+      and(
+        eq(stockAllocations.status, "active"),
+        eq(stockAllocations.sourceType, "manufacturing_order"),
+        inArray(stockAllocations.sourceId, linkedOrderIds),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        notInArray(stockAllocations.demandId, params.salesOrderLineIds)
+      )
+    )
+    .limit(1);
+
+  if (sharedAllocation) {
+    return `Cannot delete this sales order because manufacturing order ${sharedAllocation.orderNumber} is allocated to another sales order. Remove that allocation first.`;
+  }
+
+  const deleted = await deleteManufacturingOrdersInTx(tx, {
+    organizationId: params.organizationId,
+    actorUserId: params.actorUserId,
+    ids: linkedOrderIds,
+  });
+
+  return deleted.error ?? null;
+}
+
 async function upsertDefaultPlannedShipmentForOrderInTx(
   tx: Tx,
   orgId: string,
   order: AutoPlannedShipmentOrderSnapshot,
   actorUserId?: string | null
 ) {
-  if (!order.shipDate) {
-    return null;
-  }
-
   const existingShipment = await getActivePlannedShipmentInTx(tx, order.id);
   const states = await getShipmentLineStatesInTx(tx, order.id, {
     excludeShipmentId: existingShipment?.id,
@@ -2015,6 +2253,128 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
         orderNumber: order.orderNumber,
         customerName: order.customerName,
         scheduledDate: order.shipDate,
+        ...shipAddress,
+        updatedAt: now,
+      })
+      .where(eq(salesShipments.id, existingShipment.id));
+
+    return existingShipment.id;
+  }
+
+  const sequence = await getNextShipmentSequenceInTx(tx, order.id);
+  const shipmentNumber = `${order.orderNumber}-S${sequence}`;
+  const [shipment] = await tx
+    .insert(salesShipments)
+    .values({
+      organizationId: orgId,
+      salesOrderId: order.id,
+      shipmentNumber,
+      sequence,
+      status: "planned",
+      fulfillmentType: shipmentData.fulfillmentType,
+      scheduledDate: shipmentData.scheduledDate,
+      notes: shipmentData.notes,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      ...shipAddress,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: salesShipments.id });
+
+  await tx.insert(salesShipmentLines).values(
+    entries.map((entry) => ({
+      salesShipmentId: shipment.id,
+      salesOrderLineId: entry.state.id,
+      itemId: entry.state.itemId,
+      itemName: entry.state.itemName,
+      itemSku: entry.state.itemSku,
+      unitName: entry.state.unitName,
+      quantity: normalizeNumeric(entry.quantity),
+      sortOrder: entry.state.sortOrder,
+    }))
+  );
+
+  return shipment.id;
+}
+
+async function upsertUnscheduledRemainderShipmentForOrderInTx(
+  tx: Tx,
+  orgId: string,
+  order: AutoPlannedShipmentOrderSnapshot,
+  actorUserId?: string | null,
+  options?: { excludeShipmentId?: string | null }
+) {
+  const existingShipment = await getActivePlannedShipmentInTx(
+    tx,
+    order.id,
+    null,
+    {
+      excludeShipmentId: options?.excludeShipmentId ?? null,
+      unscheduledOnly: true,
+    }
+  );
+  const states = await getShipmentLineStatesInTx(tx, order.id, {
+    excludeShipmentId: existingShipment?.id,
+  });
+  const lines = [...states.values()].flatMap((state) => {
+    const quantity = unplannedRemaining(state);
+    if (quantity <= 0) return [];
+    return [{ salesOrderLineId: state.id, quantity: normalizeNumeric(quantity) }];
+  });
+
+  if (lines.length === 0) {
+    if (existingShipment) {
+      const existingLines = await tx
+        .select({ id: salesShipmentLines.id })
+        .from(salesShipmentLines)
+        .where(eq(salesShipmentLines.salesShipmentId, existingShipment.id))
+        .for("update");
+      await cancelShipmentLineAllocationsInTx(tx, {
+        organizationId: orgId,
+        shipmentLineIds: existingLines.map((line) => line.id),
+        actorUserId: actorUserId ?? null,
+      });
+      await tx
+        .delete(salesShipmentLines)
+        .where(eq(salesShipmentLines.salesShipmentId, existingShipment.id));
+      await tx
+        .delete(salesShipmentCosts)
+        .where(eq(salesShipmentCosts.salesShipmentId, existingShipment.id));
+      await tx.delete(salesShipments).where(eq(salesShipments.id, existingShipment.id));
+    }
+    return null;
+  }
+
+  const shipmentData: SalesShipmentInput = {
+    fulfillmentType: "delivery",
+    scheduledDate: null,
+    notes: "Remaining demand",
+    lines,
+  };
+  const shipAddress = await resolveShipmentAddressInTx(tx, order);
+  const entries = buildShipmentEntries(states, shipmentData);
+  const now = new Date();
+
+  if (existingShipment) {
+    const shipmentNumber = `${order.orderNumber}-S${existingShipment.sequence}`;
+    await replaceShipmentLinesPreservingAllocationsInTx(tx, {
+      organizationId: orgId,
+      shipmentId: existingShipment.id,
+      entries,
+      demandLabelSnapshot: shipmentNumber,
+      actorUserId,
+    });
+
+    await tx
+      .update(salesShipments)
+      .set({
+        shipmentNumber,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        scheduledDate: null,
+        fulfillmentType: "delivery",
+        notes: "Remaining demand",
         ...shipAddress,
         updatedAt: now,
       })
@@ -4286,6 +4646,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             shipments.map((shipment) => [shipment.id, shipment] as const)
           )
         );
+        const shippedByLine = new Map<string, number>();
+        const plannedByLine = new Map<string, number>();
         shipmentLineRows.forEach((line) => {
           const shipment = shipmentsById.get(line.salesShipmentId);
           if (!shipment) return;
@@ -4299,6 +4661,23 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             quantity: line.quantity,
             sortOrder: line.sortOrder,
           });
+          const quantity = Number(line.quantity);
+          if (!Number.isFinite(quantity)) return;
+          if (shipment.status === "shipped") {
+            shippedByLine.set(
+              line.salesOrderLineId,
+              normalizeShipmentQuantity(
+                (shippedByLine.get(line.salesOrderLineId) ?? 0) + quantity
+              )
+            );
+          } else if (shipment.status === "planned") {
+            plannedByLine.set(
+              line.salesOrderLineId,
+              normalizeShipmentQuantity(
+                (plannedByLine.get(line.salesOrderLineId) ?? 0) + quantity
+              )
+            );
+          }
         });
 
         const itemIds = [
@@ -4397,19 +4776,24 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           ).map(serializeLinkedManufacturingOrder);
           const stockBlockers = summaryLines.flatMap((line) => {
             const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
-            const shortQty = Number(allocation?.shortQty ?? line.quantity);
+            const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
+            const plannedQty = plannedByLine.get(line.salesOrderLineId) ?? 0;
+            const remainingQty = normalizeShipmentQuantity(
+              Number(line.quantity) - shippedQty
+            );
+            const unplannedQty = normalizeShipmentQuantity(remainingQty - plannedQty);
+            const shortQty = roundQuantity(
+              Number(allocation?.shortQty ?? 0) + unplannedQty
+            );
 
             if (!Number.isFinite(shortQty) || shortQty <= 0) {
               return [];
             }
 
-            const remainingQty =
-              allocationDemandByLineId.get(line.salesOrderLineId)?.remainingQty ??
-              line.quantity;
             const allocatedQty = allocation?.allocatedQty ?? "0";
 
             return [
-              `${line.itemName} needs ${formatQuantity(remainingQty)} ${line.unitName}; ${formatQuantity(
+              `${line.itemName} needs ${formatQuantity(normalizeNumeric(remainingQty))} ${line.unitName}; ${formatQuantity(
                 allocatedQty
               )} ${line.unitName} allocated`,
             ];
@@ -4419,37 +4803,60 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             ...order,
             status: order.status as SalesOrderListRow["status"],
             itemSummary: summarizeItems(summaryLines),
-            lines: summaryLines.map((line) => ({
-              id: line.salesOrderLineId,
-              itemId: line.itemId,
-              itemType: line.itemType,
-              masterName: line.masterName,
-              attrs: line.attrs,
-              itemSku: line.itemSku,
-              quantity: line.quantity,
-              shippedQuantity:
-                allocationDemandByLineId.get(line.salesOrderLineId)?.shippedQty ?? "0",
-              remainingQty:
-                allocationDemandByLineId.get(line.salesOrderLineId)?.remainingQty ?? "0",
-              allocatedQty:
-                allocationSummaryByLineId.get(line.salesOrderLineId)?.allocatedQty ?? "0",
-              shortQty:
-                allocationSummaryByLineId.get(line.salesOrderLineId)?.shortQty ?? "0",
-              sourceSummary:
-                allocationSummaryByLineId.get(line.salesOrderLineId)?.sourceSummary ?? "\u2014",
-              allocationStatus:
-                allocationSummaryByLineId.get(line.salesOrderLineId)?.status ?? "short",
-              unitName: line.unitName,
-            })),
+            lines: summaryLines.map((line) => {
+              const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
+              const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
+              const plannedQty = plannedByLine.get(line.salesOrderLineId) ?? 0;
+              const remainingQty = normalizeShipmentQuantity(
+                Number(line.quantity) - shippedQty
+              );
+              const unplannedQty = normalizeShipmentQuantity(remainingQty - plannedQty);
+              const allocatedQty = Number(allocation?.allocatedQty ?? 0);
+              const shortQty = roundQuantity(
+                Number(allocation?.shortQty ?? 0) + unplannedQty
+              );
+              const sources = allocation?.sources ?? [];
+
+              return {
+                id: line.salesOrderLineId,
+                itemId: line.itemId,
+                itemType: line.itemType,
+                masterName: line.masterName,
+                attrs: line.attrs,
+                itemSku: line.itemSku,
+                quantity: line.quantity,
+                shippedQuantity: normalizeNumeric(shippedQty),
+                remainingQty: normalizeNumeric(remainingQty),
+                allocatedQty: normalizeNumeric(allocatedQty),
+                shortQty: normalizeNumeric(shortQty),
+                sourceSummary: allocation?.sourceSummary ?? "\u2014",
+                allocationStatus:
+                  allocatedQty <= 0
+                    ? "short"
+                    : shortQty > 0
+                      ? "partial"
+                      : sources.some((source) => source.sourceType === "manufacturing_order")
+                        ? "waiting_production"
+                        : "ready",
+                unitName: line.unitName,
+              };
+            }),
             shipments: shipmentsBySalesOrderId.get(order.id) ?? [],
             fulfillmentSummary: (() => {
               const totals = summaryLines.reduce(
                 (acc, line) => {
-                  const demand = allocationDemandByLineId.get(line.salesOrderLineId);
                   const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
-                  acc.remainingQty += Number(demand?.remainingQty ?? 0);
+                  const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
+                  const plannedQty = plannedByLine.get(line.salesOrderLineId) ?? 0;
+                  const remainingQty = normalizeShipmentQuantity(
+                    Number(line.quantity) - shippedQty
+                  );
+                  const unplannedQty = normalizeShipmentQuantity(
+                    remainingQty - plannedQty
+                  );
+                  acc.remainingQty += remainingQty;
                   acc.allocatedQty += Number(allocation?.allocatedQty ?? 0);
-                  acc.shortQty += Number(allocation?.shortQty ?? 0);
+                  acc.shortQty += Number(allocation?.shortQty ?? 0) + unplannedQty;
                   acc.productionAllocatedQty +=
                     allocation?.sources
                       .filter((source) => source.sourceType === "manufacturing_order")
@@ -4739,14 +5146,28 @@ export async function getSalesOrder(
         ).as("onHandQty"),
         availableQty: availableQtySubquery,
         allocatedQty: trimScale(sql`COALESCE((
-          SELECT SUM(${inventoryReservationsSummary.quantity})
-          FROM ${inventoryReservationsSummary}
-          WHERE ${inventoryReservationsSummary.organizationId} = ${items.organizationId}
-            AND ${inventoryReservationsSummary.itemId} = ${items.id}
-            AND ${inventoryReservationsSummary.locationId} = ${defaultLocationIdSubquery(items.organizationId)}
-            AND ${inventoryReservationsSummary.referenceType} = 'sales_order_line'
-            AND ${inventoryReservationsSummary.referenceId} = ${salesOrderLines.id}
-            AND ${inventoryReservationsSummary.quantity} > 0
+          SELECT SUM(${stockAllocations.quantity})
+          FROM ${stockAllocations}
+          WHERE ${stockAllocations.organizationId} = ${items.organizationId}
+            AND ${stockAllocations.itemId} = ${items.id}
+            AND ${stockAllocations.status} = 'active'
+            AND (
+              (
+                ${stockAllocations.demandType} = 'sales_order_line'
+                AND ${stockAllocations.demandId} = ${salesOrderLines.id}
+              )
+              OR (
+                ${stockAllocations.demandType} = 'sales_shipment_line'
+                AND ${stockAllocations.demandId} IN (
+                  SELECT ${salesShipmentLines.id}
+                  FROM ${salesShipmentLines}
+                  INNER JOIN ${salesShipments}
+                    ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
+                  WHERE ${salesShipmentLines.salesOrderLineId} = ${salesOrderLines.id}
+                    AND ${salesShipments.status} = 'planned'
+                )
+              )
+            )
         ), 0)`).as("allocatedQty"),
         potential: projectedPotentialQty(
           items.organizationId,
@@ -5160,14 +5581,34 @@ export async function getSalesOrder(
     }
     const linesWithAllocation = linesWithFulfillment.map((line) => {
       const allocation = allocationSummaryByLineId.get(line.id);
+      const fallbackAllocatedQty = Number(line.reservationAllocatedQty ?? 0);
+      const allocatedQty = Math.max(
+        Number(allocation?.allocatedQty ?? 0),
+        fallbackAllocatedQty
+      );
+      const shortQty = roundQuantity(
+        Math.max(
+          0,
+          Number(allocation?.shortQty ?? Number(line.remainingQuantity)) -
+            Math.max(0, allocatedQty - Number(allocation?.allocatedQty ?? 0))
+        ) + Number(line.unplannedRemainingQuantity)
+      );
+      const sources = allocation?.sources ?? [];
 
       return {
         ...line,
-        allocatedQty: allocation?.allocatedQty ?? "0",
-        shortQty: allocation?.shortQty ?? "0",
+        allocatedQty: normalizeNumeric(allocatedQty),
+        shortQty: normalizeNumeric(shortQty),
         sourceSummary: allocation?.sourceSummary ?? "\u2014",
-        allocationStatus: allocation?.status ?? "short",
-        allocationSources: allocation?.sources ?? [],
+        allocationStatus:
+          allocatedQty <= 0
+            ? "short"
+            : shortQty > 0
+              ? "partial"
+              : sources.some((source) => source.sourceType === "manufacturing_order")
+                ? "waiting_production"
+                : "ready",
+        allocationSources: sources,
       };
     });
     const fulfillmentSummary = (() => {
@@ -6183,7 +6624,10 @@ export async function updateSalesShipment(
         id: salesShipments.id,
         shipmentNumber: salesShipments.shipmentNumber,
         status: salesShipments.status,
+        orderNumber: salesOrders.orderNumber,
         customerId: salesOrders.customerId,
+        customerName: salesOrders.customerName,
+        shipDate: salesOrders.shipDate,
         shipLine1: salesOrders.shipLine1,
         shipLine2: salesOrders.shipLine2,
         shipCity: salesOrders.shipCity,
@@ -6239,6 +6683,26 @@ export async function updateSalesShipment(
         updatedAt: new Date(),
       })
       .where(eq(salesShipments.id, shipmentId));
+
+    await upsertUnscheduledRemainderShipmentForOrderInTx(
+      tx,
+      orgId,
+      {
+        id: orderId,
+        orderNumber: shipment.orderNumber,
+        customerId: shipment.customerId,
+        customerName: shipment.customerName,
+        shipDate: shipment.shipDate,
+        shipLine1: shipment.shipLine1,
+        shipLine2: shipment.shipLine2,
+        shipCity: shipment.shipCity,
+        shipRegion: shipment.shipRegion,
+        shipPostcode: shipment.shipPostcode,
+        shipCountry: shipment.shipCountry,
+      },
+      userId,
+      { excludeShipmentId: shipmentId }
+    );
 
     await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
 
@@ -6330,7 +6794,20 @@ export async function deleteSalesShipment(
     if (replay.replayed) return replay.result;
 
     const [shipment] = await tx
-      .select({ id: salesShipments.id, status: salesShipments.status })
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+        orderNumber: salesOrders.orderNumber,
+        customerId: salesOrders.customerId,
+        customerName: salesOrders.customerName,
+        shipDate: salesOrders.shipDate,
+        shipLine1: salesOrders.shipLine1,
+        shipLine2: salesOrders.shipLine2,
+        shipCity: salesOrders.shipCity,
+        shipRegion: salesOrders.shipRegion,
+        shipPostcode: salesOrders.shipPostcode,
+        shipCountry: salesOrders.shipCountry,
+      })
       .from(salesShipments)
       .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
       .where(
@@ -6374,6 +6851,20 @@ export async function deleteSalesShipment(
       .delete(salesShipmentCosts)
       .where(eq(salesShipmentCosts.salesShipmentId, shipmentId));
     await tx.delete(salesShipments).where(eq(salesShipments.id, shipmentId));
+
+    await upsertUnscheduledRemainderShipmentForOrderInTx(tx, orgId, {
+      id: orderId,
+      orderNumber: shipment.orderNumber,
+      customerId: shipment.customerId,
+      customerName: shipment.customerName,
+      shipDate: shipment.shipDate,
+      shipLine1: shipment.shipLine1,
+      shipLine2: shipment.shipLine2,
+      shipCity: shipment.shipCity,
+      shipRegion: shipment.shipRegion,
+      shipPostcode: shipment.shipPostcode,
+      shipCountry: shipment.shipCountry,
+    }, userId);
 
     await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
 
@@ -6546,6 +7037,14 @@ export async function shipSalesShipment(
 
     if (allClosed) {
       await rerankOpenSalesOrdersInTx(tx, orgId);
+    } else {
+      await upsertUnscheduledRemainderShipmentForOrderInTx(
+        tx,
+        orgId,
+        order,
+        userId,
+        { excludeShipmentId: shipmentId }
+      );
     }
 
     const result = {
@@ -6630,9 +7129,9 @@ export async function shipSalesOrder(
       };
     }
 
-    const order = await getLockedSalesOrderInTx(tx, id);
+	    const order = await getLockedSalesOrderInTx(tx, id);
 
-    if (!order) {
+	    if (!order) {
       await finishInventoryOperationInTx(tx, {
         organizationId: orgId,
         idempotencyKey: options?.idempotencyKey ?? null,
@@ -6999,11 +7498,28 @@ export async function deleteSalesOrder(
         idempotencyKey: options?.idempotencyKey ?? null,
         result,
       });
-      return result;
+	      return result;
+	    }
+
+    const blocker = await getSalesOrderDeleteBlockerInTx(tx, [id]);
+    if (blocker) {
+      throw new SalesError(blocker, 400);
     }
 
-	    const existingLines = await getOrderLinesInTx(tx, id);
-	    const deletedAt = new Date();
+    const existingLines = await getOrderLinesInTx(tx, id);
+    const existingLineIds = existingLines.map((line) => line.id);
+    const linkedManufacturingError = await deleteSalesLinkedManufacturingOrdersInTx(tx, {
+      organizationId: orgId,
+      actorUserId: userId,
+      salesOrderIds: [id],
+      salesOrderLineIds: existingLineIds,
+    });
+
+    if (linkedManufacturingError) {
+      throw new SalesError(linkedManufacturingError, 400);
+    }
+
+    const deletedAt = new Date();
 
     const plannedShipmentIds = await tx
       .select({ id: salesShipments.id })
@@ -7029,7 +7545,7 @@ export async function deleteSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
-    await releaseReservationForSalesLineInTx(tx, {
+	    await releaseReservationForSalesLineInTx(tx, {
       organizationId: orgId,
       salesOrderId: id,
       actorUserId: userId,
@@ -7038,7 +7554,14 @@ export async function deleteSalesOrder(
         "delete-order"
       ),
       reason: "deleted",
-      salesOrderLineIds: existingLines.map((line) => line.id),
+	      salesOrderLineIds: existingLineIds,
+	    });
+
+    await cancelActiveStockAllocationsInTx(tx, {
+      organizationId: orgId,
+      actorUserId: userId,
+      demandType: "sales_order_line",
+      demandIds: existingLineIds,
     });
 
     if (isOpenSalesOrderStatus(order.status)) {
@@ -7075,7 +7598,7 @@ export async function deleteSalesOrders(
 
     const uniqueIds = [...new Set(ids)];
 
-    const orders = await tx
+	    const orders = await tx
       .select({
         id: salesOrders.id,
         orderNumber: salesOrders.orderNumber,
@@ -7100,13 +7623,28 @@ export async function deleteSalesOrders(
       return result;
     }
 
-    const orderIds = orders.map((o) => o.id);
+	    const orderIds = orders.map((o) => o.id);
+    const blocker = await getSalesOrderDeleteBlockerInTx(tx, orderIds);
+    if (blocker) {
+      throw new SalesError(blocker, 400);
+    }
 
     const lines = await tx
       .select({ id: salesOrderLines.id })
-      .from(salesOrderLines)
-      .where(inArray(salesOrderLines.salesOrderId, orderIds));
-    const deletedAt = new Date();
+	      .from(salesOrderLines)
+	      .where(inArray(salesOrderLines.salesOrderId, orderIds));
+    const lineIds = lines.map((line) => line.id);
+    const linkedManufacturingError = await deleteSalesLinkedManufacturingOrdersInTx(tx, {
+      organizationId: orgId,
+      actorUserId: userId,
+      salesOrderIds: orderIds,
+      salesOrderLineIds: lineIds,
+    });
+
+    if (linkedManufacturingError) {
+      throw new SalesError(linkedManufacturingError, 400);
+    }
+	    const deletedAt = new Date();
 
     const plannedShipmentIds = await tx
       .select({ id: salesShipments.id })
@@ -7137,7 +7675,14 @@ export async function deleteSalesOrders(
         "bulk-delete-orders"
       ),
       reason: "deleted",
-      salesOrderLineIds: lines.map((line) => line.id),
+	      salesOrderLineIds: lineIds,
+	    });
+
+    await cancelActiveStockAllocationsInTx(tx, {
+      organizationId: orgId,
+      actorUserId: userId,
+      demandType: "sales_order_line",
+      demandIds: lineIds,
     });
 
     if (orders.some((order) => isOpenSalesOrderStatus(order.status))) {

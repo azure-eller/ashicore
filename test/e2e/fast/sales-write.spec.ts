@@ -5,11 +5,13 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  inventoryEvents,
   customerContacts,
   customerCorrespondence,
   customerCorrespondenceAttendees,
   customerProjectFiles,
   customerProjects,
+  integrationConnections,
   lots,
   manufacturingOrders,
   purchaseOrderLines,
@@ -477,10 +479,70 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(productBalance?.committedQty ?? "0.0000").toBe("3.0000");
 
+    await db
+      .insert(integrationConnections)
+      .values({
+        organizationId: await getOrgId(),
+        provider: "xero",
+        tenantId: `tenant-sales-${ts}`,
+        tenantName: "Paonia Soil Co.",
+        authorizedTenants: [
+          { tenantId: `tenant-sales-${ts}`, tenantName: "Paonia Soil Co." },
+        ],
+        accessTokenCiphertext: `test-access-token-ciphertext-${ts}`,
+        refreshTokenCiphertext: `test-refresh-token-ciphertext-${ts}`,
+        tokenEncryptionKeyId: "test",
+        tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        defaultAccountCode: null,
+        defaultTaxType: "OUTPUT",
+        invoiceStatusPreference: "DRAFT",
+        autoPushSalesInvoices: false,
+        autoPushPurchaseOrders: false,
+        autoEmailSalesInvoices: false,
+        autoEmailPurchaseOrders: false,
+        purchaseOrderDefaultAccountCode: "500",
+        purchaseOrderDefaultTaxType: "NONE",
+        purchaseOrderStatusPreference: "DRAFT",
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnections.organizationId,
+          integrationConnections.provider,
+        ],
+        set: {
+          tenantId: `tenant-sales-${ts}`,
+          tenantName: "Paonia Soil Co.",
+          authorizedTenants: [
+            { tenantId: `tenant-sales-${ts}`, tenantName: "Paonia Soil Co." },
+          ],
+          accessTokenCiphertext: `test-access-token-ciphertext-${ts}`,
+          refreshTokenCiphertext: `test-refresh-token-ciphertext-${ts}`,
+          tokenEncryptionKeyId: "test",
+          tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          defaultAccountCode: null,
+          defaultTaxType: "OUTPUT",
+          invoiceStatusPreference: "DRAFT",
+          autoPushSalesInvoices: false,
+          autoPushPurchaseOrders: false,
+          autoEmailSalesInvoices: false,
+          autoEmailPurchaseOrders: false,
+          purchaseOrderDefaultAccountCode: "500",
+          purchaseOrderDefaultTaxType: "NONE",
+          purchaseOrderStatusPreference: "DRAFT",
+          updatedAt: new Date(),
+        },
+      });
+
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.getByText("Confirm the order before shipping.")).toHaveCount(0);
     await expect(page.getByText("Failed to confirm order.")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Create invoice" }).first()).toBeVisible();
+    await expect(
+      page.getByText("Set a sales invoice account code before creating Xero invoices.")
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open settings" })).toHaveAttribute(
+      "href",
+      "/settings#integrations"
+    );
 
     const shipments = await db
       .select()
@@ -1196,6 +1258,130 @@ test.describe("Sales write-path smoke", () => {
     expect(order.status).toBe("done");
   });
 
+  test("partial shipment edit creates an unscheduled remainder allocation target", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-SHIP-FALLBACK-HIDE`;
+    const customerResult = await createCustomer({
+      name: `Fast Shipment Fallback Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const itemResult = await createItem({
+      name: `Fast Shipment Fallback Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FSFH-${ts}`,
+      category: `Fast Shipment Fallback ${suffix}`,
+      description: "Material for shipment fallback visibility",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "10",
+      safetyStock: "0",
+    });
+    expect(itemResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: customerResult.body.id,
+      status: "open",
+      shipDate: "2026-05-19",
+      lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const [shipmentLine] = await db
+      .select({
+        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        shipmentId: salesShipmentLines.salesShipmentId,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, orderResult.body.id as string));
+    expect(shipmentLine).toBeTruthy();
+
+    const editResponse = await testFetch(
+      `/api/sales-orders/${orderResult.body.id}/shipments/${shipmentLine.shipmentId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-05-19",
+          notes: "Partial shipment plan",
+          lines: [{ salesOrderLineId: shipmentLine.salesOrderLineId, quantity: "3" }],
+        }),
+      }
+    );
+    expect(editResponse.status).toBe(200);
+
+    const shipmentLines = await db
+      .select({
+        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        scheduledDate: salesShipments.scheduledDate,
+        notes: salesShipments.notes,
+        quantity: salesShipmentLines.quantity,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, orderResult.body.id as string))
+      .orderBy(asc(salesShipments.sequence));
+    expect(shipmentLines).toEqual([
+      expect.objectContaining({
+        id: shipmentLine.id,
+        scheduledDate: "2026-05-19",
+        quantity: "3.0000",
+      }),
+      expect.objectContaining({
+        salesOrderLineId: shipmentLine.salesOrderLineId,
+        scheduledDate: null,
+        notes: "Remaining demand",
+        quantity: "7.0000",
+      }),
+    ]);
+
+    const workspaceResponse = await testFetch(
+      `/api/allocation/workspace?itemId=${itemResult.body.id}`
+    );
+    expect(workspaceResponse.status).toBe(200);
+    const workspace = await workspaceResponse.json();
+    const orderDemands = workspace.demands.filter(
+      (demand: { demandId: string; demandType: string }) =>
+        demand.demandId === shipmentLine.salesOrderLineId ||
+        shipmentLines.some((line) => line.id === demand.demandId)
+    );
+
+    expect(orderDemands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          demandType: "sales_shipment_line",
+          demandId: shipmentLine.id,
+          openQty: "3",
+        }),
+        expect.objectContaining({
+          demandType: "sales_shipment_line",
+          demandId: shipmentLines[1].id,
+          openQty: "7",
+        }),
+      ])
+    );
+    expect(orderDemands).toHaveLength(2);
+
+    const detailResponse = await testFetch(
+      `/api/sales-orders/${orderResult.body.id}`
+    );
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    expect(detail.fulfillmentSummary.shortQty).toBe("10");
+    expect(detail.fulfillmentSummary.label).toBe("Short");
+  });
+
   test("planned shipment edits preserve unchanged shipment-line allocations", async ({
     db,
   }) => {
@@ -1743,19 +1929,44 @@ test.describe("Sales write-path smoke", () => {
 
     const createdManufacturingOrders = await db
       .select({
+        id: manufacturingOrders.id,
         salesOrderLineId: manufacturingOrders.salesOrderLineId,
         productId: manufacturingOrders.productId,
         plannedDate: manufacturingOrders.plannedDate,
       })
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.salesOrderId, fulfillmentOrderId));
+    expect(createdManufacturingOrders).toHaveLength(1);
+    const [createdManufacturingOrder] = createdManufacturingOrders;
+    if (!createdManufacturingOrder) {
+      throw new Error("Expected a manufacturing order for the selected line.");
+    }
     expect(createdManufacturingOrders).toEqual([
       {
+        id: createdManufacturingOrder.id,
         salesOrderLineId: selectedLineId,
         productId: firstProductId,
         plannedDate: "2026-06-02",
       },
     ]);
+
+    await db
+      .update(manufacturingOrders)
+      .set({ salesOrderLineId: null })
+      .where(eq(manufacturingOrders.id, createdManufacturingOrder.id));
+
+    const deleteResponse = await testFetch(`/api/sales-orders/${fulfillmentOrderId}`, {
+      method: "DELETE",
+    });
+    const deleteBody = await deleteResponse.json();
+    expect(deleteResponse.status).toBe(400);
+    expect(deleteBody.error).toContain("linked to the order but not to a matching active sales line");
+
+    const [stillVisibleOrder] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fulfillmentOrderId));
+    expect(stillVisibleOrder.deletedAt).toBeNull();
   });
 
   test("potential honors BOM lot age constraints in inventory and sales detail", async ({
@@ -2455,11 +2666,68 @@ test.describe("Sales write-path smoke", () => {
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     const [shippedShipment] = await db
-      .select({ status: salesShipments.status, shippedAt: salesShipments.shippedAt })
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+        shippedAt: salesShipments.shippedAt,
+      })
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, webShipOrderId));
     expect(shippedShipment.status).toBe("shipped");
     expect(shippedShipment.shippedAt).not.toBeNull();
+
+    const [consumptionEvent] = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.eventType, "sales_consumption"),
+          eq(inventoryEvents.referenceType, "sales_shipment"),
+          eq(inventoryEvents.referenceId, shippedShipment.id)
+        )
+      )
+      .limit(1);
+    expect(consumptionEvent).toBeDefined();
+
+    await db
+      .update(salesOrders)
+      .set({ status: "open", shippedAt: null })
+      .where(eq(salesOrders.id, webShipOrderId));
+    await db
+      .update(salesShipments)
+      .set({ status: "planned", shippedAt: null })
+      .where(eq(salesShipments.salesOrderId, webShipOrderId));
+
+    const openOrderResult = await createSalesOrder({
+      customerId: webShipCustomerId,
+      status: "open",
+      lines: [{ itemId: webShipProductId, quantity: "1", unitPrice: "10" }],
+    });
+    expect(openOrderResult.status).toBe(201);
+    const openOrderId = openOrderResult.body.id as string;
+
+    const deleteResponse = await page.request.delete("/api/sales-orders", {
+      data: { ids: [webShipOrderId, openOrderId] },
+      headers: {
+        "Idempotency-Key": `test:sales-bulk-delete:${Date.now()}`,
+      },
+    });
+    const deleteText = await deleteResponse.text();
+    expect(deleteResponse.status(), deleteText).toBe(400);
+    const deleteBody = JSON.parse(deleteText);
+    expect(deleteBody.error).toContain("inventory has already been consumed");
+
+    const [blockedOrder] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, webShipOrderId));
+    expect(blockedOrder.deletedAt).toBeNull();
+
+    const [untouchedOpenOrder] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, openOrderId));
+    expect(untouchedOpenOrder.deletedAt).toBeNull();
   });
 
   test("plans a shipment before stock is allocated", async ({ db }) => {
@@ -2534,20 +2802,17 @@ test.describe("Sales write-path smoke", () => {
     );
     expect(splitExistingResponse.status).toBe(200);
 
-    const planResponse = await testFetch(
-      `/api/sales-orders/${shortOrderId}/shipments`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          fulfillmentType: "delivery",
-          scheduledDate: "2026-04-23",
-          notes: "Plan now, allocate later",
-          lines: [{ salesOrderLineId: line.id, quantity: "4" }],
-        }),
-      }
-    );
-    expect(planResponse.status).toBe(201);
-    const plannedShipment = await planResponse.json();
+    const [plannedShipment] = await db
+      .select({ id: salesShipments.id, scheduledDate: salesShipments.scheduledDate })
+      .from(salesShipments)
+      .where(
+        and(
+          eq(salesShipments.salesOrderId, shortOrderId),
+          sql`${salesShipments.id} <> ${initialPlannedShipment.id}`
+        )
+      );
+    expect(plannedShipment).toBeTruthy();
+    expect(plannedShipment.scheduledDate).toBeNull();
 
     const [plannedLine] = await db
       .select({ quantity: salesShipmentLines.quantity })

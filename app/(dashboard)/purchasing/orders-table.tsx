@@ -93,7 +93,7 @@ export function OrdersTable({ initialData }: { initialData: PurchaseOrderListRow
         confirmTitle: (count) =>
           `Delete ${count} order${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>
-          `The selected purchase order${count !== 1 ? "s" : ""} will be soft-deleted.`,
+          `Unreceived purchase order${count !== 1 ? "s" : ""} will be removed from normal views and expected inventory will be released. Received orders cannot be deleted.`,
       }}
     />
   );
