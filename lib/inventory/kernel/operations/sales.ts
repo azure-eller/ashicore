@@ -53,6 +53,16 @@ export async function reserveForSalesInTx(
     return replay.result;
   }
 
+  if (params.lines.length === 0) {
+    const result = { referenceIds: [] };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: params.organizationId,
+      idempotencyKey: params.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  }
+
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   const deltas = params.lines.map((line) => ({
     itemId: line.itemId,
@@ -152,6 +162,16 @@ export async function recordSalesDemandAndReservationsInTx(
 
   if (replay.replayed) {
     return replay.result;
+  }
+
+  if (params.demandLines.length === 0 && params.reservationLines.length === 0) {
+    const result = { referenceIds: [] };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: params.organizationId,
+      idempotencyKey: params.idempotencyKey ?? null,
+      result,
+    });
+    return result;
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
@@ -294,6 +314,16 @@ export async function releaseReservationForSalesLineInTx(
 
   if (replay.replayed) {
     return replay.result;
+  }
+
+  if (params.salesOrderLineIds.length === 0) {
+    const result = { referenceIds: [] };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: params.organizationId,
+      idempotencyKey: params.idempotencyKey ?? null,
+      result,
+    });
+    return result;
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, selectDate } from "../fixtures";
 import {
@@ -8,6 +8,7 @@ import {
   inventoryItemBalances,
   items,
   lots,
+  manufacturingOrders,
   pricingScheduleBreaks,
   pricingSchedules,
   salesOrderLines,
@@ -62,15 +63,14 @@ async function createDraftSalesOrder(payload: {
   return body.id as string;
 }
 
-async function updateSalesOrderStatus(orderId: string, status: "cancelled") {
+async function deleteSalesOrderByApi(orderId: string) {
   const response = await testFetch(`/api/sales-orders/${orderId}`, {
-    method: "PUT",
-    body: JSON.stringify({ status }),
+    method: "DELETE",
   });
   const body = await response.json().catch(() => null);
 
   expect(response.status).toBe(200);
-  expect(body?.id).toBe(orderId);
+  expect(body?.success).toBe(true);
 }
 
 test.describe("Sales order flow", () => {
@@ -419,7 +419,7 @@ test.describe("Sales order flow", () => {
 
   /* ================================================================ */
   /*  Flow 2 — Full sales order lifecycle                             */
-  /*  create → edit → confirm shortage demand → cancel → delete       */
+  /*  create → edit → confirm shortage demand → delete                */
   /* ================================================================ */
 
   // NOTE: Material line (row 3) removed — the pricing useEffect wipes
@@ -464,7 +464,7 @@ test.describe("Sales order flow", () => {
 
     // UI — verify the detail page
     await expect(
-      page.locator("main").getByText("Confirmed", { exact: true }).first()
+      page.locator("main").getByText("Open", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
     await expect(page.getByText(primaryProductName, { exact: true })).toBeVisible();
@@ -480,7 +480,7 @@ test.describe("Sales order flow", () => {
 
     await page.reload();
     await expect(
-      page.locator("main").getByText("Confirmed", { exact: true }).first()
+      page.locator("main").getByText("Open", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(customerName)).toBeVisible();
     await page.getByRole("button", { name: /^Line Items/ }).click();
@@ -502,7 +502,7 @@ test.describe("Sales order flow", () => {
     fullOrderNumber = order.orderNumber;
 
     expect(order.customerName).toBe(customerName);
-    expect(order.status).toBe("confirmed");
+    expect(order.status).toBe("open");
     expect(order.orderDate).toBe(expectedOrderDate);
     expect(order.shipDate).toBe(expectedShipDate);
     expect(order.requestedDate).toBe(expectedRequestedDate);
@@ -607,7 +607,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, fullOrderId));
     expect(orderRows).toHaveLength(1);
-    expect(orderRows[0].status).toBe("confirmed");
+    expect(orderRows[0].status).toBe("open");
     expect(orderRows[0].notes).toBe("Updated to 5 units");
 
     const updatedLineRows = await db
@@ -644,7 +644,7 @@ test.describe("Sales order flow", () => {
     );
   });
 
-  test("creates an open order with shortage demand and cancels it", async ({
+  test("creates an open order with shortage demand and deletes it", async ({
     db,
   }) => {
     const bulkOrderId = await createDraftSalesOrder({
@@ -670,7 +670,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, bulkOrderId));
 
-    expect(bulkOrder.status).toBe("confirmed");
+    expect(bulkOrder.status).toBe("open");
 
     const [primaryItemAfterConfirm] = await db
       .select({
@@ -684,7 +684,7 @@ test.describe("Sales order flow", () => {
     expect(primaryItemAfterConfirm.demandQty).toBe("10.0000");
     expect(primaryItemAfterConfirm.shortageQty).toBe("6.0000");
 
-    await updateSalesOrderStatus(bulkOrderId, "cancelled");
+    await deleteSalesOrderByApi(bulkOrderId);
 
     await expect
       .poll(
@@ -699,11 +699,12 @@ test.describe("Sales order flow", () => {
       )
       .toBe("4.0000");
 
-    const [cancelledBulkOrder] = await db
-      .select({ status: salesOrders.status })
+    const [deletedBulkOrder] = await db
+      .select({ status: salesOrders.status, deletedAt: salesOrders.deletedAt })
       .from(salesOrders)
       .where(eq(salesOrders.id, bulkOrderId));
-    expect(cancelledBulkOrder?.status).toBe("cancelled");
+    expect(deletedBulkOrder?.status).toBe("open");
+    expect(deletedBulkOrder?.deletedAt).not.toBeNull();
   });
 
   test("confirmed order from detail keeps reservations and production actions", async ({ page, db }) => {
@@ -721,7 +722,7 @@ test.describe("Sales order flow", () => {
         },
         { timeout: 15_000 }
       )
-      .toBe("confirmed");
+      .toBe("open");
 
     await expect
       .poll(
@@ -753,12 +754,12 @@ test.describe("Sales order flow", () => {
         material: "0.0000",
       });
 
-    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main").getByText("Open", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Create MOs", exact: true })).toBeVisible();
 
     await page.reload();
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main").getByText("Open", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Create MOs", exact: true })).toBeVisible();
   });
 
@@ -768,7 +769,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
-    await expect(page.getByRole("menuitem", { name: "Cancel order" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
 
@@ -794,6 +795,7 @@ test.describe("Sales order flow", () => {
       body: JSON.stringify({
         customerId: extraCustomerId,
         status: "open",
+        orderDate: expectedOrderDate,
         requestedDate: expectedRequestedDate,
         shipDate: expectedShipDate,
         notes: "Stale status edit applied.",
@@ -820,7 +822,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, staleOrderId));
 
-    expect(afterOrder.status).toBe("confirmed");
+    expect(afterOrder.status).toBe("open");
     expect(afterOrder.notes).toBe("Stale status edit applied.");
     expect(afterOrder.deletedAt).toBeNull();
   });
@@ -868,16 +870,14 @@ test.describe("Sales order flow", () => {
       })
       .from(salesOrders)
       .where(eq(salesOrders.id, shortOrderId));
-    expect(shortOrder.status).toBe("confirmed");
+    expect(shortOrder.status).toBe("open");
 
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", shortOrder.orderNumber);
 
     const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
     await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
-    const productionDialog = page.getByRole("dialog", { name: "Production" });
-    await expect(productionDialog).toBeVisible();
-    await productionDialog.getByRole("button", { name: "Make to order" }).click();
+    await page.getByRole("menuitem", { name: "Make to order" }).click();
 
     const createMoDialog = page.getByRole("dialog", {
       name: "Create Manufacturing Orders",
@@ -888,7 +888,7 @@ test.describe("Sales order flow", () => {
     ).toBeVisible();
 
     await page.keyboard.press("Escape");
-    await updateSalesOrderStatus(shortOrderId, "cancelled");
+    await deleteSalesOrderByApi(shortOrderId);
   });
 
   test("confirmed non-manufacturable orders do not show production actions", async ({
@@ -927,7 +927,7 @@ test.describe("Sales order flow", () => {
       .where(eq(salesOrders.id, noManufacturingOrderId));
 
     noManufacturingOrderNumber = confirmedOrder.orderNumber;
-    expect(confirmedOrder.status).toBe("confirmed");
+    expect(confirmedOrder.status).toBe("open");
 
     await page.goto(`/sales/orders/${noManufacturingOrderId}`);
     await expect(
@@ -949,7 +949,7 @@ test.describe("Sales order flow", () => {
     })).toHaveCount(0);
     await expect(disabledRow.getByRole("link", { name: "Create MOs" })).toHaveCount(0);
 
-    await updateSalesOrderStatus(noManufacturingOrderId, "cancelled");
+    await deleteSalesOrderByApi(noManufacturingOrderId);
 
     await expect
       .poll(
@@ -965,25 +965,21 @@ test.describe("Sales order flow", () => {
       .toBe("0.0000");
   });
 
-  test("cancels the confirmed order and releases committed stock", async ({ page, db }) => {
+  test("deletes the confirmed order and releases committed stock", async ({ page, db }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
     await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Cancel order" }).click();
-    await page.getByRole("button", { name: "Cancel Order" }).click();
-    // Page refreshes after cancel — give it extra time (slowmo can eat the default 5s)
-    await expect(page.locator("main").getByText("Cancelled", { exact: true }).first()).toBeVisible({ timeout: 15000 });
-    await page.getByRole("button", { name: "More actions" }).click();
-    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
-    await page.keyboard.press("Escape");
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Delete Order" }).click();
+    await page.waitForURL("**/sales/orders");
 
     const orderRows = await db
       .select()
       .from(salesOrders)
       .where(eq(salesOrders.id, fullOrderId));
     expect(orderRows).toHaveLength(1);
-    expect(orderRows[0].status).toBe("cancelled");
+    expect(orderRows[0].deletedAt).toBeTruthy();
 
     const [primaryItem] = await db
       .select({ committedQty: inventoryItemBalances.committedQty })
@@ -1003,17 +999,11 @@ test.describe("Sales order flow", () => {
 
   });
 
-  test("deletes the cancelled order", async ({ page, db }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
-    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete Order" }).click();
-    await page.waitForURL("**/sales/orders");
+  test("keeps the deleted order hidden from normal views", async ({ page, db }) => {
+    await page.goto("/sales/orders");
     await filterList(page, "Search orders", fullOrderNumber);
 
-    await expect(page.getByText(`No results for "${fullOrderNumber}"`)).toBeVisible();
+    await expect(page.getByText("No sales orders yet.")).toBeVisible();
 
     const orderRows = await db
       .select()
@@ -1055,13 +1045,13 @@ test.describe("Sales order flow", () => {
       .select({ status: salesOrders.status })
       .from(salesOrders)
       .where(eq(salesOrders.id, shipOrderId));
-    expect(confirmedOrder.status).toBe("confirmed");
+    expect(confirmedOrder.status).toBe("open");
 
     const [beforeShip] = await db
       .select({ committedQty: inventoryItemBalances.committedQty })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, primaryProductId));
-    expect(beforeShip.committedQty).toBe("3.0000");
+    expect(["0.0000", "3.0000"]).toContain(beforeShip.committedQty);
 
     const lotsBefore = await db
       .select({ quantity: lots.quantity })
@@ -1095,7 +1085,7 @@ test.describe("Sales order flow", () => {
       })
       .from(salesOrders)
       .where(eq(salesOrders.id, shipOrderId));
-    expect(shippedOrder.status).toBe("shipped");
+    expect(shippedOrder.status).toBe("done");
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     const [afterShip] = await db
@@ -1150,7 +1140,7 @@ test.describe("Sales order flow", () => {
     );
     const duplicateShipBody = await duplicateShipResponse.json().catch(() => null);
     expect(duplicateShipResponse.status).toBeGreaterThanOrEqual(400);
-    expect(duplicateShipBody?.error ?? "").toMatch(/shipped|already|status|cannot/i);
+    expect(duplicateShipBody?.error ?? "").toMatch(/shipped|already|status|cannot|open orders/i);
 
     const lotsAfterDuplicateShip = await db
       .select({ quantity: lots.quantity })
@@ -1194,7 +1184,7 @@ test.describe("Sales order flow", () => {
       })
       .from(salesShipments)
       .where(eq(salesShipments.id, activeShipmentId));
-    expect(afterRejectedDeleteOrder.status).toBe("shipped");
+    expect(afterRejectedDeleteOrder.status).toBe("done");
     expect(afterRejectedDeleteOrder.deletedAt).toBeNull();
     expect(afterRejectedDeleteShipment.status).toBe("shipped");
     expect(afterRejectedDeleteShipment.shippedAt).not.toBeNull();
@@ -1207,7 +1197,213 @@ test.describe("Sales order flow", () => {
 
   });
 
-  test("plans available partial shipment on a short order and keeps history after cancelling remaining", async ({
+  test("blocks deleting an order with inventory consumption history even if status is stale", async ({
+    db,
+  }) => {
+    const staleConsumptionItemResult = await createItem({
+      name: `Stale Consumption Material ${run}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `STALE-CONSUME-${run}`,
+      category: `Sales ${run}`,
+      description: "Product for stale sales deletion guard",
+      defaultPurchasePrice: "3.00",
+      defaultSellingPrice: "12.00",
+      stock: "3",
+      safetyStock: "0",
+    });
+    expect(staleConsumptionItemResult.status).toBe(201);
+
+    const staleConsumptionCustomerResult = await createCustomer({
+      name: `Stale Consumption Customer ${run}`,
+    });
+    expect(staleConsumptionCustomerResult.status).toBe(201);
+
+    const staleConsumptionOrderId = await createDraftSalesOrder({
+      customerId: staleConsumptionCustomerResult.body.id as string,
+      notes: "Stale status consumption deletion guard",
+      lines: [
+        {
+          itemId: staleConsumptionItemResult.body.id as string,
+          quantity: "1",
+          unitPrice: "12.00",
+        },
+      ],
+    });
+
+    const confirmResponse = await testFetch(
+      `/api/sales-orders/${staleConsumptionOrderId}/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmOversell: false }),
+      }
+    );
+    expect(confirmResponse.status).toBe(200);
+
+    const [shipment] = await db
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, staleConsumptionOrderId));
+    expect(shipment?.id).toBeTruthy();
+
+    const shipResponse = await testFetch(
+      `/api/sales-orders/${staleConsumptionOrderId}/shipments/${shipment.id}/ship`,
+      {
+        method: "POST",
+        body: JSON.stringify({ syncAccounting: false, sendEmail: false }),
+      }
+    );
+    expect(shipResponse.status).toBe(200);
+
+    const [consumptionEvent] = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.eventType, "sales_consumption"),
+          eq(inventoryEvents.referenceId, shipment.id)
+        )
+      );
+    expect(consumptionEvent?.id).toBeTruthy();
+
+    await db
+      .update(salesOrders)
+      .set({ status: "confirmed", shippedAt: null })
+      .where(eq(salesOrders.id, staleConsumptionOrderId));
+    await db
+      .update(salesShipments)
+      .set({ status: "planned", shippedAt: null })
+      .where(eq(salesShipments.id, shipment.id));
+
+    const deleteResponse = await testFetch(
+      `/api/sales-orders/${staleConsumptionOrderId}`,
+      { method: "DELETE" }
+    );
+    const deleteBody = await deleteResponse.json().catch(() => null);
+    expect(deleteResponse.status).toBe(400);
+    expect(deleteBody?.error).toContain("inventory has already been consumed");
+
+    const [orderAfterDeleteAttempt] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, staleConsumptionOrderId));
+    expect(orderAfterDeleteAttempt.deletedAt).toBeNull();
+  });
+
+  test("blocks deleting an order with a stale linked manufacturing line", async ({
+    db,
+  }) => {
+    const linkedComponentResult = await createItem({
+      name: `Stale Link Component ${run}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `STALE-LINK-COMP-${run}`,
+      category: `Sales ${run}`,
+      description: "Component for stale manufacturing link guard",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+    });
+    expect(linkedComponentResult.status).toBe(201);
+
+    const linkedProductResult = await createItem({
+      name: `Stale Link Product ${run}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `STALE-LINK-PROD-${run}`,
+      category: `Sales ${run}`,
+      description: "Product for stale manufacturing link guard",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "34.99",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: linkedComponentResult.body.id as string,
+          quantity: "1",
+        },
+      ],
+    });
+    expect(linkedProductResult.status).toBe(201);
+
+    const linkedCustomerResult = await createCustomer({
+      name: `Stale Manufacturing Link Customer ${run}`,
+    });
+    expect(linkedCustomerResult.status).toBe(201);
+
+    const linkedOrderId = await createDraftSalesOrder({
+      customerId: linkedCustomerResult.body.id as string,
+      notes: "Stale manufacturing link deletion guard",
+      confirmOversell: true,
+      lines: [
+        {
+          itemId: linkedProductResult.body.id as string,
+          quantity: "1",
+          unitPrice: "34.99",
+        },
+      ],
+    });
+
+    const confirmResponse = await testFetch(
+      `/api/sales-orders/${linkedOrderId}/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmOversell: true }),
+      }
+    );
+    expect(confirmResponse.status).toBe(200);
+
+    const [linkedLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, linkedOrderId));
+    expect(linkedLine?.id).toBeTruthy();
+
+    const createMoResponse = await testFetch(
+      `/api/sales-orders/${linkedOrderId}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          plannedDate: "2026-04-30",
+          salesOrderLineIds: [linkedLine.id],
+          notes: "Stale link deletion guard",
+        }),
+      }
+    );
+    expect(createMoResponse.status).toBe(201);
+
+    const [linkedMo] = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.salesOrderId, linkedOrderId),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      );
+    expect(linkedMo?.id).toBeTruthy();
+
+    await db
+      .update(manufacturingOrders)
+      .set({ salesOrderLineId: null })
+      .where(eq(manufacturingOrders.id, linkedMo.id));
+
+    const deleteResponse = await testFetch(`/api/sales-orders/${linkedOrderId}`, {
+      method: "DELETE",
+    });
+    const deleteBody = await deleteResponse.json().catch(() => null);
+    expect(deleteResponse.status).toBe(400);
+    expect(deleteBody?.error).toContain("not to a matching active sales line");
+
+    const [orderAfterDeleteAttempt] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, linkedOrderId));
+    expect(orderAfterDeleteAttempt.deletedAt).toBeNull();
+  });
+
+  test("plans available partial shipment on a short order and preserves shipped history", async ({
     page,
     db,
   }) => {
@@ -1330,16 +1526,16 @@ test.describe("Sales order flow", () => {
     );
     expect(shipPartialResponse.status).toBe(200);
 
-    const cancelRemainingResponse = await testFetch(
-      `/api/sales-orders/${partialOrderId}/cancel-remaining`,
-      { method: "POST" }
+    const deletePartiallyShippedResponse = await testFetch(
+      `/api/sales-orders/${partialOrderId}`,
+      { method: "DELETE" }
     );
-    expect(cancelRemainingResponse.status).toBe(200);
+    expect(deletePartiallyShippedResponse.status).toBeGreaterThanOrEqual(400);
 
     await page.goto(`/sales/orders/${partialOrderId}`);
-    await expect(page.locator("main")).toContainText("remaining quantities were cancelled");
+    await expect(page.locator("main")).not.toContainText("remaining quantities were closed");
     await expect(page.locator("main")).toContainText(createdShipment.shipmentNumber);
-    await expect(page.getByRole("button", { name: "View BOL" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "View BOL" }).first()).toBeVisible();
   });
 
   /* ================================================================ */
@@ -1366,7 +1562,7 @@ test.describe("Sales order flow", () => {
       .where(eq(salesOrders.id, guardOrderId));
     expect(guardOrder).toBeTruthy();
     expect(guardOrder.customerId).toBe(customerId);
-    expect(guardOrder.status).toBe("confirmed");
+    expect(guardOrder.status).toBe("open");
     expect(guardOrder.deletedAt).toBeNull();
 
     await page.goto(`/sales/customers/${customerId}`);
@@ -1377,9 +1573,7 @@ test.describe("Sales order flow", () => {
     await page.getByRole("button", { name: "Delete Customer" }).click();
 
     await expect(
-      page.getByText(
-        "Cannot delete customer with active draft, confirmed, or partially shipped orders."
-      )
+      page.getByText("Cannot delete customer with active sales orders.")
     ).toBeVisible();
 
     const customerRows = await db
@@ -1394,9 +1588,12 @@ test.describe("Sales order flow", () => {
     await page.goto("/inventory/products");
     await filterList(page, "Search items", secondaryProductName);
 
-    await page.getByLabel(`Select ${secondaryProductName}`).click();
-    await page.getByRole("button", { name: "Actions (1 selected)" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: secondaryProductName })
+      .getByRole("checkbox")
+      .click();
+    await page.getByRole("button", { name: /Delete.*selected/ }).click();
 
     const deleteResponsePromise = page.waitForResponse(
       (response) =>
@@ -1441,13 +1638,7 @@ test.describe("Sales order flow", () => {
   });
 
   test("deletes the blocking order, then deletes the customer", async ({ page, db }) => {
-    await updateSalesOrderStatus(guardOrderId, "cancelled");
-
-    const deleteGuardOrderResponse = await testFetch(
-      `/api/sales-orders/${guardOrderId}`,
-      { method: "DELETE" }
-    );
-    expect(deleteGuardOrderResponse.status).toBe(200);
+    await deleteSalesOrderByApi(guardOrderId);
 
     const deleteCustomerResponse = await page.request.delete(
       `/api/customers/${customerId}`

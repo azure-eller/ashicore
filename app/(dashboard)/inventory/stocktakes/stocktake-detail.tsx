@@ -109,7 +109,7 @@ export function StocktakeDetail({
   const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [staleWarning, setStaleWarning] =
     useState<StocktakeStaleWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -280,14 +280,16 @@ export function StocktakeDetail({
     handleInvalidSubmit
   );
 
-  const cancelMutation = useMutation<void, Error, void>({
+  const deleteMutation = useMutation<void, Error, void>({
     mutationFn: async () => {
-      const response = await fetch(`/api/stocktakes/${stocktake.id}/cancel`, {
-        method: "POST",
+      const response = await fetch("/api/stocktakes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [stocktake.id] }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel stocktake.");
+        throw new Error(body?.error ?? "Failed to delete stocktake.");
       }
     },
     onMutate: () => {
@@ -295,8 +297,8 @@ export function StocktakeDetail({
     },
     onSuccess: async () => {
       await refreshStocktakeQueries();
-      setCancelOpen(false);
-      router.refresh();
+      setDeleteOpen(false);
+      router.push("/inventory/stocktakes");
     },
     onError: (error) => {
       setActionError(error.message);
@@ -411,9 +413,9 @@ export function StocktakeDetail({
                 ...(canEditCounts
                   ? [
                       {
-                        label: "Cancel stocktake",
-                        onSelect: () => setCancelOpen(true),
-                        disabled: cancelMutation.isPending,
+                        label: "Delete stocktake",
+                        onSelect: () => setDeleteOpen(true),
+                        disabled: deleteMutation.isPending,
                         destructive: true,
                       },
                     ]
@@ -499,10 +501,6 @@ export function StocktakeDetail({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Completed</dt>
             <dd className="mt-1 text-sm">{formatDateTime(stocktake.completedAt, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.cancelledAt, timeZone)}</dd>
           </div>
         </dl>
 
@@ -639,12 +637,13 @@ export function StocktakeDetail({
         </div>
       </div>
 
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel this stocktake?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this stocktake?</AlertDialogTitle>
             <AlertDialogDescription>
-              Cancelling keeps the snapshot for history but does not change inventory.
+              Draft stocktakes will be removed from normal views without changing inventory.
+              Completed stocktakes cannot be deleted. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -652,11 +651,11 @@ export function StocktakeDetail({
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                cancelMutation.mutate();
+                deleteMutation.mutate();
               }}
-              disabled={cancelMutation.isPending}
+              disabled={deleteMutation.isPending}
             >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel Stocktake"}
+              {deleteMutation.isPending ? "Deleting..." : "Delete Stocktake"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

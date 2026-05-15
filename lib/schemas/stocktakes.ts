@@ -16,7 +16,7 @@ export type StocktakeCategoryScope =
   `${StocktakeScopeItemType}:category:${string}`;
 export type StocktakeScope = StocktakeBaseScope | StocktakeCategoryScope;
 
-export const STOCKTAKE_STATUSES = ["draft", "completed", "cancelled"] as const;
+export const STOCKTAKE_STATUSES = ["draft", "completed", "cancelled", "deleted"] as const;
 export type StocktakeStatus = (typeof STOCKTAKE_STATUSES)[number];
 
 export function buildStocktakeCategoryScope(

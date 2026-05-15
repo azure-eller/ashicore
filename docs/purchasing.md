@@ -15,7 +15,7 @@ Purchasing v1 includes:
 - supplier CRUD
 - draft purchase orders for materials only
 - supplier and material snapshots on saved orders
-- `draft`, `ordered`, `partial`, `received`, and `cancelled` statuses
+- `draft`, `ordered`, `partial`, and `received` statuses
 - partial receiving into lot-backed inventory
 - projection-backed expected supply from active ordered and partially received purchase orders
 
@@ -93,10 +93,10 @@ Update rules:
 ## Status Rules
 
 - `draft` orders are editable
-- `ordered` orders may be edited, received, or cancelled before any receipt
+- `ordered` orders may be edited, received, or deleted before any receipt
 - `partial` orders may be edited or received; already received lines cannot be removed
 - `received` orders are terminal
-- `cancelled` orders are terminal
+- delete is allowed only before inventory receipt history exists
 
 Valid transitions:
 
@@ -108,18 +108,20 @@ Valid transitions:
 - receive `ordered` -> `partial`
 - receive `ordered` -> `received`
 - receive `partial` -> `received`
-- cancel `ordered`
 - soft-delete `draft`
+- soft-delete `ordered`
 - soft-delete `received`
-- soft-delete `cancelled`
 
 Invalid transitions:
 
 - reduce ordered quantity below already received quantity
 - remove received purchase order lines
-- cancel `partial`
-- delete `ordered`
 - delete `partial`
+- delete `received`
+
+Deleting an ordered purchase order releases expected inventory in the same
+transaction. Partially received and received orders block deletion because
+`purchase_receipt` inventory history must be preserved.
 
 ## Snapshots
 

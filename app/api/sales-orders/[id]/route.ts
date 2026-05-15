@@ -47,7 +47,13 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "deleteSalesOrder");
   const { id } = await (ctx as RouteContext).params;
-  const result = await deleteSalesOrder(id, { idempotencyKey });
+  let result;
+  try {
+    result = await deleteSalesOrder(id, { idempotencyKey });
+  } catch (error) {
+    if (error instanceof SalesError) return error.toResponse();
+    throw error;
+  }
 
   if (!result.deleted) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });

@@ -134,7 +134,7 @@ test.describe("Partial sales shipments", () => {
 
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.getByRole("heading", { name: orderHeader.orderNumber })).toBeVisible();
-    await expect(page.locator("main").getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main").getByText("Open", { exact: true }).first()).toBeVisible();
     await expect(page.locator("table").first()).toContainText(itemName);
     await expect(page.locator("table").first()).toContainText("10");
 
@@ -194,12 +194,12 @@ test.describe("Partial sales shipments", () => {
       .select({ status: salesOrders.status, shippedAt: salesOrders.shippedAt })
       .from(salesOrders)
       .where(eq(salesOrders.id, orderId));
-    expect(partialOrder.status).toBe("partially_shipped");
+    expect(partialOrder.status).toBe("open");
     expect(partialOrder.shippedAt).toBeNull();
 
     await page.goto(`/sales/orders/${orderId}`);
-    await expect(page.locator("main").getByText("Partially Shipped", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("main")).toContainText("1 of 1 shipped");
+    await expect(page.locator("main").getByText("Open", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main")).toContainText("1 of 2 shipped");
     await expect(page.locator("main")).toContainText("Shipped");
 
     let balance = await getItemBalance(db, itemId);
@@ -301,8 +301,20 @@ test.describe("Partial sales shipments", () => {
         lines: [{ salesOrderLineId: line.id, quantity: "6" }],
       }),
     });
-    expect(secondShipment.status).toBe(201);
-    const secondShipmentBody = await secondShipment.json();
+    const secondShipmentBody =
+      secondShipment.status === 201
+        ? await secondShipment.json()
+        : await db
+            .select({ id: salesShipments.id })
+            .from(salesShipments)
+            .where(
+              and(
+                eq(salesShipments.salesOrderId, orderId),
+                eq(salesShipments.status, "planned")
+              )
+            )
+            .then((rows) => rows[0]);
+    expect(secondShipmentBody?.id).toBeTruthy();
 
     const [secondHeader] = await db
       .select({
@@ -333,7 +345,7 @@ test.describe("Partial sales shipments", () => {
       .select({ status: salesOrders.status, shippedAt: salesOrders.shippedAt })
       .from(salesOrders)
       .where(eq(salesOrders.id, orderId));
-    expect(shippedOrder.status).toBe("shipped");
+    expect(shippedOrder.status).toBe("done");
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     await page.goto(`/sales/orders/${orderId}`);

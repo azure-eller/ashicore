@@ -846,8 +846,9 @@ export function ManufacturingOrderDetail({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this order?</AlertDialogTitle>
             <AlertDialogDescription>
-              Draft, completed, and cancelled orders can be soft-deleted and removed
-              from normal views.
+              Open orders will be removed from normal views and reversible picked
+              or reserved inventory will be released. Production output or finalized
+              ingredient consumption blocks deletion. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

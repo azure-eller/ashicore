@@ -946,7 +946,7 @@ function ShippingPanel({
 
       {hasCancelledRemainingHistory ? (
         <div className="rounded-md border bg-muted px-4 py-3 text-sm text-muted-foreground">
-          This order shipped partially; remaining quantities were cancelled.
+          This order shipped partially; remaining quantities were closed.
         </div>
       ) : null}
 
@@ -2561,7 +2561,10 @@ export function OrderDetail({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this order?</AlertDialogTitle>
             <AlertDialogDescription>
-              The order will be soft-deleted and removed from normal views while its saved line items remain in history.
+              Open manufacturing orders created for this order, planned shipments
+              and their draft costs, and reservations will also be deleted or
+              released. Shipped, inventory-consumed, or accounting-pushed orders
+              cannot be deleted. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -606,8 +606,11 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
               Delete {selectedCount} order{selectedCount !== 1 ? "s" : ""}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The selected order{selectedCount !== 1 ? "s" : ""} will be
-              soft-deleted.
+              Open manufacturing orders created for the selected order
+              {selectedCount !== 1 ? "s" : ""}, planned shipments and their draft
+              costs, and reservations will also be deleted or released. Shipped,
+              inventory-consumed, or accounting-pushed orders cannot be deleted.
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

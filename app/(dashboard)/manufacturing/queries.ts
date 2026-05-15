@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
   or,
@@ -5733,70 +5734,13 @@ export async function deleteManufacturingOrder(
   id: string
 ): Promise<{ deleted: boolean; error?: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const order = await getLockedManufacturingOrderInTx(tx, id);
-
-    if (!order) {
-      return { deleted: false };
-    }
-
-    const ingredientRows = await tx
-      .select({ id: manufacturingOrderIngredients.id })
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
-      .for("update");
-
-    if (isOpenManufacturingOrder(order)) {
-      let reservationRows: Awaited<
-        ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
-      > = [];
-
-      if (order.manufacturingMode === "batch") {
-        const batches = await getLockedBatchStateRowsInTx(tx, order.id);
-        const deletableBatchIds = batches
-          .filter((batch) => batch.status !== "completed")
-          .map((batch) => batch.id);
-        reservationRows = await getManufacturingIngredientReservationRowsForBatchesInTx(
-          tx,
-          id,
-          deletableBatchIds
-        );
-      } else {
-        reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, id);
-      }
-
-      await cancelReleasedManufacturingOrderInTx(tx, {
-        organizationId: orgId,
-        manufacturingOrderId: id,
-        productId: order.productId,
-        actorUserId: userId,
-        idempotencyKey: `delete-manufacturing-order:${id}`,
-        ingredientRows: reservationRows.map((row) => ({
-          ingredientId: row.ingredientId,
-          itemId: row.itemId,
-          pickedQuantity: parseFloat(row.pickedQuantity),
-        })),
-      });
-      await rerankOpenManufacturingOrdersInTx(tx, orgId);
-    }
-
-    await tx
-      .update(manufacturingOrders)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(manufacturingOrders.id, id));
-    await cancelActiveStockAllocationsInTx(tx, {
+    const deleted = await deleteManufacturingOrdersInTx(tx, {
       organizationId: orgId,
       actorUserId: userId,
-      sourceType: "manufacturing_order",
-      sourceId: id,
-    });
-    await cancelActiveStockAllocationsInTx(tx, {
-      organizationId: orgId,
-      actorUserId: userId,
-      demandType: "manufacturing_order_ingredient",
-      demandIds: ingredientRows.map((row) => row.id),
+      ids: [id],
     });
 
-    return { deleted: true };
+    return { deleted: deleted.deletedIds.length > 0, error: deleted.error };
   });
 }
 
@@ -5804,101 +5748,287 @@ export async function deleteManufacturingOrders(
   ids: string[]
 ): Promise<{ deletedCount: number; error?: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const uniqueIds = [...new Set(ids)];
+    const deleted = await deleteManufacturingOrdersInTx(tx, {
+      organizationId: orgId,
+      actorUserId: userId,
+      ids,
+    });
 
-    const orders = await tx
-      .select({
-        id: manufacturingOrders.id,
-        status: manufacturingOrders.status,
-        productId: manufacturingOrders.productId,
-        manufacturingMode: manufacturingOrders.manufacturingMode,
-      })
-      .from(manufacturingOrders)
-      .where(
-        and(
-          inArray(manufacturingOrders.id, uniqueIds),
-          isNull(manufacturingOrders.deletedAt)
+    return { deletedCount: deleted.deletedIds.length, error: deleted.error };
+  });
+}
+
+export async function deleteManufacturingOrdersInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    actorUserId?: string | null;
+    ids: string[];
+  }
+): Promise<{ deletedIds: string[]; error?: string }> {
+  const uniqueIds = [...new Set(params.ids)];
+
+  if (uniqueIds.length === 0) {
+    return { deletedIds: [] };
+  }
+
+  const orders = await tx
+    .select({
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      status: manufacturingOrders.status,
+      productId: manufacturingOrders.productId,
+      manufacturingMode: manufacturingOrders.manufacturingMode,
+      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+        "actualQuantity"
+      ),
+      completedAt: manufacturingOrders.completedAt,
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        inArray(manufacturingOrders.id, uniqueIds),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .for("update");
+
+  if (orders.length === 0) {
+    return { deletedIds: [] };
+  }
+
+  const orderIds = orders.map((order) => order.id);
+  const finalizedOrder = orders.find(
+    (order) =>
+      order.status !== "open" ||
+      order.completedAt != null ||
+      parseFloat(order.actualQuantity ?? "0") > 0
+  );
+
+  if (finalizedOrder) {
+    return {
+      deletedIds: [],
+      error: `Cannot delete manufacturing order ${finalizedOrder.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+    };
+  }
+
+  const [completedBatch] = await tx
+    .select({
+      orderNumber: manufacturingOrders.orderNumber,
+    })
+    .from(manufacturingOrderBatches)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderBatches.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        inArray(manufacturingOrderBatches.manufacturingOrderId, orderIds),
+        or(
+          eq(manufacturingOrderBatches.status, "completed"),
+          isNotNull(manufacturingOrderBatches.completedAt),
+          isNotNull(manufacturingOrderBatches.lotId),
+          sql`${manufacturingOrderBatches.actualQuantity} IS NOT NULL AND ${manufacturingOrderBatches.actualQuantity} > 0`
         )
       )
-      .for("update");
+    )
+    .limit(1);
 
-    const ingredientRows = uniqueIds.length
-      ? await tx
-          .select({ id: manufacturingOrderIngredients.id })
-          .from(manufacturingOrderIngredients)
-          .where(inArray(manufacturingOrderIngredients.manufacturingOrderId, uniqueIds))
-          .for("update")
-      : [];
+  if (completedBatch) {
+    return {
+      deletedIds: [],
+      error: `Cannot delete manufacturing order ${completedBatch.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+    };
+  }
 
-    for (const order of orders) {
-      if (!isOpenManufacturingOrder(order)) continue;
-
-      let reservationRows: Awaited<
-        ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
-      > = [];
-
-      if (order.manufacturingMode === "batch") {
-        const batches = await getLockedBatchStateRowsInTx(tx, order.id);
-        const deletableBatchIds = batches
-          .filter((batch) => batch.status !== "completed")
-          .map((batch) => batch.id);
-        reservationRows = await getManufacturingIngredientReservationRowsForBatchesInTx(
-          tx,
-          order.id,
-          deletableBatchIds
-        );
-      } else {
-        reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, order.id);
-      }
-
-      await cancelReleasedManufacturingOrderInTx(tx, {
-        organizationId: orgId,
-        manufacturingOrderId: order.id,
-        productId: order.productId,
-        actorUserId: userId,
-        idempotencyKey: `delete-manufacturing-order:${order.id}`,
-        ingredientRows: reservationRows.map((row) => ({
-          ingredientId: row.ingredientId,
-          itemId: row.itemId,
-          pickedQuantity: parseFloat(row.pickedQuantity),
-        })),
-      });
-    }
-
-    if (orders.some(isOpenManufacturingOrder)) {
-      await rerankOpenManufacturingOrdersInTx(tx, orgId);
-    }
-
-    const deleted = await tx
-      .update(manufacturingOrders)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(inArray(manufacturingOrders.id, uniqueIds), isNull(manufacturingOrders.deletedAt))
+  const [actualIngredient] = await tx
+    .select({
+      orderNumber: manufacturingOrders.orderNumber,
+    })
+    .from(manufacturingOrderIngredients)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        inArray(manufacturingOrderIngredients.manufacturingOrderId, orderIds),
+        sql`${manufacturingOrderIngredients.actualQuantity} IS NOT NULL AND ${manufacturingOrderIngredients.actualQuantity} > 0`
       )
-      .returning({ id: manufacturingOrders.id });
-    if (deleted.length > 0) {
-      await cancelActiveStockAllocationsInTx(tx, {
-        organizationId: orgId,
-        actorUserId: userId,
-        sourceType: "manufacturing_order",
-        sourceId: deleted[0].id,
-      });
-      for (const order of deleted.slice(1)) {
-        await cancelActiveStockAllocationsInTx(tx, {
-          organizationId: orgId,
-          actorUserId: userId,
-          sourceType: "manufacturing_order",
-          sourceId: order.id,
-        });
-      }
-      await cancelActiveStockAllocationsInTx(tx, {
-        organizationId: orgId,
-        actorUserId: userId,
-        demandType: "manufacturing_order_ingredient",
-        demandIds: ingredientRows.map((row) => row.id),
-      });
+    )
+    .limit(1);
+
+  if (actualIngredient) {
+    return {
+      deletedIds: [],
+      error: `Cannot delete manufacturing order ${actualIngredient.orderNumber} because finalized ingredient consumption has already been recorded. Production history must be preserved.`,
+    };
+  }
+
+  const [ingredientConsumptionEvent] = await tx
+    .select({
+      orderNumber: manufacturingOrders.orderNumber,
+    })
+    .from(inventoryEvents)
+    .innerJoin(
+      manufacturingOrders,
+      or(
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_order"),
+          eq(inventoryEvents.referenceId, manufacturingOrders.id)
+        ),
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_batch"),
+          inArray(
+            inventoryEvents.referenceId,
+            tx
+              .select({ id: manufacturingOrderBatches.id })
+              .from(manufacturingOrderBatches)
+              .where(
+                eq(manufacturingOrderBatches.manufacturingOrderId, manufacturingOrders.id)
+              )
+          )
+        ),
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_order_ingredient"),
+          inArray(
+            inventoryEvents.referenceId,
+            tx
+              .select({ id: manufacturingOrderIngredients.id })
+              .from(manufacturingOrderIngredients)
+              .where(
+                eq(
+                  manufacturingOrderIngredients.manufacturingOrderId,
+                  manufacturingOrders.id
+                )
+              )
+          )
+        )
+      )
+    )
+    .where(
+      and(
+        inArray(manufacturingOrders.id, orderIds),
+        eq(inventoryEvents.eventType, "manufacturing_ingredient_consumption")
+      )
+    )
+    .limit(1);
+
+  if (ingredientConsumptionEvent) {
+    return {
+      deletedIds: [],
+      error: `Cannot delete manufacturing order ${ingredientConsumptionEvent.orderNumber} because finalized ingredient consumption has already been recorded. Production history must be preserved.`,
+    };
+  }
+
+  const [finalizedEvent] = await tx
+    .select({
+      orderNumber: manufacturingOrders.orderNumber,
+    })
+    .from(inventoryEvents)
+    .innerJoin(
+      manufacturingOrders,
+      or(
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_order"),
+          eq(inventoryEvents.referenceId, manufacturingOrders.id)
+        ),
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_batch"),
+          inArray(
+            inventoryEvents.referenceId,
+            tx
+              .select({ id: manufacturingOrderBatches.id })
+              .from(manufacturingOrderBatches)
+              .where(
+                eq(manufacturingOrderBatches.manufacturingOrderId, manufacturingOrders.id)
+              )
+          )
+        )
+      )
+    )
+    .where(
+      and(
+        inArray(manufacturingOrders.id, orderIds),
+        eq(inventoryEvents.eventType, "manufacturing_output")
+      )
+    )
+    .limit(1);
+
+  if (finalizedEvent) {
+    return {
+      deletedIds: [],
+      error: `Cannot delete manufacturing order ${finalizedEvent.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+    };
+  }
+
+  const ingredientRows = await tx
+    .select({ id: manufacturingOrderIngredients.id })
+    .from(manufacturingOrderIngredients)
+    .where(inArray(manufacturingOrderIngredients.manufacturingOrderId, orderIds))
+    .for("update");
+
+  for (const order of orders) {
+    if (!isOpenManufacturingOrder(order)) continue;
+
+    let reservationRows: Awaited<
+      ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
+    > = [];
+
+    if (order.manufacturingMode === "batch") {
+      const batches = await getLockedBatchStateRowsInTx(tx, order.id);
+      const deletableBatchIds = batches.map((batch) => batch.id);
+      reservationRows = await getManufacturingIngredientReservationRowsForBatchesInTx(
+        tx,
+        order.id,
+        deletableBatchIds
+      );
+    } else {
+      reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, order.id);
     }
 
-    return { deletedCount: deleted.length };
+    await cancelReleasedManufacturingOrderInTx(tx, {
+      organizationId: params.organizationId,
+      manufacturingOrderId: order.id,
+      productId: order.productId,
+      actorUserId: params.actorUserId,
+      idempotencyKey: `delete-manufacturing-order:${order.id}`,
+      ingredientRows: reservationRows.map((row) => ({
+        ingredientId: row.ingredientId,
+        itemId: row.itemId,
+        pickedQuantity: parseFloat(row.pickedQuantity),
+      })),
+    });
+  }
+
+  const deletedAt = new Date();
+  const deleted = await tx
+    .update(manufacturingOrders)
+    .set({ deletedAt, updatedAt: deletedAt })
+    .where(
+      and(inArray(manufacturingOrders.id, orderIds), isNull(manufacturingOrders.deletedAt))
+    )
+    .returning({ id: manufacturingOrders.id });
+
+  for (const order of deleted) {
+    await cancelActiveStockAllocationsInTx(tx, {
+      organizationId: params.organizationId,
+      actorUserId: params.actorUserId,
+      sourceType: "manufacturing_order",
+      sourceId: order.id,
+    });
+  }
+
+  await cancelActiveStockAllocationsInTx(tx, {
+    organizationId: params.organizationId,
+    actorUserId: params.actorUserId,
+    demandType: "manufacturing_order_ingredient",
+    demandIds: ingredientRows.map((row) => row.id),
   });
+
+  if (orders.some(isOpenManufacturingOrder)) {
+    await rerankOpenManufacturingOrdersInTx(tx, params.organizationId);
+  }
+
+  return { deletedIds: deleted.map((order) => order.id) };
 }

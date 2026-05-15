@@ -351,7 +351,7 @@ export async function getStocktakes(): Promise<StocktakeListRow[]> {
         updatedAt: stocktakes.updatedAt,
       })
       .from(stocktakes)
-      .where(sql`${stocktakes.status} != 'cancelled'`)
+      .where(sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`)
       .orderBy(desc(stocktakes.createdAt), asc(stocktakes.name), asc(stocktakes.id));
 
     if (rows.length === 0) {
@@ -425,7 +425,7 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
         updatedAt: stocktakes.updatedAt,
       })
       .from(stocktakes)
-      .where(eq(stocktakes.id, id));
+      .where(and(eq(stocktakes.id, id), sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`));
 
     if (!stocktake) {
       return null;
@@ -662,29 +662,9 @@ export async function completeStocktake(
   });
 }
 
-export async function cancelStocktake(id: string) {
-  return withAuthedOrgContext(async (tx) => {
-    const stocktake = await getLockedStocktakeInTx(tx, id);
-
-    if (!stocktake) {
-      return null;
-    }
-
-    if (stocktake.status !== "draft") {
-      throw new StocktakeError("Only draft stocktakes can be cancelled.", 400);
-    }
-
-    await tx
-      .update(stocktakes)
-      .set({
-        status: "cancelled",
-        cancelledAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(stocktakes.id, id));
-
-    return { id };
-  });
+export async function deleteStocktake(id: string) {
+  const result = await deleteStocktakes([id]);
+  return { deleted: result.deletedCount > 0, error: result.error };
 }
 
 export async function cloneStocktake(id: string) {
@@ -734,7 +714,8 @@ export async function deleteStocktakes(
     if (nonDraft) {
       return {
         deletedCount: 0,
-        error: "Only draft stocktakes can be deleted.",
+        error:
+          "Cannot delete this stocktake because it has already been completed. Completed inventory history must be preserved.",
       };
     }
 
@@ -743,11 +724,11 @@ export async function deleteStocktakes(
     }
 
     const rowIds = rows.map((r) => r.id);
-    const cancelledAt = new Date();
+    const deletedAt = new Date();
 
     await tx
       .update(stocktakes)
-      .set({ status: "cancelled", cancelledAt, updatedAt: cancelledAt })
+      .set({ status: "deleted", cancelledAt: deletedAt, updatedAt: deletedAt })
       .where(inArray(stocktakes.id, rowIds));
 
     return { deletedCount: rows.length };

@@ -67,6 +67,11 @@ async function performRequest(
     typeof options.body === "string" || options.body == null
       ? options.body ?? undefined
       : String(options.body);
+  const headers = new Headers(options.headers);
+
+  if (body != null && !headers.has("Content-Length")) {
+    headers.set("Content-Length", Buffer.byteLength(body).toString());
+  }
 
   return new Promise((resolve, reject) => {
     const request = transport.request(
@@ -76,7 +81,7 @@ async function performRequest(
         port: target.port || (target.protocol === "https:" ? 443 : 80),
         path: `${target.pathname}${target.search}`,
         method: options.method ?? "GET",
-        headers: options.headers as http.OutgoingHttpHeaders | undefined,
+        headers: Object.fromEntries(headers.entries()),
       },
       (response) => {
         const chunks: Buffer[] = [];

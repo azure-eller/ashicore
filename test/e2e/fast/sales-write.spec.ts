@@ -5,6 +5,7 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  inventoryEvents,
   customerContacts,
   customerCorrespondence,
   customerCorrespondenceAttendees,
@@ -1925,19 +1926,44 @@ test.describe("Sales write-path smoke", () => {
 
     const createdManufacturingOrders = await db
       .select({
+        id: manufacturingOrders.id,
         salesOrderLineId: manufacturingOrders.salesOrderLineId,
         productId: manufacturingOrders.productId,
         plannedDate: manufacturingOrders.plannedDate,
       })
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.salesOrderId, fulfillmentOrderId));
+    expect(createdManufacturingOrders).toHaveLength(1);
+    const [createdManufacturingOrder] = createdManufacturingOrders;
+    if (!createdManufacturingOrder) {
+      throw new Error("Expected a manufacturing order for the selected line.");
+    }
     expect(createdManufacturingOrders).toEqual([
       {
+        id: createdManufacturingOrder.id,
         salesOrderLineId: selectedLineId,
         productId: firstProductId,
         plannedDate: "2026-06-02",
       },
     ]);
+
+    await db
+      .update(manufacturingOrders)
+      .set({ salesOrderLineId: null })
+      .where(eq(manufacturingOrders.id, createdManufacturingOrder.id));
+
+    const deleteResponse = await testFetch(`/api/sales-orders/${fulfillmentOrderId}`, {
+      method: "DELETE",
+    });
+    const deleteBody = await deleteResponse.json();
+    expect(deleteResponse.status).toBe(400);
+    expect(deleteBody.error).toContain("linked to the order but not to a matching active sales line");
+
+    const [stillVisibleOrder] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, fulfillmentOrderId));
+    expect(stillVisibleOrder.deletedAt).toBeNull();
   });
 
   test("potential honors BOM lot age constraints in inventory and sales detail", async ({
@@ -2637,11 +2663,68 @@ test.describe("Sales write-path smoke", () => {
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     const [shippedShipment] = await db
-      .select({ status: salesShipments.status, shippedAt: salesShipments.shippedAt })
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+        shippedAt: salesShipments.shippedAt,
+      })
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, webShipOrderId));
     expect(shippedShipment.status).toBe("shipped");
     expect(shippedShipment.shippedAt).not.toBeNull();
+
+    const [consumptionEvent] = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.eventType, "sales_consumption"),
+          eq(inventoryEvents.referenceType, "sales_shipment"),
+          eq(inventoryEvents.referenceId, shippedShipment.id)
+        )
+      )
+      .limit(1);
+    expect(consumptionEvent).toBeDefined();
+
+    await db
+      .update(salesOrders)
+      .set({ status: "open", shippedAt: null })
+      .where(eq(salesOrders.id, webShipOrderId));
+    await db
+      .update(salesShipments)
+      .set({ status: "planned", shippedAt: null })
+      .where(eq(salesShipments.salesOrderId, webShipOrderId));
+
+    const openOrderResult = await createSalesOrder({
+      customerId: webShipCustomerId,
+      status: "open",
+      lines: [{ itemId: webShipProductId, quantity: "1", unitPrice: "10" }],
+    });
+    expect(openOrderResult.status).toBe(201);
+    const openOrderId = openOrderResult.body.id as string;
+
+    const deleteResponse = await page.request.delete("/api/sales-orders", {
+      data: { ids: [webShipOrderId, openOrderId] },
+      headers: {
+        "Idempotency-Key": `test:sales-bulk-delete:${Date.now()}`,
+      },
+    });
+    const deleteText = await deleteResponse.text();
+    expect(deleteResponse.status(), deleteText).toBe(400);
+    const deleteBody = JSON.parse(deleteText);
+    expect(deleteBody.error).toContain("inventory has already been consumed");
+
+    const [blockedOrder] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, webShipOrderId));
+    expect(blockedOrder.deletedAt).toBeNull();
+
+    const [untouchedOpenOrder] = await db
+      .select({ deletedAt: salesOrders.deletedAt })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, openOrderId));
+    expect(untouchedOpenOrder.deletedAt).toBeNull();
   });
 
   test("plans a shipment before stock is allocated", async ({ db }) => {

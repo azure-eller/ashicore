@@ -250,8 +250,7 @@ export function PurchaseOrderDetail({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [cancelOpen, setCancelOpen] = useState(false);
-	  const [receiveOpen, setReceiveOpen] = useState(false);
+		  const [receiveOpen, setReceiveOpen] = useState(false);
 	  const [overReceiptWarning, setOverReceiptWarning] =
 	    useState<ApiError["overReceipt"] | null>(null);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
@@ -577,30 +576,6 @@ export function PurchaseOrderDetail({
     },
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/purchase-orders/${order.id}/cancel`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("purchase-order-cancel"),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel purchase order.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await refreshQueries();
-      setCancelOpen(false);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/purchase-orders/${order.id}`, {
@@ -697,8 +672,7 @@ export function PurchaseOrderDetail({
   const canEdit = !isDeleted;
   const canSubmit = !isDeleted && order.status === "draft";
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
-  const canCancel = !isDeleted && ["ordered", "partial"].includes(order.status);
-  const canDelete = !isDeleted && !["ordered", "partial"].includes(order.status);
+  const canDelete = !isDeleted;
   const canSyncAccounting =
     !isDeleted && ["ordered", "partial", "received"].includes(order.status);
   const canRetryXeroEmail =
@@ -767,15 +741,6 @@ export function PurchaseOrderDetail({
                       label: "Retry PO email",
                       onSelect: () => xeroEmailMutation.mutate(),
                       disabled: xeroEmailMutation.isPending,
-                    },
-                  ]
-                : []),
-              ...(canCancel
-                ? [
-                    {
-                      label: "Cancel order",
-                      onSelect: () => setCancelOpen(true),
-                      disabled: cancelMutation.isPending,
                     },
                   ]
                 : []),
@@ -995,10 +960,6 @@ export function PurchaseOrderDetail({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Received</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.receivedAt, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Cancelled</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.cancelledAt, timeZone)}</dd>
           </div>
           {order.deletedAt && (
             <div>
@@ -1227,34 +1188,14 @@ export function PurchaseOrderDetail({
         isPending={submitMutation.isPending}
       />
 
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel this purchase order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The order will remain in history, and its remaining quantity will
-              stop contributing to expected inventory.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="bg-background text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this purchase order?</AlertDialogTitle>
             <AlertDialogDescription>
-              Draft, received, and cancelled orders can be soft-deleted and removed
-              from normal views.
+              Unreceived orders will be removed from normal views and any expected
+              inventory will be released. Received orders cannot be deleted. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

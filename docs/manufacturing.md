@@ -36,25 +36,22 @@ The inventory kernel now provides reservation and unpick semantics for manufactu
 
 Top-level statuses stay small:
 
-- `draft`: editable; ingredient rows may be recalculated and replaced
-- `released`: frozen for planning; execution happens from here
-- `completed`: terminal; all discrete work or all batches are finished
-- `cancelled`: terminal; does not affect stock or expected quantity
+- `open`: editable operational work; execution may have reversible picked or reserved ingredients
+- `done`: terminal; production output or finalized consumption has been recorded
 
 Allowed transitions:
 
-- create -> `draft`
-- `draft` -> `released`
-- `released` -> `completed`
-- `draft` -> `cancelled`
-- `released` -> `cancelled`
+- create -> `open`
+- `open` -> `done`
+- soft-delete `open`
 
-No revert-to-draft in v1.
+No revert-to-open in v1.
 
-Cancelling a released batch order preserves completed batch output. Non-completed
-batches are cancelled with the parent order; any picked ingredients for those
-batches are unpicked and returned to stock, and remaining reservations/expected
-supply are released. Fully completed orders cannot be cancelled.
+Deleting an open manufacturing order releases expected supply, clears active
+allocations, and reverses non-final picked/reserved ingredient state in the
+same transaction. Completed orders, completed batches, produced lots, and
+finalized ingredient consumption block deletion because production history must
+be preserved.
 
 ## Priority Ranking
 
@@ -64,7 +61,7 @@ Manufacturing orders may have an optional `priorityRank`:
 - only positive whole numbers are valid
 - unranked orders stay unranked and sort after ranked work
 - draft and released orders may be ranked or reprioritized
-- completed and cancelled orders keep their historical rank but cannot be changed
+- completed orders keep their historical rank but cannot be changed
 
 Ranking only changes queue order. It does not affect inventory, reservations, costing, Xero, shipments, or status transitions.
 
