@@ -123,7 +123,11 @@ async function bulkAllocateOpenSalesOrdersFifoInTx(
       lotSources.map((source) => [source.sourceKey, toQuantity(source.freeQty)])
     );
     const salesDemands = workspace.demands
-      .filter((demand) => demand.demandType === "sales_order_line")
+      .filter(
+        (demand) =>
+          demand.demandType === "sales_shipment_line" ||
+          demand.demandType === "sales_order_line"
+      )
       .sort(compareSalesDemandPriority);
 
     for (const demand of salesDemands) {
@@ -152,7 +156,7 @@ async function bulkAllocateOpenSalesOrdersFifoInTx(
       await saveAllocationsForDemandInTx(tx, {
         organizationId: params.organizationId,
         actorUserId: params.actorUserId,
-        demandType: "sales_order_line",
+        demandType: demand.demandType,
         demandId: demand.demandId,
         itemId: demand.itemId,
         allocations: mergeAllocations(demand.assignments, additions),
@@ -185,7 +189,9 @@ async function bulkUnallocateOpenSalesOrdersInTx(
 
     const salesDemands = workspace.demands.filter(
       (demand) =>
-        demand.demandType === "sales_order_line" && demand.assignments.length > 0
+        (demand.demandType === "sales_shipment_line" ||
+          demand.demandType === "sales_order_line") &&
+        demand.assignments.length > 0
     );
 
     for (const demand of salesDemands) {
@@ -200,7 +206,7 @@ async function bulkUnallocateOpenSalesOrdersInTx(
       await saveAllocationsForDemandInTx(tx, {
         organizationId: params.organizationId,
         actorUserId: params.actorUserId,
-        demandType: "sales_order_line",
+        demandType: demand.demandType,
         demandId: demand.demandId,
         itemId: demand.itemId,
         allocations: [],

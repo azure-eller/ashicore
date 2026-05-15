@@ -1,7 +1,6 @@
 import { after } from "next/server";
 import { DashboardTopNav } from "@/components/dashboard-top-nav";
 import { FeedbackWidget } from "@/components/feedback-widget";
-import { Providers } from "@/app/providers";
 import { TimeZoneProvider } from "@/components/time-zone-provider";
 import { DashboardNavigationContent } from "@/components/navigation-pending";
 import {
@@ -34,26 +33,24 @@ export default async function DashboardLayout({
   };
 
   return (
-    <Providers>
-      <TimeZoneProvider timeZone={context.organizationTimeZone}>
-        <div className="flex min-h-screen w-full flex-col bg-background">
-          <DashboardTopNav
-            user={user}
-            assignedRoles={context.assignedRoles}
-            activeOrganizationId={context.orgId}
-            organizationName={context.organizationName}
-            organizations={organizations.map((organization) => ({
-              id: organization.id,
-              name: organization.name,
-              slug: organization.slug,
-            }))}
-          />
-          <main className="flex min-h-0 flex-1 flex-col">
-            <DashboardNavigationContent>{children}</DashboardNavigationContent>
-          </main>
-          <FeedbackWidget />
-        </div>
-      </TimeZoneProvider>
-    </Providers>
+    <TimeZoneProvider timeZone={context.organizationTimeZone}>
+      <div className="flex min-h-screen w-full flex-col bg-background">
+        <DashboardTopNav
+          user={user}
+          assignedRoles={context.assignedRoles}
+          activeOrganizationId={context.orgId}
+          organizationName={context.organizationName}
+          organizations={organizations.map((organization) => ({
+            id: organization.id,
+            name: organization.name,
+            slug: organization.slug,
+          }))}
+        />
+        <main className="flex min-h-0 flex-1 flex-col">
+          <DashboardNavigationContent>{children}</DashboardNavigationContent>
+        </main>
+        <FeedbackWidget />
+      </div>
+    </TimeZoneProvider>
   );
 }

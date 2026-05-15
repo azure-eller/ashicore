@@ -240,6 +240,11 @@ export type SalesOrderItemOption = {
 
 export type SalesOrderListLine = {
   id?: string;
+  allocationDemandType?: "sales_order_line" | "sales_shipment_line";
+  salesOrderLineId?: string;
+  salesShipmentLineId?: string;
+  shipmentId?: string;
+  shipmentNumber?: string;
   itemId: string;
   itemType?: string | null;
   masterName: string;
@@ -265,13 +270,17 @@ export type SalesOrderListShipment = {
   shippedAt: Date | null;
   totalAmount: string;
   lineCount: number;
+  lines: SalesShipmentLine[];
 };
 
 export type SalesAllocationCoverageKind = "explicit";
 export type SalesAllocationSourceType = "inventory_lot" | "manufacturing_order";
 
 export type SalesAllocationLineSummary = {
-  salesOrderLineId: string;
+  demandType: "sales_order_line" | "sales_shipment_line";
+  demandId: string;
+  salesOrderLineId: string | null;
+  salesShipmentLineId: string | null;
   itemId: string;
   allocatedQty: string;
   shortQty: string;
@@ -402,6 +411,11 @@ export type SalesShipmentLine = {
   itemSku: string | null;
   unitName: string;
   quantity: string;
+  allocatedQty?: string;
+  shortQty?: string;
+  sourceSummary?: string;
+  allocationStatus?: SalesAllocationLineSummary["status"];
+  allocationSources?: SalesAllocationLineSummary["sources"];
   sortOrder: number;
 };
 
@@ -516,7 +530,10 @@ export type SalesAllocationSource = {
 };
 
 export type SalesAllocationDemandRow = {
+  demandType: "sales_order_line" | "sales_shipment_line";
+  demandId: string;
   salesOrderLineId: string;
+  salesShipmentLineId: string | null;
   salesOrderId: string;
   orderNumber: string;
   orderStatus: SalesOrderStatus;

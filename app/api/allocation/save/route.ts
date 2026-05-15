@@ -6,7 +6,7 @@ import { AllocationError } from "@/lib/inventory/allocation/errors";
 import { saveAllocationWorkspace } from "@/lib/inventory/allocation/service";
 
 const saveSchema = z.object({
-  demandType: z.enum(["sales_order_line"]),
+  demandType: z.enum(["sales_order_line", "sales_shipment_line"]),
   demandId: z.string().uuid(),
   itemId: z.string().uuid(),
   allocations: z

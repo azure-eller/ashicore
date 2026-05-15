@@ -84,7 +84,11 @@ type AllocationCell = {
 };
 
 type AllocationRow = {
+  id: string;
   order: SalesOrderListRow;
+  label: string;
+  customerName: string;
+  shipDate: string | null;
   cells: Map<string, AllocationCell>;
 };
 
@@ -201,34 +205,102 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
 
   return orders
     .filter(isOpenSalesOrder)
-    .map((order): AllocationRow => {
-      const cells = new Map<string, AllocationCell>();
+    .flatMap((order): AllocationRow[] => {
+      const orderLineById = new Map(
+        order.lines
+          .filter((line): line is SalesOrderListLine & { id: string } => line.id != null)
+          .map((line) => [line.id, line])
+      );
+      const rows: AllocationRow[] = [];
 
+      order.shipments
+        .filter((shipment) => shipment.status === "planned")
+        .forEach((shipment) => {
+          const cells = new Map<string, AllocationCell>();
+
+          shipment.lines.forEach((shipmentLine) => {
+            const product = productById.get(shipmentLine.itemId);
+            if (!product) return;
+            const orderLine = orderLineById.get(shipmentLine.salesOrderLineId);
+            const line: SalesOrderListLine & { id: string } = {
+              id: shipmentLine.id,
+              allocationDemandType: "sales_shipment_line",
+              salesOrderLineId: shipmentLine.salesOrderLineId,
+              salesShipmentLineId: shipmentLine.id,
+              shipmentId: shipment.id,
+              shipmentNumber: shipment.shipmentNumber,
+              itemId: shipmentLine.itemId,
+              itemType: orderLine?.itemType,
+              masterName: orderLine?.masterName ?? shipmentLine.itemName,
+              attrs: orderLine?.attrs ?? [],
+              itemSku: shipmentLine.itemSku,
+              quantity: shipmentLine.quantity,
+              remainingQty: shipmentLine.quantity,
+              allocatedQty: shipmentLine.allocatedQty ?? "0",
+              shortQty: shipmentLine.shortQty ?? shipmentLine.quantity,
+              sourceSummary: shipmentLine.sourceSummary ?? "\u2014",
+              allocationStatus: shipmentLine.allocationStatus ?? "short",
+              unitName: shipmentLine.unitName,
+            };
+
+            cells.set(product.itemId, {
+              line,
+              product,
+              demand: parseQuantity(line.remainingQty ?? line.quantity),
+              alloc: parseQuantity(line.allocatedQty),
+            });
+          });
+
+          if (cells.size > 0) {
+            rows.push({
+              id: `shipment:${shipment.id}`,
+              order,
+              label: shipment.shipmentNumber,
+              customerName: order.customerName,
+              shipDate: shipment.scheduledDate ?? order.shipDate,
+              cells,
+            });
+          }
+        });
+
+      const fallbackCells = new Map<string, AllocationCell>();
       order.lines.forEach((line) => {
-        if (!line.id) return;
+        if (!line.id || parseQuantity(line.remainingQty ?? line.quantity) <= 0) return;
         const product = productById.get(line.itemId);
         if (!product) return;
-
-        const cell: AllocationCell = {
-          line: line as SalesOrderListLine & { id: string },
-          product,
-          demand: parseQuantity(line.remainingQty ?? line.quantity),
-          alloc: parseQuantity(line.allocatedQty),
+        const demandLine: SalesOrderListLine & { id: string } = {
+          ...line,
+          id: line.id,
+          allocationDemandType: "sales_order_line",
         };
-
-        cells.set(product.itemId, cell);
+        fallbackCells.set(product.itemId, {
+          line: demandLine,
+          product,
+          demand: parseQuantity(demandLine.remainingQty ?? demandLine.quantity),
+          alloc: parseQuantity(demandLine.allocatedQty),
+        });
       });
+      if (fallbackCells.size > 0) {
+        rows.push({
+          id: `order:${order.id}`,
+          order,
+          label: order.orderNumber,
+          customerName: order.customerName,
+          shipDate: order.shipDate,
+          cells: fallbackCells,
+        });
+      }
 
-      return { order, cells };
+      return rows;
     })
     .sort((left, right) => {
-      const leftDate = left.order.shipDate ?? "";
-      const rightDate = right.order.shipDate ?? "";
+      const leftDate = left.shipDate ?? "";
+      const rightDate = right.shipDate ?? "";
       if (!leftDate && rightDate) return 1;
       if (leftDate && !rightDate) return -1;
       const dateCompare = leftDate.localeCompare(rightDate);
       if (dateCompare !== 0) return dateCompare;
-      return left.order.orderNumber.localeCompare(right.order.orderNumber, undefined, {
+      return left.label.localeCompare(right.label, undefined, {
         numeric: true,
       });
     });
@@ -290,7 +362,7 @@ function relativeShipLabel(value: string | null) {
 }
 
 function getRowLateState(row: AllocationRow) {
-  const days = daysFromToday(row.order.shipDate);
+  const days = daysFromToday(row.shipDate);
   if (days == null || days >= 0) return null;
   const progress = rowProgress(row);
   if (progress.state === "complete" || progress.state === "empty") return null;
@@ -366,7 +438,8 @@ function getFilteredRows(rows: AllocationRow[], search: string) {
   const normalized = search.trim().toLowerCase();
   if (!normalized) return rows;
   return rows.filter((row) => {
-    if (row.order.customerName.toLowerCase().includes(normalized)) return true;
+    if (row.customerName.toLowerCase().includes(normalized)) return true;
+    if (row.label.toLowerCase().includes(normalized)) return true;
     if (row.order.orderNumber.toLowerCase().includes(normalized)) return true;
 
     return [...row.cells.values()].some((cell) => {
@@ -765,7 +838,7 @@ export function SalesAllocationTable({
   }
 
   function openAllocation(row: AllocationRow, cell: AllocationCell) {
-    setSelected({ rowId: row.order.id, colId: cell.product.itemId });
+    setSelected({ rowId: row.id, colId: cell.product.itemId });
     setAllocationTarget({
       order: row.order,
       line: cell.line,
@@ -1016,7 +1089,7 @@ export function SalesAllocationTable({
 
               return (
                 <AllocationGridRow
-                  key={row.order.id}
+                  key={row.id}
                   row={row}
                   progress={progress}
                   lateDays={late?.daysLate ?? null}
@@ -1123,46 +1196,46 @@ function AllocationGridRow({
 }) {
   const rowTone =
     lateDays != null ? "late" : progress.state === "complete" ? "complete" : progress.state;
-  const today = isToday(row.order.shipDate);
+  const today = isToday(row.shipDate);
 
   return (
     <>
       <div
         id={isHighlighted ? `sales-allocation-order-${row.order.id}` : undefined}
-        className={`${styles.dataCell} ${styles.customerCell} ${styles.stickyCustomer} ${hover.rowId === row.order.id ? styles.hovered : ""}`}
+        className={`${styles.dataCell} ${styles.customerCell} ${styles.stickyCustomer} ${hover.rowId === row.id ? styles.hovered : ""}`}
         data-row-tone={rowTone}
         data-today={today ? "true" : undefined}
         data-highlight={isHighlighted ? "true" : undefined}
-        onMouseEnter={() => onHover({ rowId: row.order.id, colId: hover.colId })}
+        onMouseEnter={() => onHover({ rowId: row.id, colId: hover.colId })}
       >
         <span className={styles.rail} />
         <Link href={`/sales/orders/${row.order.id}`} className={styles.customerName}>
-          {row.order.customerName}
+          {row.customerName}
           {isComplete ? <span className={styles.completeMark} title="Order fully allocated">✓</span> : null}
         </Link>
-        <span className={styles.orderNumber}>{row.order.orderNumber}</span>
+        <span className={styles.orderNumber}>{row.label}</span>
       </div>
       <div
-        className={`${styles.dataCell} ${styles.shipCell} ${styles.stickyShip} ${hover.rowId === row.order.id ? styles.hovered : ""}`}
+        className={`${styles.dataCell} ${styles.shipCell} ${styles.stickyShip} ${hover.rowId === row.id ? styles.hovered : ""}`}
         data-today={today ? "true" : undefined}
         data-highlight={isHighlighted ? "true" : undefined}
-        onMouseEnter={() => onHover({ rowId: row.order.id, colId: hover.colId })}
+        onMouseEnter={() => onHover({ rowId: row.id, colId: hover.colId })}
       >
-        <span className={styles.shipDate}>{today ? "Today" : formatShipDate(row.order.shipDate)}</span>
+        <span className={styles.shipDate}>{today ? "Today" : formatShipDate(row.shipDate)}</span>
         {lateDays != null ? (
           <span className={styles.relativeBadge} data-ship-tone="late">
-            {relativeShipLabel(row.order.shipDate)}
+            {relativeShipLabel(row.shipDate)}
           </span>
         ) : null}
       </div>
       {visibleProducts.map((product) => {
         const cell = row.cells.get(product.itemId) ?? null;
         const isHovered =
-          hover.rowId === row.order.id || hover.colId === product.itemId;
+          hover.rowId === row.id || hover.colId === product.itemId;
         const isIntersection =
-          hover.rowId === row.order.id && hover.colId === product.itemId;
+          hover.rowId === row.id && hover.colId === product.itemId;
         const isSelected =
-          selected?.rowId === row.order.id && selected.colId === product.itemId;
+          selected?.rowId === row.id && selected.colId === product.itemId;
 
         return (
           <AllocationMatrixCell
@@ -1177,7 +1250,7 @@ function AllocationGridRow({
             isSelected={isSelected}
             isToday={today}
             isHighlighted={isHighlighted}
-            onHover={() => onHover({ rowId: row.order.id, colId: product.itemId })}
+            onHover={() => onHover({ rowId: row.id, colId: product.itemId })}
             onOpenAllocation={onOpenAllocation}
           />
         );

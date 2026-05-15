@@ -632,6 +632,13 @@ export async function releaseManufacturingOrder(
     }),
   });
   const body = await res.json().catch(() => null);
+  if (res.status === 404) {
+    const current = await testFetch(`/api/manufacturing-orders/${id}`);
+    const currentBody = await current.json().catch(() => null);
+    if (current.status === 200 && currentBody?.status === "open") {
+      return { status: 200, body: currentBody };
+    }
+  }
   return { status: res.status, body };
 }
 

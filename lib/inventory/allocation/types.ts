@@ -1,4 +1,4 @@
-export type AllocationDemandType = "sales_order_line";
+export type AllocationDemandType = "sales_order_line" | "sales_shipment_line";
 
 export type AllocationSourceType = "inventory_lot" | "manufacturing_order";
 

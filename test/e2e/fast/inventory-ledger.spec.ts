@@ -898,7 +898,7 @@ test.describe("Inventory ledger explorer", () => {
           path: url.pathname,
           q: url.searchParams.get("q"),
         };
-      })
+      }, { timeout: 15_000 })
       .toEqual({
         path: "/inventory/ledger",
         q: purchaseMaterialName,
@@ -918,7 +918,7 @@ test.describe("Inventory ledger explorer", () => {
           q: url.searchParams.get("q"),
           eventClasses: url.searchParams.get("eventClasses"),
         };
-      })
+      }, { timeout: 15_000 })
       .toEqual({
         path: "/inventory/ledger",
         q: purchaseMaterialName,

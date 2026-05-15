@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ClipboardEvent } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AlertCircleIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,25 @@ function readFileAsBase64(file: File) {
 }
 
 export function FeedbackWidget() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60 * 1000,
+          },
+        },
+      })
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <FeedbackWidgetContent />
+    </QueryClientProvider>
+  );
+}
+
+function FeedbackWidgetContent() {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
@@ -224,6 +243,8 @@ export function FeedbackWidget() {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
+          id="feedback-dialog-trigger"
+          suppressHydrationWarning
           type="button"
           size="lg"
           className="fixed bottom-20 right-6 z-50 h-11 px-4 text-sm shadow-lg"
@@ -231,7 +252,7 @@ export function FeedbackWidget() {
           Feedback
         </Button>
       </DialogTrigger>
-      <DialogContent size="lg" onPaste={handlePaste}>
+      <DialogContent id="feedback-dialog-content" size="lg" onPaste={handlePaste}>
         <DialogHeader>
           <DialogTitle>Send feedback or report an issue</DialogTitle>
         </DialogHeader>

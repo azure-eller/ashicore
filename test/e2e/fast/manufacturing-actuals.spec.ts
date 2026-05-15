@@ -11,6 +11,13 @@ import {
 } from "../../../lib/db/schema";
 import { createItem, getUnitId, testFetch } from "../../helpers/api";
 
+async function expectManufacturingOrderOpen(orderId: string) {
+  const response = await testFetch(`/api/manufacturing-orders/${orderId}`);
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.status).toBe("open");
+}
+
 test.describe("Manufacturing batch ingredient actuals", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -71,14 +78,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
     expect(createResponse.status).toBe(201);
     const orderId = (await createResponse.json()).id as string;
 
-    const releaseResponse = await testFetch(
-      `/api/manufacturing-orders/${orderId}/release`,
-      {
-        method: "POST",
-        body: JSON.stringify({ confirmShortage: false }),
-      }
-    );
-    expect(releaseResponse.status).toBe(200);
+    await expectManufacturingOrderOpen(orderId);
 
     const batches = await db
       .select()
@@ -303,14 +303,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
     expect(createResponse.status).toBe(201);
     const orderId = (await createResponse.json()).id as string;
 
-    const releaseResponse = await testFetch(
-      `/api/manufacturing-orders/${orderId}/release`,
-      {
-        method: "POST",
-        body: JSON.stringify({ confirmShortage: false }),
-      }
-    );
-    expect(releaseResponse.status).toBe(200);
+    await expectManufacturingOrderOpen(orderId);
 
     const [ingredient] = await db
       .select()
@@ -408,14 +401,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
     expect(createResponse.status).toBe(201);
     const orderId = (await createResponse.json()).id as string;
 
-    const releaseResponse = await testFetch(
-      `/api/manufacturing-orders/${orderId}/release`,
-      {
-        method: "POST",
-        body: JSON.stringify({ confirmShortage: false }),
-      }
-    );
-    expect(releaseResponse.status).toBe(200);
+    await expectManufacturingOrderOpen(orderId);
 
     const [batch] = await db
       .select()

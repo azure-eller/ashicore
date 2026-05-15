@@ -680,6 +680,13 @@
       "when": 1778771839306,
       "tag": "0096_planned_shipments_only",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1778771839307,
+      "tag": "0097_shipment_line_stock_allocations",
+      "breakpoints": true
     }
   ]
 }

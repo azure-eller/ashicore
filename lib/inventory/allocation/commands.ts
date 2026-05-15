@@ -28,7 +28,7 @@ function quantityString(value: number) {
 }
 
 function isDemandType(value: string): value is AllocationDemandType {
-  return value === "sales_order_line";
+  return value === "sales_order_line" || value === "sales_shipment_line";
 }
 
 function isSourceType(value: string): value is AllocationSourceType {

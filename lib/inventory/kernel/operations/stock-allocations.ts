@@ -179,12 +179,33 @@ async function syncSalesLineStockReservationFromLotAllocationsInTx(
     return;
   }
 
-  const inventoryLotAllocationQty = await getActiveLotAllocationQtyForDemandInTx(tx, {
+  const directInventoryLotAllocationQty = await getActiveLotAllocationQtyForDemandInTx(tx, {
     organizationId: params.organizationId,
     demandType: "sales_order_line",
     demandId: params.salesOrderLineId,
     itemId: params.itemId,
   });
+  const [shipmentInventoryLotAllocation] = await tx
+    .select({ quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)` })
+    .from(stockAllocations)
+    .innerJoin(
+      salesShipmentLines,
+      eq(stockAllocations.demandId, salesShipmentLines.id)
+    )
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "sales_shipment_line"),
+        eq(salesShipmentLines.salesOrderLineId, params.salesOrderLineId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active")
+      )
+    );
+  const inventoryLotAllocationQty = roundQuantity(
+    directInventoryLotAllocationQty +
+      parseFloat(shipmentInventoryLotAllocation?.quantity ?? "0")
+  );
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   const [existingReservation] = await tx
@@ -265,6 +286,25 @@ async function getOpenDemandQtyForAllocationInTx(
           parseFloat(shipped?.quantity ?? "0")
       )
     );
+  } else if (params.demandType === "sales_shipment_line") {
+    const [line] = await tx
+      .select({
+        quantity: salesShipmentLines.quantity,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(salesShipments, eq(salesShipments.id, salesShipmentLines.salesShipmentId))
+      .innerJoin(salesOrders, eq(salesOrders.id, salesShipments.salesOrderId))
+      .where(
+        and(
+          eq(salesShipmentLines.id, params.demandId),
+          eq(salesShipmentLines.itemId, params.itemId),
+          eq(salesShipments.status, "planned"),
+          eq(salesOrders.status, "open")
+        )
+      )
+      .for("update");
+
+    baseRemainingQty = roundQuantity(parseFloat(line?.quantity ?? "0"));
   } else if (params.demandType === "manufacturing_order_ingredient") {
     const [ingredient] = await tx
       .select({
@@ -498,6 +538,12 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
 
       if (demandType === "sales_order_line") {
         salesLinesToSync.add(promise.demandId);
+      } else if (demandType === "sales_shipment_line") {
+        const [line] = await tx
+          .select({ salesOrderLineId: salesShipmentLines.salesOrderLineId })
+          .from(salesShipmentLines)
+          .where(eq(salesShipmentLines.id, promise.demandId));
+        if (line) salesLinesToSync.add(line.salesOrderLineId);
       }
 
       await reduceOrCloseAllocationInTx(tx, {

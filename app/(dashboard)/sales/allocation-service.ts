@@ -46,7 +46,11 @@ function sourceStatus(status: string): SalesAllocationSource["status"] {
 function workspaceToSalesReadModel(workspace: AllocationWorkspace) {
   const lineSummaries = new Map<string, SalesAllocationLineSummary>();
   const demandRows: SalesAllocationDemandRow[] = workspace.demands
-    .filter((demand) => demand.demandType === "sales_order_line")
+    .filter(
+      (demand) =>
+        demand.demandType === "sales_order_line" ||
+        demand.demandType === "sales_shipment_line"
+    )
     .map((demand) => {
       const sources = demand.assignments.map((assignment) => ({
         sourceType: assignment.sourceType,
@@ -60,8 +64,18 @@ function workspaceToSalesReadModel(workspace: AllocationWorkspace) {
       const sourceSummary = buildSourceSummary(sources);
       const status = getLineStatus(remainingQty, allocatedQty, sources);
 
+      const salesOrderLineId =
+        demand.demandType === "sales_order_line"
+          ? demand.demandId
+          : demand.parentDemandId ?? "";
+      const salesShipmentLineId =
+        demand.demandType === "sales_shipment_line" ? demand.demandId : null;
+
       lineSummaries.set(demand.demandId, {
-        salesOrderLineId: demand.demandId,
+        demandType: demand.demandType,
+        demandId: demand.demandId,
+        salesOrderLineId: salesOrderLineId || null,
+        salesShipmentLineId,
         itemId: demand.itemId,
         allocatedQty: demand.allocatedQty,
         shortQty: demand.shortQty,
@@ -71,7 +85,10 @@ function workspaceToSalesReadModel(workspace: AllocationWorkspace) {
       });
 
       return {
-        salesOrderLineId: demand.demandId,
+        demandType: demand.demandType,
+        demandId: demand.demandId,
+        salesOrderLineId,
+        salesShipmentLineId,
         salesOrderId: "",
         orderNumber: demand.label,
         orderStatus: "open",
@@ -122,12 +139,18 @@ export async function getSalesAllocationReadModelForItemInTx(
   tx: Tx,
   orgId: string,
   itemId: string,
-  options?: { targetLineId?: string | null }
+  options?: {
+    targetLineId?: string | null;
+    targetDemandType?: "sales_order_line" | "sales_shipment_line" | null;
+  }
 ) {
   const workspace = await getAllocationWorkspaceInTx(tx, {
     organizationId: orgId,
     primaryDemand: options?.targetLineId
-      ? { demandType: "sales_order_line", demandId: options.targetLineId }
+      ? {
+          demandType: options.targetDemandType ?? "sales_order_line",
+          demandId: options.targetLineId,
+        }
       : null,
     itemId,
   });

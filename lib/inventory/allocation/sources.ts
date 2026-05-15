@@ -5,6 +5,8 @@ import {
   manufacturingOrders,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
   stockAllocations,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
@@ -60,6 +62,21 @@ async function getActiveSourceAllocationsForItemInTx(
               INNER JOIN ${salesOrders}
                 ON ${salesOrders.id} = ${salesOrderLines.salesOrderId}
               WHERE ${salesOrderLines.id} = ${stockAllocations.demandId}
+                AND ${salesOrders.status} = 'open'
+                AND ${salesOrders.deletedAt} IS NULL
+            )
+          )
+          OR (
+            ${stockAllocations.demandType} = 'sales_shipment_line'
+            AND EXISTS (
+              SELECT 1
+              FROM ${salesShipmentLines}
+              INNER JOIN ${salesShipments}
+                ON ${salesShipments.id} = ${salesShipmentLines.salesShipmentId}
+              INNER JOIN ${salesOrders}
+                ON ${salesOrders.id} = ${salesShipments.salesOrderId}
+              WHERE ${salesShipmentLines.id} = ${stockAllocations.demandId}
+                AND ${salesShipments.status} = 'planned'
                 AND ${salesOrders.status} = 'open'
                 AND ${salesOrders.deletedAt} IS NULL
             )

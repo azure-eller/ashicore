@@ -51,6 +51,29 @@ async function getShippedByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
   return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
 }
 
+async function getPlannedByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
+  if (salesOrderLineIds.length === 0) return new Map<string, number>();
+
+  const rows = await tx
+    .select({
+      salesOrderLineId: salesShipmentLines.salesOrderLineId,
+      quantity: trimScale(sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`).as(
+        "quantity"
+      ),
+    })
+    .from(salesShipmentLines)
+    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
+    .where(
+      and(
+        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
+        eq(salesShipments.status, "planned")
+      )
+    )
+    .groupBy(salesShipmentLines.salesOrderLineId);
+
+  return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
+}
+
 function mapSalesDemandRow(
   row: {
     salesOrderLineId: string;
@@ -69,7 +92,8 @@ function mapSalesDemandRow(
     masterName: string | null;
     masterVariantAxes: unknown;
   },
-  shippedQty: number
+  shippedQty: number,
+  plannedQty: number
 ): AllocationDemandAdapterRow {
   const display = resolveVariantDisplay(
     row.itemName,
@@ -83,7 +107,7 @@ function mapSalesDemandRow(
   );
   const orderedQty = toQuantity(row.orderedQty);
   const cancelledQty = toQuantity(row.cancelledQty);
-  const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty);
+  const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty - plannedQty);
 
   return {
     demandType: "sales_order_line",
@@ -103,7 +127,8 @@ function mapSalesDemandRow(
 
 async function loadSalesRowsInTx(
   tx: Tx,
-  whereClause: ReturnType<typeof and>
+  whereClause: ReturnType<typeof and>,
+  options?: { subtractPlannedShipments?: boolean }
 ) {
   const masterItems = alias(items, "allocation_sales_master_items");
   const rows = await tx
@@ -135,10 +160,88 @@ async function loadSalesRowsInTx(
     tx,
     rows.map((row) => row.salesOrderLineId)
   );
+  const plannedByLine = options?.subtractPlannedShipments
+    ? await getPlannedByLineInTx(
+        tx,
+        rows.map((row) => row.salesOrderLineId)
+      )
+    : new Map<string, number>();
 
   return rows
-    .map((row) => mapSalesDemandRow(row, shippedByLine.get(row.salesOrderLineId) ?? 0))
+    .map((row) =>
+      mapSalesDemandRow(
+        row,
+        shippedByLine.get(row.salesOrderLineId) ?? 0,
+        plannedByLine.get(row.salesOrderLineId) ?? 0
+      )
+    )
     .filter((row) => toQuantity(row.openQty) > 0);
+}
+
+export async function getSalesLineInventoryLotAllocationQtyInTx(
+  tx: Tx,
+  params: { organizationId: string; salesOrderLineId: string; itemId: string }
+) {
+  const [direct] = await tx
+    .select({ quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)` })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.demandId, params.salesOrderLineId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active")
+      )
+    );
+
+  const [shipment] = await tx
+    .select({ quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)` })
+    .from(stockAllocations)
+    .innerJoin(
+      salesShipmentLines,
+      eq(stockAllocations.demandId, salesShipmentLines.id)
+    )
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "sales_shipment_line"),
+        eq(salesShipmentLines.salesOrderLineId, params.salesOrderLineId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active")
+      )
+    );
+
+  return roundQuantity(toQuantity(direct?.quantity) + toQuantity(shipment?.quantity));
+}
+
+export async function syncSalesLineAllocationReservationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    salesOrderLineId: string;
+    itemId: string;
+    actorUserId?: string | null;
+  }
+) {
+  const [order] = await tx
+    .select({ status: salesOrders.status })
+    .from(salesOrderLines)
+    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+    .where(eq(salesOrderLines.id, params.salesOrderLineId));
+
+  if (order?.status !== "open") return;
+
+  const quantity = await getSalesLineInventoryLotAllocationQtyInTx(tx, params);
+  await setSalesLineStockReservationInTx(tx, {
+    organizationId: params.organizationId,
+    salesOrderLineId: params.salesOrderLineId,
+    itemId: params.itemId,
+    quantity,
+    actorUserId: params.actorUserId ?? null,
+  });
 }
 
 export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
@@ -161,7 +264,8 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
         eq(salesOrderLines.itemId, params.itemId),
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
-      )
+      ),
+      { subtractPlannedShipments: true }
     );
   },
   async validateDemandItemInTx(tx, params) {
@@ -185,11 +289,10 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
       .where(eq(salesOrderLines.id, params.demandId));
 
     if (order?.status === "open") {
-      await setSalesLineStockReservationInTx(tx, {
+      await syncSalesLineAllocationReservationInTx(tx, {
         organizationId: params.organizationId,
         salesOrderLineId: params.demandId,
         itemId: params.itemId,
-        quantity: params.inventoryLotAllocationQty,
         actorUserId: params.actorUserId ?? null,
       });
     }

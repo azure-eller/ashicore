@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ICellRendererParams } from "ag-grid-community";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { ICellRendererParams, RowDragEndEvent } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import {
@@ -243,6 +249,25 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
 }
 
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60 * 1000,
+          },
+        },
+      })
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <OrdersTableContent initialData={initialData} />
+    </QueryClientProvider>
+  );
+}
+
+function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] }) {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");

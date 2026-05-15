@@ -294,6 +294,7 @@ export const salesShipmentInputSchema = z.object({
     return isValidIsoDate(value);
   }, "Scheduled date must be a real date in YYYY-MM-DD format"),
   notes: nullableString,
+  splitFromShipmentId: z.string().uuid().nullable().optional(),
   lines: shipmentLinesSchema,
 });
 export type SalesShipmentInput = z.infer<typeof salesShipmentInputSchema>;

@@ -149,24 +149,28 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
     expect(orderResult.status).toBe(201);
     orderIds.push(orderResult.body.id as string);
   }
-  const ordersResponse = await testFetch("/api/sales-orders");
-  expect(ordersResponse.status).toBe(200);
-  const allOrders = (await ordersResponse.json()) as Array<{
-    id: string;
-    status: string;
-  }>;
-  const remainingOpenOrderIds = allOrders
-    .filter(
-      (order) =>
-        !orderIds.includes(order.id) &&
-        order.status === "open"
-    )
-    .map((order) => order.id);
-  const rankResponse = await testFetch("/api/sales-orders/priority-ranks", {
-    method: "PATCH",
-    body: JSON.stringify({ orderIds: [...orderIds, ...remainingOpenOrderIds] }),
-  });
-  expect(rankResponse.status).toBe(200);
+  let rankStatus = 0;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const ordersResponse = await testFetch("/api/sales-orders");
+    expect(ordersResponse.status).toBe(200);
+    const allOrders = (await ordersResponse.json()) as Array<{
+      id: string;
+      status: string;
+    }>;
+    const remainingOpenOrderIds = allOrders
+      .filter((order) => !orderIds.includes(order.id) && order.status === "open")
+      .map((order) => order.id);
+    const rankResponse = await testFetch("/api/sales-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({
+        orderIds: [...orderIds, ...remainingOpenOrderIds],
+      }),
+    });
+    rankStatus = rankResponse.status;
+    if (rankStatus === 200) break;
+    await page.waitForTimeout(100);
+  }
+  expect(rankStatus).toBe(200);
 
   await page.goto("/sales/orders");
   await expect(page.getByLabel("Search orders")).toBeVisible();

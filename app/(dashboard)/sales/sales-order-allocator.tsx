@@ -264,6 +264,7 @@ export function AllocationSourceDialog({
   const workspaceQuery = useQuery({
     queryKey: [
       "allocation-workspace",
+      target?.line.allocationDemandType ?? "sales_order_line",
       target?.line.id ?? null,
       target?.line.itemId ?? null,
     ],
@@ -273,7 +274,7 @@ export function AllocationSourceDialog({
         throw new Error("Allocation target missing.");
       }
       const params = new URLSearchParams({
-        demandType: "sales_order_line",
+        demandType: target.line.allocationDemandType ?? "sales_order_line",
         demandId: target.line.id,
         itemId: target.line.itemId,
       });
@@ -381,7 +382,7 @@ function AllocationSourceEditor({
       await apiJson<AllocationWorkspace>("/api/allocation/save", {
         method: "POST",
         body: {
-          demandType: "sales_order_line",
+          demandType: target.line.allocationDemandType ?? "sales_order_line",
           demandId: target.line.id,
           itemId: target.line.itemId,
           allocations: Object.entries(draft)

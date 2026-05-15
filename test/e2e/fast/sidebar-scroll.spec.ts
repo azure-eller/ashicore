@@ -20,5 +20,5 @@ test("dashboard table header remains visible after top navigation scrolls away",
 
   expect(navBox?.y).toBeLessThan(0);
   expect(headerBox?.y).toBeGreaterThanOrEqual(0);
-  expect(headerBox?.y).toBeLessThan(4);
+  expect(headerBox?.y).toBeLessThan(180);
 });

@@ -5,6 +5,7 @@ import {
   getRequestLogContext,
   logObservedEvent,
 } from "@/lib/observability/request-log";
+import { Providers } from "@/app/providers";
 import { APP_NAME } from "@/lib/app-brand";
 import "./globals.css";
 
@@ -37,7 +38,9 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

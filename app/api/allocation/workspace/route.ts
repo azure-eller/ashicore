@@ -6,7 +6,7 @@ import { getAllocationWorkspace } from "@/lib/inventory/allocation/service";
 
 const querySchema = z
   .object({
-    demandType: z.enum(["sales_order_line"]).optional(),
+    demandType: z.enum(["sales_order_line", "sales_shipment_line"]).optional(),
     demandId: z.string().uuid().optional(),
     itemId: z.string().uuid().optional(),
   })

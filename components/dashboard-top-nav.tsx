@@ -177,6 +177,7 @@ export function DashboardTopNav({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
+                    id="dashboard-create-menu-trigger"
                     type="button"
                     variant="ghost"
                     className="h-11 gap-2.5 px-4 text-base font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
@@ -190,6 +191,7 @@ export function DashboardTopNav({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
+                  id="dashboard-create-menu-content"
                   align="end"
                   className="min-w-72 rounded-md bg-popover p-2 text-popover-foreground shadow-lg"
                 >
@@ -221,6 +223,8 @@ export function DashboardTopNav({
             <Popover open={pageSearchOpen} onOpenChange={setPageSearchOpen}>
               <PopoverTrigger asChild>
                 <Button
+                  id="dashboard-page-search-trigger"
+                  suppressHydrationWarning
                   type="button"
                   variant="ghost"
                   size="icon"
@@ -235,6 +239,7 @@ export function DashboardTopNav({
                 </Button>
               </PopoverTrigger>
               <PopoverContent
+                id="dashboard-page-search-content"
                 align="end"
                 className="w-96 gap-2 rounded-md bg-popover p-2 text-popover-foreground shadow-lg"
               >
@@ -305,6 +310,7 @@ export function DashboardTopNav({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
+                  id="dashboard-user-menu-trigger"
                   type="button"
                   variant="ghost"
                   size="icon"
@@ -318,6 +324,7 @@ export function DashboardTopNav({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
+                id="dashboard-user-menu-content"
                 align="end"
                 className="min-w-72 bg-popover text-popover-foreground"
               >

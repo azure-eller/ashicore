@@ -84,7 +84,8 @@ async function loadAssignmentsForItemInTx(
         sourceType: AllocationAssignment["sourceType"];
         sourceId: string;
       } =>
-        row.demandType === "sales_order_line" &&
+        (row.demandType === "sales_order_line" ||
+          row.demandType === "sales_shipment_line") &&
         (row.sourceType === "inventory_lot" ||
           row.sourceType === "manufacturing_order") &&
         row.sourceId != null
@@ -126,7 +127,7 @@ export async function getAllocationWorkspaceInTx(
   const item = await loadItemInTx(tx, itemId);
   if (!item) return null;
 
-  const demandAdapterRows = (
+  let demandAdapterRows = (
     await Promise.all(
       allocationDemandAdapters.map((adapter) =>
         adapter.loadOpenDemandsForItemInTx(tx, {
@@ -142,6 +143,12 @@ export async function getAllocationWorkspaceInTx(
       if (dateCompare !== 0) return dateCompare;
       return left.sortLabel.localeCompare(right.sortLabel, undefined, { numeric: true });
     });
+  if (
+    primaryDemand &&
+    !demandAdapterRows.some((row) => demandKey(row) === demandKey(primaryDemand))
+  ) {
+    demandAdapterRows = [primaryDemand, ...demandAdapterRows];
+  }
 
   const sources = await loadAllocationSourcesForItemInTx(tx, {
     organizationId: params.organizationId,

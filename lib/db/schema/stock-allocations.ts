@@ -15,6 +15,7 @@ import { items } from "./items";
 
 export const STOCK_ALLOCATION_DEMAND_TYPES = [
   "sales_order_line",
+  "sales_shipment_line",
   "manufacturing_order_ingredient",
 ] as const;
 export type StockAllocationDemandType =
@@ -94,7 +95,7 @@ export const stockAllocations = inventorySchema
         .where(sql`status = 'active'`),
       check(
         "stock_allocations_demand_type_check",
-        sql`${table.demandType} IN ('sales_order_line', 'manufacturing_order_ingredient')`
+        sql`${table.demandType} IN ('sales_order_line', 'sales_shipment_line', 'manufacturing_order_ingredient')`
       ),
       check(
         "stock_allocations_source_type_check",

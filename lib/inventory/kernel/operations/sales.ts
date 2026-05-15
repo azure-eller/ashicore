@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { roundQuantity } from "@/lib/format";
 import {
   inventoryDemandSummary,
@@ -450,6 +450,7 @@ export async function consumeForShipmentInTx(
 	    shippedAt?: Date;
 	    allowNegativeStock?: boolean;
 	    lines: Array<{
+      salesShipmentLineId?: string | null;
       salesOrderLineId: string;
       itemId: string;
       quantity: number;
@@ -519,8 +520,12 @@ export async function consumeForShipmentInTx(
       .filter((row) => row.allocationManagedAt != null)
       .map((row) => row.id)
   );
+  const shipmentLineIds = params.lines
+    .map((line) => line.salesShipmentLineId)
+    .filter((id): id is string => id != null);
   const allocationRows = await tx
     .select({
+      demandType: stockAllocations.demandType,
       demandId: stockAllocations.demandId,
       sourceType: stockAllocations.sourceType,
       sourceId: stockAllocations.sourceId,
@@ -530,19 +535,30 @@ export async function consumeForShipmentInTx(
     .where(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "sales_order_line"),
         eq(stockAllocations.status, "active"),
-        inArray(
-          stockAllocations.demandId,
-          params.lines.map((line) => line.salesOrderLineId)
+        or(
+          and(
+            eq(stockAllocations.demandType, "sales_order_line"),
+            inArray(
+              stockAllocations.demandId,
+              params.lines.map((line) => line.salesOrderLineId)
+            )
+          ),
+          shipmentLineIds.length > 0
+            ? and(
+                eq(stockAllocations.demandType, "sales_shipment_line"),
+                inArray(stockAllocations.demandId, shipmentLineIds)
+              )
+            : undefined
         )
       )
     );
-  const allocationsByLineId = new Map<string, typeof allocationRows>();
+  const allocationsByDemandKey = new Map<string, typeof allocationRows>();
   for (const allocation of allocationRows) {
-    const current = allocationsByLineId.get(allocation.demandId) ?? [];
+    const key = `${allocation.demandType}:${allocation.demandId}`;
+    const current = allocationsByDemandKey.get(key) ?? [];
     current.push(allocation);
-    allocationsByLineId.set(allocation.demandId, current);
+    allocationsByDemandKey.set(key, current);
   }
   const availableByItem = new Map<string, number>();
 
@@ -585,15 +601,38 @@ export async function consumeForShipmentInTx(
       salesShipmentId: params.salesShipmentId ?? null,
     };
     let remaining = roundQuantity(line.quantity);
-    const lineAllocations = managedLineIds.has(line.salesOrderLineId)
-      ? allocationsByLineId.get(line.salesOrderLineId) ?? []
+    const shipmentDemandRef = line.salesShipmentLineId
+      ? {
+          demandType: "sales_shipment_line" as const,
+          demandId: line.salesShipmentLineId,
+        }
+      : null;
+    const shipmentLineAllocations = shipmentDemandRef
+      ? allocationsByDemandKey.get(
+          `${shipmentDemandRef.demandType}:${shipmentDemandRef.demandId}`
+        ) ?? []
       : [];
+    const hasShipmentAllocations = shipmentLineAllocations.length > 0;
+    const parentDemandRef = {
+      demandType: "sales_order_line" as const,
+      demandId: line.salesOrderLineId,
+    };
+    const activeDemandRef = hasShipmentAllocations && shipmentDemandRef
+      ? shipmentDemandRef
+      : parentDemandRef;
+    const lineAllocations = hasShipmentAllocations
+      ? shipmentLineAllocations
+      : managedLineIds.has(line.salesOrderLineId)
+        ? allocationsByDemandKey.get(
+            `${parentDemandRef.demandType}:${parentDemandRef.demandId}`
+          ) ?? []
+        : [];
     const allocatedQty = roundQuantity(
       lineAllocations.reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
     );
 
 	    if (
-	      managedLineIds.has(line.salesOrderLineId) &&
+	      (hasShipmentAllocations || managedLineIds.has(line.salesOrderLineId)) &&
 	      allocatedQty < line.quantity &&
 	      !params.allowNegativeStock
 	    ) {
@@ -609,8 +648,8 @@ export async function consumeForShipmentInTx(
       const consumed = await consumeLotAllocationsForDemandInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,
-        demandType: "sales_order_line",
-        demandId: line.salesOrderLineId,
+        demandType: activeDemandRef.demandType,
+        demandId: activeDemandRef.demandId,
         itemId: line.itemId,
         quantity: remaining,
         eventType: "sales_consumption",
@@ -629,12 +668,25 @@ export async function consumeForShipmentInTx(
     }
 
     if (remaining > 0) {
+      if (
+        hasShipmentAllocations &&
+        shipmentLineAllocations.some(
+          (allocation) => allocation.sourceType === "manufacturing_order"
+        )
+      ) {
+        throw new InsufficientStockError({
+          itemId: line.itemId,
+          available: roundQuantity(line.quantity - remaining),
+          requested: line.quantity,
+        });
+      }
+
       const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
         organizationId: params.organizationId,
         itemId: line.itemId,
         excludeDemand: {
-          demandType: "sales_order_line",
-          demandId: line.salesOrderLineId,
+          demandType: activeDemandRef.demandType,
+          demandId: activeDemandRef.demandId,
         },
       });
       const consumed = await consumeStockFifoInTx(tx, {
