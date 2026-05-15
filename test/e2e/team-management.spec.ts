@@ -507,6 +507,66 @@ test.describe("Team management and invite flow", () => {
     await signedIn.context.close();
   });
 
+  test("org setup sends invited users back to their pending invite", async ({
+    browser,
+    db,
+    page,
+  }) => {
+    const existingEmail = `org-setup-invite-${run}@example.com`;
+    const existingName = `Org Setup Invite ${run}`;
+    const existing = await createStandaloneAccount(
+      browser,
+      existingEmail,
+      existingName,
+      existingPassword
+    );
+    await existing.context.close();
+
+    await page.goto("/settings");
+    const response = await apiCall<{ error?: string }>(page, "/api/team/invitations", {
+      method: "POST",
+      body: { email: existingEmail, presetKey: "view_only" },
+    });
+    expect(response.status).toBe(200);
+
+    const [invite] = await db
+      .select()
+      .from(invitation)
+      .where(and(eq(invitation.organizationId, TEST_ORG_ID), eq(invitation.email, existingEmail)));
+    expect(invite).toBeTruthy();
+
+    const signedIn = await signInAsExistingUser(
+      browser,
+      existingEmail,
+      existingPassword,
+      "/accept-invitation"
+    );
+    await expect(signedIn.page).toHaveURL(new RegExp(`/accept-invitation\\?id=${invite.id}$`));
+    await expect(signedIn.page.getByLabel("Organization name")).toHaveCount(0);
+    await expect(signedIn.page.getByText(`Signed in as ${existingEmail}.`)).toBeVisible();
+
+    await signedIn.page.getByRole("button", { name: "Join workspace" }).click();
+    await signedIn.page.waitForURL("**/settings", { timeout: 15_000 });
+
+    const [existingUser] = await db.select().from(user).where(eq(user.email, existingEmail));
+    expect(existingUser).toBeTruthy();
+
+    const [existingMember] = await db
+      .select()
+      .from(member)
+      .where(and(eq(member.organizationId, TEST_ORG_ID), eq(member.userId, existingUser.id)));
+    expectRoleIncludes(existingMember.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:read",
+      "manufacturing:read",
+      "purchasing:read",
+    ]);
+
+    await signedIn.context.close();
+  });
+
   test("sales operator invite applies the preset access on join", async ({ browser, db }) => {
     const accepted = await acceptInviteAsNewUser(
       browser,

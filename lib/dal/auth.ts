@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -19,7 +19,7 @@ import {
   type ModuleKey,
 } from "@/lib/authz";
 import { db } from "@/lib/db";
-import { member, organization } from "@/lib/db/schema";
+import { invitation, member, organization } from "@/lib/db/schema";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 
@@ -178,6 +178,25 @@ export async function getAuthedOrganizations() {
     .innerJoin(organization, eq(member.organizationId, organization.id))
     .where(eq(member.userId, session.user.id))
     .orderBy(asc(organization.name), asc(organization.slug));
+}
+
+export async function getPendingInvitationForEmail(email: string) {
+  const [row] = await db
+    .select({
+      id: invitation.id,
+    })
+    .from(invitation)
+    .where(
+      and(
+        eq(sql`lower(${invitation.email})`, email.toLowerCase()),
+        eq(invitation.status, "pending"),
+        gt(invitation.expiresAt, new Date())
+      )
+    )
+    .orderBy(desc(invitation.createdAt))
+    .limit(1);
+
+  return row ?? null;
 }
 
 export async function getAuthedApiMemberContext(
