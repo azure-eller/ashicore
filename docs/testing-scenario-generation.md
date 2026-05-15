@@ -45,12 +45,16 @@ read_when:
 
 ## CI cadence
 
-- PR CI always runs `pnpm build`, `pnpm lint`, and `pnpm test:fast`.
-- PR slow CI is label-selected. Every PR needs one of:
+- Local validation is the development gate. GitHub CI is the final clean-room gate for a review-ready SHA.
+- Before adding `ci:ready`, run the relevant local checks and record the command results in the PR body or a PR comment.
+- Apply the slow-selection label before `ci:ready`; `ci:ready` should be the final label that starts GitHub verification.
+- PR CI runs after `ci:ready` is present and verifies a fresh install, migrations/schema, `pnpm build`, `pnpm lint`, and `pnpm test:fast`.
+- If you push another commit after final GitHub CI, remove `ci:ready`, rerun local validation, document the new results, then re-add `ci:ready`.
+- PR slow CI is label-selected and also waits for `ci:ready`. Every PR needs one of:
   `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`,
   `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`,
   `ci:slow:all`, or `ci:slow:none`.
-- Missing `ci:slow:*` labels fail the selector job. `ci:slow:none` is for docs-only or CI-only changes and must not be combined with other slow labels.
+- Missing `ci:slow:*` labels fail the selector job only after `ci:ready` is present. `ci:slow:none` is for docs-only or CI-only changes and must not be combined with other slow labels.
 - Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes.
 - Nightly CI runs `pnpm test:slow` plus `pnpm test:slow:auth`. Manual dispatch can run `all`, one domain, `stocktake`, `auth`, or `none`.
 - Failed scheduled slow runs open or update a report-only investigation PR from `main`, comment with the run link, failed jobs, and artifact links, then dispatch the Claude Code workflow with the same prompt. The bot reuses `codex/nightly-slow-failure` while it is open to avoid PR spam.

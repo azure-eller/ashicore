@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types:
+      - labeled
+      - reopened
+      - ready_for_review
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -22,6 +27,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:ready')) }}
     services:
       postgres:
         image: postgres:16
@@ -72,7 +78,7 @@ jobs:
   migration-upgrade:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.event_name == 'pull_request'
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:ready') }}
     services:
       postgres:
         image: postgres:16
@@ -144,6 +150,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:ready')) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -170,6 +177,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:ready'))) }}
     env:
       EMAIL_OUTBOX_ONLY: "1"
       PLAYWRIGHT_FAST_WORKERS: "4"

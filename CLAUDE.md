@@ -95,6 +95,7 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 - Run `pnpm build` after changes to catch type errors
 - Run `pnpm test` after changes to catch regressions
 - Inventory-affecting changes must run `pnpm verify:inventory` after the relevant Playwright tests refresh `test/.test-env.json`
+- GitHub CI is a final clean-room gate, not the development test loop. Run the required local checks, record results in the PR, then add `ci:ready` only when the PR is ready for final verification.
 - Create GitHub PRs ready for review, not as drafts.
 - After opening or updating a PR, poll GitHub checks and review threads with `gh`/GitHub connector until all actionables are resolved.
 
@@ -655,7 +656,8 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - If you touch stock mutations, reservations, expected supply, inventory projections, or inventory-affecting API routes, run the affected slow spec(s) and then `pnpm verify:inventory`
 - `pnpm verify:inventory` is the standard inventory integrity workflow: grep guards + projection diff for the current Playwright test org
 - Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification
-- PRs must have exactly the needed slow labels: `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`, `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`, `ci:slow:all`, or `ci:slow:none`. Missing labels fail CI; `ci:slow:none` is only for docs/CI-only changes and cannot be combined with other slow labels.
+- PRs must have exactly the needed slow labels: `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`, `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`, `ci:slow:all`, or `ci:slow:none`. Missing labels fail the slow selector only after `ci:ready` is present; `ci:slow:none` is only for docs/CI-only changes and cannot be combined with other slow labels.
+- Add the slow-selection label before `ci:ready`. Add `ci:ready` only after local validation is complete and documented in the PR body or a PR comment. If you push another commit after final CI, remove `ci:ready`, rerun local validation, then re-add it.
 - Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes; it runs the full slow directory plus auth regressions.
 - Failed scheduled slow runs open/update an investigation PR, comment with run details, and dispatch Claude Code with the run and artifact links. Treat those PRs as fix branches, not merge-ready reports.
 - Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`
@@ -685,9 +687,10 @@ A change is "done" when:
 2. `pnpm lint` passes
 3. Relevant local fast/slow Playwright commands pass per the Testing rules
 4. Inventory-affecting changes also pass `pnpm verify:inventory`
-5. PR has the correct `ci:slow:*` label(s)
-6. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
-7. For UI changes: screenshot or description of what changed visually
+5. PR body or comment records the local validation commands and outcomes
+6. PR has the correct `ci:slow:*` label(s), then `ci:ready` is added last for final GitHub verification
+7. Branch pushed and ready PR opened with description; never leave PRs in draft because bots review only ready PRs
+8. For UI changes: screenshot or description of what changed visually
 
 ## Multi-Agent Safety
 
