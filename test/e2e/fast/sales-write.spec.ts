@@ -1193,6 +1193,85 @@ test.describe("Sales write-path smoke", () => {
     expect(order.status).toBe("done");
   });
 
+  test("allocation workspace hides parent fallback when shipment lines exist", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-SHIP-FALLBACK-HIDE`;
+    const customerResult = await createCustomer({
+      name: `Fast Shipment Fallback Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const itemResult = await createItem({
+      name: `Fast Shipment Fallback Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FSFH-${ts}`,
+      category: `Fast Shipment Fallback ${suffix}`,
+      description: "Material for shipment fallback visibility",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "10",
+      safetyStock: "0",
+    });
+    expect(itemResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: customerResult.body.id,
+      status: "open",
+      shipDate: "2026-05-19",
+      lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const [shipmentLine] = await db
+      .select({
+        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        shipmentId: salesShipmentLines.salesShipmentId,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, orderResult.body.id as string));
+    expect(shipmentLine).toBeTruthy();
+
+    const editResponse = await testFetch(
+      `/api/sales-orders/${orderResult.body.id}/shipments/${shipmentLine.shipmentId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-05-19",
+          notes: "Partial shipment plan",
+          lines: [{ salesOrderLineId: shipmentLine.salesOrderLineId, quantity: "3" }],
+        }),
+      }
+    );
+    expect(editResponse.status).toBe(200);
+
+    const workspaceResponse = await testFetch(
+      `/api/allocation/workspace?itemId=${itemResult.body.id}`
+    );
+    expect(workspaceResponse.status).toBe(200);
+    const workspace = await workspaceResponse.json();
+    const orderDemands = workspace.demands.filter(
+      (demand: { demandId: string; demandType: string }) =>
+        demand.demandId === shipmentLine.salesOrderLineId ||
+        demand.demandId === shipmentLine.id
+    );
+
+    expect(orderDemands).toEqual([
+      expect.objectContaining({
+        demandType: "sales_shipment_line",
+        demandId: shipmentLine.id,
+        openQty: "3",
+      }),
+    ]);
+  });
+
   test("planned shipment edits preserve unchanged shipment-line allocations", async ({
     db,
   }) => {
