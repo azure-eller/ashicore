@@ -3,6 +3,7 @@
 import {
   Fragment,
   createContext,
+  memo,
   useContext,
   useEffect,
   useMemo,
@@ -322,9 +323,6 @@ export function DashboardDataTable<TData extends { id: string }>({
     enableRowSelection ?? (deleteAction != null || selectedActions != null);
   const enableSelection = rowSelectionConfig !== false;
   const hasExpansion = renderExpandedRow != null || getSubRowsProp != null;
-  // TanStack Table returns instance methods that React Compiler treats as incompatible.
-  // Centralizing the hook here keeps the warning scoped to the shared table shell.
-  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns: tableColumns,
@@ -397,6 +395,9 @@ export function DashboardDataTable<TData extends { id: string }>({
     rowReorder.disabled !== true &&
     (rowReorder.enabled?.(table) ?? true);
   const sortableRowIds = reorderEnabled ? rowModel.rows.map((row) => row.id) : [];
+  const tableState = table.getState();
+  const columnSizingInfo = tableState.columnSizingInfo;
+  const isResizingColumn = Boolean(columnSizingInfo.isResizingColumn);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -421,27 +422,37 @@ export function DashboardDataTable<TData extends { id: string }>({
     void rowReorder.onReorder(reorderedRows.map((row) => row.original));
   }
 
+  const TableBodyComponent = isResizingColumn
+    ? MemoizedDashboardTableBody
+    : DashboardTableBody;
+
   const tableBody = reorderEnabled ? (
-    <SortableContext
-      items={sortableRowIds}
-      strategy={verticalListSortingStrategy}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
     >
-      <DashboardTableBody
-        table={table}
-        rows={rowModel.rows}
-        deletingIds={deletingIds}
-        emptyMessage={emptyMessage}
-        globalFilter={globalFilter}
-        getSubRowsProp={getSubRowsProp}
-        onRowClick={onRowClick}
-        renderExpandedRow={renderExpandedRow}
-        subRowClassName={subRowClassName}
-        verticalColumnBorders={verticalColumnBorders}
-        sortable
-      />
-    </SortableContext>
+      <SortableContext
+        items={sortableRowIds}
+        strategy={verticalListSortingStrategy}
+      >
+        <TableBodyComponent
+          table={table}
+          rows={rowModel.rows}
+          deletingIds={deletingIds}
+          emptyMessage={emptyMessage}
+          globalFilter={globalFilter}
+          getSubRowsProp={getSubRowsProp}
+          onRowClick={onRowClick}
+          renderExpandedRow={renderExpandedRow}
+          subRowClassName={subRowClassName}
+          verticalColumnBorders={verticalColumnBorders}
+          sortable
+        />
+      </SortableContext>
+    </DndContext>
   ) : (
-    <DashboardTableBody
+    <TableBodyComponent
       table={table}
       rows={rowModel.rows}
       deletingIds={deletingIds}
@@ -457,15 +468,9 @@ export function DashboardDataTable<TData extends { id: string }>({
 
   const tableElement = (
     <Table
-      className={cn("table-fixed", tableClassName)}
+      className={cn("w-full", tableClassName)}
       containerClassName="overflow-visible"
-      style={{ minWidth: "100%", width: table.getTotalSize() }}
     >
-      <colgroup>
-        {table.getVisibleLeafColumns().map((column) => (
-          <col key={column.id} style={{ width: column.getSize() }} />
-        ))}
-      </colgroup>
       <TableHeader>
         {table.getHeaderGroups().map((headerGroup, headerGroupIndex) => (
           <TableRow key={headerGroup.id}>
@@ -473,16 +478,14 @@ export function DashboardDataTable<TData extends { id: string }>({
               const meta = header.column.columnDef.meta as
                 | DashboardColumnMeta
                 | undefined;
-              const headerSize = header.getSize();
 
               return (
                 <TableHead
                   key={header.id}
                   colSpan={header.colSpan}
                   style={{
-                    width: headerSize,
-                    minWidth: header.column.columnDef.minSize,
-                    maxWidth: header.column.columnDef.maxSize,
+                    position: "relative",
+                    width: header.getSize(),
                     ...(stickyHeader
                       ? {
                           top: `calc(var(--table-head-height) * ${headerGroupIndex})`,
@@ -509,11 +512,19 @@ export function DashboardDataTable<TData extends { id: string }>({
                     <button
                       type="button"
                       aria-label={`Resize ${header.column.id} column`}
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        header.getResizeHandler()(event);
+                      }}
+                      onTouchStart={(event) => {
+                        event.stopPropagation();
+                        header.getResizeHandler()(event);
+                      }}
+                      onDoubleClick={() => header.column.resetSize()}
                       onClick={(event) => event.stopPropagation()}
+                      data-row-click-ignore="true"
                       className={cn(
-                        "absolute right-0 top-0 z-10 h-full w-3 translate-x-1/2 cursor-col-resize touch-none select-none bg-transparent outline-none",
+                        "absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none select-none bg-transparent outline-none",
                         "after:absolute after:right-1/2 after:top-2 after:h-[calc(100%-1rem)] after:w-px after:bg-border after:content-['']",
                         "hover:after:bg-foreground/40 focus-visible:after:bg-ring"
                       )}
@@ -675,22 +686,13 @@ export function DashboardDataTable<TData extends { id: string }>({
         )}
 
         <div
+          data-slot="dashboard-table-wrapper"
           className={cn(
-            "max-w-full rounded-md border max-md:overflow-x-auto",
+            "max-w-full overflow-x-auto rounded-md border",
             tableWrapperClassName
           )}
         >
-          {reorderEnabled ? (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              {tableElement}
-            </DndContext>
-          ) : (
-            tableElement
-          )}
+          {tableElement}
         </div>
 
         <div className="flex items-center justify-between py-4">
@@ -824,6 +826,22 @@ function DashboardTableBody<TData extends { id: string }>({
     </TableBody>
   );
 }
+
+const MemoizedDashboardTableBody = memo(
+  DashboardTableBody,
+  (prev, next) =>
+    prev.table.options.data === next.table.options.data &&
+    prev.rows === next.rows &&
+    prev.deletingIds === next.deletingIds &&
+    prev.emptyMessage === next.emptyMessage &&
+    prev.globalFilter === next.globalFilter &&
+    prev.getSubRowsProp === next.getSubRowsProp &&
+    prev.onRowClick === next.onRowClick &&
+    prev.renderExpandedRow === next.renderExpandedRow &&
+    prev.subRowClassName === next.subRowClassName &&
+    prev.sortable === next.sortable &&
+    prev.verticalColumnBorders === next.verticalColumnBorders
+) as typeof DashboardTableBody;
 
 type DashboardTableRowProps<TData extends { id: string }> = {
   row: Row<TData>;
@@ -975,14 +993,12 @@ function DashboardTableRowContent<TData extends { id: string }>({
       >
         {row.getVisibleCells().map((cell) => {
           const meta = cell.column.columnDef.meta as DashboardColumnMeta | undefined;
-          const cellSize = cell.column.getSize();
 
           return (
             <TableCell
               key={cell.id}
               style={{
-                width: cellSize,
-                maxWidth: cellSize,
+                width: cell.column.getSize(),
               }}
               className={cn(
                 meta?.className,

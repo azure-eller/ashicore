@@ -278,7 +278,9 @@ export function getColumns(
           {
             accessorFn: (row) => getReplenishmentStatus(row),
             id: "projectedSafety",
-            meta: { className: "w-[28%] min-w-0" },
+            size: 260,
+            minSize: 220,
+            maxSize: 420,
             sortDescFirst: false,
             filterFn: multiValueFilter,
             sortingFn: (rowA, rowB) =>

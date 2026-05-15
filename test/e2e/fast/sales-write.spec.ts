@@ -1246,7 +1246,11 @@ test.describe("Sales write-path smoke", () => {
     await expect(salesOrderCard(page, secondOrderNumber)).toBeVisible();
 
     const getSameDatePositions = () =>
-      page.locator("tbody tr").evaluateAll(
+      page
+        .locator(
+          '[data-slot="erp-data-grid"] .ag-center-cols-container [role="row"][row-index]'
+        )
+        .evaluateAll(
         (rows, orderNumbers) =>
           (orderNumbers as string[]).map((orderNumber) =>
             rows.findIndex(
@@ -1256,8 +1260,7 @@ test.describe("Sales write-path smoke", () => {
         orderNumbers
       );
 
-    const beforeConfirm = await getSameDatePositions();
-    expect(beforeConfirm).toEqual([0, 1]);
+    await expect.poll(getSameDatePositions).toEqual([0, 1]);
 
     const confirmResponse = await testFetch(
       `/api/sales-orders/${firstOrderResult.body.id}/confirm`,

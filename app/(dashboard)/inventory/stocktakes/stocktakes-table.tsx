@@ -124,9 +124,10 @@ const columns: ColumnDef<StocktakeListRow>[] = [
     cell: ({ row }) => <StocktakeRowActions stocktake={row.original} />,
     enableSorting: false,
     enableHiding: false,
-    meta: {
-      className: "w-10",
-    },
+    size: 40,
+    minSize: 40,
+    maxSize: 48,
+    enableResizing: false,
   },
 ];
 

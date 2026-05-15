@@ -275,7 +275,10 @@ const rankColumn: ColumnDef<ManufacturingOrderListRow> = {
   cell: ({ row }) => (
     <RankCell rowIndex={row.index} order={row.original} />
   ),
-  meta: { className: "w-20" },
+  size: 64,
+  minSize: 56,
+  maxSize: 110,
+  enableResizing: false,
 };
 
 const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
@@ -322,7 +325,8 @@ const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
     sortingFn: (a, b) =>
       getOrderProgress(a.original).percent - getOrderProgress(b.original).percent,
     cell: ({ row }) => <ProgressCell order={row.original} />,
-    meta: { className: "w-40" },
+    size: 160,
+    minSize: 140,
   },
   {
     accessorKey: "ingredientReadiness",
@@ -332,7 +336,8 @@ const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
         getIngredientState(b.original).label
       ),
     cell: ({ row }) => <OperationalStateCell state={getIngredientState(row.original)} />,
-    meta: { className: "w-40" },
+    size: 160,
+    minSize: 140,
   },
   {
     id: "productionState",
@@ -347,7 +352,8 @@ const orderColumns: ColumnDef<ManufacturingOrderListRow>[] = [
       );
     },
     cell: ({ row }) => <ProductionActionCell order={row.original} />,
-    meta: { className: "w-44" },
+    size: 176,
+    minSize: 150,
   },
   {
     accessorKey: "actualQuantity",

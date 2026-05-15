@@ -2,21 +2,30 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { type ColumnDef, type Table as TanStackTable } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ICellRendererParams, RowDragEndEvent } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
-import {
-  DashboardDataTable,
-  DashboardDataTableDragHandle,
-} from "@/components/dashboard-data-table";
-import { multiValueFilter } from "@/components/filterable-header";
+import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import {
   OperationalStateCell,
   type OperationalState,
 } from "@/components/operational-state-cell";
-import { SortableHeader } from "@/components/sortable-header";
-import { TooltipHeader } from "@/components/tooltip-header";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Add01Icon,
+  Delete02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
@@ -224,242 +233,47 @@ function compareSalesOrderRank(
   });
 }
 
+function salesOrderMatchesSearch(order: SalesOrderListRow, searchValue: string) {
+  const normalizedSearch = searchValue.trim().toLowerCase();
+
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  return [
+    order.orderNumber,
+    order.customerName,
+    order.notes,
+    order.totalAmount,
+    order.shipDate,
+    getSalesItemsState(order).label,
+    getProductionState(order).label,
+    getDeliveryState(order).label,
+  ].some((value) => value?.toLowerCase().includes(normalizedSearch));
+}
+
 function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderListRow }) {
   if (!isOpenSalesOrder(order)) {
     return <span className="text-muted-foreground">-</span>;
   }
 
   return (
-    <div className="flex items-center gap-1.5">
-      <DashboardDataTableDragHandle label={`Reorder ${order.orderNumber}`} />
-      <span className="w-6 text-sm text-muted-foreground tabular-nums">
+    <div className="flex h-full items-center">
+      <span className="w-8 text-[1.0625rem] text-muted-foreground tabular-nums">
         {order.priorityRank ?? rowIndex + 1}
       </span>
     </div>
   );
 }
 
-const rankColumn: ColumnDef<SalesOrderListRow> = {
-  accessorKey: "priorityRank",
-  header: () => (
-    <TooltipHeader label="Rank" tooltip={SALES_ORDER_RANK_TOOLTIP} />
-  ),
-  enableSorting: false,
-  cell: ({ row, table }) => {
-    const orderedIndex = table
-      .getPrePaginationRowModel()
-      .rows.findIndex((orderedRow) => orderedRow.id === row.id);
-
-    return (
-      <RankCell
-        rowIndex={orderedIndex >= 0 ? orderedIndex : row.index}
-        order={row.original}
-      />
-    );
-  },
-  size: 64,
-  minSize: 56,
-  maxSize: 110,
-  enableResizing: false,
-  meta: { className: "w-20" },
-};
-
-const columns: ColumnDef<SalesOrderListRow>[] = [
-  {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all orders"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label={`Select ${row.original.orderNumber}`}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-    size: 36,
-    minSize: 36,
-    maxSize: 44,
-    enableResizing: false,
-  },
-  rankColumn,
-  {
-    accessorKey: "orderNumber",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Order"
-        tooltip={SALES_ORDER_NUMBER_TOOLTIP}
-      />
-    ),
-    cell: ({ row }) => (
-      <Link
-        href={`/sales/orders/${row.original.id}`}
-        className="block truncate hover:underline"
-      >
-        {row.original.orderNumber}
-      </Link>
-    ),
-    size: 115,
-    minSize: 100,
-  },
-  {
-    accessorKey: "customerName",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Customer"
-        tooltip={SALES_ORDER_CUSTOMER_TOOLTIP}
-      />
-    ),
-    cell: ({ row }) => (
-      <span className="block truncate">{row.original.customerName}</span>
-    ),
-    size: 190,
-    minSize: 150,
-  },
-  {
-    accessorKey: "notes",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Notes"
-        tooltip={SALES_ORDER_NOTES_TOOLTIP}
-      />
-    ),
-    cell: ({ row }) => <NotesCell notes={row.original.notes} />,
-    size: 160,
-    minSize: 130,
-  },
-  {
-    accessorKey: "totalAmount",
-    header: ({ column }) => (
-      <SortableHeader column={column} label="Total" tooltip={ORDER_TOTAL_TOOLTIP} />
-    ),
-    sortingFn: (a, b) =>
-      parseFloat(a.original.totalAmount) - parseFloat(b.original.totalAmount),
-    cell: ({ row }) => formatPrice(row.original.totalAmount) ?? "\u2014",
-    size: 105,
-    minSize: 95,
-  },
-  {
-    accessorKey: "status",
-    header: "",
-    filterFn: multiValueFilter,
-    cell: () => null,
-    size: 1,
-    minSize: 1,
-    maxSize: 1,
-    enableResizing: false,
-    meta: { className: "hidden" },
-  },
-  {
-    id: "salesItems",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Sales Items"
-        tooltip={SALES_ORDER_ITEMS_STATUS_TOOLTIP}
-      />
-    ),
-    sortingFn: (a, b) =>
-      parseFloat(a.original.fulfillmentSummary.shortQty) -
-      parseFloat(b.original.fulfillmentSummary.shortQty),
-    cell: ({ row }) => <SalesItemsActionCell order={row.original} />,
-    size: 135,
-    minSize: 125,
-    meta: { className: "w-36" },
-  },
-  {
-    id: "productionState",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Production"
-        tooltip={SALES_ORDER_PRODUCTION_STATUS_TOOLTIP}
-      />
-    ),
-    sortingFn: (a, b) =>
-      a.original.openManufacturingOrderCount - b.original.openManufacturingOrderCount,
-    cell: ({ row }) => (
-      <ProductionActionCell
-        order={row.original}
-        state={getProductionState(row.original)}
-      />
-    ),
-    size: 140,
-    minSize: 130,
-    meta: { className: "w-40" },
-  },
-  {
-    id: "deliveryState",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Delivery"
-        tooltip={SALES_ORDER_DELIVERY_STATUS_TOOLTIP}
-      />
-    ),
-    sortingFn: (a, b) => {
-      const doneRank = doneSalesOrderRank(a.original) - doneSalesOrderRank(b.original);
-      if (doneRank !== 0) return doneRank;
-      return (a.original.shipDate ?? "").localeCompare(b.original.shipDate ?? "");
-    },
-    cell: ({ row }) => (
-      <DeliveryActionCell
-        order={row.original}
-        state={getDeliveryState(row.original)}
-      />
-    ),
-    size: 150,
-    minSize: 140,
-    meta: { className: "w-40" },
-  },
-  {
-    accessorKey: "shipDate",
-    header: ({ column }) => (
-      <SortableHeader
-        column={column}
-        label="Ship by"
-        tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
-      />
-    ),
-    sortingFn: (a, b) => {
-      const dateCompare = (a.original.shipDate ?? "").localeCompare(
-        b.original.shipDate ?? ""
-      );
-
-      if (dateCompare !== 0) {
-        return dateCompare;
-      }
-
-      return a.original.orderNumber.localeCompare(b.original.orderNumber, undefined, {
-        numeric: true,
-      });
-    },
-    cell: ({ row }) => formatDate(row.original.shipDate),
-    size: 95,
-    minSize: 90,
-  },
-];
-
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");
-  const columnVisibility = useMemo(
-    () => ({ priorityRank: statusFilter === "open" }),
-    [statusFilter]
-  );
+  const [searchValue, setSearchValue] = useState("");
+  const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [hasActiveSort, setHasActiveSort] = useState(false);
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -468,13 +282,192 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       }),
     initialData,
   });
-  const displayedOrders = useMemo(() => {
-    if (statusFilter !== "open") {
-      return orders;
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const order of orders) {
+      counts.set(order.status, (counts.get(order.status) ?? 0) + 1);
     }
 
-    return [...orders].sort(compareSalesOrderRank);
-  }, [orders, statusFilter]);
+    return counts;
+  }, [orders]);
+  const displayedOrders = useMemo(() => {
+    const allowedStatuses =
+      statusFilter === "done" ? DONE_SALES_STATUSES : OPEN_SALES_STATUSES;
+    const filteredOrders = orders.filter(
+      (order) =>
+        (allowedStatuses as readonly string[]).includes(order.status) &&
+        salesOrderMatchesSearch(order, searchValue)
+    );
+
+    if (statusFilter === "done") {
+      return filteredOrders;
+    }
+
+    return [...filteredOrders].sort(compareSalesOrderRank);
+  }, [orders, searchValue, statusFilter]);
+  const reorderEnabled =
+    statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
+  const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
+    () => [
+      {
+        colId: "priorityRank",
+        field: "priorityRank",
+        headerName: "Rank",
+        headerTooltip: SALES_ORDER_RANK_TOOLTIP,
+        width: 64,
+        minWidth: 56,
+        maxWidth: 110,
+        resizable: false,
+        sortable: false,
+        rowDrag: reorderEnabled,
+        rowDragText: ({ defaultTextValue }) => `Move ${defaultTextValue}`,
+        hide: statusFilter !== "open",
+        cellRenderer: ({
+          data,
+          node,
+        }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? (
+            <RankCell rowIndex={node.rowIndex ?? 0} order={data} />
+          ) : null,
+        getQuickFilterText: () => "",
+      },
+      {
+        field: "orderNumber",
+        headerName: "Order",
+        headerTooltip: SALES_ORDER_NUMBER_TOOLTIP,
+        width: 150,
+        minWidth: 130,
+        flex: 0.8,
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? (
+            <Link
+              href={`/sales/orders/${data.id}`}
+              className="block truncate hover:underline"
+            >
+              {data.orderNumber}
+            </Link>
+          ) : null,
+        comparator: (left, right) =>
+          String(left ?? "").localeCompare(String(right ?? ""), undefined, {
+            numeric: true,
+          }),
+      },
+      {
+        field: "customerName",
+        headerName: "Customer",
+        headerTooltip: SALES_ORDER_CUSTOMER_TOOLTIP,
+        width: 260,
+        minWidth: 190,
+        flex: 1.4,
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? <span className="block truncate">{data.customerName}</span> : null,
+      },
+      {
+        field: "notes",
+        headerName: "Notes",
+        headerTooltip: SALES_ORDER_NOTES_TOOLTIP,
+        width: 240,
+        minWidth: 180,
+        flex: 1.2,
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? <NotesCell notes={data.notes} /> : null,
+        getQuickFilterText: ({ data }) => data?.notes ?? "",
+      },
+      {
+        field: "totalAmount",
+        headerName: "Total",
+        headerTooltip: ORDER_TOTAL_TOOLTIP,
+        width: 135,
+        minWidth: 115,
+        comparator: (left, right) =>
+          parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
+        valueFormatter: ({ value }) => formatPrice(String(value ?? "")) ?? "—",
+      },
+      {
+        colId: "salesItems",
+        headerName: "Sales Items",
+        headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
+        width: 165,
+        minWidth: 145,
+        valueGetter: ({ data }) => (data ? getSalesItemsState(data).label : ""),
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? <SalesItemsActionCell order={data} /> : null,
+        comparator: (_left, _right, leftNode, rightNode) =>
+          parseQuantity(leftNode.data?.fulfillmentSummary.shortQty) -
+          parseQuantity(rightNode.data?.fulfillmentSummary.shortQty),
+      },
+      {
+        colId: "productionState",
+        headerName: "Production",
+        headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
+        width: 170,
+        minWidth: 150,
+        valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? (
+            <ProductionActionCell
+              order={data}
+              state={getProductionState(data)}
+            />
+          ) : null,
+        comparator: (_left, _right, leftNode, rightNode) =>
+          (leftNode.data?.openManufacturingOrderCount ?? 0) -
+          (rightNode.data?.openManufacturingOrderCount ?? 0),
+      },
+      {
+        colId: "deliveryState",
+        headerName: "Delivery",
+        headerTooltip: SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
+        width: 175,
+        minWidth: 155,
+        valueGetter: ({ data }) => (data ? getDeliveryState(data).label : ""),
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? (
+            <DeliveryActionCell
+              order={data}
+              state={getDeliveryState(data)}
+            />
+          ) : null,
+        comparator: (_left, _right, leftNode, rightNode) => {
+          const leftOrder = leftNode.data;
+          const rightOrder = rightNode.data;
+
+          if (!leftOrder || !rightOrder) return 0;
+
+          const doneRank =
+            doneSalesOrderRank(leftOrder) - doneSalesOrderRank(rightOrder);
+          if (doneRank !== 0) return doneRank;
+
+          return (leftOrder.shipDate ?? "").localeCompare(
+            rightOrder.shipDate ?? ""
+          );
+        },
+      },
+      {
+        field: "shipDate",
+        headerName: "Ship by",
+        headerTooltip: SALES_ORDER_SHIP_DATE_TOOLTIP,
+        width: 130,
+        minWidth: 115,
+        valueFormatter: ({ value }) => formatDate(value as string | null),
+        comparator: (left, right, leftNode, rightNode) => {
+          const dateCompare = String(left ?? "").localeCompare(String(right ?? ""));
+
+          if (dateCompare !== 0) {
+            return dateCompare;
+          }
+
+          return (leftNode.data?.orderNumber ?? "").localeCompare(
+            rightNode.data?.orderNumber ?? "",
+            undefined,
+            { numeric: true }
+          );
+        },
+      },
+    ],
+    [reorderEnabled, statusFilter]
+  );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: SalesOrderListRow[]) => {
       await apiJson<{ updated: number }>("/api/sales-orders/priority-ranks", {
@@ -493,11 +486,24 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
 
       queryClient.setQueryData<SalesOrderListRow[]>(
         ["sales-orders"],
-        (current) =>
-          current?.map((row) => ({
-            ...row,
+        (current) => {
+          if (!current) return current;
+
+          const currentById = new Map(current.map((row) => [row.id, row]));
+          const orderedIds = new Set(orderedRows.map((row) => row.id));
+          const reorderedRows = orderedRows.map((row) => ({
+            ...(currentById.get(row.id) ?? row),
             priorityRank: rankById.get(row.id) ?? row.priorityRank,
-          }))
+          }));
+          const untouchedRows = current
+            .filter((row) => !orderedIds.has(row.id))
+            .map((row) => ({
+              ...row,
+              priorityRank: rankById.get(row.id) ?? row.priorityRank,
+            }));
+
+          return [...reorderedRows, ...untouchedRows];
+        }
       );
 
       return { previous };
@@ -509,89 +515,133 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
       await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
     },
   });
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiJson<void>("/api/sales-orders", {
+        method: "DELETE",
+        body: { ids },
+        idempotencyKey: "sales-orders-delete",
+        fallbackError: "Failed to delete orders.",
+      });
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
+      setSelectedOrders([]);
+      setDeleteDialogOpen(false);
+    },
+  });
+  const selectedCount = selectedOrders.length;
 
   return (
-    <DashboardDataTable
-      columns={columns}
-      columnVisibility={columnVisibility}
-      data={displayedOrders}
-      initialData={initialData}
-      queryKey={["sales-orders"]}
-      searchAriaLabel="Search orders"
-      addHref="/sales/orders/new"
-      addAriaLabel="New Order"
-      emptyMessage="No sales orders yet."
-      toolbarContent={({ table }) => (
-        <SalesOrderWorkflowTabs
-          table={table}
-          onStatusChange={setStatusFilter}
-        />
-      )}
-      initialColumnFilters={[{ id: "status", value: [...OPEN_SALES_STATUSES] }]}
-      rowReorder={{
-        disabled: reorderMutation.isPending,
-        enabled: (table) => {
-          const selected =
-            (table.getColumn("status")?.getFilterValue() as string[] | undefined) ?? [];
-          const columnFilters = table.getState().columnFilters;
-          const sorting = table.getState().sorting;
+    <>
+      <ERPDataGrid
+        rows={displayedOrders}
+        columns={gridColumns}
+        searchAriaLabel="Search orders"
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        emptyMessage="No sales orders yet."
+        enableRowSelection
+        onSelectionChange={setSelectedOrders}
+        enableManagedRowDrag={reorderEnabled && !reorderMutation.isPending}
+        suppressMoveWhenRowDragging
+        resetRowDataOnUpdate
+        onSortChange={setHasActiveSort}
+        onRowDragEnd={(event: RowDragEndEvent<SalesOrderListRow>) => {
+          if (!reorderEnabled || reorderMutation.isPending) {
+            return;
+          }
 
-          return (
-            !table.getState().globalFilter &&
-            sorting.length === 0 &&
-            columnFilters.every((filter) => filter.id === "status") &&
-            selected.length === OPEN_SALES_STATUSES.length &&
-            OPEN_SALES_STATUSES.every((status) => selected.includes(status))
-          );
-        },
-        onReorder: (rows) => reorderMutation.mutate(rows),
-      }}
-      deleteAction={{
-        endpoint: "/api/sales-orders",
-        invalidateQueryKeys: [["sales-orders"], ["items"]],
-        defaultErrorMessage: "Failed to delete orders.",
-        idempotencyKey: "sales-orders-delete",
-        confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
-        confirmDescription: (count) =>
-          `The selected order${count !== 1 ? "s" : ""} will be soft-deleted.`,
-      }}
-    />
+          const orderedRows: SalesOrderListRow[] = [];
+          event.api.forEachNodeAfterFilterAndSort((node) => {
+            if (node.data) {
+              orderedRows.push(node.data);
+            }
+          });
+
+          reorderMutation.mutate(orderedRows);
+        }}
+        toolbarContent={
+          <SalesOrderWorkflowTabs
+            value={statusFilter}
+            statusCounts={statusCounts}
+            onStatusChange={setStatusFilter}
+          />
+        }
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={selectedCount === 0 || deleteMutation.isPending}
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <HugeiconsIcon icon={Delete02Icon} data-icon="inline-start" />
+              Delete selected
+              {selectedCount > 0 ? ` (${selectedCount})` : ""}
+            </Button>
+            <Button asChild aria-label="New Order">
+              <Link href="/sales/orders/new">
+                <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+                New Order
+              </Link>
+            </Button>
+          </>
+        }
+      />
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedCount} order{selectedCount !== 1 ? "s" : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The selected order{selectedCount !== 1 ? "s" : ""} will be
+              soft-deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteMutation.isPending || selectedCount === 0}
+              onClick={(event) => {
+                event.preventDefault();
+                deleteMutation.mutate(selectedOrders.map((order) => order.id));
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
 function SalesOrderWorkflowTabs({
-  table,
+  value,
+  statusCounts,
   onStatusChange,
 }: {
-  table: TanStackTable<SalesOrderListRow>;
+  value: SalesWorkflowFilterValue;
+  statusCounts: Map<string, number>;
   onStatusChange: (status: SalesWorkflowFilterValue) => void;
 }) {
-  const statusColumn = table.getColumn("status");
-  const selected = (statusColumn?.getFilterValue() as string[] | undefined) ?? [];
-  const isDone =
-    selected.length === DONE_SALES_STATUSES.length &&
-    DONE_SALES_STATUSES.every((status) => selected.includes(status));
-  const value = isDone ? "done" : "open";
-  const statusCounts = statusColumn?.getFacetedUniqueValues();
   const openCount = OPEN_SALES_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts?.get(status) ?? 0),
+    (sum, status) => sum + (statusCounts.get(status) ?? 0),
     0
   );
   const doneCount = DONE_SALES_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts?.get(status) ?? 0),
+    (sum, status) => sum + (statusCounts.get(status) ?? 0),
     0
   );
   const applyFilter = (nextValue: SalesWorkflowFilterValue) => {
-    if (!statusColumn) return;
     onStatusChange(nextValue);
-    statusColumn.setFilterValue(
-      nextValue === "done" ? [...DONE_SALES_STATUSES] : [...OPEN_SALES_STATUSES]
-    );
-    table.setSorting([
-      ...(nextValue === "done"
-        ? [{ id: "orderNumber", desc: false }]
-        : []),
-    ]);
   };
 
   return (

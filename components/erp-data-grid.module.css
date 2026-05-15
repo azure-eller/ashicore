@@ -1,0 +1,62 @@
+.root {
+  --ag-font-family: inherit;
+}
+
+.grid :global(.ag-root-wrapper) {
+  border-color: var(--border);
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.grid :global(.ag-header) {
+  border-bottom-color: var(--border);
+}
+
+.grid :global(.ag-header-cell),
+.grid :global(.ag-cell) {
+  border-right-color: var(--border);
+}
+
+.grid :global(.ag-header-cell-label) {
+  align-items: center;
+}
+
+.grid :global(.ag-header-cell-text) {
+  color: var(--muted-foreground);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.grid :global(.ag-cell) {
+  align-items: center;
+  color: var(--foreground);
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+}
+
+.grid :global(.ag-row-hover:not(.ag-row-selected)) {
+  background-color: color-mix(in oklch, var(--muted) 45%, transparent);
+}
+
+.grid :global(.ag-row-selected) {
+  background-color: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+
+.grid :global(.ag-row-drag) {
+  color: var(--muted-foreground);
+  margin-right: 0.5rem;
+}
+
+.grid :global(.ag-drag-handle:hover) {
+  color: var(--foreground);
+}
+
+.grid :global(.ag-row-highlight-above::after),
+.grid :global(.ag-row-highlight-below::after) {
+  background-color: var(--primary);
+  height: 3px;
+}
+
+.grid :global(.ag-overlay-no-rows-center) {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
