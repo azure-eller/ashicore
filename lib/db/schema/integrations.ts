@@ -50,6 +50,11 @@ export const integrationConnections = integrationsSchema
       autoPushPurchaseOrders: boolean("auto_push_purchase_orders")
         .notNull()
         .default(false),
+      autoSyncPurchaseOrdersFromAccounting: boolean(
+        "auto_sync_purchase_orders_from_accounting"
+      )
+        .notNull()
+        .default(false),
       autoEmailSalesInvoices: boolean("auto_email_sales_invoices")
         .notNull()
         .default(false),
@@ -146,7 +151,11 @@ export const integrationExternalRecords = integrationsSchema
   )
   .enableRLS();
 
-export type IntegrationImportEntityType = "customers" | "suppliers" | "purchasing";
+export type IntegrationImportEntityType =
+  | "customers"
+  | "suppliers"
+  | "purchasing"
+  | "purchase_orders";
 export type IntegrationImportRunStatus = "completed" | "undone";
 export type IntegrationImportRowAction = "created" | "updated";
 

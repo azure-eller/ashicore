@@ -32,6 +32,7 @@ export type XeroConnectionSummary = {
   invoiceStatusPreference: string;
   autoPushSalesInvoices: boolean;
   autoPushPurchaseOrders: boolean;
+  autoSyncPurchaseOrdersFromAccounting: boolean;
   autoEmailSalesInvoices: boolean;
   autoEmailPurchaseOrders: boolean;
   purchaseOrderDefaultAccountCode: string | null;
@@ -43,7 +44,7 @@ export type XeroConnectionSummary = {
 
 export type XeroImportRunSummary = {
   id: string;
-  entityType: "customers" | "suppliers" | "purchasing";
+  entityType: "customers" | "suppliers" | "purchasing" | "purchase_orders";
   tenantName: string;
   status: string;
   createdCount: number;
@@ -76,6 +77,7 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     invoiceStatusPreference: row.invoiceStatusPreference,
     autoPushSalesInvoices: row.autoPushSalesInvoices,
     autoPushPurchaseOrders: row.autoPushPurchaseOrders,
+    autoSyncPurchaseOrdersFromAccounting: row.autoSyncPurchaseOrdersFromAccounting,
     autoEmailSalesInvoices: row.autoEmailSalesInvoices,
     autoEmailPurchaseOrders: row.autoEmailPurchaseOrders,
     purchaseOrderDefaultAccountCode: row.purchaseOrderDefaultAccountCode,
@@ -122,7 +124,12 @@ export async function getRecentXeroImportRuns(
       .where(
         and(
           eq(integrationImportRuns.provider, XERO_PROVIDER),
-          inArray(integrationImportRuns.entityType, ["customers", "suppliers", "purchasing"])
+          inArray(integrationImportRuns.entityType, [
+            "customers",
+            "suppliers",
+            "purchasing",
+            "purchase_orders",
+          ])
         )
       )
       .orderBy(desc(integrationImportRuns.createdAt))
@@ -263,6 +270,8 @@ export async function getXeroAutomationSettingsForOrg(orgId: string) {
       .select({
         autoPushSalesInvoices: integrationConnections.autoPushSalesInvoices,
         autoPushPurchaseOrders: integrationConnections.autoPushPurchaseOrders,
+        autoSyncPurchaseOrdersFromAccounting:
+          integrationConnections.autoSyncPurchaseOrdersFromAccounting,
       })
       .from(integrationConnections)
       .where(
@@ -377,6 +386,7 @@ export async function updateXeroSettings(params: {
   invoiceStatusPreference: "DRAFT" | "AUTHORISED";
   autoPushSalesInvoices: boolean;
   autoPushPurchaseOrders: boolean;
+  autoSyncPurchaseOrdersFromAccounting: boolean;
   autoEmailSalesInvoices: boolean;
   autoEmailPurchaseOrders: boolean;
   purchaseOrderDefaultAccountCode: string | null;
@@ -420,6 +430,7 @@ export async function updateXeroSettings(params: {
         invoiceStatusPreference: params.invoiceStatusPreference,
         autoPushSalesInvoices: params.autoPushSalesInvoices,
         autoPushPurchaseOrders: params.autoPushPurchaseOrders,
+        autoSyncPurchaseOrdersFromAccounting: params.autoSyncPurchaseOrdersFromAccounting,
         autoEmailSalesInvoices: params.autoEmailSalesInvoices,
         autoEmailPurchaseOrders: params.autoEmailPurchaseOrders,
         purchaseOrderDefaultAccountCode: params.purchaseOrderDefaultAccountCode,

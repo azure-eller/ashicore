@@ -1646,7 +1646,7 @@ export function OrderDetail({
       setSyncDialog({
         title: includeAccounting ? "Shipment Complete" : "Shipment Recorded",
         description: includeAccounting
-          ? "The order is shipped. The Xero invoice result is shown below."
+          ? "The order is shipped. The accounting invoice result is shown below."
           : "The shipment was marked shipped. Remaining quantities still need shipment.",
         stages: buildAccountingSyncStages({
           timeZone,
@@ -1688,19 +1688,19 @@ export function OrderDetail({
 
   const xeroPushMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/sales-orders/${order.id}/xero-push`, {
+      const response = await fetch(`/api/sales-orders/${order.id}/accounting-push`, {
         method: "POST",
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to push invoice to Xero.");
+        throw new Error(body?.error ?? "Failed to sync invoice to accounting.");
       }
     },
     onMutate: () => {
       setActionError(null);
       openSyncDialog({
         title: "Syncing Invoice",
-        description: "The invoice will be created or retried in Xero.",
+        description: "The invoice will be created or retried in accounting.",
         localActionLabel: "Start retry",
         includeEmail: false,
       });
@@ -1712,7 +1712,7 @@ export function OrderDetail({
       ]);
       await finishSyncDialog({
         title: "Invoice Sync Complete",
-        description: "The latest Xero invoice result is shown below.",
+        description: "The latest accounting invoice result is shown below.",
         localActionLabel: "Start retry",
         includeEmail: false,
       });
@@ -1735,7 +1735,7 @@ export function OrderDetail({
       idempotencyKey,
     }: ShipmentInvoiceActionPayload) => {
       const response = await fetch(
-        `/api/sales-orders/${order.id}/shipments/${shipment.id}/xero-push`,
+        `/api/sales-orders/${order.id}/shipments/${shipment.id}/accounting-push`,
         {
           method: "POST",
           headers: { "Idempotency-Key": idempotencyKey },
@@ -1743,7 +1743,7 @@ export function OrderDetail({
       );
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to push shipment invoice to Xero.");
+        throw new Error(body?.error ?? "Failed to sync shipment invoice to accounting.");
       }
     },
     onMutate: () => {
@@ -1761,7 +1761,7 @@ export function OrderDetail({
   const onlineInvoiceMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        `/api/sales-orders/${order.id}/xero-online-invoice`
+        `/api/sales-orders/${order.id}/accounting-online-invoice`
       );
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1831,7 +1831,7 @@ export function OrderDetail({
     <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
       <span className="font-medium">Accounting Sync</span>
       <Badge variant="secondary">Not synced</Badge>
-      <span className="text-muted-foreground">Xero invoice</span>
+      <span className="text-muted-foreground">Accounting invoice</span>
       <Button
         type="button"
         size="sm"
@@ -2059,7 +2059,7 @@ export function OrderDetail({
                   onCreateShipmentInvoice={(shipment) =>
                     shipmentXeroPushMutation.mutate({
                       shipment,
-                      idempotencyKey: `sales-shipment-xero-push:${crypto.randomUUID()}`,
+                      idempotencyKey: `sales-shipment-accounting-push:${crypto.randomUUID()}`,
                     })
                   }
                   shipShipmentPending={shipShipmentMutation.isPending}

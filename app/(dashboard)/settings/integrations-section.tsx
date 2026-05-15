@@ -51,12 +51,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import {
+  ACCOUNTING_PROVIDER_QUICKBOOKS,
+} from "@/lib/accounting/constants";
+import type { AccountingConnectionSummary } from "@/lib/dal/accounting";
 import type {
   XeroConnectionSummary,
   XeroExportHistoryRow,
   XeroImportRunSummary,
 } from "@/lib/dal/xero";
-import { XeroImportSection } from "./integrations/xero-import-section";
+import {
+  AccountingPurchaseOrderImportButton,
+  XeroImportSection,
+} from "./integrations/xero-import-section";
 
 const ERROR_MESSAGES: Record<string, string> = {
   state_mismatch: "Security check failed. Please try connecting Xero again.",
@@ -127,7 +134,10 @@ type DialogKey =
   | null;
 
 type AutoPushChange = {
-  key: "autoPushSalesInvoices" | "autoPushPurchaseOrders";
+  key:
+    | "autoPushSalesInvoices"
+    | "autoPushPurchaseOrders"
+    | "autoSyncPurchaseOrdersFromAccounting";
   value: boolean;
 } | null;
 
@@ -220,7 +230,10 @@ function PostingDefaultsSummary({
   onEdit: () => void;
   onHistory: () => void;
   onToggleAutoPush: (
-    key: "autoPushSalesInvoices" | "autoPushPurchaseOrders",
+    key:
+      | "autoPushSalesInvoices"
+      | "autoPushPurchaseOrders"
+      | "autoSyncPurchaseOrdersFromAccounting",
     value: boolean
   ) => void;
   canManageConnection: boolean;
@@ -324,6 +337,32 @@ function PostingDefaultsSummary({
             </DefaultChip>
           </div>
         </div>
+        <div className="grid gap-3 border-t p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <label className="flex min-w-0 gap-3">
+            <Checkbox
+              checked={connection.autoSyncPurchaseOrdersFromAccounting}
+              disabled={!canManageConnection}
+              onCheckedChange={(value) =>
+                onToggleAutoPush("autoSyncPurchaseOrdersFromAccounting", value === true)
+              }
+              aria-label="Auto-sync purchase orders from Xero"
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Xero purchase order import
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Check to automatically import open Xero purchase orders for ERP
+                receiving.
+              </span>
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+            <DefaultChip>Creates missing materials</DefaultChip>
+            <DefaultChip>Open POs only</DefaultChip>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -347,9 +386,9 @@ function ImportFromXeroSection({
   return (
     <div className="border-t p-5">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">Import to Xero</h3>
+        <h3 className="text-sm font-semibold text-foreground">Import from Xero</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          One-time pull to bring existing contacts into the ERP.
+          Pull contacts, purchasing defaults, and open purchase orders into ERP.
         </p>
       </div>
 
@@ -424,6 +463,10 @@ function XeroRow({
             change.key === "autoPushPurchaseOrders"
               ? change.value
               : connection.autoPushPurchaseOrders,
+          autoSyncPurchaseOrdersFromAccounting:
+            change.key === "autoSyncPurchaseOrdersFromAccounting"
+              ? change.value
+              : connection.autoSyncPurchaseOrdersFromAccounting,
           autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
           autoEmailPurchaseOrders: connection.autoEmailPurchaseOrders,
           purchaseOrderDefaultAccountCode: connection.purchaseOrderDefaultAccountCode,
@@ -615,6 +658,159 @@ function XeroRow({
   );
 }
 
+function QuickBooksRow({
+  connection,
+  canManageConnection,
+  canImportSuppliers,
+}: {
+  connection: AccountingConnectionSummary | null;
+  canManageConnection: boolean;
+  canImportSuppliers: boolean;
+}) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<{
+    created: number;
+    updated: number;
+    skipped: number;
+    errors: string[];
+  } | null>(null);
+
+  const autoSyncMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      if (!connection) throw new Error("QuickBooks is not connected.");
+      const res = await fetch(
+        `/api/accounting/connections/${ACCOUNTING_PROVIDER_QUICKBOOKS}/settings`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            autoSyncPurchaseOrdersFromAccounting: enabled,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to save QuickBooks settings.");
+      }
+    },
+    onSuccess: () => {
+      router.refresh();
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => setError((err as Error).message),
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/quickbooks/disconnect", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to disconnect QuickBooks.");
+      }
+    },
+    onSuccess: () => {
+      router.refresh();
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => setError((err as Error).message),
+  });
+
+  const isConnected = connection != null;
+
+  return (
+    <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-md border bg-muted text-sm font-semibold">
+            QB
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-foreground">
+                QuickBooks
+              </h3>
+              {isConnected ? (
+                <DotBadge variant="success">Connected</DotBadge>
+              ) : (
+                <Badge variant="secondary">Not connected</Badge>
+              )}
+            </div>
+            <p className="mt-1 truncate text-sm text-muted-foreground">
+              {isConnected
+                ? `${connection.tenantName} · Accounting provider`
+                : "Connect QuickBooks as an accounting provider."}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {isConnected && canImportSuppliers ? (
+            <AccountingPurchaseOrderImportButton
+              provider={ACCOUNTING_PROVIDER_QUICKBOOKS}
+              onComplete={setSummary}
+            />
+          ) : null}
+          {isConnected && canManageConnection ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+            >
+              Disconnect
+            </Button>
+          ) : !isConnected && canManageConnection ? (
+            <Button size="sm" asChild>
+              <a href="/api/quickbooks/connect">Connect</a>
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {isConnected ? (
+        <div className="grid gap-3 border-t p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <label className="flex min-w-0 gap-3">
+            <Checkbox
+              checked={connection.autoSyncPurchaseOrdersFromAccounting}
+              disabled={!canManageConnection || autoSyncMutation.isPending}
+              onCheckedChange={(value) => {
+                setError(null);
+                autoSyncMutation.mutate(value === true);
+              }}
+              aria-label="Auto-sync purchase orders from QuickBooks"
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Purchase order import
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Check to automatically import open QuickBooks purchase orders.
+              </span>
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+            <DefaultChip>Creates missing materials</DefaultChip>
+            <DefaultChip>Open POs only</DefaultChip>
+          </div>
+        </div>
+      ) : null}
+      {summary ? (
+        <div className="border-t px-5 py-3 text-sm text-muted-foreground">
+          {summary.created} created, {summary.updated} updated, {summary.skipped} skipped
+          {summary.errors.length > 0 ? `, ${summary.errors.length} errors` : null}
+        </div>
+      ) : null}
+      {error ? (
+        <div className="border-t px-5 py-3">
+          <FieldError>{error}</FieldError>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PostingDefaultsDialog({
   open,
   connection,
@@ -678,6 +874,8 @@ function PostingDefaultsDialog({
           invoiceStatusPreference: invoiceStatus,
           autoPushSalesInvoices: connection.autoPushSalesInvoices,
           autoPushPurchaseOrders: connection.autoPushPurchaseOrders,
+          autoSyncPurchaseOrdersFromAccounting:
+            connection.autoSyncPurchaseOrdersFromAccounting,
           autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
           autoEmailPurchaseOrders: connection.autoEmailPurchaseOrders,
           purchaseOrderDefaultAccountCode: poAccountCode.trim() || null,
@@ -992,18 +1190,27 @@ function AutoPushConfirmDialog({
   onConfirm: () => void;
 }) {
   const isSales = change?.key === "autoPushSalesInvoices";
-  const documentLabel = isSales ? "sales invoices" : "purchase orders";
+  const isImport = change?.key === "autoSyncPurchaseOrdersFromAccounting";
+  const documentLabel = isSales
+    ? "sales invoices"
+    : isImport
+      ? "Xero purchase orders"
+      : "purchase orders";
   const actionLabel = change?.value ? "Turn on" : "Turn off";
 
   return (
     <Dialog open={change != null} onOpenChange={onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>{actionLabel} auto-export?</DialogTitle>
+          <DialogTitle>{actionLabel} {isImport ? "auto-sync" : "auto-export"}?</DialogTitle>
           <DialogDescription>
-            {change?.value
-              ? `New ${documentLabel} will be created in Xero automatically when the ERP workflow reaches export.`
-              : `New ${documentLabel} will stay in ERP until someone creates the Xero record manually.`}
+            {isImport
+              ? change?.value
+                ? `Open ${documentLabel} will be imported into ERP automatically for receiving.`
+                : `Open ${documentLabel} will only import when someone runs bulk import.`
+              : change?.value
+                ? `New ${documentLabel} will be created in Xero automatically when the ERP workflow reaches export.`
+                : `New ${documentLabel} will stay in ERP until someone creates the Xero record manually.`}
           </DialogDescription>
         </DialogHeader>
         {error ? <FieldError>{error}</FieldError> : null}
@@ -1265,6 +1472,7 @@ function ExportHistoryDialog({
 
 export function IntegrationsSection({
   connection,
+  quickBooksConnection,
   error,
   canManageConnection,
   canImportCustomers,
@@ -1275,6 +1483,7 @@ export function IntegrationsSection({
   exportRows,
 }: {
   connection: XeroConnectionSummary | null;
+  quickBooksConnection: AccountingConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
   canImportCustomers: boolean;
@@ -1300,6 +1509,13 @@ export function IntegrationsSection({
         importRuns={importRuns}
         exportRows={exportRows}
       />
+      <div className="mt-4">
+        <QuickBooksRow
+          connection={quickBooksConnection}
+          canManageConnection={canManageConnection}
+          canImportSuppliers={canImportSuppliers}
+        />
+      </div>
     </section>
   );
 }

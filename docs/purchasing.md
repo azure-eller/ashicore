@@ -27,16 +27,33 @@ Purchasing v1 does not include:
 - receiving locations
 - supplier lot numbers or expiry dates
 
+## Accounting Purchase Order Import
+
+Official supplier-facing purchase orders are accounting-provider-first. ERP imports
+open provider POs for receiving and expected-supply projection.
+
+- auto-sync imports all open provider POs when enabled
+- bulk import previews provider POs and applies checked rows
+- unmatched provider suppliers/materials may be created during import
+- imported POs update while unreceived, but received line quantities and
+  receipt-time costs are protected
+- delivery address is stored on the purchase order header, not per line
+
 ## Supplier Items
 
-`supplier_items` stores supplier-specific purchasing defaults. Xero purchasing
-sync may create or update these rows from selected PO/bill history candidates:
+`supplier_items` stores supplier-specific purchasing defaults. Accounting
+provider purchasing sync may create or update these rows from selected PO/bill
+history candidates:
 
-- `supplierSku` comes from the Xero line item code
-- `unitCost` comes from recent Xero purchase history
+- `supplierSku` comes from the provider line item code
+- `unitCost` comes from recent provider purchase history
 - matched rows update existing ERP suppliers/items
 - unmatched selected rows may create missing ERP suppliers/items before writing the supplier item
-- Xero item codes stay external metadata and must not replace ERP `items.sku`
+- provider item codes stay external metadata and must not replace ERP `items.sku`
+
+Accounting connector rule: purchasing import/export workflows use generic
+`/api/accounting/*` routes and `lib/accounting/providers/*` adapters. Do not add
+provider-specific workflow routes for future connectors.
 
 ## Purchase Units And Inventory Cost
 

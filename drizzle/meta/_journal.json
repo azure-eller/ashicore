@@ -687,6 +687,13 @@
       "when": 1778771839307,
       "tag": "0097_shipment_line_stock_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1778771839308,
+      "tag": "0098_accounting_po_import_auto_sync",
+      "breakpoints": true
     }
   ]
 }

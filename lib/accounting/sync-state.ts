@@ -8,7 +8,14 @@ import {
 } from "@/lib/db/schema";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 
-export const ACCOUNTING_PROVIDER_XERO = "xero";
+export {
+  ACCOUNTING_PROVIDER_LABELS,
+  ACCOUNTING_PROVIDER_QUICKBOOKS,
+  ACCOUNTING_PROVIDER_XERO,
+  ACCOUNTING_PROVIDERS,
+  type AccountingProvider,
+} from "@/lib/accounting/constants";
+
 export const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
 export const ATTACHMENT_OWNER_PURCHASE_ORDER = "purchase_order";
 

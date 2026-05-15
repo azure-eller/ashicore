@@ -1,0 +1,30 @@
+import { NextResponse } from "next/server";
+import { apiHandler } from "@/lib/api/handler";
+import { AuthorizationError } from "@/lib/authz";
+import { autoSyncAccountingPurchaseOrders } from "@/lib/accounting/import-purchase-orders";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+function assertCronAccess(request: Request) {
+  const secret =
+    process.env.ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET ??
+    process.env.XERO_RETRY_SECRET ??
+    process.env.CRON_SECRET;
+
+  if (!secret) {
+    throw new Error(
+      "ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET, XERO_RETRY_SECRET, or CRON_SECRET must be configured."
+    );
+  }
+
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+    throw new AuthorizationError("Invalid accounting purchase order sync token.", 401);
+  }
+}
+
+export const GET = apiHandler(async (request: Request) => {
+  assertCronAccess(request);
+  const summary = await autoSyncAccountingPurchaseOrders();
+  return NextResponse.json({ ok: true, ...summary });
+});

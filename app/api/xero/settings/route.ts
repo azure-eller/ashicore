@@ -11,6 +11,7 @@ const updateSchema = z.object({
   invoiceStatusPreference: z.enum(["DRAFT", "AUTHORISED"]),
   autoPushSalesInvoices: z.boolean().default(false),
   autoPushPurchaseOrders: z.boolean().default(false),
+  autoSyncPurchaseOrdersFromAccounting: z.boolean().default(false),
   autoEmailSalesInvoices: z.boolean(),
   autoEmailPurchaseOrders: z.boolean(),
   purchaseOrderDefaultAccountCode: z.string().trim().nullable(),
@@ -32,6 +33,7 @@ export const PUT = apiHandler(async (request: Request) => {
     invoiceStatusPreference: data.invoiceStatusPreference,
     autoPushSalesInvoices: data.autoPushSalesInvoices,
     autoPushPurchaseOrders: data.autoPushPurchaseOrders,
+    autoSyncPurchaseOrdersFromAccounting: data.autoSyncPurchaseOrdersFromAccounting,
     autoEmailSalesInvoices: data.autoEmailSalesInvoices,
     autoEmailPurchaseOrders: data.autoEmailPurchaseOrders,
     purchaseOrderDefaultAccountCode: data.purchaseOrderDefaultAccountCode?.length

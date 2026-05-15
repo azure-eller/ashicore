@@ -27,9 +27,13 @@ import {
 import { formatDateTime } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import type { XeroImportRunSummary } from "@/lib/dal/xero";
+import {
+  ACCOUNTING_PROVIDER_XERO,
+  type AccountingProvider,
+} from "@/lib/accounting/constants";
 
 type EntityType = "customers" | "suppliers";
-type ImportRunEntityType = EntityType | "purchasing";
+type ImportRunEntityType = EntityType | "purchasing" | "purchase_orders";
 
 type ImportResult = {
   runId: string;
@@ -105,6 +109,55 @@ type PurchasingApplyResult = {
   errors: string[];
 };
 
+type PurchaseOrderImportCandidateStatus =
+  | "ready"
+  | "creates_records"
+  | "excluded";
+
+type PurchaseOrderImportCandidate = {
+  id: string;
+  status: PurchaseOrderImportCandidateStatus;
+  selectedByDefault: boolean;
+  selectable: boolean;
+  exclusionReason: string | null;
+  externalPurchaseOrderNumber: string;
+  externalStatus: string;
+  supplierName: string;
+  supplierMatched: boolean;
+  createsSupplier: boolean;
+  createsMaterials: number;
+  lineCount: number;
+  matchedLineCount: number;
+  orderDate: string | null;
+  deliveryDate: string | null;
+  total: string | null;
+};
+
+type PurchaseOrderImportPreview = {
+  tenantName: string;
+  sinceDate: string;
+  totalExternalPurchaseOrders: number;
+  summary: {
+    ready: number;
+    createsRecords: number;
+    excluded: number;
+    selectedByDefault: number;
+  };
+  candidates: PurchaseOrderImportCandidate[];
+};
+
+type PurchaseOrderImportResult = {
+  runId: string;
+  tenantName: string;
+  created: number;
+  updated: number;
+  createdSuppliers: number;
+  createdItems: number;
+  protected: number;
+  skipped: number;
+  errors: string[];
+};
+
 type UndoPreview = {
   runId: string;
   entityType: EntityType;
@@ -125,12 +178,14 @@ type DialogAction =
 function entityLabel(entityType: ImportRunEntityType) {
   if (entityType === "customers") return "customers";
   if (entityType === "suppliers") return "suppliers";
+  if (entityType === "purchase_orders") return "purchase orders";
   return "purchasing data";
 }
 
 function entityTitle(entityType: ImportRunEntityType) {
   if (entityType === "customers") return "Customers";
   if (entityType === "suppliers") return "Suppliers";
+  if (entityType === "purchase_orders") return "Purchase Orders";
   return "Purchasing";
 }
 
@@ -144,13 +199,13 @@ async function readJson<T>(res: Response, defaultError: string): Promise<T> {
 
 async function fetchPreview(action: DialogAction) {
   if (action.mode === "import") {
-    const res = await fetch(`/api/xero/import/${action.entityType}/preview`, {
+    const res = await fetch(`/api/accounting/import/${action.entityType}/preview`, {
       method: "POST",
     });
     return readJson<ContactImportPreview>(res, "Failed to preview import.");
   }
 
-  const res = await fetch(`/api/xero/import-runs/${action.run.id}/undo/preview`, {
+  const res = await fetch(`/api/accounting/import-runs/${action.run.id}/undo/preview`, {
     method: "POST",
   });
   return readJson<UndoPreview>(res, "Failed to preview reset.");
@@ -186,6 +241,8 @@ export function XeroImportSection({
   );
   const [purchasingSummary, setPurchasingSummary] =
     useState<PurchasingApplyResult | null>(null);
+  const [purchaseOrderSummary, setPurchaseOrderSummary] =
+    useState<PurchaseOrderImportResult | null>(null);
 
   useEffect(() => {
     setRuns(importRuns);
@@ -221,7 +278,7 @@ export function XeroImportSection({
 
       if (dialogAction.mode === "import") {
         const importPreview = preview as ContactImportPreview;
-        const res = await fetch(`/api/xero/import/${dialogAction.entityType}`, {
+        const res = await fetch(`/api/accounting/import/${dialogAction.entityType}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -236,7 +293,7 @@ export function XeroImportSection({
       }
 
       const res = await fetch(
-        `/api/xero/import-runs/${dialogAction.run.id}/undo`,
+        `/api/accounting/import-runs/${dialogAction.run.id}/undo`,
         { method: "POST" }
       );
       return {
@@ -332,6 +389,24 @@ export function XeroImportSection({
                   setRuns((current) => [nextRun, ...current].slice(0, 8));
                 }}
               />
+              <PurchaseOrderImportDialog
+                onComplete={(summary) => {
+                  setPurchaseOrderSummary(summary);
+                  const nextRun: XeroImportRunSummary = {
+                    id: summary.runId,
+                    entityType: "purchase_orders",
+                    tenantName: summary.tenantName,
+                    status: "completed",
+                    createdCount: summary.created,
+                    updatedCount: summary.updated,
+                    skippedCount: summary.skipped,
+                    errorCount: summary.errors.length,
+                    createdAt: new Date(),
+                    undoneAt: null,
+                  };
+                  setRuns((current) => [nextRun, ...current].slice(0, 8));
+                }}
+              />
             </div>
           </div>
         ) : null}
@@ -345,6 +420,9 @@ export function XeroImportSection({
       ) : null}
       {purchasingSummary ? (
         <PurchasingSummary summary={purchasingSummary} />
+      ) : null}
+      {purchaseOrderSummary ? (
+        <PurchaseOrderImportSummary summary={purchaseOrderSummary} />
       ) : null}
 
       {runs.length > 0 ? (
@@ -455,6 +533,37 @@ function PurchasingSummary({ summary }: { summary: PurchasingApplyResult }) {
   );
 }
 
+function PurchaseOrderImportSummary({
+  summary,
+}: {
+  summary: PurchaseOrderImportResult;
+}) {
+  return (
+    <div className="rounded-md border bg-muted/40 p-3 text-sm">
+      <p className="font-medium">
+        Purchase orders: {summary.created} imported, {summary.updated} updated
+      </p>
+      {summary.createdSuppliers > 0 || summary.createdItems > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Created {summary.createdSuppliers} suppliers and {summary.createdItems} materials
+        </p>
+      ) : null}
+      {summary.protected > 0 || summary.skipped > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {summary.protected} protected after receiving, {summary.skipped} skipped
+        </p>
+      ) : null}
+      {summary.errors.length > 0 ? (
+        <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
+          {summary.errors.map((error, index) => (
+            <li key={index}>{error}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function formatMoneyValue(value: string | null) {
   if (value == null) return "—";
   const parsed = Number(value);
@@ -473,6 +582,296 @@ function statusLabel(status: PurchasingCandidateStatus) {
   return "Excluded";
 }
 
+function purchaseOrderStatusLabel(status: PurchaseOrderImportCandidateStatus) {
+  if (status === "ready") return "Ready";
+  if (status === "creates_records") return "Creates records";
+  return "Excluded";
+}
+
+function PurchaseOrderImportDialog({
+  provider = ACCOUNTING_PROVIDER_XERO,
+  onComplete,
+}: {
+  provider?: AccountingProvider;
+  onComplete: (summary: PurchaseOrderImportResult) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<PurchaseOrderImportPreview | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/accounting/import/purchase-orders/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      return readJson<PurchaseOrderImportPreview>(
+        res,
+        "Failed to preview purchase order import."
+      );
+    },
+    onSuccess: (data) => {
+      setPreview(data);
+      setSelectedIds(
+        new Set(
+          data.candidates
+            .filter((candidate) => candidate.selectedByDefault)
+            .map((candidate) => candidate.id)
+        )
+      );
+    },
+  });
+
+  const applyMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/accounting/import/purchase-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateIds: [...selectedIds], provider }),
+      });
+      return readJson<PurchaseOrderImportResult>(
+        res,
+        "Purchase order import failed."
+      );
+    },
+    onSuccess: (summary) => {
+      onComplete(summary);
+      setOpen(false);
+    },
+  });
+
+  const readyCandidates =
+    preview?.candidates.filter((candidate) => candidate.status === "ready") ?? [];
+  const creatableCandidates =
+    preview?.candidates.filter((candidate) => candidate.status === "creates_records") ??
+    [];
+  const allReadySelected =
+    readyCandidates.length > 0 &&
+    readyCandidates.every((candidate) => selectedIds.has(candidate.id));
+  const allCreatableSelected =
+    creatableCandidates.length > 0 &&
+    creatableCandidates.every((candidate) => selectedIds.has(candidate.id));
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          setOpen(true);
+          if (!preview) previewMutation.mutate();
+        }}
+      >
+        Bulk import purchase orders
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent
+          size="content"
+          className="h-[min(46rem,calc(100vh-2rem))] !w-[min(calc(100vw-2rem),72rem)] !max-w-[min(calc(100vw-2rem),72rem)] grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-hidden"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bulk import purchase orders</AlertDialogTitle>
+            <AlertDialogDescription>
+              Imports open accounting purchase orders into ERP for receiving. Checked rows
+              that need records will create missing suppliers or materials.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="min-h-0 overflow-hidden rounded-md border bg-muted/30 p-3">
+            {previewMutation.isPending ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner />
+                Loading preview
+              </div>
+            ) : previewMutation.error ? (
+              <p className="text-sm text-destructive">
+                {(previewMutation.error as Error).message}
+              </p>
+            ) : preview ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
+                <div className="grid min-w-0 gap-2 sm:grid-cols-5">
+                  <PreviewMetric label="Matched" value={preview.summary.ready} />
+                  <PreviewMetric label="Selected" value={selectedIds.size} />
+                  <PreviewMetric
+                    label="Can create"
+                    value={preview.summary.createsRecords}
+                  />
+                  <PreviewMetric label="Excluded" value={preview.summary.excluded} />
+                  <PreviewMetric
+                    label="Provider POs"
+                    value={preview.totalExternalPurchaseOrders}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allReadySelected}
+                      onCheckedChange={(checked) => {
+                        setSelectedIds((current) => {
+                          const next = new Set(current);
+                          for (const candidate of readyCandidates) {
+                            if (checked) next.add(candidate.id);
+                            else next.delete(candidate.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>Select matched POs from {preview.tenantName}</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allCreatableSelected}
+                      disabled={creatableCandidates.length === 0}
+                      onCheckedChange={(checked) => {
+                        setSelectedIds((current) => {
+                          const next = new Set(current);
+                          for (const candidate of creatableCandidates) {
+                            if (checked) next.add(candidate.id);
+                            else next.delete(candidate.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span>Select POs that create ERP records</span>
+                  </label>
+                </div>
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border bg-background">
+                  <Table
+                    className="min-w-[64rem] table-fixed text-sm"
+                    containerClassName="h-full overflow-auto"
+                  >
+                    <colgroup>
+                      <col className="w-10" />
+                      <col className="w-32" />
+                      <col className="w-36" />
+                      <col className="w-56" />
+                      <col className="w-36" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                    </colgroup>
+                    <TableHeader className="sticky top-0 z-10">
+                      <TableRow>
+                        <TableHead />
+                        <TableHead>Status</TableHead>
+                        <TableHead>Provider PO</TableHead>
+                        <TableHead>Supplier</TableHead>
+                        <TableHead>Materials</TableHead>
+                        <TableHead>Delivery</TableHead>
+                        <TableHead>Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {preview.candidates.map((candidate) => (
+                        <TableRow key={candidate.id}>
+                          <TableCell>
+                            <Checkbox
+                              disabled={!candidate.selectable}
+                              checked={selectedIds.has(candidate.id)}
+                              onCheckedChange={(checked) => {
+                                setSelectedIds((current) => {
+                                  const next = new Set(current);
+                                  if (checked) next.add(candidate.id);
+                                  else next.delete(candidate.id);
+                                  return next;
+                                });
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                candidate.status === "ready" ? "outline" : "secondary"
+                              }
+                            >
+                              {purchaseOrderStatusLabel(candidate.status)}
+                            </Badge>
+                            {candidate.exclusionReason ? (
+                              <div className="truncate text-xs text-muted-foreground">
+                                {candidate.exclusionReason}
+                              </div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <div className="truncate">
+                              {candidate.externalPurchaseOrderNumber}
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {candidate.externalStatus}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="truncate" title={candidate.supplierName}>
+                              {candidate.supplierName}
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {candidate.createsSupplier ? "Creates supplier" : "Matched"}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {candidate.matchedLineCount}/{candidate.lineCount} matched
+                            {candidate.createsMaterials > 0 ? (
+                              <div className="truncate text-xs text-muted-foreground">
+                                Creates {candidate.createsMaterials}
+                              </div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>{candidate.deliveryDate ?? candidate.orderDate ?? "—"}</TableCell>
+                          <TableCell>{formatMoneyValue(candidate.total)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {applyMutation.error ? (
+            <p className="text-sm text-destructive">
+              {(applyMutation.error as Error).message}
+            </p>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={applyMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              onClick={() => applyMutation.mutate()}
+              disabled={
+                !preview ||
+                selectedIds.size === 0 ||
+                previewMutation.isPending ||
+                applyMutation.isPending
+              }
+            >
+              {applyMutation.isPending ? (
+                <>
+                  <Spinner />
+                  Importing
+                </>
+              ) : (
+                "Import selected POs"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+export function AccountingPurchaseOrderImportButton({
+  provider,
+  onComplete,
+}: {
+  provider: AccountingProvider;
+  onComplete: (summary: PurchaseOrderImportResult) => void;
+}) {
+  return <PurchaseOrderImportDialog provider={provider} onComplete={onComplete} />;
+}
+
 function PurchasingSyncDialog({
   onComplete,
 }: {
@@ -484,7 +883,7 @@ function PurchasingSyncDialog({
 
   const previewMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/xero/import/purchasing/preview", {
+      const res = await fetch("/api/accounting/import/purchasing/preview", {
         method: "POST",
       });
       return readJson<PurchasingPreview>(res, "Failed to preview purchasing sync.");
@@ -503,7 +902,7 @@ function PurchasingSyncDialog({
 
   const applyMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/xero/import/purchasing", {
+      const res = await fetch("/api/accounting/import/purchasing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ candidateIds: [...selectedIds] }),
@@ -549,7 +948,7 @@ function PurchasingSyncDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Update supplier item prices</AlertDialogTitle>
             <AlertDialogDescription>
-              Uses Xero purchase history to update supplier item SKUs and costs.
+              Uses accounting purchase history to update supplier item SKUs and costs.
               Unmatched checked rows create missing ERP suppliers or items.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -574,7 +973,7 @@ function PurchasingSyncDialog({
                     value={preview.summary.needsItemMatch + preview.summary.needsSupplierMatch}
                   />
                   <PreviewMetric label="Excluded" value={preview.summary.excluded} />
-                  <PreviewMetric label="Xero lines" value={preview.totalSourceLines} />
+                  <PreviewMetric label="Source lines" value={preview.totalSourceLines} />
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                   <label className="flex items-center gap-2">
@@ -631,7 +1030,7 @@ function PurchasingSyncDialog({
                         <TableHead>Status</TableHead>
                         <TableHead>ERP supplier</TableHead>
                         <TableHead>ERP item match</TableHead>
-                        <TableHead>Latest Xero SKU</TableHead>
+                        <TableHead>Latest provider SKU</TableHead>
                         <TableHead>Price</TableHead>
                         <TableHead>History</TableHead>
                       </TableRow>
@@ -711,7 +1110,7 @@ function PurchasingSyncDialog({
                                 </div>
                               ) : candidate.xeroItemUnitPrice ? (
                                 <div className="truncate text-xs text-muted-foreground">
-                                  Xero item {formatMoneyValue(candidate.xeroItemUnitPrice)}
+                                  Provider item {formatMoneyValue(candidate.xeroItemUnitPrice)}
                                 </div>
                               ) : null}
                             </TableCell>
@@ -807,7 +1206,7 @@ function ImportActionDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>
             {isImport
-              ? "Review the Xero import preview before creating or updating records."
+              ? "Review the accounting import preview before creating or updating records."
               : "Review the reset preview before undoing this import."}
           </AlertDialogDescription>
         </AlertDialogHeader>

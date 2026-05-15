@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -143,7 +143,7 @@ type PurchaseOrderFormAttachment = {
 };
 
 const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "minmax(11.5rem, 1.45fr) minmax(5rem, 0.5fr) minmax(5.5rem, 0.55fr) minmax(6rem, 0.55fr) minmax(7rem, 0.7fr) minmax(7.75rem, 0.85fr) minmax(6rem, 0.55fr) minmax(5.75rem, 0.55fr)";
+  "minmax(11.5rem, 1.55fr) minmax(5rem, 0.5fr) minmax(5.5rem, 0.55fr) minmax(6rem, 0.55fr) minmax(7rem, 0.7fr) minmax(6rem, 0.55fr) minmax(5.75rem, 0.55fr)";
 const PURCHASE_ORDER_COST_GRID_COLUMNS =
   "minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr)";
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
@@ -198,13 +198,11 @@ function isBlankPurchaseOrderLine(
   const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
   const unitCost = line?.unitCost?.trim() ?? "";
   const accountingPurchaseAccountCode = line?.accountingPurchaseAccountCode?.trim() ?? "";
-  const address = normalizeDeliveryAddress(line);
   return (
     itemId === "" &&
     quantityOrdered === "" &&
     unitCost === "" &&
-    accountingPurchaseAccountCode === "" &&
-    deliveryAddressKey(address) === ""
+    accountingPurchaseAccountCode === ""
   );
 }
 
@@ -535,32 +533,33 @@ export function PurchaseOrderForm({
           shippingCost: initialData.shippingCost,
           notes: initialData.notes,
           accountingPurchaseAccountCode: null,
-          ...EMPTY_DELIVERY_ADDRESS,
+          shipLine1: initialData.shipLine1,
+          shipLine2: initialData.shipLine2,
+          shipCity: initialData.shipCity,
+          shipRegion: initialData.shipRegion,
+          shipPostcode: initialData.shipPostcode,
+          shipCountry: initialData.shipCountry,
           lines: initialData.lines.map((line) => ({
             itemId: line.itemId,
             quantityOrdered: line.quantityOrdered,
             unitCost: line.unitCost,
             accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
-            shipAddressEntryId: line.shipAddressEntryId,
-            shipContactName: line.shipContactName,
-            shipContactPhone: line.shipContactPhone,
-            shipLine1: line.shipLine1,
-            shipLine2: line.shipLine2,
-            shipCity: line.shipCity,
-            shipRegion: line.shipRegion,
-            shipPostcode: line.shipPostcode,
-            shipCountry: line.shipCountry,
-            shipDeliveryInstructions: line.shipDeliveryInstructions,
+            ...EMPTY_DELIVERY_ADDRESS,
           })),
           additionalCosts: initialData.additionalCosts,
         }
     : {
         ...(defaultValues ?? purchaseOrderDefaultValues),
         accountingPurchaseAccountCode: null,
-        ...EMPTY_DELIVERY_ADDRESS,
+        shipLine1: defaultValues?.shipLine1 ?? null,
+        shipLine2: defaultValues?.shipLine2 ?? null,
+        shipCity: defaultValues?.shipCity ?? null,
+        shipRegion: defaultValues?.shipRegion ?? null,
+        shipPostcode: defaultValues?.shipPostcode ?? null,
+        shipCountry: defaultValues?.shipCountry ?? null,
         lines: (defaultValues ?? purchaseOrderDefaultValues).lines.map((line) => ({
           ...line,
-          ...normalizeDeliveryAddress(line),
+          ...EMPTY_DELIVERY_ADDRESS,
         })),
       };
 
@@ -585,7 +584,6 @@ export function PurchaseOrderForm({
     return [...byId.values()];
   });
   const [addressDialogState, setAddressDialogState] = useState<{
-    lineIndex: number;
     option: DeliveryAddressOption | null;
   } | null>(null);
 
@@ -604,6 +602,17 @@ export function PurchaseOrderForm({
   const watchedAdditionalCosts = useWatch({
     control: form.control,
     name: "additionalCosts",
+  });
+  const watchedDeliveryAddress = useWatch({
+    control: form.control,
+    name: [
+      "shipLine1",
+      "shipLine2",
+      "shipCity",
+      "shipRegion",
+      "shipPostcode",
+      "shipCountry",
+    ],
   });
 
   const additionalCostRows = watchedAdditionalCosts ?? [];
@@ -834,7 +843,7 @@ export function PurchaseOrderForm({
         const existing = current.filter((row) => row.id !== option.id);
         return [...existing, option].sort((a, b) => a.label.localeCompare(b.label));
       });
-      applyDeliveryAddress(addressDialogState.lineIndex, option);
+      applyDeliveryAddress(option);
       setAddressDialogState(null);
       addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
     },
@@ -847,63 +856,40 @@ export function PurchaseOrderForm({
     );
   };
 
-  const applyDeliveryAddress = (
-    index: number,
-    address: DeliveryAddressFields | null
-  ) => {
+  const applyDeliveryAddress = (address: DeliveryAddressFields | null) => {
     const nextAddress = address ? normalizeDeliveryAddress(address) : EMPTY_DELIVERY_ADDRESS;
-    form.setValue(`lines.${index}.shipAddressEntryId`, nextAddress.shipAddressEntryId, {
+    form.setValue("shipLine1", nextAddress.shipLine1, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    form.setValue(`lines.${index}.shipContactName`, nextAddress.shipContactName, {
+    form.setValue("shipLine2", nextAddress.shipLine2, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    form.setValue(`lines.${index}.shipContactPhone`, nextAddress.shipContactPhone, {
+    form.setValue("shipCity", nextAddress.shipCity, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    form.setValue(`lines.${index}.shipLine1`, nextAddress.shipLine1, {
+    form.setValue("shipRegion", nextAddress.shipRegion, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    form.setValue(`lines.${index}.shipLine2`, nextAddress.shipLine2, {
+    form.setValue("shipPostcode", nextAddress.shipPostcode, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    form.setValue(`lines.${index}.shipCity`, nextAddress.shipCity, {
+    form.setValue("shipCountry", nextAddress.shipCountry, {
       shouldDirty: true,
       shouldValidate: true,
     });
-    form.setValue(`lines.${index}.shipRegion`, nextAddress.shipRegion, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue(`lines.${index}.shipPostcode`, nextAddress.shipPostcode, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue(`lines.${index}.shipCountry`, nextAddress.shipCountry, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue(
-      `lines.${index}.shipDeliveryInstructions`,
-      nextAddress.shipDeliveryInstructions,
-      {
-        shouldDirty: true,
-        shouldValidate: true,
-      }
-    );
   };
 
-  const openAddressDialog = (index: number) => {
+  const openAddressDialog = () => {
     addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
-    setAddressDialogState({ lineIndex: index, option: null });
+    setAddressDialogState({ option: null });
   };
 
-  const openEditAddressDialog = (index: number, option: DeliveryAddressOption) => {
+  const openEditAddressDialog = (option: DeliveryAddressOption) => {
     addressForm.reset({
       label: option.label,
       contactName: option.shipContactName,
@@ -917,7 +903,7 @@ export function PurchaseOrderForm({
       deliveryInstructions: option.shipDeliveryInstructions,
       notes: option.notes,
     });
-    setAddressDialogState({ lineIndex: index, option });
+    setAddressDialogState({ option });
   };
 
   const handleAddressDialogSubmit = (values: AddressDialogValues) => {
@@ -956,25 +942,10 @@ export function PurchaseOrderForm({
     (supplier) => supplier.id === watchedSupplierId
   );
   const deliveryAddressSummaries = useMemo(() => {
-    const summaries = new Map<
-      string,
+    const option = makeDeliveryAddressOption(form.getValues());
+    if (!option) return [];
+    return [
       {
-        key: string;
-        contactName: string | null;
-        contactPhone: string | null;
-        addressLines: string[];
-        deliveryInstructions: string | null;
-      }
-    >();
-
-    (watchedLines ?? []).forEach((line) => {
-      const option = makeDeliveryAddressOption(line);
-      if (!option) return;
-
-      const existing = summaries.get(option.id);
-      if (existing) return;
-
-      summaries.set(option.id, {
         key: option.id,
         contactName: option.shipContactName,
         contactPhone: option.shipContactPhone,
@@ -987,11 +958,17 @@ export function PurchaseOrderForm({
           country: option.shipCountry,
         }),
         deliveryInstructions: option.shipDeliveryInstructions,
-      });
-    });
-
-    return [...summaries.values()];
-  }, [watchedLines]);
+      },
+    ];
+  }, [form, watchedDeliveryAddress]);
+  const currentDeliveryAddress: DeliveryAddressFields = {
+    shipLine1: watchedDeliveryAddress?.[0] ?? null,
+    shipLine2: watchedDeliveryAddress?.[1] ?? null,
+    shipCity: watchedDeliveryAddress?.[2] ?? null,
+    shipRegion: watchedDeliveryAddress?.[3] ?? null,
+    shipPostcode: watchedDeliveryAddress?.[4] ?? null,
+    shipCountry: watchedDeliveryAddress?.[5] ?? null,
+  };
   const autosaveState = canAutosaveDraft ? autosave.state : "blocked";
   const autosaveMessage = canAutosaveDraft
     ? autosave.state === "saved" || autosave.state === "idle"
@@ -1087,7 +1064,7 @@ export function PurchaseOrderForm({
                 </div>
               </CreateSidebarCard>
             ) : null}
-            <CreateSidebarCard title="Delivery addresses">
+            <CreateSidebarCard title="Delivery address">
               {deliveryAddressSummaries.length > 0 ? (
                 <div className="space-y-3">
                   {deliveryAddressSummaries.map((address) => (
@@ -1115,7 +1092,7 @@ export function PurchaseOrderForm({
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
-                  No delivery addresses selected.
+                  No delivery address selected.
                 </div>
               )}
             </CreateSidebarCard>
@@ -1167,6 +1144,21 @@ export function PurchaseOrderForm({
                 )}
               />
 
+              <DeliveryAddressInput
+                id="purchase-order-delivery-address"
+                label={
+                  <TooltipHeader
+                    label="Delivery Address"
+                    tooltip={PURCHASE_DELIVERY_ADDRESS_TOOLTIP}
+                  />
+                }
+                value={currentDeliveryAddress}
+                options={deliveryAddressOptions}
+                onChange={applyDeliveryAddress}
+                onAddNew={openAddressDialog}
+                onEdit={openEditAddressDialog}
+              />
+
               <input type="hidden" {...form.register("shippingCost")} />
             </FieldGroup>
           </CreateSection>
@@ -1214,11 +1206,6 @@ export function PurchaseOrderForm({
                     tooltip={PURCHASE_LANDED_UNIT_TOOLTIP}
                   />,
                   <TooltipHeader
-                    key="deliver-to"
-                    label="Deliver To"
-                    tooltip={PURCHASE_DELIVERY_ADDRESS_TOOLTIP}
-                  />,
-                  <TooltipHeader
                     key="account"
                     label="Account"
                     tooltip={PURCHASE_ACCOUNT_TOOLTIP}
@@ -1237,14 +1224,6 @@ export function PurchaseOrderForm({
                     materials={materialOptions}
                     materialMap={materialMap}
                     xeroAccounts={xeroAccounts}
-                    deliveryAddressOptions={deliveryAddressOptions}
-                    onDeliveryAddressChange={(address) =>
-                      applyDeliveryAddress(index, address)
-                    }
-                    onAddDeliveryAddress={() => openAddressDialog(index)}
-                    onEditDeliveryAddress={(address) =>
-                      openEditAddressDialog(index, address)
-                    }
                     landedCost={landedCostPreview.lines[index]}
                     onMaterialChange={(materialId) => {
                       const material = materialMap.get(materialId);
@@ -1655,10 +1634,6 @@ function PurchaseOrderLineRow({
   materials,
   materialMap,
   xeroAccounts,
-  deliveryAddressOptions,
-  onDeliveryAddressChange,
-  onAddDeliveryAddress,
-  onEditDeliveryAddress,
   landedCost,
   onMaterialChange,
 }: {
@@ -1673,10 +1648,6 @@ function PurchaseOrderLineRow({
   >;
   materialMap: Map<string, PurchaseOrderMaterialOption>;
   xeroAccounts: XeroAccountOption[];
-  deliveryAddressOptions: DeliveryAddressOption[];
-  onDeliveryAddressChange: (address: DeliveryAddressFields | null) => void;
-  onAddDeliveryAddress: () => void;
-  onEditDeliveryAddress: (address: DeliveryAddressOption) => void;
   landedCost: LandedCostLineResult | undefined;
   onMaterialChange: (materialId: string) => void;
 }) {
@@ -1809,17 +1780,6 @@ function PurchaseOrderLineRow({
       </EditableLineGridCell>
 
       <EditableLineGridCell>
-        <DeliveryAddressInput
-          id={`${rowDomId}-delivery-address`}
-          value={line}
-          options={deliveryAddressOptions}
-          onChange={onDeliveryAddressChange}
-          onAddNew={onAddDeliveryAddress}
-          onEdit={onEditDeliveryAddress}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
         <Controller
           control={control}
           name={`lines.${index}.accountingPurchaseAccountCode`}
@@ -1853,6 +1813,7 @@ function PurchaseOrderLineRow({
 
 function DeliveryAddressInput({
   id,
+  label,
   value,
   options,
   onChange,
@@ -1860,6 +1821,7 @@ function DeliveryAddressInput({
   onEdit,
 }: {
   id: string;
+  label?: ReactNode;
   value: DeliveryAddressFields | undefined;
   options: DeliveryAddressOption[];
   onChange: (address: DeliveryAddressFields | null) => void;
@@ -1876,8 +1838,8 @@ function DeliveryAddressInput({
 
   return (
     <Field>
-      <FieldLabel className="sr-only" htmlFor={id}>
-        Delivery Address
+      <FieldLabel className={label ? undefined : "sr-only"} htmlFor={id}>
+        {label ?? "Delivery Address"}
       </FieldLabel>
       <Combobox
         items={items}

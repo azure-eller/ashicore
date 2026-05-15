@@ -493,7 +493,7 @@ export function PurchaseOrderDetail({
   const xeroPushMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        `/api/purchase-orders/${order.id}/xero-push`,
+        `/api/purchase-orders/${order.id}/accounting-push`,
         { method: "POST" }
       );
       const body = await response.json().catch(() => null);
@@ -533,7 +533,7 @@ export function PurchaseOrderDetail({
   const xeroEmailMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        `/api/purchase-orders/${order.id}/xero-email`,
+        `/api/purchase-orders/${order.id}/accounting-email`,
         { method: "POST" }
       );
       const body = await response.json().catch(() => null);

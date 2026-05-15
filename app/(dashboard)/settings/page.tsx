@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { getQuickBooksConnection } from "@/lib/dal/accounting";
 import {
   getRecentXeroExports,
   getRecentXeroImportRuns,
@@ -52,6 +53,7 @@ export default async function SettingsPage({
     accountData,
     teamData,
     xeroConnection,
+    quickBooksConnection,
     xeroImportRuns,
     xeroExports,
     resolvedSearchParams,
@@ -59,6 +61,7 @@ export default async function SettingsPage({
     getAccountPageData(),
     showTeam ? getTeamPageData() : null,
     showIntegrations ? getXeroConnection() : null,
+    showIntegrations ? getQuickBooksConnection() : null,
     showIntegrations ? getRecentXeroImportRuns() : [],
     showIntegrations
       ? getRecentXeroExports({
@@ -78,6 +81,7 @@ export default async function SettingsPage({
           {showIntegrations ? (
             <IntegrationsSection
               connection={xeroConnection}
+              quickBooksConnection={quickBooksConnection}
               importRuns={xeroImportRuns}
               exportRows={xeroExports}
               error={resolvedSearchParams.error}

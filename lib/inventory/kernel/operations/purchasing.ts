@@ -86,6 +86,7 @@ export async function editExpectedFromPurchaseInTx(
     purchaseOrderId: string;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    previousPurchaseOrderLineIds?: string[];
     nextLines: Array<{
       purchaseOrderLineId: string;
       itemId: string;
@@ -99,6 +100,7 @@ export async function editExpectedFromPurchaseInTx(
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       purchaseOrderId: params.purchaseOrderId,
+      previousPurchaseOrderLineIds: params.previousPurchaseOrderLineIds ?? null,
       nextLines: params.nextLines,
     },
   });
@@ -108,12 +110,14 @@ export async function editExpectedFromPurchaseInTx(
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const existingLineIds = (
-    await tx
-      .select({ id: purchaseOrderLines.id })
-      .from(purchaseOrderLines)
-      .where(eq(purchaseOrderLines.purchaseOrderId, params.purchaseOrderId))
-  ).map((row) => row.id);
+  const existingLineIds =
+    params.previousPurchaseOrderLineIds ??
+    (
+      await tx
+        .select({ id: purchaseOrderLines.id })
+        .from(purchaseOrderLines)
+        .where(eq(purchaseOrderLines.purchaseOrderId, params.purchaseOrderId))
+    ).map((row) => row.id);
   const existingRows =
     existingLineIds.length === 0
       ? []

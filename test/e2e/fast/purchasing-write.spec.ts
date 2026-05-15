@@ -221,7 +221,10 @@ test.describe("Purchasing write-path smoke", () => {
     expect(order.status).toBe("draft");
     expect(order.expectedDate).toBe("2026-05-01");
     expect(order.accountingPurchaseAccountCode).toBeNull();
-    expect(order.shipLine1).toBeNull();
+    expect(order.shipLine1).toBe("44 Test Dock");
+    expect(order.shipCity).toBe("Boulder");
+    expect(order.shipRegion).toBe("CO");
+    expect(order.shipPostcode).toBe("80301");
     expect(order.notes).toBe("Fast purchase order smoke test");
 
     const lines = await db
@@ -233,10 +236,10 @@ test.describe("Purchasing write-path smoke", () => {
     expect(lines[0].itemId).toBe(barkId);
     expect(lines[0].quantityOrdered).toBe("10.0000");
     expect(lines[0].accountingPurchaseAccountCode).toBe("312");
-    expect(lines[0].shipLine1).toBe("44 Test Dock");
-    expect(lines[0].shipCity).toBe("Boulder");
-    expect(lines[0].shipRegion).toBe("CO");
-    expect(lines[0].shipPostcode).toBe("80301");
+    expect(lines[0].shipLine1).toBeNull();
+    expect(lines[0].shipCity).toBeNull();
+    expect(lines[0].shipRegion).toBeNull();
+    expect(lines[0].shipPostcode).toBeNull();
     expect(Number(lines[0].stockUnitCost)).toBeCloseTo(2.909091, 6);
     expect(lines[1].itemId).toBe(sandId);
     expect(lines[1].quantityOrdered).toBe("5.0000");
@@ -579,7 +582,10 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicate.status).toBe("draft");
     expect(duplicate.notes).toBe("Fast purchase order smoke test");
     expect(duplicate.accountingPurchaseAccountCode).toBeNull();
-    expect(duplicate.shipLine1).toBeNull();
+    expect(duplicate.shipLine1).toBe("44 Test Dock");
+    expect(duplicate.shipCity).toBe("Boulder");
+    expect(duplicate.shipRegion).toBe("CO");
+    expect(duplicate.shipPostcode).toBe("80301");
 
     const duplicateLines = await db
       .select()
@@ -590,10 +596,10 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicateLines[0].itemId).toBe(barkId);
     expect(duplicateLines[0].quantityOrdered).toBe("10.0000");
     expect(duplicateLines[0].accountingPurchaseAccountCode).toBe("312");
-    expect(duplicateLines[0].shipLine1).toBe("44 Test Dock");
-    expect(duplicateLines[0].shipCity).toBe("Boulder");
-    expect(duplicateLines[0].shipRegion).toBe("CO");
-    expect(duplicateLines[0].shipPostcode).toBe("80301");
+    expect(duplicateLines[0].shipLine1).toBeNull();
+    expect(duplicateLines[0].shipCity).toBeNull();
+    expect(duplicateLines[0].shipRegion).toBeNull();
+    expect(duplicateLines[0].shipPostcode).toBeNull();
     expect(duplicateLines[1].itemId).toBe(sandId);
     expect(duplicateLines[1].quantityOrdered).toBe("5.0000");
     expect(duplicateLines[1].accountingPurchaseAccountCode).toBe("311");

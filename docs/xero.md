@@ -37,6 +37,17 @@ security work, read `docs/xero-partner-readiness.md`.
   POs/bills. Matched selected rows update `supplier_items`; unmatched selected
   rows may create missing ERP suppliers/items first. Xero item codes are stored
   as external metadata, not ERP item SKUs.
+- **PO import** — `lib/accounting/import-purchase-orders.ts`. Provider-first
+  purchase order import for ERP receiving. The current provider adapter fetches
+  open Xero or QuickBooks POs, while routes/UI/orchestration stay under
+  `/api/accounting/import/*` so providers plug in without changing the workflow.
+  Manual bulk import previews open provider POs with selectable rows; auto-sync
+  imports all open POs when enabled and creates missing suppliers/materials.
+  Existing received ERP PO lines are protected from re-import changes that would
+  rewrite receipt history.
+- **Provider adapters** — `lib/accounting/providers/*`. Keep provider-specific
+  OAuth/API/payload mapping here. Shared workflows must depend on the
+  `AccountingConnector` interface, not `lib/xero/*` or QuickBooks files.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
   beyond that, idempotency comes from reconcile-by-reference, not
