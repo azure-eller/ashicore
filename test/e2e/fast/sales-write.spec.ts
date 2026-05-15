@@ -71,6 +71,9 @@ async function openAllocationManagerFromMatrix(params: {
   const { page, orderNumber, itemName } = params;
   await page.goto("/sales/allocation");
   await page.getByLabel("Search sales allocations").fill(orderNumber);
+  await expect(page.getByText("Coverage").first()).toBeVisible();
+  await page.getByText("Coverage").first().click();
+  await expect(page.getByRole("dialog", { name: /Allocate/ })).toHaveCount(0);
 
   const allocateButton = page
     .getByRole("button", { name: new RegExp(`^Allocate ${escapeRegExp(itemName)}$`) })
