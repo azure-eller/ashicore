@@ -865,11 +865,11 @@ function ShippingPanel({
   onCreateOrderInvoice,
   onEditShipment,
   onShipShipment,
-  onCancelShipment,
+  onDeleteShipment,
   onEditCosts,
   onCreateShipmentInvoice,
   shipShipmentPending,
-  cancelShipmentPending,
+  deleteShipmentPending,
   createOrderInvoicePending,
   createShipmentInvoicePending,
 }: {
@@ -882,11 +882,11 @@ function ShippingPanel({
   onCreateOrderInvoice: () => void;
   onEditShipment: (shipment: SalesShipmentRow) => void;
   onShipShipment: (shipment: SalesShipmentRow) => void;
-  onCancelShipment: (shipment: SalesShipmentRow) => void;
+  onDeleteShipment: (shipment: SalesShipmentRow) => void;
   onEditCosts: (shipment: SalesShipmentRow) => void;
   onCreateShipmentInvoice: (shipment: SalesShipmentRow) => void;
   shipShipmentPending: boolean;
-  cancelShipmentPending: boolean;
+  deleteShipmentPending: boolean;
   createOrderInvoicePending: boolean;
   createShipmentInvoicePending: boolean;
 }) {
@@ -901,9 +901,7 @@ function ShippingPanel({
   const shippedShipmentCount = order.shipments.filter(
     (shipment) => shipment.status === "shipped"
   ).length;
-  const activeShipmentCount = order.shipments.filter(
-    (shipment) => shipment.status !== "cancelled"
-  ).length;
+  const activeShipmentCount = order.shipments.length;
 
   return (
     <div className="space-y-3">
@@ -991,18 +989,10 @@ function ShippingPanel({
                   <TableCell>
                     <Badge
                       variant={
-                        shipment.status === "shipped"
-                          ? "outline"
-                          : shipment.status === "cancelled"
-                            ? "destructive"
-                            : "secondary"
+                        shipment.status === "shipped" ? "outline" : "secondary"
                       }
                     >
-                      {shipment.status === "shipped"
-                        ? "Shipped"
-                        : shipment.status === "cancelled"
-                          ? "Cancelled"
-                          : "Ready to ship"}
+                      {shipment.status === "shipped" ? "Shipped" : "Planned"}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -1045,43 +1035,39 @@ function ShippingPanel({
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1.5">
-                      {shipment.status !== "cancelled" ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              window.open(
-                                `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
-                                "_blank",
-                                "noopener,noreferrer"
-                              );
-                            }}
-                          >
-                            View BOL
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onEditCosts(shipment)}
-                          >
-                            Costs
-                          </Button>
-                          {shipment.status === "shipped" ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => onCreateShipmentInvoice(shipment)}
-                              disabled={createShipmentInvoicePending}
-                            >
-                              {shipment.xeroPushStatus === "pushed"
-                                ? "Invoice created"
-                                : "Create invoice"}
-                            </Button>
-                          ) : null}
-                        </>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          window.open(
+                            `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
+                            "_blank",
+                            "noopener,noreferrer"
+                          );
+                        }}
+                      >
+                        View BOL
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onEditCosts(shipment)}
+                      >
+                        Costs
+                      </Button>
+                      {shipment.status === "shipped" ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onCreateShipmentInvoice(shipment)}
+                          disabled={createShipmentInvoicePending}
+                        >
+                          {shipment.xeroPushStatus === "pushed"
+                            ? "Invoice created"
+                            : "Create invoice"}
+                        </Button>
                       ) : null}
-                      {shipment.status === "draft" ? (
+                      {shipment.status === "planned" ? (
                         <>
                           <Button
                             variant="outline"
@@ -1101,10 +1087,10 @@ function ShippingPanel({
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => onCancelShipment(shipment)}
-                            disabled={cancelShipmentPending}
+                            onClick={() => onDeleteShipment(shipment)}
+                            disabled={deleteShipmentPending}
                           >
-                            Cancel
+                            Delete
                           </Button>
                         </>
                       ) : null}
@@ -1548,7 +1534,7 @@ export function OrderDetail({
     },
   });
 
-  const cancelShipmentMutation = useMutation({
+  const deleteShipmentMutation = useMutation({
     mutationFn: async ({ shipmentId, idempotencyKey }: ShipmentActionPayload) => {
       const response = await fetch(
         `/api/sales-orders/${order.id}/shipments/${shipmentId}`,
@@ -1559,7 +1545,7 @@ export function OrderDetail({
       );
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel shipment.");
+        throw new Error(body?.error ?? "Failed to delete shipment.");
       }
     },
     onMutate: () => {
@@ -2006,10 +1992,10 @@ export function OrderDetail({
                     setShipmentForm(buildShipmentFormState(order, shipment))
                   }
                   onShipShipment={openShipShipmentDialog}
-                  onCancelShipment={(shipment) =>
-                    cancelShipmentMutation.mutate({
+                  onDeleteShipment={(shipment) =>
+                    deleteShipmentMutation.mutate({
                       shipmentId: shipment.id,
-                      idempotencyKey: `sales-shipment-cancel:${crypto.randomUUID()}`,
+                      idempotencyKey: `sales-shipment-delete:${crypto.randomUUID()}`,
                     })
                   }
                   onEditCosts={(shipment) =>
@@ -2022,7 +2008,7 @@ export function OrderDetail({
                     })
                   }
                   shipShipmentPending={shipShipmentMutation.isPending}
-                  cancelShipmentPending={cancelShipmentMutation.isPending}
+                  deleteShipmentPending={deleteShipmentMutation.isPending}
                   createOrderInvoicePending={xeroPushMutation.isPending}
                   createShipmentInvoicePending={shipmentXeroPushMutation.isPending}
                 />

@@ -112,7 +112,7 @@ function PriorityRankEditor({
 }) {
   const [value, setValue] = useState(order.priorityRank?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
-  const canEdit = order.status === "open" && order.releasedAt != null;
+  const canEdit = order.status === "open";
 
   const mutation = useMutation({
     mutationFn: async (priorityRank: number | null) => {
@@ -338,7 +338,7 @@ function IngredientsTable({
   const [error, setError] = useState<string | null>(null);
   const canReorder =
     order.status === "open" &&
-    (order.releasedAt == null || order.manufacturingMode !== "batch");
+    order.manufacturingMode !== "batch";
   const isDirty = !hasSameOrder(
     ingredients.map((ingredient) => ingredient.id),
     savedIngredientIds
@@ -527,7 +527,7 @@ export function ManufacturingOrderDetail({
     },
   });
 
-  const canEdit = order.status === "open" && order.releasedAt == null;
+  const canEdit = order.status === "open";
   const canDelete = order.deletedAt == null;
 
   return (
@@ -544,7 +544,7 @@ export function ManufacturingOrderDetail({
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{order.orderNumber}</h1>
               <ManufacturingOrderStatusBadge status={order.status} />
-              {order.status === "open" && order.releasedAt != null && (
+              {order.status === "open" && (
                 <ManufacturingPickProgressBadge status={order.pickProgressStatus} />
               )}
               {order.deletedAt && <Badge variant="outline">Deleted</Badge>}
@@ -592,7 +592,6 @@ export function ManufacturingOrderDetail({
             <MoStageAction
               orderId={order.id}
               status={order.status}
-              releasedAt={order.releasedAt}
             />
           </DetailPageActions>
         </div>
@@ -704,10 +703,6 @@ export function ManufacturingOrderDetail({
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
             <dd className="mt-1 text-sm">{formatDateTime(order.updatedAt, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Released</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(order.releasedAt, timeZone)}</dd>
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">Completed</dt>

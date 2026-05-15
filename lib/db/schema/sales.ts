@@ -542,7 +542,7 @@ export const salesShipments = salesSchema
         .references(() => salesOrders.id),
       shipmentNumber: varchar("shipment_number", { length: 50 }).notNull(),
       sequence: integer("sequence").notNull(),
-      status: varchar("status", { length: 20 }).notNull().default("draft"),
+      status: varchar("status", { length: 20 }).notNull().default("planned"),
       fulfillmentType: varchar("fulfillment_type", { length: 20 })
         .notNull()
         .default("delivery"),
@@ -578,7 +578,7 @@ export const salesShipments = salesSchema
       ),
       check(
         "sales_shipments_status_check",
-        sql`status IN ('draft', 'shipped', 'cancelled')`
+        sql`status IN ('planned', 'shipped')`
       ),
       check(
         "sales_shipments_fulfillment_type_check",

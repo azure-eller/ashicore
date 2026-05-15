@@ -73,7 +73,6 @@ async function validateSourceInTx(
     .select({
       productId: manufacturingOrders.productId,
       status: manufacturingOrders.status,
-      releasedAt: manufacturingOrders.releasedAt,
       deletedAt: manufacturingOrders.deletedAt,
       remainingExpectedQty: trimScale(sql`GREATEST(
         ${manufacturingOrders.plannedQuantity} - COALESCE(${manufacturingOrders.actualQuantity}, 0),
@@ -88,7 +87,6 @@ async function validateSourceInTx(
     row.deletedAt != null ||
     row.productId !== params.itemId ||
     row.status !== "open" ||
-    row.releasedAt == null ||
     toQuantity(row.remainingExpectedQty) <= 0
   ) {
     throw new AllocationError("Manufacturing order source is not available.", 409);

@@ -12,7 +12,7 @@ import {
 export const SALES_ORDER_STATUSES = ["open", "done"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 
-export const SALES_SHIPMENT_STATUSES = ["draft", "shipped", "cancelled"] as const;
+export const SALES_SHIPMENT_STATUSES = ["planned", "shipped"] as const;
 export type SalesShipmentStatus = (typeof SALES_SHIPMENT_STATUSES)[number];
 
 export const SALES_SHIPMENT_FULFILLMENT_TYPES = ["delivery", "pickup"] as const;

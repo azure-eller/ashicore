@@ -128,7 +128,6 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
     actualQuantity: true,
     actualMaterialCost: true,
     actualCostPerUnit: true,
-    releasedAt: true,
     completedAt: true,
     cancelledAt: true,
     deletedAt: true,
@@ -209,13 +208,6 @@ export const updateManufacturingOrderSchema = baseManufacturingOrderSchema.omit(
 });
 export type UpdateManufacturingOrder = z.infer<
   typeof updateManufacturingOrderSchema
->;
-
-export const releaseManufacturingOrderSchema = z.object({
-  confirmShortage: z.boolean().optional(),
-});
-export type ReleaseManufacturingOrder = z.infer<
-  typeof releaseManufacturingOrderSchema
 >;
 
 const ingredientActualSchema = z.object({

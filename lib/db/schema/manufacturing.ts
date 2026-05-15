@@ -66,7 +66,6 @@ export const manufacturingOrders = manufacturingSchema
         scale: 4,
       }),
       notes: text("notes"),
-      releasedAt: timestamp("released_at", { withTimezone: true }),
       completedAt: timestamp("completed_at", { withTimezone: true }),
       cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),

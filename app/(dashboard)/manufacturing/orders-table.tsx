@@ -90,10 +90,6 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
     return { percent: 100, label: "Complete" };
   }
 
-  if (order.releasedAt == null) {
-    return { percent: 0, label: "Not started" };
-  }
-
   if (order.manufacturingMode === "batch") {
     const totalBatchCount = order.numberOfBatches ?? 0;
     const percent =
@@ -171,16 +167,12 @@ function getProductionState(order: ManufacturingOrderListRow): OperationalState 
     return { label: "Completed", tone: "success" };
   }
 
-  if (order.releasedAt != null) {
-    if (
-      order.pickProgressStatus === "in_progress" ||
-      order.pickProgressStatus === "picked" ||
-      order.completedBatchCount > 0
-    ) {
-      return { label: "Work in progress", tone: "warning" };
-    }
-
-    return { label: "Not started", tone: "muted" };
+  if (
+    order.pickProgressStatus === "in_progress" ||
+    order.pickProgressStatus === "picked" ||
+    order.completedBatchCount > 0
+  ) {
+    return { label: "Work in progress", tone: "warning" };
   }
 
   return { label: "Not started", tone: "muted" };
@@ -204,7 +196,6 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
         />
       }
       triggerAriaLabel={`Manufacturing actions for ${order.orderNumber}`}
-      releasedAt={order.releasedAt}
     />
   );
 }

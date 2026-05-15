@@ -111,38 +111,19 @@ function getSalesItemsState(order: SalesOrderListRow): OperationalState {
   return { label: "Not allocated", tone: "destructive" };
 }
 
-function readyShipmentCount(order: SalesOrderListRow) {
-  return order.shipments.filter((shipment) => shipment.status === "draft").length;
-}
-
-function activeShipmentCount(order: SalesOrderListRow) {
-  return order.shipments.filter((shipment) => shipment.status !== "cancelled").length;
-}
-
-function readyShipmentLabel(order: SalesOrderListRow) {
-  const readyCount = readyShipmentCount(order);
-  const activeCount = activeShipmentCount(order);
-
-  if (readyCount > 0 && activeCount > 1) {
-    return `Ready to ship (${readyCount}/${activeCount})`;
-  }
-
-  return "Ready to ship";
-}
-
-function hasFullyGroundAllocatedStock(order: SalesOrderListRow) {
-  return (
-    parseQuantity(order.fulfillmentSummary.remainingQty) > 0 &&
-    parseQuantity(order.fulfillmentSummary.shortQty) <= 0 &&
-    parseQuantity(order.fulfillmentSummary.productionAllocatedQty) <= 0
-  );
-}
-
 function shippedSalesQuantity(order: SalesOrderListRow) {
   return order.lines.reduce(
     (sum, line) => sum + parseQuantity(line.shippedQuantity),
     0
   );
+}
+
+function shippedShipmentCount(order: SalesOrderListRow) {
+  return order.shipments.filter((shipment) => shipment.status === "shipped").length;
+}
+
+function activeShipmentCount(order: SalesOrderListRow) {
+  return order.shipments.length;
 }
 
 function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
@@ -193,19 +174,14 @@ function getDeliveryState(order: SalesOrderListRow): OperationalState {
     return { label: "Shipped", tone: "success" };
   }
 
-  if (readyShipmentCount(order) > 0) {
-    return { label: readyShipmentLabel(order), tone: "success" };
-  }
-
   if (shippedSalesQuantity(order) > 0) {
-    return { label: "Partially shipped", tone: "warning" };
-  }
-
-  if (
-    order.shippingReadiness.state === "ready" &&
-    hasFullyGroundAllocatedStock(order)
-  ) {
-    return { label: "Ready to ship", tone: "success" };
+    const shippedCount = shippedShipmentCount(order);
+    const activeCount = activeShipmentCount(order);
+    const label =
+      shippedCount > 0 && activeCount > 1
+        ? `Partially shipped (${shippedCount}/${activeCount})`
+        : "Partially shipped";
+    return { label, tone: "warning" };
   }
 
   return { label: "Not shipped", tone: "muted" };
@@ -385,8 +361,8 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
         valueFormatter: ({ value }) => formatPrice(String(value ?? "")) ?? "—",
       },
       {
-        colId: "salesItems",
-        headerName: "Sales Items",
+        colId: "allocation",
+        headerName: "Allocation",
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
         width: 165,
         minWidth: 145,

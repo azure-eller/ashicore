@@ -139,7 +139,6 @@ export type ManufacturingOrderListRow = {
   ingredientReadiness: ManufacturingIngredientReadiness;
   completedBatchCount: number;
   actionableBatchCount: number;
-  releasedAt: Date | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -246,7 +245,6 @@ export type ManufacturingOrderDetail = {
   actualMaterialCost: string | null;
   actualCostPerUnit: string | null;
   notes: string | null;
-  releasedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
   deletedAt: Date | null;

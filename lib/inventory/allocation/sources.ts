@@ -125,10 +125,7 @@ export async function loadAllocationSourcesForItemInTx(
     eq(manufacturingOrders.productId, params.itemId),
     isNull(manufacturingOrders.deletedAt),
     or(
-      and(
-        eq(manufacturingOrders.status, "open"),
-        sql`${manufacturingOrders.releasedAt} IS NOT NULL`
-      ),
+      eq(manufacturingOrders.status, "open"),
       manufacturingAllocatedSourceIds.length > 0
         ? inArray(manufacturingOrders.id, manufacturingAllocatedSourceIds)
         : sql`false`
@@ -140,7 +137,6 @@ export async function loadAllocationSourcesForItemInTx(
       orderNumber: manufacturingOrders.orderNumber,
       productName: manufacturingOrders.productName,
       status: manufacturingOrders.status,
-      releasedAt: manufacturingOrders.releasedAt,
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
       remainingExpectedQty: trimScale(sql`GREATEST(
@@ -189,7 +185,7 @@ export async function loadAllocationSourcesForItemInTx(
       0,
       roundQuantity(totalQty - Math.max(0, allocatedQty - currentPrimaryQty))
     );
-    const canAllocate = mo.status === "open" && mo.releasedAt != null && totalQty > 0;
+    const canAllocate = mo.status === "open" && totalQty > 0;
 
     sources.push({
       sourceType: "manufacturing_order",

@@ -157,19 +157,12 @@ type LockedManufacturingOrder = {
   plannedDate: string | null;
   priorityRank: number | null;
   bomRevisionId: string | null;
-  releasedAt: Date | null;
 };
 
-function isReleasedManufacturingOrder(
-  order: Pick<LockedManufacturingOrder, "status" | "releasedAt">
+function isOpenManufacturingOrder(
+  order: Pick<LockedManufacturingOrder, "status">
 ) {
-  return order.status === "open" && order.releasedAt != null;
-}
-
-function isUnreleasedManufacturingOrder(
-  order: Pick<LockedManufacturingOrder, "status" | "releasedAt">
-) {
-  return order.status === "open" && order.releasedAt == null;
+  return order.status === "open";
 }
 
 type ValidatedIngredient = {
@@ -469,7 +462,6 @@ async function getLockedManufacturingOrderInTx(
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
-      releasedAt: manufacturingOrders.releasedAt,
     })
     .from(manufacturingOrders)
     .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)))
@@ -528,7 +520,7 @@ async function assertPriorityRankAvailableInTx(
   }
 }
 
-async function rerankReleasedManufacturingOrdersInTx(tx: Tx, orgId: string) {
+async function rerankOpenManufacturingOrdersInTx(tx: Tx, orgId: string) {
   const rows = await tx
     .select({
       id: manufacturingOrders.id,
@@ -544,7 +536,6 @@ async function rerankReleasedManufacturingOrdersInTx(tx: Tx, orgId: string) {
     .orderBy(
       sql`${manufacturingOrders.priorityRank} IS NULL`,
       asc(manufacturingOrders.priorityRank),
-      asc(manufacturingOrders.releasedAt),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrders.id)
     )
@@ -1020,25 +1011,23 @@ async function activateManufacturingOrderInTx(
     ingredientRows.map((row) => row.itemId)
   );
 
-  const releasedAt = new Date();
-  const [released] = await tx
+  const updatedAt = new Date();
+  const [orderRow] = await tx
     .update(manufacturingOrders)
     .set({
       status: "open",
       priorityRank: null,
-      releasedAt,
-      updatedAt: releasedAt,
+      updatedAt,
     })
     .where(eq(manufacturingOrders.id, order.id))
     .returning({ id: manufacturingOrders.id });
 
-  await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+  await rerankOpenManufacturingOrdersInTx(tx, orgId);
 
   if (order.manufacturingMode === "batch") {
     await ensureBatchExecutionRowsInTx(tx, {
       ...order,
       status: "open",
-      releasedAt,
     });
   }
 
@@ -1086,7 +1075,7 @@ async function activateManufacturingOrderInTx(
     })),
   });
 
-  return released;
+  return orderRow;
 }
 
 async function prepareUpdatedIngredientsInTx(
@@ -1523,8 +1512,7 @@ async function ensureBatchExecutionRowsInTx(
 ): Promise<ExecutionBatchRow[]> {
   if (
     order.manufacturingMode !== "batch" ||
-    order.status !== "open" ||
-    order.releasedAt == null
+    order.status !== "open"
   ) {
     return [];
   }
@@ -2302,7 +2290,6 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             status: manufacturingOrders.status,
             manufacturingMode: manufacturingOrders.manufacturingMode,
             numberOfBatches: manufacturingOrders.numberOfBatches,
-            releasedAt: manufacturingOrders.releasedAt,
             deletedAt: manufacturingOrders.deletedAt,
             createdAt: manufacturingOrders.createdAt,
             updatedAt: manufacturingOrders.updatedAt,
@@ -2501,7 +2488,6 @@ export async function getManufacturingExecutionQueue(): Promise<
     .filter(
       (order) =>
         order.status === "open" &&
-        order.releasedAt != null &&
         order.manufacturingMode === "batch" &&
         (order.numberOfBatches ?? 0) > 0
     )
@@ -2535,7 +2521,7 @@ export async function getManufacturingExecutionQueue(): Promise<
   }
 
   return orders
-    .filter((order) => order.status === "open" && order.releasedAt != null)
+    .filter((order) => order.status === "open")
     .map((order) => {
       const totalBatchCount = order.numberOfBatches ?? 0;
       const nextBatchNumber =
@@ -2821,7 +2807,6 @@ export async function getManufacturingOrder(
           "actualCostPerUnit"
         ),
         notes: manufacturingOrders.notes,
-        releasedAt: manufacturingOrders.releasedAt,
         completedAt: manufacturingOrders.completedAt,
         cancelledAt: manufacturingOrders.cancelledAt,
         deletedAt: manufacturingOrders.deletedAt,
@@ -2838,7 +2823,7 @@ export async function getManufacturingOrder(
     const batches = await getBatchRowsInTx(tx, id);
 
     const rawIngredients =
-      order.manufacturingMode === "batch" && order.releasedAt != null
+      order.manufacturingMode === "batch"
         ? await tx
             .select({
               id: manufacturingOrderIngredients.id,
@@ -2873,7 +2858,7 @@ export async function getManufacturingOrder(
         : await getTemplateIngredientsInTx(tx, id);
 
     const batchRawIngredients =
-      order.manufacturingMode === "batch" && order.releasedAt != null
+      order.manufacturingMode === "batch"
         ? (rawIngredients as Omit<ExecutionIngredientRow, "constraints">[])
         : null;
     const batchIngredientsWithDetails =
@@ -2898,7 +2883,7 @@ export async function getManufacturingOrder(
         ? aggregateBatchIngredients(batchIngredientsWithDetails)
         : (rawIngredients as ExecutionIngredientRow[]).map(toIngredientDetail);
     const detailIngredients =
-      order.status === "open" && order.releasedAt == null && order.bomRevisionId != null
+      false
         ? await (async () => {
             const bomRows = await getBomRevisionComponentsInTx(tx, order.bomRevisionId!);
             return ingredients.map((ingredient) => {
@@ -3016,7 +3001,6 @@ export async function getManufacturingOrderEditData(
         ),
         priorityRank: manufacturingOrders.priorityRank,
         plannedDate: manufacturingOrders.plannedDate,
-        releasedAt: manufacturingOrders.releasedAt,
         notes: manufacturingOrders.notes,
       })
       .from(manufacturingOrders)
@@ -3345,7 +3329,7 @@ export async function updateManufacturingOrder(
       throw new ManufacturingError("Only open orders can be edited", 400);
     }
 
-    if (isReleasedManufacturingOrder(existing)) {
+    if (isOpenManufacturingOrder(existing)) {
       const existingIngredientIds = await tx
         .select({ id: manufacturingOrderIngredients.id })
         .from(manufacturingOrderIngredients)
@@ -3453,7 +3437,7 @@ export async function updateManufacturingOrder(
       demandIds: existingIngredientRows.map((row) => row.id),
     });
 
-    if (isReleasedManufacturingOrder(existing)) {
+    if (isOpenManufacturingOrder(existing)) {
       await releaseIngredientReservationForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
@@ -3469,7 +3453,7 @@ export async function updateManufacturingOrder(
       ingredients
     );
 
-    if (isReleasedManufacturingOrder(existing)) {
+    if (isOpenManufacturingOrder(existing)) {
       await editExpectedFromManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
@@ -3500,7 +3484,7 @@ export async function updateManufacturingOrder(
       });
     }
 
-    await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+    await rerankOpenManufacturingOrdersInTx(tx, orgId);
 
     return order;
   });
@@ -3666,7 +3650,7 @@ export async function reorderManufacturingOrderIngredients(
 
     const now = new Date();
 
-    if (order.manufacturingMode === "batch" && isReleasedManufacturingOrder(order)) {
+    if (order.manufacturingMode === "batch" && isOpenManufacturingOrder(order)) {
       if (submittedRows.some((row) => row.manufacturingOrderBatchId == null)) {
         throw new ManufacturingError(
           "Batch execution order must use batch ingredient rows.",
@@ -3739,57 +3723,6 @@ export async function reorderManufacturingOrderIngredients(
   });
 }
 
-export async function releaseManufacturingOrder(
-  id: string,
-  confirmShortage = false,
-  options?: { idempotencyKey?: string }
-): Promise<{ id: string }> {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
-      organizationId: orgId,
-      operationName: "releaseManufacturingOrder",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id, confirmShortage },
-    });
-
-    if (replay.replayed) {
-      return replay.result;
-    }
-
-    const order = await getLockedManufacturingOrderInTx(tx, id);
-
-    if (!order) {
-      throw new ManufacturingError("Order not found", 404);
-    }
-
-    if (isReleasedManufacturingOrder(order)) {
-      const result = { id: order.id };
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    if (!isUnreleasedManufacturingOrder(order)) {
-      throw new ManufacturingError("Only open orders can be activated", 400);
-    }
-
-    const released = await activateManufacturingOrderInTx(tx, orgId, order, {
-      actorUserId: userId,
-    });
-
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result: released,
-    });
-
-    return released;
-  });
-}
-
 export async function recordManufacturingOutput(
   orderId: string,
   payload: RecordManufacturingOutput,
@@ -3812,8 +3745,8 @@ export async function recordManufacturingOutput(
       throw new ManufacturingError("Order not found", 404);
     }
 
-    if (!isReleasedManufacturingOrder(order)) {
-      throw new ManufacturingError("Only released orders can record output", 400);
+    if (!isOpenManufacturingOrder(order)) {
+      throw new ManufacturingError("Only open orders can record output", 400);
     }
 
     const outputQuantity = Number(payload.quantity);
@@ -4852,8 +4785,8 @@ export async function completeManufacturingOrder(
       throw new ManufacturingError("Order not found", 404);
     }
 
-    if (!isReleasedManufacturingOrder(order)) {
-      throw new ManufacturingError("Only released orders can be completed", 400);
+    if (!isOpenManufacturingOrder(order)) {
+      throw new ManufacturingError("Only open orders can be completed", 400);
     }
 
     if (order.manufacturingMode === "batch") {
@@ -4899,7 +4832,7 @@ export async function completeManufacturingOrder(
         .where(eq(manufacturingOrders.id, id))
         .returning({ id: manufacturingOrders.id });
 
-      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+      await rerankOpenManufacturingOrdersInTx(tx, orgId);
 
       await finishInventoryOperationInTx(tx, {
         organizationId: orgId,
@@ -5057,7 +4990,7 @@ export async function completeManufacturingOrder(
       .where(eq(manufacturingOrders.id, id))
       .returning({ id: manufacturingOrders.id });
 
-    await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+    await rerankOpenManufacturingOrdersInTx(tx, orgId);
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -5080,8 +5013,8 @@ export async function startManufacturingBatch(
       throw new ManufacturingError("Order not found", 404);
     }
 
-    if (!isReleasedManufacturingOrder(order) || order.manufacturingMode !== "batch") {
-      throw new ManufacturingError("Only released batch-mode orders can start batches", 400);
+    if (!isOpenManufacturingOrder(order) || order.manufacturingMode !== "batch") {
+      throw new ManufacturingError("Only open batch-mode orders can start batches", 400);
     }
 
     await ensureBatchExecutionRowsInTx(tx, order);
@@ -5133,8 +5066,8 @@ export async function completeManufacturingBatch(
       throw new ManufacturingError("Order not found", 404);
     }
 
-    if (!isReleasedManufacturingOrder(order) || order.manufacturingMode !== "batch") {
-      throw new ManufacturingError("Only released batch-mode orders can complete batches", 400);
+    if (!isOpenManufacturingOrder(order) || order.manufacturingMode !== "batch") {
+      throw new ManufacturingError("Only open batch-mode orders can complete batches", 400);
     }
 
     await ensureBatchExecutionRowsInTx(tx, order);
@@ -5226,7 +5159,7 @@ export async function completeManufacturingBatch(
         .where(eq(manufacturingOrders.id, orderId));
 
       if (allCompleted) {
-        await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+        await rerankOpenManufacturingOrdersInTx(tx, orgId);
       }
 
       const result = { id: batchId };
@@ -5405,7 +5338,7 @@ export async function completeManufacturingBatch(
       .where(eq(manufacturingOrders.id, orderId));
 
     if (allCompleted) {
-      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+      await rerankOpenManufacturingOrdersInTx(tx, orgId);
     }
 
     const result = { id: batchId };
@@ -5455,8 +5388,8 @@ export async function pickManufacturingIngredient(
       throw new ManufacturingError("Order not found", 404);
     }
 
-    if (!isReleasedManufacturingOrder(order)) {
-      throw new ManufacturingError("Only released orders can be picked", 400);
+    if (!isOpenManufacturingOrder(order)) {
+      throw new ManufacturingError("Only open orders can be picked", 400);
     }
 
     let lockedBatches: LockedBatchStateRow[] = [];
@@ -5698,7 +5631,6 @@ export async function getManufacturingExecutionDetail(
         salesCustomerName: manufacturingOrders.salesCustomerName,
         priorityRank: manufacturingOrders.priorityRank,
         plannedDate: manufacturingOrders.plannedDate,
-        releasedAt: manufacturingOrders.releasedAt,
         notes: manufacturingOrders.notes,
       })
       .from(manufacturingOrders)
@@ -5709,7 +5641,7 @@ export async function getManufacturingExecutionDetail(
     }
 
     let batches: ExecutionBatchRow[] = [];
-    if (order.manufacturingMode === "batch" && order.releasedAt != null) {
+    if (order.manufacturingMode === "batch") {
       batches = await getBatchRowsInTx(tx, orderId);
     }
 
@@ -5781,7 +5713,7 @@ export async function deleteManufacturingOrder(
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
       .for("update");
 
-    if (isReleasedManufacturingOrder(order)) {
+    if (isOpenManufacturingOrder(order)) {
       let reservationRows: Awaited<
         ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
       > = [];
@@ -5812,7 +5744,7 @@ export async function deleteManufacturingOrder(
           pickedQuantity: parseFloat(row.pickedQuantity),
         })),
       });
-      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+      await rerankOpenManufacturingOrdersInTx(tx, orgId);
     }
 
     await tx
@@ -5846,7 +5778,6 @@ export async function deleteManufacturingOrders(
       .select({
         id: manufacturingOrders.id,
         status: manufacturingOrders.status,
-        releasedAt: manufacturingOrders.releasedAt,
         productId: manufacturingOrders.productId,
         manufacturingMode: manufacturingOrders.manufacturingMode,
       })
@@ -5868,7 +5799,7 @@ export async function deleteManufacturingOrders(
       : [];
 
     for (const order of orders) {
-      if (!isReleasedManufacturingOrder(order)) continue;
+      if (!isOpenManufacturingOrder(order)) continue;
 
       let reservationRows: Awaited<
         ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
@@ -5902,8 +5833,8 @@ export async function deleteManufacturingOrders(
       });
     }
 
-    if (orders.some(isReleasedManufacturingOrder)) {
-      await rerankReleasedManufacturingOrdersInTx(tx, orgId);
+    if (orders.some(isOpenManufacturingOrder)) {
+      await rerankOpenManufacturingOrdersInTx(tx, orgId);
     }
 
     const deleted = await tx

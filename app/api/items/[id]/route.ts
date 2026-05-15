@@ -120,7 +120,7 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
     return NextResponse.json(
       {
         error:
-          "Cannot delete: this item is still used by one or more draft or released manufacturing orders.",
+          "Cannot delete: this item is still used by one or more open manufacturing orders.",
       },
       { status: 400 }
     );

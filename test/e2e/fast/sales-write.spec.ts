@@ -466,7 +466,7 @@ test.describe("Sales write-path smoke", () => {
       .select()
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(productBalance?.committedQty ?? "0.0000").toBe("3.0000");
+    expect(productBalance?.committedQty ?? "0.0000").toBe("0.0000");
 
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.getByText("Confirm the order before shipping.")).toHaveCount(0);
@@ -735,9 +735,9 @@ test.describe("Sales write-path smoke", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, editItemId));
-    expect(balanceAfterEdit.committedQty).toBe("4.0000");
+    expect(balanceAfterEdit.committedQty).toBe("0.0000");
     expect(balanceAfterEdit.demandQty).toBe("4.0000");
-    expect(balanceAfterEdit.shortageQty).toBe("0.0000");
+    expect(balanceAfterEdit.shortageQty).toBe("4.0000");
 
     const [reservation] = await db
       .select({
@@ -745,9 +745,9 @@ test.describe("Sales write-path smoke", () => {
       })
       .from(inventoryReservationsSummary)
       .where(eq(inventoryReservationsSummary.itemId, editItemId));
-    expect(reservation.quantity).toBe("4.0000");
+    expect(reservation.quantity).toBe("0");
 
-    const [draftShipmentLine] = await db
+    const [plannedShipmentLine] = await db
       .select({ quantity: salesShipmentLines.quantity })
       .from(salesShipmentLines)
       .innerJoin(
@@ -755,7 +755,7 @@ test.describe("Sales write-path smoke", () => {
         eq(salesShipmentLines.salesShipmentId, salesShipments.id)
       )
       .where(eq(salesShipments.salesOrderId, editOrderId));
-    expect(draftShipmentLine.quantity).toBe("4.0000");
+    expect(plannedShipmentLine.quantity).toBe("4.0000");
   });
 
   test("allocation manager does not count unallocated available stock as allocated", async ({
@@ -1281,7 +1281,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(salesOrderCard(page, secondOrderNumber)).toBeVisible();
   });
 
-  test("confirming schedules a draft shipment and selected MOs stay separate", async ({
+  test("open order schedules a planned shipment and selected MOs stay separate", async ({
     db,
   }) => {
     const suffix = `${ts}-FULFILLMENT`;
@@ -1391,7 +1391,7 @@ test.describe("Sales write-path smoke", () => {
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, fulfillmentOrderId));
     expect(shipments).toEqual([
-      { status: "draft", scheduledDate: "2026-06-02" },
+      { status: "planned", scheduledDate: "2026-06-02" },
     ]);
 
     const createdManufacturingOrders = await db
@@ -2041,7 +2041,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(orderCard.getByRole("button", { name: "Create MOs" })).toBeVisible();
   });
 
-  test("ships a draft shipment from sales order detail", async ({ page, db }) => {
+  test("ships a planned shipment from sales order detail", async ({ page, db }) => {
     const suffix = `${ts}-WS`;
     const customerResult = await createCustomer({
       name: `Fast Web Ship Customer ${suffix}`,
@@ -2090,7 +2090,7 @@ test.describe("Sales write-path smoke", () => {
     const webShipOrderId = orderResult.body.id as string;
 
     await page.goto(`/sales/orders/${webShipOrderId}`);
-    const shipmentRow = page.getByRole("row", { name: /Ready to ship/ });
+    const shipmentRow = page.getByRole("row", { name: /Planned/ });
     await shipmentRow.getByRole("button", { name: "Ship", exact: true }).click();
 
     const dialog = page.getByRole("alertdialog", { name: "Ship this shipment?" });
@@ -2165,16 +2165,16 @@ test.describe("Sales write-path smoke", () => {
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, shortOrderId));
 
-    const [initialDraftShipment] = await db
+    const [initialPlannedShipment] = await db
       .select({ id: salesShipments.id })
       .from(salesShipments)
       .where(eq(salesShipments.salesOrderId, shortOrderId));
-    if (!initialDraftShipment) {
-      throw new Error("Expected open order creation to create a draft shipment.");
+    if (!initialPlannedShipment) {
+      throw new Error("Expected open order creation to create a planned shipment.");
     }
 
     const splitExistingResponse = await testFetch(
-      `/api/sales-orders/${shortOrderId}/shipments/${initialDraftShipment.id}`,
+      `/api/sales-orders/${shortOrderId}/shipments/${initialPlannedShipment.id}`,
       {
         method: "PATCH",
         body: JSON.stringify({

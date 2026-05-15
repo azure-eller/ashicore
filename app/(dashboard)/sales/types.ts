@@ -259,7 +259,7 @@ export type SalesOrderListShipment = {
   id: string;
   shipmentNumber: string;
   sequence: number;
-  status: "draft" | "shipped" | "cancelled";
+  status: "planned" | "shipped";
   fulfillmentType: "delivery" | "pickup";
   scheduledDate: string | null;
   shippedAt: Date | null;
@@ -300,8 +300,7 @@ export type SalesShippingReadinessState =
   | "in_production"
   | "insufficient_stock"
   | "ready"
-  | "shipped"
-  | "cancelled";
+  | "shipped";
 
 export type SalesShippingReadiness = {
   state: SalesShippingReadinessState;
@@ -435,7 +434,7 @@ export type SalesShipmentRow = {
   id: string;
   shipmentNumber: string;
   sequence: number;
-  status: "draft" | "shipped" | "cancelled";
+  status: "planned" | "shipped";
   fulfillmentType: "delivery" | "pickup";
   scheduledDate: string | null;
   shippedAt: Date | null;
@@ -603,7 +602,7 @@ export type SalesShippingQueueRow = {
   shipRegion: string | null;
   shipPostcode: string | null;
   shipCountry: string | null;
-  activeDraftShipmentId: string | null;
+  activePlannedShipmentId: string | null;
   recommendedShipmentId: string | null;
   shippingReadiness: SalesShippingReadiness;
   lines: SalesOrderDetailLine[];

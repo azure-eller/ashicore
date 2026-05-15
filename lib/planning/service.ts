@@ -121,7 +121,7 @@ type DemandSliceOrigin =
       terminalItemId: string;
     }
   | { type: "safety_stock" }
-  | { type: "released_mo"; manufacturingOrderId: string };
+  | { type: "open_mo"; manufacturingOrderId: string };
 
 type DemandSliceStep = {
   itemId: string;
@@ -414,12 +414,12 @@ function buildInitialDemandSlices(
       }
 
       slices.push({
-        id: `slice:released-mo:${fact.id}`,
+        id: `slice:open-mo:${fact.id}`,
         itemId: fact.itemId,
         quantity,
         requiredDate: fact.requiredDate,
         origin: {
-          type: "released_mo",
+          type: "open_mo",
           manufacturingOrderId: manufacturingRef.sourceId,
         },
         chain,
@@ -452,7 +452,7 @@ function demandDateSortValue(value: string | null) {
 
 function demandOriginSortValue(origin: DemandSliceOrigin) {
   if (origin.type === "sales_order") return 0;
-  if (origin.type === "released_mo") return 1;
+  if (origin.type === "open_mo") return 1;
   return 2;
 }
 
@@ -1164,7 +1164,6 @@ async function getOpenManufacturingComponentDemandFactsInTx(
     .where(
       and(
         eq(manufacturingOrders.status, "open"),
-        sql`${manufacturingOrders.releasedAt} IS NOT NULL`,
         isNull(manufacturingOrders.deletedAt),
         sql`${manufacturingOrderIngredients.plannedQuantity} > ${manufacturingOrderIngredients.pickedQuantity}`
       )
@@ -1340,7 +1339,6 @@ async function getManufacturingSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
     .where(
       and(
         eq(manufacturingOrders.status, "open"),
-        sql`${manufacturingOrders.releasedAt} IS NOT NULL`,
         isNull(manufacturingOrders.deletedAt)
       )
     )

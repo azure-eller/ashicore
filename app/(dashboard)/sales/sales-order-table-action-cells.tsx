@@ -75,29 +75,10 @@ function shipmentPayloadFromState(state: ShipmentFormState) {
   };
 }
 
-function latestPackedShipment(order: SalesOrderListRow | SalesOrderDetail) {
+function latestPlannedShipment(order: SalesOrderListRow | SalesOrderDetail) {
   return [...order.shipments]
-    .filter((shipment) => shipment.status === "draft")
+    .filter((shipment) => shipment.status === "planned")
     .sort((left, right) => right.sequence - left.sequence)[0];
-}
-
-function readyShipmentCount(order: SalesOrderListRow | SalesOrderDetail) {
-  return order.shipments.filter((shipment) => shipment.status === "draft").length;
-}
-
-function activeShipmentCount(order: SalesOrderListRow | SalesOrderDetail) {
-  return order.shipments.filter((shipment) => shipment.status !== "cancelled").length;
-}
-
-function readyShipmentLabel(order: SalesOrderListRow | SalesOrderDetail) {
-  const readyCount = readyShipmentCount(order);
-  const activeCount = activeShipmentCount(order);
-
-  if (readyCount > 0 && activeCount > 1) {
-    return `Ready to ship (${readyCount}/${activeCount})`;
-  }
-
-  return "Ready to ship";
 }
 
 function hasFullyGroundAllocatedStock(order: SalesOrderListRow | SalesOrderDetail) {
@@ -153,7 +134,7 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const isActionable =
     order.status === "open" &&
-    order.hasManufacturableLines;
+    state.label === "Make";
 
   if (!isActionable) {
     return <OperationalStateCell state={state} />;
@@ -236,8 +217,8 @@ export function DeliveryActionCell({
     enabled: menuOpen,
   });
   const detail = detailQuery.data ?? null;
-  const activePackedShipment =
-    (detail ? latestPackedShipment(detail) : latestPackedShipment(order)) ?? null;
+  const activePlannedShipment =
+    (detail ? latestPlannedShipment(detail) : latestPlannedShipment(order)) ?? null;
 
   const resetAfterMutation = async () => {
     await Promise.all([
@@ -255,19 +236,6 @@ export function DeliveryActionCell({
 
     return detail;
   };
-
-  const createShipmentMutation = useMutation({
-    mutationFn: async (state: ShipmentFormState) =>
-      apiJson<{ id: string }>(`/api/sales-orders/${order.id}/shipments`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("sales-shipment-table-create", {
-          "Content-Type": "application/json",
-        }),
-        body: shipmentPayloadFromState(state),
-        fallbackError: "Failed to mark ready to ship.",
-      }),
-    onSuccess: resetAfterMutation,
-  });
 
   const shipShipmentMutation = useMutation({
     mutationFn: async (shipmentId: string) =>
@@ -290,7 +258,7 @@ export function DeliveryActionCell({
             "Content-Type": "application/json",
           }),
           body: shipmentPayloadFromState(state),
-          fallbackError: "Failed to mark ready to ship.",
+          fallbackError: "Failed to plan shipment.",
         }
       );
 
@@ -305,27 +273,19 @@ export function DeliveryActionCell({
   });
 
   const activeError =
-    createShipmentMutation.error ??
     shipShipmentMutation.error ??
     createAndShipMutation.error;
   const isMutating =
-    createShipmentMutation.isPending ||
     shipShipmentMutation.isPending ||
     createAndShipMutation.isPending;
   const canOpen = order.status === "open" || order.status === "done";
-  const canPrepareShipment = detail?.status === "open";
   const hasGroundAllocation = detail
     ? hasFullyGroundAllocatedStock(detail)
     : hasFullyGroundAllocatedStock(order);
-  const canMarkReady =
-    canPrepareShipment &&
-    detail?.shippingReadiness.state === "ready" &&
-    hasGroundAllocation &&
-    activePackedShipment == null;
   const canMarkShipped =
     detail != null &&
     detail.status === "open" &&
-    (activePackedShipment != null ||
+    (activePlannedShipment != null ||
       (detail.shippingReadiness.state === "ready" && hasGroundAllocation));
 
   if (!canOpen) {
@@ -372,20 +332,12 @@ export function DeliveryActionCell({
                 />
               ) : null}
               <StateMenuItem
-                label={readyShipmentLabel(detail)}
-                tone="success"
-                disabled={!canMarkReady || isMutating}
-                onSelect={() =>
-                  createShipmentMutation.mutate(buildShipmentFormState(requireDetail()))
-                }
-              />
-              <StateMenuItem
                 label="Shipped"
                 tone="success"
                 disabled={!canMarkShipped || isMutating}
                 onSelect={() => {
-                  if (activePackedShipment) {
-                    shipShipmentMutation.mutate(activePackedShipment.id);
+                  if (activePlannedShipment) {
+                    shipShipmentMutation.mutate(activePlannedShipment.id);
                     return;
                   }
 

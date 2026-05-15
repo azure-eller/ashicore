@@ -1,10 +1,9 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
-  inventoryItemBalances,
+  inventoryDemandSummary,
   inventoryLocations,
   inventoryLotBalances,
-  inventoryReservationsSummary,
   items,
   manufacturingOrders,
   salesOrderLines,
@@ -171,19 +170,23 @@ export async function getSalesOrderManufacturingSummariesInTx(
     .where(and(eq(inventoryLocations.isDefault, true), isNull(inventoryLocations.deletedAt)))
     .limit(1);
 
-  const itemBalanceRows = defaultLocation
+  const demandRows = defaultLocation
     ? await tx
         .select({
-          itemId: inventoryItemBalances.itemId,
-          committedQty: trimScale(inventoryItemBalances.committedQty).as("committedQty"),
+          itemId: inventoryDemandSummary.itemId,
+          demandQty: trimScale(
+            sql`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)`
+          ).as("demandQty"),
         })
-        .from(inventoryItemBalances)
+        .from(inventoryDemandSummary)
         .where(
           and(
-            eq(inventoryItemBalances.locationId, defaultLocation.id),
-            inArray(inventoryItemBalances.itemId, itemIds)
+            eq(inventoryDemandSummary.locationId, defaultLocation.id),
+            eq(inventoryDemandSummary.referenceType, "sales_order_line"),
+            inArray(inventoryDemandSummary.itemId, itemIds)
           )
         )
+        .groupBy(inventoryDemandSummary.itemId)
     : [];
 
   const reservableRows = defaultLocation
@@ -226,28 +229,6 @@ export async function getSalesOrderManufacturingSummariesInTx(
           )
         )
     : [];
-  const reservationRows = salesOrderLineIds.length
-    ? await tx
-        .select({
-          salesOrderLineId: inventoryReservationsSummary.referenceId,
-          itemId: inventoryReservationsSummary.itemId,
-          quantity: trimScale(
-            sql`COALESCE(SUM(${inventoryReservationsSummary.quantity}), 0)`
-          ).as("quantity"),
-        })
-        .from(inventoryReservationsSummary)
-        .where(
-          and(
-            eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
-            inArray(inventoryReservationsSummary.referenceId, salesOrderLineIds)
-          )
-        )
-        .groupBy(
-          inventoryReservationsSummary.referenceId,
-          inventoryReservationsSummary.itemId
-        )
-    : [];
-
   const bomBackedProductIds = new Set(
     [...bomCoverage.entries()]
       .filter(([, components]) => components.length > 0)
@@ -258,19 +239,17 @@ export async function getSalesOrderManufacturingSummariesInTx(
       .map((row) => row.salesOrderLineId)
       .filter((value): value is string => value != null)
   );
-  const committedStockByItemId = new Map(
-    itemBalanceRows.map((row) => [row.itemId, Number(row.committedQty)])
+  const demandByItemId = new Map(
+    demandRows.map((row) => [row.itemId, Number(row.demandQty)])
   );
   const reservableStockByItemId = new Map(
     reservableRows.map((row) => [row.itemId, Number(row.reservableOnHandQty)])
   );
-  const selectedReservationsByItem = new Map<string, number>();
-  reservationRows.forEach((row) => {
-    selectedReservationsByItem.set(
-      row.itemId,
-      roundQuantity(
-        (selectedReservationsByItem.get(row.itemId) ?? 0) + Number(row.quantity)
-      )
+  const selectedDemandByItem = new Map<string, number>();
+  lines.forEach((line) => {
+    selectedDemandByItem.set(
+      line.itemId,
+      roundQuantity((selectedDemandByItem.get(line.itemId) ?? 0) + Number(line.quantity))
     );
   });
   const remainingAllocatableStockByItemId = new Map<string, number>();
@@ -293,18 +272,18 @@ export async function getSalesOrderManufacturingSummariesInTx(
       let uncoveredQuantity: string | null = null;
 
       if (canCreateFromOrder && Number.isFinite(orderedQuantity) && orderedQuantity > 0) {
-        const committedOutsideSelection = Math.max(
+        const demandOutsideSelection = Math.max(
           0,
           roundQuantity(
-            (committedStockByItemId.get(line.itemId) ?? 0) -
-              (selectedReservationsByItem.get(line.itemId) ?? 0)
+            (demandByItemId.get(line.itemId) ?? 0) -
+              (selectedDemandByItem.get(line.itemId) ?? 0)
           )
         );
         const remainingStock =
           remainingAllocatableStockByItemId.get(line.itemId) ??
           roundQuantity(
             (reservableStockByItemId.get(line.itemId) ?? 0) -
-              committedOutsideSelection
+              demandOutsideSelection
           );
         const updatedRemainingStock = roundQuantity(
           remainingStock - orderedQuantity

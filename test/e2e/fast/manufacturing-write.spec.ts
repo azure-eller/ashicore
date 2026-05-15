@@ -15,7 +15,6 @@ import {
   createManufacturingOrder,
   createUnit,
   getUnitId,
-  releaseManufacturingOrder,
   testFetch,
 } from "../../helpers/api";
 
@@ -119,7 +118,6 @@ test.describe("Manufacturing write-path smoke", () => {
       .where(eq(manufacturingOrders.id, orderId));
     expect(order.productId).toBe(productId);
     expect(order.status).toBe("open");
-    expect(order.releasedAt).not.toBeNull();
     expect(order.priorityRank).not.toBeNull();
     expect(order.requestedQuantity).toBe("5.0000");
     expect(order.plannedQuantity).toBe("5.0000");
@@ -195,7 +193,6 @@ test.describe("Manufacturing write-path smoke", () => {
       .where(eq(manufacturingOrders.id, duplicateId));
     expect(duplicate.productId).toBe(productId);
     expect(duplicate.status).toBe("open");
-    expect(duplicate.releasedAt).not.toBeNull();
     expect(duplicate.priorityRank).not.toBeNull();
     expect(duplicate.requestedQuantity).toBe("5.0000");
     expect(duplicate.plannedQuantity).toBe("5.0000");
@@ -394,11 +391,6 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(order.status).toBe(201);
     const requirementOrderId = order.body.id as string;
 
-    const release = await releaseManufacturingOrder(requirementOrderId, {
-      confirmShortage: true,
-    });
-    expect(release.status).toBe(200);
-
     await page.goto(`/manufacturing/orders/${requirementOrderId}/execute`);
     await page.getByRole("button", { name: "Mark Done", exact: true }).click();
 
@@ -502,7 +494,6 @@ test.describe("Manufacturing write-path smoke", () => {
       .where(eq(manufacturingOrders.id, batchOrderId));
     expect(openOrder.productId).toBe(batchProductId);
     expect(openOrder.status).toBe("open");
-    expect(openOrder.releasedAt).not.toBeNull();
     expect(openOrder.plannedQuantity).toBe("6.0000");
     expect(openOrder.numberOfBatches).toBe(3);
 
@@ -709,7 +700,7 @@ test.describe("Manufacturing write-path smoke", () => {
     ).toHaveLength(3);
   });
 
-  test("keeps execution detail reads side-effect free for released batch orders", async ({
+  test("keeps execution detail reads side-effect free for open batch orders", async ({
     db,
   }) => {
     const legacyTs = Date.now();
@@ -770,7 +761,7 @@ test.describe("Manufacturing write-path smoke", () => {
         productId: legacyProductCreate.body.id,
         plannedQuantity: "5",
         plannedDate: null,
-        notes: "Legacy released batch read regression",
+        notes: "Open batch read regression",
         ingredients: [
           {
             itemId: legacySandCreate.body.id,
@@ -939,12 +930,6 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(createOrderResponse.status).toBe(201);
     const createdOrder = await createOrderResponse.json();
     const alternateOrderId = createdOrder.id as string;
-
-    const releaseResponse = await testFetch(
-      `/api/manufacturing-orders/${alternateOrderId}/release`,
-      { method: "POST", body: JSON.stringify({ confirmShortage: false }) }
-    );
-    expect(releaseResponse.status).toBe(200);
 
     const [releasedIngredient] = await db
       .select()

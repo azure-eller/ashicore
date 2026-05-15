@@ -3,7 +3,7 @@ import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { salesShipmentInputSchema } from "@/lib/schemas/sales-orders";
 import {
-  cancelSalesShipment,
+  deleteSalesShipment,
   SalesError,
   updateSalesShipment,
 } from "@/app/(dashboard)/sales/queries";
@@ -34,10 +34,10 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
 export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const { id, shipmentId } = await (ctx as ShipmentRouteContext).params;
   await assertModuleWriteAccess("sales", request.headers);
-  const idempotencyKey = requireIdempotencyKey(request, "cancelSalesShipment");
+  const idempotencyKey = requireIdempotencyKey(request, "deleteSalesShipment");
 
   try {
-    const shipment = await cancelSalesShipment(id, shipmentId, { idempotencyKey });
+    const shipment = await deleteSalesShipment(id, shipmentId, { idempotencyKey });
     if (!shipment) {
       return NextResponse.json({ error: "Shipment not found" }, { status: 404 });
     }
